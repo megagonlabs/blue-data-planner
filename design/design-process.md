@@ -1,6 +1,6 @@
-# Names 
+# Names
 
-Start by asking project name (PROJECT_NAME) and library name (LIB_NAME), and store them in .envrc file as environment variable. 
+Start by asking project name (PROJECT_NAME) and library name (LIB_NAME), and store them in .envrc file as environment variable.
 
 Project name should be short but meaningful, preferrably single word but two words is okay.
 Library name should confirm to the following convention. Each library should start with `blue-` as prefix. If project is related to data it should follow with `data-`. More specific categorization should be separated by `-`.
@@ -31,7 +31,7 @@ For existing projects, also work through the design documents, creating any miss
 
 - Create documents one at a time, in order
 - Each document informs the next — do not skip ahead
-- Store all design documents in the `docs/design/` directory at the repo root
+- Store all design documents in the `design/` directory at the repo root
 - Name files with a numeric prefix matching the sequence above (e.g. `01-overview.md`)
 - Create the decision log file at the start of design (step 1) and add entries throughout; do not wait until the end
 - When iterative coding begins, suggest libraries and other software for the component under development and confirm choices before writing any code

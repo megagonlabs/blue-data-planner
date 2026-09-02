@@ -1,429 +1,371 @@
-# $PROJECT_NAME$ — API / Interface Spec
+# blue-data-planner — API / Interface Spec
 
-<!--
-High level API description
--->
+Three interfaces call into the library: the Python library itself, a CLI, and an MCP server. A REST
+API is reserved and not built
+([03-high-level-architecture.md](03-high-level-architecture.md)). No planning, operator selection, or
+execution logic lives in an interface; each one parses requests, formats responses, maps errors, and
+loads configuration. Authentication and authorization belong to the deployment.
 
-<!--
-Example: 
-All four external interfaces are thin adapters over the Python library. No business logic belongs in any interface layer. Authentication and authorization are left to the deployment layer.
+This document covers what each interface accepts and returns.
+[10-data-model.md](10-data-model.md) specifies the shape of a plan and a result, including the JSON
+form they travel in, which is the part that has to stay stable across versions.
 
--->
+---
 
-## 1. Python Library
+## 1. Python library
 
-<!--
-Description library
--->
+The canonical interface. The CLI and the MCP server call it; neither adds behavior of its own.
 
-<!--
-Example:
+### The public surface
 
-The canonical interface. All other interfaces delegate to it.
+`blue_data_planner/__init__.py` holds `__version__` and nothing else. Seven modules below it are
+public, and each one is imported by name.
 
-### `UserSource`
+Python runs a package's `__init__.py` before any module inside it, so a root that imports
+`DataPlanner` would drag a model client and a registry into every import, including one that only
+wanted a plan data class. An empty root is what keeps each module's cost to what it names
+(ADR-016).
+
+| Module | Holds |
+| --- | --- |
+| `blue_data_planner.planner` | `DataPlanner`, `build_data_planner`, the four stages, `OperatorRouter` |
+| `blue_data_planner.types` | Plan, node, result, and limit types, the enums, `BlueDataPlannerError`, and the operator and budget exceptions |
+| `blue_data_planner.validation` | `validate_logical_plan`, `validate_physical_plan`, `PlanValidationError` |
+| `blue_data_planner.execution` | `execute_physical_operator`, `check_output_columns` |
+| `blue_data_planner.operators` | `blue_operators`, `lotus_operators` |
+| `blue_data_planner.data` | `DataCatalog`, `DataRegistryClient`, `DataRegistryProvider`, `BlueDataRegistryProvider`, `open_registry` |
+| `blue_data_planner.llm` | `LLMClient`, `Conversation`, `LLMUsage`, `LLMError` |
+
+Public means three things at once. A name here is covered by semantic versioning, so renaming or
+removing it breaks a version. `platform/*` imports these modules and no others
+([08-coding-style.md](08-coding-style.md)). And every signature here is typed, since the package
+ships `py.typed`. Everything else — every module under the seven — can be split or renamed
+within a minor version.
+
+A caller who wants physical operators alone reads two of the seven: `operators` and `types`. Nothing
+on that path imports `planner`.
+
+When an adapter needs something absent from this list, the library is missing a method, and the fix
+is to add one rather than to import a private module.
+
+### Assembly
+
+Nothing is constructed in place and nothing reads the environment, so a caller builds the parts and
+passes them in.
 
 ```python
-class UserSource:
-    async def execute_query(
-        self,
-        query: str,
-        database: str | None = None,
-        optional_properties: dict = {}
-    ) -> list[QueryResult]: ...
+from blue_data_planner.data import BlueDataRegistryProvider, DataCatalog
+from blue_data_planner.llm import LLMClient
+from blue_data_ops.operators import versioned_registry
+from blue_data_planner.operators import blue_operators, lotus_operators
+from blue_data_planner.planner import OperatorRouter, build_data_planner
+from blue_data_planner.types import PlanLimits
 
-    async def import_source(
-        self,
-        source: DataSource,
-        database: str | None = None,
-        optional_properties: dict = {}
-    ) -> None: ...
+data_registry = BlueDataRegistryProvider().get_registry("blue", "default", {})
 
-    async def create_database(self, name: str) -> None: ...
+router = OperatorRouter()
+for operator in blue_operators(versioned_registry(), data_registry):
+    router.register(operator)
+for operator in lotus_operators():  # empty when LOTUS is not installed
+    router.register(operator)
+
+planner = build_data_planner(
+    router=router,
+    catalog=DataCatalog(data_registry),
+    llm_client=LLMClient(name="planner", properties={"model": "openai/gpt-4o"}),
+    limits=PlanLimits(...),
+)
 ```
 
-`database` defaults to the value set at construction time when `None` is passed. Raises `QueryError` if no default is configured and no value is provided.
-
-**`optional_properties` keys**
-
-| Key | Type | Method | Description |
-|-----|------|--------|-------------|
-| `"session"` | `str` | `execute_query` | Session ID; used as query context and primary contact channel for user interaction |
-| `"queries"` | `list[str]` | `import_source` | Queries to run over the source (Type 2 import); omit for Type 1 registration |
-
-### Constructor
+`build_data_planner` is the default wiring, and what every adapter calls. It constructs the four
+stages and hands each the limit that stage enforces. A caller who wants a different model per stage,
+or a fake stage in a test, builds them and calls the constructor:
 
 ```python
-UserSource(properties: dict = {})
-```
-
-`properties` may include `"database"` to set a default user database for all calls.
-
-```python
-us = UserSource(properties={"database": "5WgRzdacRdOEvj8JBmCXFZSvWmH3"})
-
-# Type 1 — register file source for future queries
-await us.import_source(FileSource("~/resume.txt"))
-
-# Type 2 — extract and store structured data from file
-await us.import_source(
-    FileSource("~/resume.txt"),
-    optional_properties={"queries": ["What skills does the user have?"]}
+from blue_data_planner.planner import (
+    CatalogSearcher,
+    DataPlanner,
+    FragmentRunner,
+    LogicalPlanner,
+    PhysicalPlanner,
 )
 
-# Query
-results = await us.execute_query(
-    "jobs suitable for me",
-    optional_properties={"session": session.cid}
+planner = DataPlanner(
+    logical_planner=LogicalPlanner(
+        llm_client=big_model, catalog=catalog, max_plan_corrections=5
+    ),
+    physical_planner=PhysicalPlanner(
+        llm_client=small_model, catalog=catalog, router=router
+    ),
+    fragment_runner=FragmentRunner(
+        llm_client=small_model, catalog=catalog, router=router, max_parameter_attempts=3
+    ),
+    catalog_searcher=CatalogSearcher(
+        llm_client=small_model, catalog=catalog, max_search_terms=8
+    ),
+    limits=limits,
 )
 ```
 
-### Result type
+Hand assembly is the one path that sets a bound in two places, since three of the eight are passed
+to a component as well as being fields of `PlanLimits`.
+
+### `DataPlanner`
 
 ```python
-class QueryResult:
-    query: str          # the sub-question answered
-    results: list[Any]  # retrieved data for that question
+def run(self, request: str) -> PlanResult: ...
+def plan(self, request: str) -> PlanResult: ...
 ```
 
-`execute_query` returns one `QueryResult` per resolved sub-question.
+| Operation | Does | Returns | Spends operator calls |
+| --- | --- | --- | --- |
+| `run` | Plans, covers, executes, and repairs until the request ends | A `PlanResult` whose status says how it ended | Yes |
+| `plan` | Writes one logical plan and one cover, then stops | A `PlanResult` with status `planned` and `answer` set to `None` | No |
+
+Both take a request in plain language and nothing else. A plan is what a request produced, so no
+entry point accepts one: `to_dict` writes a plan for a reader, and `from_dict` reads a recorded plan
+back rather than feeding one in ([06-library.md](06-library.md#two-operations)).
+
+Limits are fixed when the planner is built, so neither operation takes an override. A planner
+configured for a benchmark run and one configured for an interactive session are two objects.
+
+`plan` can end as `planned`, `invalid_plan`, or `llm_failed`, which are the three outcomes reachable
+without running anything. A plan whose first pass ends in a `DISCOVER` node comes back as it stands,
+with no search run, since resolving one would start the second pass.
+
+### Bounds on a run
+
+Every bound is a field of `PlanLimits`. Five are counted by the run loop; the other three bound a
+loop inside one component, and `build_data_planner` hands each component its own number. Defaults are
+in [12-deployment-ops.md](12-deployment-ops.md).
+
+| Bound | Counted | Enforced by | Reaching it |
+| --- | --- | --- | --- |
+| `operator_calls` | Per request | `CallBudget`, billed in `execute_physical_operator` | `budget_exhausted` |
+| `plan_corrections` | Per plan | `LogicalPlanner`, rewriting a plan validation turned down | `invalid_plan` |
+| `parameter_attempts` | Per fragment | `FragmentRunner`, writing parameters again after a rejected review | The fragment repair |
+| `fragment_attempts` | Per node set | The run loop | The cover repair |
+| `cover_attempts` | Per request | The run loop | The replan |
+| `failure_replans` | Per request | The run loop | `replan_exhausted` |
+| `control_replans` | Per request | The run loop | `replan_exhausted` |
+| `search_terms` | Per `DISCOVER` node | `CatalogSearcher` | Terms beyond the cap are dropped |
+
+The four recovery bounds are one repair each, tried narrowest first
+([04-detailed-architecture.md](04-detailed-architecture.md#5-recovering-from-a-failure)).
+
+### `PlanResult`
+
+Returned whichever way a request ends, and fixed in
+[10, what a run produces](10-data-model.md#3-what-a-run-produces).
+
+| Field | Type | Holds |
+| --- | --- | --- |
+| `status` | `RunStatus` | `ok`, `planned`, `invalid_plan`, `replan_exhausted`, `budget_exhausted`, `operator_failed`, `llm_failed` |
+| `answer` | `DataBundle \| None` | The `RETURN` node's rows. `None` unless `status` is `ok` |
+| `pipeline` | `DataPipeline` | Every logical plan and every cover the request produced, with the current pair named |
+| `results` | `dict[str, dict[str, ExecutionResult \| DiscoveryResult]]` | Keyed by logical plan id, then node id |
+| `attempts` | `list[FragmentAttempt]` | Every fragment run in run order, rejected ones included |
+| `rejected_plans` | `list[RejectedPlan]` | Every logical plan validation turned down, each with its error |
+| `counters` | `dict[str, int]` | One entry per `PlanLimits` field, holding what was spent |
+| `planner_usage` | `list[LLMUsage]` | One record per model call through `llm/`, in call order |
+
+`answer` is `None` rather than `[]` on any status other than `ok`, so a caller who ignores the status
+cannot mistake a failed run for an empty answer (ADR-015).
+
+No field reports a node's outcome on its own. Whether a node succeeded is whether the current plan's
+slot in `results` holds an entry for it, and which operator ran it is that entry's `operator_id`
+([10](10-data-model.md#3-what-a-run-produces)).
+
+`planner_usage` covers calls through `llm/` and nothing else. A model call an operator makes
+internally, as a LOTUS operator does, is billed as part of the one operator call that contains it.
+Planner spend is exact; operator spend is a call count.
 
 ### Exceptions
 
-All exceptions inherit from `UserDbError` (defined in `types.py`).
+Exhaustion, operator failure, and provider failure are statuses, never exceptions (ADR-015). What
+does raise, in the order a caller meets it:
 
-| Exception | Raised when |
-|-----------|-------------|
-| `QueryError` | Query cannot be processed or no database is available |
-| `ImportError` | Import fails (file not found, source registration error, etc.) |
-| `InteractionError` | User interaction fails (channel unavailable, timeout, etc.) |
+| Exception | Raised when | Reaches a caller |
+| --- | --- | --- |
+| `PlanValidationError` | A generated plan fails a structural check | Only from a direct `validate_logical_plan` or `validate_physical_plan` call. `LogicalPlanner` catches it and regenerates |
+| `RecoverableOperatorError` | An operator refuses its input in a way a different operator might not | Only from a direct `execute_physical_operator` call |
+| `UnrecoverableOperatorError` | An operator fails for a reason no other operator would avoid | The same |
+| `BudgetExhaustedError` | The operator call budget reaches its cap | Only from a direct `execute_physical_operator` call. `FragmentRunner` catches it and returns `budget_exhausted` with the attempts already made |
+| `LLMError` | The provider fails after retries | Only from a direct `LLMClient` call. `DataPlanner` catches it and ends the request as `llm_failed` |
+| `ValueError`, `TypeError`, and a suite's own validation errors | Malformed state, a missing configuration value, an unknown node or operator id | Always. These are bugs and they propagate |
 
----
--->
-
-## 2. REST API
-
-<!--
-Describe REST API
--->
-
-<!--
-Example: 
-
-FastAPI application. Endpoints map 1:1 to Python library operations. All handlers are `async def`; blocking behavior on long-running queries is acceptable — callers are expected to hold the connection.
-
-A default database may be configured server-side at startup; when configured, the `database` field in request bodies is optional.
-
-### `POST /query`
-
-Execute a natural language query.
-
-**Request** (`application/json`)
-
-```json
-{
-  "query": "jobs suitable for me",
-  "database": "5WgRzdacRdOEvj8JBmCXFZSvWmH3",
-  "session": "optional-session-id"
-}
-```
-
-| Field | Type | Required | Description |
-|-------|------|----------|-------------|
-| `query` | string | yes | Natural language query |
-| `database` | string | no | User database ID; uses server default if omitted |
-| `session` | string | no | Session ID for query context and user interaction |
-
-**Response `200 OK`** (`application/json`)
-
-```json
-{
-  "results": [
-    {
-      "query": "What skills does the user have?",
-      "results": ["Python", "SQL", "machine learning"]
-    },
-    {
-      "query": "Does the user prefer remote work?",
-      "results": [true]
-    }
-  ]
-}
-```
+Every exception this library defines inherits `BlueDataPlannerError`, which is in `types/errors.py`
+alongside all of these but `PlanValidationError`, which lives with the checks that raise it. It
+inherits nothing from `blue-data-ops`, so an operator suite's own exceptions stay distinguishable
+from a planner's. A caller using
+`DataPlanner` sees the last row and nothing above it, because each of the others is caught by the
+component that expects it.
 
 ---
 
-### `POST /import`
+## 2. CLI
 
-Two request shapes depending on source type.
+One command. `plan` and `run` subcommands are deliberately absent: a plan is an output rather than an
+input, so there is nothing for a `run` subcommand to read.
 
-#### File source (`multipart/form-data`)
-
-| Field | Type | Required | Description |
-|-------|------|----------|-------------|
-| `file` | file | yes | File to import |
-| `database` | string | no | User database ID; uses server default if omitted |
-| `queries` | string (JSON array) | no | Queries to run over the file (Type 2); omit for Type 1 |
-
-```
-POST /import
-Content-Type: multipart/form-data
-
-file=<binary>
-database=5WgRzdacRdOEvj8JBmCXFZSvWmH3
-queries=["What skills does the user have?"]
+```bash
+blue-data-planner ask "Which Bay Area data scientist postings are at healthcare companies?"
 ```
 
-#### Session source (`application/json`)
+### Arguments and options
 
-```json
-{
-  "source_type": "session",
-  "source_id": "session-id",
-  "database": "5WgRzdacRdOEvj8JBmCXFZSvWmH3"
-}
+| Option | Type | Default | Effect |
+| --- | --- | --- | --- |
+| `REQUEST` | positional, required | | The question, in plain language |
+| `--explain` | flag | off | Call `plan` instead of `run`: print the plan and the cover, and stop |
+| `--json` | flag | off | Print the whole `PlanResult` as JSON instead of a table |
+| `--show-attempts` | flag | off | Include rejected fragment attempts in the printed output |
+| `--model` | string | from the environment | The litellm model string for all four stages |
+| `--registry` | string | from the environment | Which `blue-data` registry to read |
+| `--quiet` | flag | off | Suppress the per-fragment progress lines |
+
+Each of the eight bounds has a flag, named `--max-` plus its `PlanLimits` field name. The prefix is
+what says the number is a cap, which the field name alone does not: `PlanLimits` drops it because the
+type name already says limits, and a command line has no such container.
+
+| Flag | Sets |
+| --- | --- |
+| `--max-operator-calls` | `operator_calls` |
+| `--max-plan-corrections` | `plan_corrections` |
+| `--max-parameter-attempts` | `parameter_attempts` |
+| `--max-fragment-attempts` | `fragment_attempts` |
+| `--max-cover-attempts` | `cover_attempts` |
+| `--max-failure-replans` | `failure_replans` |
+| `--max-control-replans` | `control_replans` |
+| `--max-search-terms` | `search_terms` |
+
+A flag left off takes the deployment's default. The CLI builds one planner per invocation, so the
+flags reach `PlanLimits` before the planner exists and no bound is set twice.
+
+### Output
+
+Progress goes to standard error as each fragment finishes, grouped by cover, so redirecting standard
+output captures only the answer. Each line names the fragment, the logical nodes it covered, the
+operator that ran it, and what happened, which is the pushdown boundary and its outcome.
+
+```text
+cover 1
+  f1  n2,n3,n4  blue.nl2sql       rejected: titles that are not data scientist roles
+  f2  n5        blue.query        ok (140 rows)
+  f1  n2,n3,n4  blue.nl2sql       rejected: the same, with the predicate written into the SQL text
+cover 2
+  f1  n2,n3     blue.nl2sql       ok (48 rows)
+  f2  n4        lotus.sem_filter  ok (11 rows)
 ```
 
-| Field | Type | Required | Description |
-|-------|------|----------|-------------|
-| `source_type` | `"session"` | yes | Identifies a session source |
-| `source_id` | string | yes | Session ID to register |
-| `database` | string | no | User database ID; uses server default if omitted |
-
-**Response `204 No Content`** (both shapes)
-
----
-
-### `POST /databases`
-
-Create a new user database.
-
-**Request** (`application/json`)
-
-```json
-{ "name": "5WgRzdacRdOEvj8JBmCXFZSvWmH3" }
-```
-
-**Response `201 Created`**
-
-```json
-{ "database": "5WgRzdacRdOEvj8JBmCXFZSvWmH3" }
-```
-
----
-
-### `GET /health`
-
-Liveness check.
-
-**Response `200 OK`**
-
-```json
-{ "status": "ok" }
-```
-
----
-
-### Error responses
-
-All errors use a consistent envelope:
-
-```json
-{
-  "error": {
-    "code": "query_error",
-    "message": "No database specified and no default configured."
-  }
-}
-```
-
-| HTTP status | `code` | Condition |
-|------------|--------|-----------|
-| 400 | `invalid_request` | Malformed request body |
-| 404 | `database_not_found` | Specified database does not exist |
-| 422 | `query_error` | Query could not be processed |
-| 422 | `import_error` | Import failed |
-| 500 | `internal_error` | Unexpected failure |
-
-FastAPI exception handlers catch `UserDbError` subtypes and map them to these responses. No error handling logic lives in route handlers.
-
----
-
-## 3. MCP Server
-
-Exposes two MCP tools. Tool handlers are thin wrappers over the Python library; all business logic remains in the library. A default database may be configured at server startup.
-
-### Tool: `execute_query`
-
-```json
-{
-  "name": "execute_query",
-  "description": "Query a user database in natural language. Returns structured results for each sub-question resolved from the original query.",
-  "inputSchema": {
-    "type": "object",
-    "required": ["query"],
-    "properties": {
-      "query": {
-        "type": "string",
-        "description": "Natural language query"
-      },
-      "database": {
-        "type": "string",
-        "description": "User database ID. Uses server default if omitted."
-      },
-      "session": {
-        "type": "string",
-        "description": "Active session ID. Used as query context and as the primary contact channel when user interaction is required."
-      }
-    }
-  }
-}
-```
-
-**Returns:** JSON text content — array of `{"query": "...", "results": [...]}` objects, one per resolved sub-question.
-
-**On error:** structured MCP error content containing the `UserDbError` message.
-
----
-
-### Tool: `import`
-
-```json
-{
-  "name": "import",
-  "description": "Import a file into a user database. Omit queries to register the file as a source (Type 1). Provide queries to extract and store specific data from the file (Type 2).",
-  "inputSchema": {
-    "type": "object",
-    "required": ["source_path"],
-    "properties": {
-      "source_path": {
-        "type": "string",
-        "description": "Filesystem path to the file to import"
-      },
-      "database": {
-        "type": "string",
-        "description": "User database ID. Uses server default if omitted."
-      },
-      "queries": {
-        "type": "array",
-        "items": { "type": "string" },
-        "description": "Queries to run over the file (Type 2 import). Omit for source registration only."
-      }
-    }
-  }
-}
-```
-
-**Returns:** empty content on success. Structured MCP error content on failure.
-
--->
-
-## 4. CLI
-
-<!--
-Describe CLI
--->
-
-<!--
-Example: 
-
-Built with Click (argument parsing) and Rich (output). All commands are thin wrappers over the Python library; Click handlers use `asyncio.run()` to call async library methods.
-
-A default database may be configured via environment variable `USERDB_DATABASE`.
-
-### Global options
-
-```
-userdb [--database DB] COMMAND
-```
-
-| Option | Description |
-|--------|-------------|
-| `--database DB` | User database ID. Overrides `USERDB_DATABASE` if set. |
-
----
-
-### `userdb query`
-
-```
-userdb query TEXT [--session SESSION_ID] [--format (table|json)]
-```
-
-Executes a natural language query and prints results.
-
-| Argument / Option | Description |
-|-------------------|-------------|
-| `TEXT` | Natural language query (required) |
-| `--session SESSION_ID` | Session ID for query context and user interaction |
-| `--format` | Output format: `table` (default, via Rich) or `json` |
-
-**Example**
-
-```
-$ userdb query "jobs suitable for me" --format table
-
-┌─────────────────────────────────────┬──────────────────────────────┐
-│ Query                               │ Results                      │
-├─────────────────────────────────────┼──────────────────────────────┤
-│ What skills does the user have?     │ Python, SQL, machine learning │
-│ Does the user prefer remote work?   │ Yes                          │
-└─────────────────────────────────────┴──────────────────────────────┘
-```
-
----
-
-### `userdb import`
-
-```
-userdb import FILE [--query QUERY]...
-```
-
-Imports a file. `--query` may be repeated.
-
-| Argument / Option | Description |
-|-------------------|-------------|
-| `FILE` | Path to file to import (required) |
-| `--query QUERY` | Query to run over the file (Type 2). Repeat for multiple queries. Omit for Type 1 (source registration only). |
-
-**Example — Type 1**
-
-```
-$ userdb import ~/resume.txt
-Registered: ~/resume.txt
-```
-
-**Example — Type 2**
-
-```
-$ userdb import ~/resume.txt --query "What skills does the user have?" --query "What is the user's most recent job title?"
-Imported: ~/resume.txt (2 queries)
-```
-
----
-
-### `userdb database create`
-
-```
-userdb database create NAME
-```
-
-Creates a new user database.
-
-**Example**
-
-```
-$ userdb database create 5WgRzdacRdOEvj8JBmCXFZSvWmH3
-Created database: 5WgRzdacRdOEvj8JBmCXFZSvWmH3
-```
-
----
+The answer follows on standard output as a Rich table, or as JSON under `--json`. A run that did not
+finish prints its status, the counter that ran out, and the fragment that failed, then exits
+non-zero. Under `--explain` the plan and the cover are printed and no answer follows.
 
 ### Exit codes
 
 | Code | Meaning |
-|------|---------|
-| 0 | Success |
-| 1 | `UserDbError` — message printed via Rich to stderr |
-| 2 | Bad arguments (Click default) |
+| --- | --- |
+| 0 | `status` is `ok` or `planned` |
+| 1 | The run finished with any other status |
+| 2 | Bad usage: a missing argument, an unparseable option |
+| 3 | Bad configuration: no API key, an unreachable registry |
 
--->
+A logical plan no operator can cover is not a configuration error. The physical planner answers
+`no_operator` per node and returns to the logical planner, and a request that never finds a cover
+ends as `replan_exhausted`, which is code 1 ([06-library.md](06-library.md#operatorrouter)).
+
+---
+
+## 3. MCP server
+
+The server hosts the planning tools, which is what an agent uses to hand over a whole question. An
+agent wanting to drive one operation itself reaches for `blue-data-ops`'s own MCP server, which hosts
+one tool per operator.
+
+### Planning tools
+
+| Tool | Arguments | Returns |
+| --- | --- | --- |
+| `plan_and_execute` | `task` (string, required) | The result below |
+| `plan` | `task` (string, required) | The same shape with status `planned`, `answer` null, and an empty `results`, having spent no operator call |
+
+Neither takes limits. The server builds one planner at startup from its environment, and how much a
+run may spend is a deployment decision rather than something an agent has a basis for choosing.
+
+```json
+{
+  "status": "ok",
+  "answer": [
+    {"title": "Senior Data Scientist", "company": "Corvus Health", "location": "San Francisco, CA"}
+  ],
+  "pipeline": {
+    "current_logical_plan_id": "8c4a71d0",
+    "current_physical_plan_id": "a6e02f77",
+    "logical_plans": {"3f2b9c14": {"...": {}}, "8c4a71d0": {"...": {}}},
+    "physical_plans": {"d19f5b3c": {"...": {}}, "a6e02f77": {"...": {}}}
+  },
+  "results": {
+    "8c4a71d0": {
+      "n1": {"matches": 4},
+      "n3": {"status": "ok", "row_count": 48}
+    }
+  },
+  "attempts": 7,
+  "rejected_plans": 0,
+  "counters": {"operator_calls": 7, "plan_corrections": 0, "parameter_attempts": 2,
+               "fragment_attempts": 1, "cover_attempts": 0, "failure_replans": 0,
+               "control_replans": 1, "search_terms": 2},
+  "planner_usage": {"calls": 11, "cost": 0.42}
+}
+```
+
+Four shapes differ from the library's on purpose, and each is a count where the library carries a
+list ([10, shapes that leave the process](10-data-model.md#5-shapes-that-leave-the-process)):
+`attempts`, `rejected_plans`, a `DISCOVER` node's matches, and `planner_usage`. An agent reasons
+about the outcome, and the full records would bloat every response. The library and the CLI carry all
+four in full.
+
+A run that did not finish returns the same object with its status, `answer` null, and the counters
+showing what ran out. That is a successful tool call reporting a failed run, not a tool error.
+
+### Errors
+
+| Condition | MCP result |
+| --- | --- |
+| A run that did not finish | Success, with a status in the payload |
+| An operator failing inside a run | Success. The fragment's attempt carries it |
+| An operator tool's own failure: recoverable, timeout, or empty | Success, with the detail in `exec_meta` |
+| An unknown tool, a malformed argument, a projection or encoding failure | Tool error, `isError` true |
+| A missing API key or an unreachable registry | Tool error, `isError` true |
+
+### Registry access
+
+The operator registry and the router are in-process
+([13-decision-log.md](13-decision-log.md#open-questions)). No tool exposes a registry lookup, and
+physical planning makes no network call to discover an operator. Which operators a deployment
+registered is fixed at startup by what it installed and assembled.
+
+---
+
+## 4. REST API
+
+Not in the first release. `platform/api/` is reserved, and no package declares a web framework. A
+future REST API maps to the same two library operations the other interfaces use, so its endpoint
+shapes are specified when someone builds it.
+
+---
+
+## Configuration
+
+The library takes settings as injected values. Each adapter loads a `.env` file with
+`dotenv.load_dotenv(override=True)` at startup and passes what it reads into the constructor.
+
+| Variable | Used by | For |
+| --- | --- | --- |
+| `OPENAI_API_KEY` | Both adapters | Planning, physical planning, parameters, review, discovery, and LOTUS operations |
+| `BLUE_DATA_PLANNER_MODEL` | Both adapters | The default litellm model string, which `--model` overrides |
+| `BLUE_DATA_REGISTRY_*` | Both adapters | Which registry and store to read |
+
+Their defaults, and how a deployment sets them, belong to
+[12-deployment-ops.md](12-deployment-ops.md).

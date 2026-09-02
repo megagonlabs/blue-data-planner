@@ -1,3 +1,17 @@
+# Benchmark inputs: downloaded and built by lib/scripts/tag_bench/, never committed
+/data/
+
+# Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[codz]
@@ -14,7 +28,6 @@ dist/
 downloads/
 eggs/
 .eggs/
-lib/
 lib64/
 parts/
 sdist/

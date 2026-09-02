@@ -1,0 +1,109 @@
+"""What one operator call comes back as, and what it costs."""
+
+from __future__ import annotations
+
+import pytest
+
+from blue_data_planner.execution import execute_physical_operator
+from blue_data_planner.types import (
+    BlueDataOpsError,
+    BudgetExhaustedError,
+    CallBudget,
+    ErrorKind,
+    ExecutionStatus,
+    LogicalOperator,
+    OutputColumn,
+    RecoverableOperatorError,
+    UnrecoverableOperatorError,
+)
+from tests.doubles.operators import recording_operator
+
+
+def test_a_call_comes_back_as_the_rows_it_produced_with_the_row_count_across_every_table() -> None:
+    """A successful call carries its bundle, its operator id, and rows across the whole bundle."""
+    operator, recorder = recording_operator(
+        "blue.select", frozenset({LogicalOperator.FILTER}), [[[{"a": 1}], [{"a": 2}, {"a": 3}]]]
+    )
+    budget = CallBudget(cap=5)
+
+    result = execute_physical_operator(operator, {"key": "a"}, [[{"a": 1}]], [], budget)
+
+    assert result.status is ExecutionStatus.OK
+    assert result.output == [[{"a": 1}], [{"a": 2}, {"a": 3}]]
+    assert result.row_count == 3
+    assert result.operator_id == "blue.select"
+    assert recorder.calls == [([[{"a": 1}]], {"key": "a"})]
+    assert budget.spent == 1
+
+
+@pytest.mark.parametrize(
+    ("raised", "expected_kind"),
+    [
+        (RecoverableOperatorError("bad key"), ErrorKind.RECOVERABLE),
+        (UnrecoverableOperatorError("timed out"), ErrorKind.UNRECOVERABLE),
+    ],
+    ids=["recoverable", "unrecoverable"],
+)
+def test_an_operator_that_refuses_its_input_comes_back_as_a_failure_of_its_kind(
+    raised: Exception, expected_kind: ErrorKind
+) -> None:
+    """The kind is what decides whether another operator is worth trying."""
+    operator, _ = recording_operator("blue.select", frozenset({LogicalOperator.FILTER}), [raised])
+
+    result = execute_physical_operator(operator, {}, [], [], CallBudget(cap=5))
+
+    assert result.status is ExecutionStatus.FAILED
+    assert result.error is not None
+    assert result.error.kind is expected_kind
+
+
+def test_any_other_exception_reaches_the_caller_as_the_bug_it_is() -> None:
+    """Only the two operator errors are converted; everything else propagates."""
+    operator, _ = recording_operator(
+        "blue.select", frozenset({LogicalOperator.FILTER}), [ValueError("boom")]
+    )
+
+    with pytest.raises(ValueError):
+        execute_physical_operator(operator, {}, [], [], CallBudget(cap=5))
+
+
+def test_a_result_missing_a_declared_column_fails_recoverably_and_still_bills() -> None:
+    """A call that really happened counts even when its output is turned down."""
+    operator, _ = recording_operator(
+        "blue.select", frozenset({LogicalOperator.FILTER}), [[[{"a": 1}]]]
+    )
+    budget = CallBudget(cap=5)
+
+    result = execute_physical_operator(
+        operator, {}, [], [OutputColumn(name="title", dtype="str")], budget
+    )
+
+    assert result.status is ExecutionStatus.FAILED
+    assert result.error is not None
+    assert result.error.kind is ErrorKind.RECOVERABLE
+    assert budget.spent == 1
+
+
+def test_parameters_the_operator_cannot_take_raise_before_the_budget_is_touched() -> None:
+    """The runner wrote them under this schema, so a mismatch is a bug, not a spent call."""
+    operator, _ = recording_operator(
+        "blue.select", frozenset({LogicalOperator.FILTER}), [[[{"a": 1}]]]
+    )
+    budget = CallBudget(cap=5)
+
+    with pytest.raises(BlueDataOpsError):
+        execute_physical_operator(operator, {"unknown": 1}, [], [], budget)
+
+    assert budget.spent == 0
+
+
+def test_an_exhausted_budget_raises_before_the_operator_runs() -> None:
+    """The cap ends the request, and the runner catches it with the attempts it already made."""
+    operator, recorder = recording_operator(
+        "blue.select", frozenset({LogicalOperator.FILTER}), [[[{"a": 1}]]]
+    )
+
+    with pytest.raises(BudgetExhaustedError):
+        execute_physical_operator(operator, {}, [], [], CallBudget(cap=0))
+
+    assert recorder.calls == []

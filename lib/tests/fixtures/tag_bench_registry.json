@@ -1,0 +1,508 @@
+[
+  {
+    "name": "tag_bench",
+    "type": "source",
+    "scope": "/",
+    "description": "tag_bench data source",
+    "created_by": null,
+    "properties": {
+      "connection": {
+        "protocol": "sql/sqlite",
+        "database_directory": "data/tag_bench/databases"
+      },
+      "_class": "blue_data.source.sql.sqlite.sqlite_sql_source.SQLiteDBSource",
+      "stats": {
+        "database_count": 2,
+        "total_size_bytes": 20480,
+        "directory": "/tmp/tmpfhcazpi7/databases"
+      }
+    },
+    "icon": null,
+    "contents": {}
+  },
+  {
+    "name": "retail",
+    "type": "database",
+    "scope": "/source/tag_bench",
+    "description": "",
+    "created_by": null,
+    "properties": {
+      "stats": {
+        "size_bytes": 12288,
+        "table_count": 2
+      }
+    },
+    "icon": null,
+    "contents": {}
+  },
+  {
+    "name": "racing",
+    "type": "database",
+    "scope": "/source/tag_bench",
+    "description": "",
+    "created_by": null,
+    "properties": {
+      "stats": {
+        "size_bytes": 8192,
+        "table_count": 1
+      }
+    },
+    "icon": null,
+    "contents": {}
+  },
+  {
+    "name": "public",
+    "type": "collection",
+    "scope": "/source/tag_bench/database/retail",
+    "description": "",
+    "created_by": null,
+    "properties": {
+      "schema": "{\n  \"entities\": [\n    {\n      \"name\": \"reviews\",\n      \"type\": \"entity\",\n      \"scope\": \"/source/tag_bench/database/retail/collection/public\",\n      \"description\": \"\",\n      \"created_by\": null,\n      \"properties\": {},\n      \"icon\": null,\n      \"contents\": {}\n    },\n    {\n      \"name\": \"stores\",\n      \"type\": \"entity\",\n      \"scope\": \"/source/tag_bench/database/retail/collection/public\",\n      \"description\": \"\",\n      \"created_by\": null,\n      \"properties\": {},\n      \"icon\": null,\n      \"contents\": {}\n    }\n  ],\n  \"relations\": []\n}",
+      "stats": {
+        "num_entities": 2,
+        "num_relations": 0
+      }
+    },
+    "icon": null,
+    "contents": {}
+  },
+  {
+    "name": "reviews",
+    "type": "entity",
+    "scope": "/source/tag_bench/database/retail/collection/public",
+    "description": "",
+    "created_by": null,
+    "properties": {
+      "stats": {
+        "row_count": 2,
+        "row_samples": [
+          {
+            "store_id": 2,
+            "body": "fine"
+          },
+          {
+            "store_id": 1,
+            "body": "great"
+          }
+        ],
+        "row_sample_size": 2,
+        "row_samples_aligned": true
+      }
+    },
+    "icon": null,
+    "contents": {}
+  },
+  {
+    "name": "stores",
+    "type": "entity",
+    "scope": "/source/tag_bench/database/retail/collection/public",
+    "description": "",
+    "created_by": null,
+    "properties": {
+      "stats": {
+        "row_count": 2,
+        "row_samples": [
+          {
+            "store_id": 2,
+            "name": "Hill Foods",
+            "city": "Reno"
+          },
+          {
+            "store_id": 1,
+            "name": "Bay Market",
+            "city": "Oakland"
+          }
+        ],
+        "row_sample_size": 2,
+        "row_samples_aligned": true
+      }
+    },
+    "icon": null,
+    "contents": {}
+  },
+  {
+    "name": "store_id",
+    "type": "attribute",
+    "scope": "/source/tag_bench/database/retail/collection/public/entity/reviews",
+    "description": "",
+    "created_by": null,
+    "properties": {
+      "name": "store_id",
+      "info": {
+        "type": "INTEGER",
+        "values": []
+      },
+      "description": "",
+      "stats": {
+        "count": 2,
+        "distinct_count": 2,
+        "null_count": 0,
+        "sample_values": [
+          1,
+          2
+        ],
+        "min": 1,
+        "max": 2,
+        "mean": 1.5,
+        "variance": 0.25,
+        "most_common_vals": [
+          [
+            2,
+            1
+          ],
+          [
+            1,
+            1
+          ]
+        ]
+      },
+      "value_semantics": {
+        "semantic_type": "INTEGER",
+        "confidence": 0.9,
+        "rationale": "All values are Python int.",
+        "examples": [
+          1,
+          2
+        ]
+      }
+    },
+    "icon": null,
+    "contents": {}
+  },
+  {
+    "name": "body",
+    "type": "attribute",
+    "scope": "/source/tag_bench/database/retail/collection/public/entity/reviews",
+    "description": "",
+    "created_by": null,
+    "properties": {
+      "name": "body",
+      "info": {
+        "type": "TEXT",
+        "values": []
+      },
+      "description": "",
+      "stats": {
+        "count": 2,
+        "distinct_count": 2,
+        "null_count": 0,
+        "sample_values": [
+          "great",
+          "fine"
+        ],
+        "min": null,
+        "max": null,
+        "mean": null,
+        "variance": null,
+        "most_common_vals": [
+          [
+            "great",
+            1
+          ],
+          [
+            "fine",
+            1
+          ]
+        ]
+      },
+      "value_semantics": {
+        "semantic_type": "ENUM_CATEGORY",
+        "confidence": 0.75,
+        "rationale": "Low cardinality (2 distinct / 2 total).",
+        "examples": [
+          "great",
+          "fine"
+        ]
+      }
+    },
+    "icon": null,
+    "contents": {}
+  },
+  {
+    "name": "store_id",
+    "type": "attribute",
+    "scope": "/source/tag_bench/database/retail/collection/public/entity/stores",
+    "description": "",
+    "created_by": null,
+    "properties": {
+      "name": "store_id",
+      "info": {
+        "type": "INTEGER",
+        "values": []
+      },
+      "description": "",
+      "stats": {
+        "count": 2,
+        "distinct_count": 2,
+        "null_count": 0,
+        "sample_values": [
+          1,
+          2
+        ],
+        "min": 1,
+        "max": 2,
+        "mean": 1.5,
+        "variance": 0.25,
+        "most_common_vals": [
+          [
+            2,
+            1
+          ],
+          [
+            1,
+            1
+          ]
+        ]
+      },
+      "value_semantics": {
+        "semantic_type": "INTEGER",
+        "confidence": 0.9,
+        "rationale": "All values are Python int.",
+        "examples": [
+          1,
+          2
+        ]
+      }
+    },
+    "icon": null,
+    "contents": {}
+  },
+  {
+    "name": "city",
+    "type": "attribute",
+    "scope": "/source/tag_bench/database/retail/collection/public/entity/stores",
+    "description": "",
+    "created_by": null,
+    "properties": {
+      "name": "city",
+      "info": {
+        "type": "TEXT",
+        "values": []
+      },
+      "description": "",
+      "stats": {
+        "count": 2,
+        "distinct_count": 2,
+        "null_count": 0,
+        "sample_values": [
+          "Oakland",
+          "Reno"
+        ],
+        "min": null,
+        "max": null,
+        "mean": null,
+        "variance": null,
+        "most_common_vals": [
+          [
+            "Reno",
+            1
+          ],
+          [
+            "Oakland",
+            1
+          ]
+        ]
+      },
+      "value_semantics": {
+        "semantic_type": "ENUM_CATEGORY",
+        "confidence": 0.75,
+        "rationale": "Low cardinality (2 distinct / 2 total).",
+        "examples": [
+          "Oakland",
+          "Reno"
+        ]
+      }
+    },
+    "icon": null,
+    "contents": {}
+  },
+  {
+    "name": "name",
+    "type": "attribute",
+    "scope": "/source/tag_bench/database/retail/collection/public/entity/stores",
+    "description": "",
+    "created_by": null,
+    "properties": {
+      "name": "name",
+      "info": {
+        "type": "TEXT",
+        "values": []
+      },
+      "description": "",
+      "stats": {
+        "count": 2,
+        "distinct_count": 2,
+        "null_count": 0,
+        "sample_values": [
+          "Bay Market",
+          "Hill Foods"
+        ],
+        "min": null,
+        "max": null,
+        "mean": null,
+        "variance": null,
+        "most_common_vals": [
+          [
+            "Hill Foods",
+            1
+          ],
+          [
+            "Bay Market",
+            1
+          ]
+        ]
+      },
+      "value_semantics": {
+        "semantic_type": "ENUM_CATEGORY",
+        "confidence": 0.75,
+        "rationale": "Low cardinality (2 distinct / 2 total).",
+        "examples": [
+          "Bay Market",
+          "Hill Foods"
+        ]
+      }
+    },
+    "icon": null,
+    "contents": {}
+  },
+  {
+    "name": "public",
+    "type": "collection",
+    "scope": "/source/tag_bench/database/racing",
+    "description": "",
+    "created_by": null,
+    "properties": {
+      "schema": "{\n  \"entities\": [\n    {\n      \"name\": \"drivers\",\n      \"type\": \"entity\",\n      \"scope\": \"/source/tag_bench/database/racing/collection/public\",\n      \"description\": \"\",\n      \"created_by\": null,\n      \"properties\": {},\n      \"icon\": null,\n      \"contents\": {}\n    }\n  ],\n  \"relations\": []\n}",
+      "stats": {
+        "num_entities": 1,
+        "num_relations": 0
+      }
+    },
+    "icon": null,
+    "contents": {}
+  },
+  {
+    "name": "drivers",
+    "type": "entity",
+    "scope": "/source/tag_bench/database/racing/collection/public",
+    "description": "",
+    "created_by": null,
+    "properties": {
+      "stats": {
+        "row_count": 2,
+        "row_samples": [
+          {
+            "driver_id": 1,
+            "surname": "Hamilton"
+          },
+          {
+            "driver_id": 2,
+            "surname": "Verstappen"
+          }
+        ],
+        "row_sample_size": 2,
+        "row_samples_aligned": true
+      }
+    },
+    "icon": null,
+    "contents": {}
+  },
+  {
+    "name": "surname",
+    "type": "attribute",
+    "scope": "/source/tag_bench/database/racing/collection/public/entity/drivers",
+    "description": "",
+    "created_by": null,
+    "properties": {
+      "name": "surname",
+      "info": {
+        "type": "TEXT",
+        "values": []
+      },
+      "description": "",
+      "stats": {
+        "count": 2,
+        "distinct_count": 2,
+        "null_count": 0,
+        "sample_values": [
+          "Hamilton",
+          "Verstappen"
+        ],
+        "min": null,
+        "max": null,
+        "mean": null,
+        "variance": null,
+        "most_common_vals": [
+          [
+            "Verstappen",
+            1
+          ],
+          [
+            "Hamilton",
+            1
+          ]
+        ]
+      },
+      "value_semantics": {
+        "semantic_type": "ENUM_CATEGORY",
+        "confidence": 0.75,
+        "rationale": "Low cardinality (2 distinct / 2 total).",
+        "examples": [
+          "Hamilton",
+          "Verstappen"
+        ]
+      }
+    },
+    "icon": null,
+    "contents": {}
+  },
+  {
+    "name": "driver_id",
+    "type": "attribute",
+    "scope": "/source/tag_bench/database/racing/collection/public/entity/drivers",
+    "description": "",
+    "created_by": null,
+    "properties": {
+      "name": "driver_id",
+      "info": {
+        "type": "INTEGER",
+        "values": []
+      },
+      "description": "",
+      "stats": {
+        "count": 2,
+        "distinct_count": 2,
+        "null_count": 0,
+        "sample_values": [
+          1,
+          2
+        ],
+        "min": 1,
+        "max": 2,
+        "mean": 1.5,
+        "variance": 0.25,
+        "most_common_vals": [
+          [
+            2,
+            1
+          ],
+          [
+            1,
+            1
+          ]
+        ]
+      },
+      "value_semantics": {
+        "semantic_type": "INTEGER",
+        "confidence": 0.9,
+        "rationale": "All values are Python int.",
+        "examples": [
+          1,
+          2
+        ]
+      }
+    },
+    "icon": null,
+    "contents": {}
+  }
+]
