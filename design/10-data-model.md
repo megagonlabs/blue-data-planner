@@ -38,20 +38,12 @@ of a value; `kind` describes everything else, such as a node kind or a source ki
 
 ## What is not stored
 
-Nothing in this list exists, and none of it is planned.
-
-| Not stored | Instead |
-| --- | --- |
-| A plan store | A plan is returned inside `PlanResult`. A caller that wants one keeps it |
-| A session or run log | The same. `PlanResult` is the complete record of a run |
-| A model response cache | Every model call reaches the provider |
-| Operator or router state between requests | Both are assembled at startup and held in process ([13-decision-log.md](13-decision-log.md#open-questions)) |
-
 Writes through `data/` go to a source, never to storage of this system's own. A bind join pushes a
 session-scoped temporary table into a SQL source, and the insert operators write rows a caller asked
 for; both belong to the source rather than here. Whether an operator may also register what it
 created, putting it in the catalog, is a `blue-data-ops` question rather than one this design
-settles.
+settles. What a reader might expect to find stored and will not is under
+[what is deliberately absent](#what-is-deliberately-absent).
 
 ---
 
@@ -172,7 +164,7 @@ broken, and that is what the check catches.
 ### Declared output columns
 
 A node declares both the name and the type of every column its result has to carry. The logical
-planner writes them, since it is the stage that knows what a later node will read.
+planner writes them, since it is the component that knows what a later node will read.
 
 ```python
 ColumnDataType = Literal["str", "int", "float", "bool"]
@@ -271,9 +263,12 @@ class PhysicalPlan:
 A cover is written whole rather than patched, and what carries over from the previous cover is
 decided by comparing the two.
 
+A fragment keeps its id across covers while its node set is unchanged, so the ids say which groups
+the new cover cut differently.
+
 | A fragment whose node set | What happens |
 | --- | --- |
-| Is unchanged from the previous cover | Keeps its root's result and does not run again |
+| Is unchanged from the previous cover | Keeps its id, keeps its root's result, and does not run again |
 | Changed, or is new | Drops the results of every node in it, and of every executed node downstream of those, then runs |
 
 Node sets also bound the retry loop. A rejected fragment is covered again over its own node set, and
@@ -453,10 +448,8 @@ A fragment's input is the bundles its frontier nodes produced, concatenated in t
 `input_data` lists them, so an operator receives one bundle rather than one per input. A fragment
 with an empty frontier receives an empty bundle.
 
-The Blue operators take and return this same shape, so the Blue adapter converts nothing. The
-LOTUS adapter converts at its own edge, building one data frame per table going in and flattening
-coming out. All three types live in the package root `types/`, and `operators/types.py` re-exports
-them.
+Each adapter converts between this shape and its own suite's at its own edge: the LOTUS adapter
+builds one data frame per table going in and flattens coming out.
 
 ---
 
@@ -565,10 +558,11 @@ class FragmentAttempt:
 A node set accepted on its second operator carries both tries. `result` is `None` when the operator
 raised before returning anything, and `assessment` is the review's reasoning in plain language.
 
-### What each stage returns
+### What each component returns
 
 Four result types never leave the process. `DataPlanner` reads each one, records what it holds on
-the run state, and moves on.
+the run state, and moves on. `RejectedPlan`, last below, is not one of them: it is the shape
+`LogicalPlanResult.rejected` holds, and it reaches the caller inside `PlanResult.rejected_plans`.
 
 ```python
 @dataclass(frozen=True)
@@ -607,8 +601,8 @@ class RejectedPlan:
     error: str
 ```
 
-Every stage reports what its own model calls cost, and `DataPlanner` appends each list to
-`PlanResult.planner_usage` in the order the stages ran. `CatalogSearchResult` is a pair rather than
+Every component reports what its own model calls cost, and `DataPlanner` appends each list to
+`PlanResult.planner_usage` in the order they ran. `CatalogSearchResult` is a pair rather than
 a field on `DiscoveryResult` because a `DiscoveryResult` goes into the run's results map and reaches
 the caller inside `PlanResult.results`, where usage would be counted a second time.
 
@@ -642,7 +636,7 @@ replan. Which repair an `escalate` reaches is the run loop's decision, since onl
 many attempts each one has left
 ([04, recovering from a failure](04-detailed-architecture.md#5-recovering-from-a-failure)).
 
-Each stage returns what it did instead of writing it down as it goes, so a stage that raises cannot
+Each component returns what it did instead of writing it down as it goes, so one that raises cannot
 leave a half-written record behind, and the session has one writer.
 
 ### One operator call and its outcome
@@ -702,7 +696,7 @@ class LLMUsage:
 total is a `sum()` over the list. Prompt and completion tokens are reported per call and never
 summed together, since the two are priced differently and a total of them answers nothing.
 
-The name says the scope. These are the calls the three planning stages and the catalog searcher made
+The name says the scope. These are the calls the three planning components and the catalog searcher made
 through `llm/`, and nothing else. A model call an operator makes internally, as a LOTUS operator
 does, is billed as part of the one operator call that contains it and never appears here, because
 such an operator reports no per-call token count
@@ -760,7 +754,8 @@ is an ordering with a limit.
 
 ## 4. Catalog readings
 
-Three readings of the same registry serve three stages, and none of them is stored. `DataCatalog`
+Three readings of the same registry serve the three planning components, and none of them is
+stored. `DataCatalog`
 selects and renders what `blue-data` has collected and enriched, and never profiles a column or
 samples a table of its own.
 
@@ -854,7 +849,7 @@ grow with the catalog.
 | `description` | The enrichment description, where one exists | The attribute record |
 | `sample_values` | A few values as they are actually spelled | The statistics collected over the column |
 | `distinct_count`, `null_count`, `min`, `max` | Value counts and range | The same |
-| `semantic_type` | The inferred meaning, such as `ENUM_CATEGORY`, `CODE`, or `POSTAL_CODE` | The value semantics inferred for the column |
+| `semantic_type` | The meaning inferred for the column's values, which is what says a column holds short codes rather than readable words | The value semantics the registry recorded |
 
 `semantic_type` is what tells the runner a column holds short codes instead of readable words, so it
 writes a filter against `"PRIJEM"` instead of guessing at `credit`.
@@ -931,6 +926,8 @@ corrected set auditable against the release.
 | --- | --- |
 | A `schema_version` field in a serialized plan | Nothing persists a plan. The shape is public interface, covered by semver |
 | A stored session, plan, or run | A `PlanResult` is the record, and it is returned to the caller |
+| A model response cache | Every model call reaches the provider |
+| Operator or router state between requests | Both are assembled at startup and held in process |
 | A separate error response shape | A run that did not finish returns a `PlanResult` with a status (ADR-015) |
 | A row type of its own | A fragment passes plain dicts, so no shape belongs to a suite (ADR-012) |
 | Cost and cardinality estimates on a node or a fragment | Out of the first release |

@@ -1,8 +1,8 @@
 # blue-data-planner — Testing Strategy
 
 The bar is the Blue library standard rather than a research-script standard. The library is depended
-on by other Blue components and by outside users, so its public interfaces are covered, its failure
-paths are covered, and every gate passes before work is called done.
+on by other Blue components and by outside users, so its public interfaces and its failure paths
+are both covered.
 
 Two things shape everything below. The library is synchronous, so most tests are ordinary functions
 with no event loop. And a request's whole outcome is one inspectable structure (ADR-015), so a test
@@ -132,7 +132,8 @@ uv run pyright
 ## 4. Layout
 
 `lib/tests/unit/` mirrors `lib/src/blue_data_planner/` directory for directory, so the test for
-`planner/physical_planner.py` is `tests/unit/planner/test_physical_planner.py`. It mirrors
+`physical_planner.py` is `tests/unit/test_physical_planner.py` and the test for `plan/validation.py`
+is `tests/unit/plan/test_validation.py`. It mirrors
 `lib/scripts/` too. Four directories sit beside it and mirror nothing.
 
 ```text
@@ -142,7 +143,7 @@ lib/tests/
   stubs/                # deterministic fakes for heavy optional dependencies
   fixtures/             # recorded inputs and cassettes
   unit/                 # mirrors src/blue_data_planner/ and scripts/
-    data/  llm/  operators/  planner/  execution/  scripts/
+    types/  plan/  data/  llm/  operators/  execution/  scripts/
   benchmarks/
     tag_bench/          # excluded from the default run
 ```
@@ -174,12 +175,13 @@ resolution path through `extraPaths`, so both the test run and the type check se
 registry for rather than what a database returned. `SQLSourceDouble` beside it stands in for a
 returned SQL source, following the same call sequence the real one expects.
 
-Two doubles serve the planner.
+Three doubles serve the planner.
 
 | Double | Stands in for | Lets a test |
 | --- | --- | --- |
-| A scripted model client | `LLMClient` | Hand the planner an exact sequence of plans, covers, parameters, and reviews |
+| A scripted model client | `LLMClient` | Hand a component an exact sequence of plans, covers, parameters, and reviews |
 | A recording physical operator | A `PhysicalOperator`'s callable | Assert what execution passed a fragment, and return a chosen result or failure |
+| A fake per injected component | `LogicalPlanner`, `PhysicalPlanner`, `FragmentRunner`, `CatalogSearcher` | Drive the run loop's scheduling, repair choice, and cover installation from returned results alone, with no model and no operator |
 
 The scripted client is what makes planner tests deterministic and what keeps them at the level
 section 1 asks for. A test of the parameter repair scripts a review that rejects and then one that
@@ -204,7 +206,7 @@ show. Prompt shaping is exactly that: whether a prompt carrying a column's coded
 | Does the code do the right thing given a response? | The scripted client |
 | Does a real model return a usable response to this prompt? | A cassette |
 
-Cassettes live in `lib/tests/fixtures/` and are committed. They cover the four stages that write
+Cassettes live in `lib/tests/fixtures/` and are committed. They cover the four components that write
 prompts — the logical planner, the physical planner, the fragment runner's parameters and review,
 and the catalog searcher — with a few requests each rather than one per prompt variation. A prompt
 that changes materially means re-recording, by deleting the cassette and running with
@@ -222,7 +224,7 @@ produce one test per line of that document.
 
 | Component | What its tests have to show |
 | --- | --- |
-| `types/`, `validation.py` | An invalid plan is rejected whatever makes it invalid, with an error naming what was wrong, and a plan that `to_dict` produced reads back through `from_dict` unchanged |
+| `types/`, `plan/` | An invalid plan is rejected whatever makes it invalid with an error naming what was wrong, a plan that `to_dict` produced reads back through `from_dict` unchanged, and the node sets an operator could cover are enumerated from the plan alone |
 | `LogicalPlanner` | A plan a validation turned down is written again with the error in hand, and running out of corrections ends as `invalid_plan` carrying every plan that was turned down |
 | `PhysicalPlanner` | A cover cuts the plan into legal fragments and binds each scan to a source the catalog names, and a node no operator can take comes back as `no_operator` without an operator call |
 | `FragmentRunner` | A fragment runs with parameters written from what its inputs actually carry, a rejected review writes them again, and every attempt survives whatever ends the run |
@@ -230,7 +232,7 @@ produce one test per line of that document.
 | `OperatorRouter` | An operator is found by each logical operator it declares, in registration order |
 | `execution/` | An operator call comes back as a result carrying its rows or its error and its kind, billed once against the budget, and checked against the output columns its caller declared |
 | `DataPlanner`, `RunState` | Each of the four repairs is reachable and counts against its own bound, installing a cover keeps the results of fragments that did not change, and every `RunStatus` comes back with counters that explain it |
-| `data/` | Each catalog reading carries what its stage is entitled to and nothing more, and a source nobody enriched still renders |
+| `data/` | Each catalog reading carries what its component is entitled to and nothing more, and a source nobody enriched still renders |
 | `llm/` | A conversation keeps its turns and the usage of every call made on it, and a provider failing after retries raises `LLMError` |
 | `operators/` | An operator's declaration reaches the router intact and describes what the operation does, cross-checked against the suite's own attribute declarations and against the operation's validator wherever those two disagree (ADR-010), a bundle crosses in both directions unchanged including a multi-table bundle (ADR-012), a suite's failure is mapped to the right error kind, and LOTUS is imported only when an operator runs, so the package imports with LOTUS absent (ADR-004) |
 
@@ -273,7 +275,7 @@ design still needs measured.
 | Reported | Answers |
 | --- | --- |
 | Accuracy against the gold answers | Whether the system meets the 60% target |
-| Operator calls per request, and model calls per stage | Whether the defaults in [12-deployment-ops.md](12-deployment-ops.md) are near the truth |
+| Operator calls per request, and model calls per component | Whether the defaults in [12-deployment-ops.md](12-deployment-ops.md) are near the truth |
 | How often a plan schedules a replan | Open question 2: whether planning is two-pass in practice |
 | How large a fragment the physical planner draws, and how often each repair fires | Whether the pushdown boundary lands where the design expects, and which repair is doing the work |
 | The review's accept rate | Whether the review talks itself into bad results, which ADR-013 flags as the risk worth watching |
@@ -319,7 +321,7 @@ without demonstrating a single line of it.
 cd lib && uv run pytest
 
 # One module
-cd lib && uv run pytest tests/unit/planner/test_physical_planner.py
+cd lib && uv run pytest tests/unit/test_physical_planner.py
 
 # The MCP adapter
 cd platform/mcp && uv run pytest
@@ -328,7 +330,5 @@ cd platform/mcp && uv run pytest
 cd lib && uv run pytest tests/benchmarks/tag_bench
 
 # Re-record cassettes after a prompt changes materially
-cd lib && uv run pytest tests/unit/planner --record-mode=once
+cd lib && uv run pytest tests/unit --record-mode=once
 ```
-
-The gates run per package, and all pass in each before work is reported as complete.

@@ -1,7 +1,6 @@
 # blue-data-planner — Repo Organization
 
-This document fixes where every file belongs and where a new one goes. It follows the common Blue
-repository structure in `docs/internal/blue_oss/repo-organization-design.md` and the skeleton in
+This document fixes where every file belongs and where a new one goes. It follows the skeleton in
 [repo-organization-template.md](repo-organization-template.md), which the `blue-data` and
 `blue-data-kb-source` repositories also follow.
 
@@ -24,37 +23,39 @@ blue-data-planner/
 │   └── tag_bench/                     # benchmark inputs, downloaded and built, not committed
 ├── examples/                          # runnable examples that use lib/
 ├── lib/
-│   ├── LICENSE
 │   ├── pyproject.toml
 │   ├── scripts/
 │   │   ├── build.sh
+│   │   ├── install.sh              # installs the package into a local environment
 │   │   ├── publish.sh
 │   │   └── tag_bench/
 │   │       ├── fetch_queries.py       # reads a release and writes corrected queries
 │   │       ├── fetch_databases.py     # downloads the five BIRD databases
 │   │       └── register_databases.py  # builds one registry over them and serializes it
 │   ├── src/blue_data_planner/
-│   │   ├── __init__.py                # __version__ only (ADR-016)
+│   │   ├── __init__.py                # __version__ and the run path
+│   │   ├── data_planner.py            # DataPlanner, build_data_planner
+│   │   ├── run_state.py               # RunState
+│   │   ├── logical_planner.py         # LogicalPlanner
+│   │   ├── physical_planner.py        # PhysicalPlanner
+│   │   ├── fragment_runner.py         # FragmentRunner
+│   │   ├── catalog_searcher.py        # CatalogSearcher
+│   │   ├── prompts/                   # hand-written, versioned prompt text
 │   │   ├── types/                     # every data class crossing a module boundary
 │   │   │   ├── __init__.py            # re-exports the four modules as blue_data_planner.types
 │   │   │   ├── errors.py              # BlueDataPlannerError and everything inheriting it
 │   │   │   ├── plan.py                # rows, the logical vocabulary, the two plan halves
 │   │   │   ├── catalog.py             # the three catalog readings
 │   │   │   └── run.py                 # results, attempts, budgets, limits
-│   │   ├── validation.py              # validate_logical_plan, validate_physical_plan
-│   │   ├── planner/
-│   │   │   ├── run_state.py           # RunState
-│   │   │   ├── data_planner.py        # DataPlanner, build_data_planner
-│   │   │   ├── logical_planner.py     # LogicalPlanner
-│   │   │   ├── physical_planner.py    # PhysicalPlanner
-│   │   │   ├── fragment_runner.py     # FragmentRunner
-│   │   │   ├── catalog_searcher.py    # CatalogSearcher
-│   │   │   ├── operator_router.py     # OperatorRouter
-│   │   │   └── prompts/               # hand-written, versioned prompt text
+│   │   ├── plan/                      # functions over a plan; no model, no source, no operator
+│   │   │   ├── validation.py          # validate_logical_plan, validate_physical_plan
+│   │   │   └── fragments.py           # candidate_fragments
 │   │   ├── execution/
 │   │   │   ├── physical_operator.py   # execute_physical_operator, the one operator call site
 │   │   │   └── output_columns.py      # check_output_columns and its coercions
-│   │   ├── operators/                 # one adapter per operator suite; no operator is written here
+│   │   ├── operators/                 # the router, and one adapter per operator suite
+│   │   │   ├── __init__.py            # OperatorRouter only
+│   │   │   ├── router.py              # OperatorRouter
 │   │   │   ├── blue.py                # blue_operators, over blue-data-ops
 │   │   │   └── lotus/                 # lotus_operators
 │   │   ├── data/
@@ -76,19 +77,24 @@ blue-data-planner/
 │           └── tag_bench/             # excluded from the default pytest run
 └── platform/
     ├── cli/
-    │   ├── LICENSE
     │   ├── README.md
-    │   ├── pyproject.toml
+    │   ├── pyproject.toml              # blue-data-planner = commands:cli
     │   ├── scripts/
+    │   │   ├── build.sh
+    │   │   └── install.sh
     │   ├── src/blue_data_planner_cli/
-    │   │   └── commands/
+    │   │   ├── commands.py             # the ask command and its options
+    │   │   └── config.py               # what the environment supplies
     │   └── tests/
     └── mcp/
-        ├── LICENSE
         ├── README.md
-        ├── pyproject.toml
+        ├── pyproject.toml              # blue-data-planner-mcp = server:main
         ├── scripts/
+        │   ├── build.sh
+        │   └── install.sh
         ├── src/blue_data_planner_mcp/
+        │   ├── server.py               # the two tools, and main
+        │   └── config.py               # what the environment supplies
         └── tests/
 ```
 
@@ -123,51 +129,102 @@ benchmark scripts hold an import the library does not allow itself.
 
 | Path | Grouping principle |
 | --- | --- |
-| `types/`, `validation.py` | At the package root because everything may import them. `types/` imports nothing outside itself, and `validation.py` only `types/` (ADR-011). Every data class that crosses a module boundary lives in `types/`, the catalog readings and `LLMUsage` included, since a type `PlanResult` names has to be nameable by everything that reads one. Its four modules split those classes by subject, and `__init__.py` re-exports them under the one name `blue_data_planner.types` |
-| `planner/` | The three planning stages, the discovery step and the router they read, the run state they write, and the entry point that drives all of it |
-| `execution/` | Beside `planner/` rather than inside it, so invoking an operator needs no model |
-| `operators/` | One module per operator suite, holding the adapter that presents it to the planner |
+| `data_planner.py`, `run_state.py` | The entry point and the state its loop writes. At the root because a package that is a planner has no inner level to put them in |
+| `logical_planner.py`, `physical_planner.py`, `fragment_runner.py` | The three planning components (ADR-006), one module each, beside the loop that drives them |
+| `catalog_searcher.py` | The discovery step. Beside the planning components rather than one of them: it resolves a `DISCOVER` node and writes no plan |
+| `prompts/` | Prompt text, one file per component that writes prompts, read by those components and written nowhere else (ADR-005) |
+| `types/` | Every data class that crosses a module boundary, the catalog readings and `LLMUsage` included, since a type `PlanResult` names has to be nameable by everything that reads one. Its four modules split those classes by subject, and `__init__.py` re-exports them under the one name `blue_data_planner.types`. Imports nothing outside itself |
+| `plan/` | The functions over a plan that need no model, no source, and no operator: checking one, and enumerating the fragments an operator could cover. Imports only `types/` |
+| `execution/` | Beside the planning components rather than inside one, so invoking an operator needs no model |
+| `operators/` | The router, and one adapter per operator suite |
 | `data/` | The only packaged module that imports `blue-data` (ADR-003) |
 | `llm/` | The only module that calls a model provider (ADR-005) |
 
-### Why the entry point sits in `planner/`
+### Why the planning components sit at the package root
 
-`DataPlanner` and `build_data_planner` live in `planner/data_planner.py`, and `RunState` in
-`planner/run_state.py`. There is no `assembly.py` and nothing but `types/` and `validation.py` at
-the package root.
+`data_planner.py`, `run_state.py`, the three planning components, and the discovery step are root
+modules, and
+there is no `assembly.py`.
 
-`planner/` means everything that turns a request into an answer rather than the stages alone, which
-keeps the entry point beside the loop it runs and the state that loop writes.
+A level grouping them would have to be named for planning, and this package is a planner, so the
+name would separate nothing: it would appear in every import a consumer writes while distinguishing
+none of them from any other. The five directories that remain each name something a reader has to
+tell apart from the rest — a data shape, a plan checked without running it, one operator call, an
+operator suite, a data source, a model provider.
 
 Wiring has no module of its own for the same reason. `build_data_planner` receives the router, the
-catalog, and the model client and constructs only the four stages, so it names the same things
-`DataPlanner` does and belongs in the same file (ADR-002).
+catalog, and the model client and constructs only the three planning components and the discovery step, so it
+names the same things `DataPlanner` does and belongs in the same file (ADR-002).
 
-### Why `operators/` holds adapters only
+### What the root exports
 
-No operator is written here. The Blue operator library and its registry belong to `blue-data-ops`,
-and LOTUS is its own package; both are dependencies. What this repository owns is the translation
-between a suite's own declarations and the one shape physical planning reads, so `operators/` splits
-by suite and holds nothing else.
+`__init__.py` holds `__version__` and the run path: `DataPlanner`, `build_data_planner`,
+`PlanResult`, `PlanLimits`, `RunStatus`, and `BlueDataPlannerError`. A caller who runs a planner and
+reads its result writes one import.
+
+Everything else is reached through the module that owns it. The components a caller assembles by
+hand come from `operators`, `data`, and `llm`; the shapes a caller reads off a plan come from
+`types`. That split is what keeps `import blue_data_planner` from loading an operator suite: an
+adapter imports its suite at module import time, and nothing on the run path imports an adapter.
+
+[09-api-interface-spec.md](09-api-interface-spec.md) fixes the public surface and what semantic
+versioning covers.
+
+### What `operators/` holds
+
+The router and the adapters, and nothing else. No operator is written here: the Blue operator
+library and its registry belong to `blue-data-ops`, and LOTUS is its own package.
 
 | Module | Holds |
 | --- | --- |
+| `router.py` | `OperatorRouter`, the only lookup read while planning (ADR-009) |
 | `blue.py` | `blue_operators`, over a `blue-data-ops` `OperatorRegistry` |
 | `lotus/` | `lotus_operators`, over the LOTUS package |
+
+The router sits here rather than beside the planning components because it is a lookup over
+operators and names nothing from any of them, and because an adapter can then register into it directly. It is not the
+registry it sits beside: `blue-data-ops`'s `OperatorRegistry` is a versioned catalog of Blue
+operator classes with ids like `select@2.0.0`, and the router answers which operators from any suite
+declare a given logical operator, with ids like `blue.select` (ADR-009).
+
+`__init__.py` re-exports `OperatorRouter` alone. An adapter is imported from the module named for
+its suite, so importing the router loads no suite.
 
 An adapter is a directory rather than a module when the suite needs more than one file to wrap,
 which is why `lotus/` is a package and `blue.py` is not. Grouping by logical operator was rejected,
 because an operator may declare several and the router already answers that question.
 
+### What a platform package holds
+
+Two modules and a console script, which is the shape both sibling repositories settled on.
+
+| File | Holds |
+| --- | --- |
+| `commands.py` or `server.py` | Everything the interface does: parsing, formatting, error mapping, and the entry point the console script names |
+| `config.py` | What the environment supplies, read once at startup |
+| `pyproject.toml` | The package, and the console script under `[project.scripts]` |
+| `scripts/` | `build.sh` and `install.sh`. Publishing is a tag in CI ([12-deployment-ops.md](12-deployment-ops.md)), so no platform package carries a `publish.sh` |
+
+The CLI has no `commands/` package. One command with many options is one module, and a directory
+for it would follow a convention neither sibling repository actually uses.
+
+The MCP package has no module for wire shapes or for tool registration. Two tools and one planner
+fit beside the bootstrap, and a suite that exposes one tool per operator — which this repository
+does not ([09-api-interface-spec.md](09-api-interface-spec.md#3-mcp-server)) — is what makes those
+worth splitting out.
+
+One `LICENSE` sits at the repository root and covers everything published from it.
+
 ### Where a new thing goes
 
 | Adding | Goes | Also needs |
 | --- | --- | --- |
-| An operator | Nowhere here. `blue-data-ops`, or the suite's own package | A pin bump, and an adapter entry if a plan should be able to use it |
+| An operator | Nowhere here. `blue-data-ops`, or the suite's own package | An adapter entry, if a plan should be able to use it |
 | An operator suite | `operators/<suite>.py`, or `operators/<suite>/` | An optional dependency extra, a lazy import, and a stub in `tests/stubs/` |
-| A way to reach the library | `platform/<interface>/`, its own package | Its own `pyproject.toml`, `scripts/`, and `tests/` |
+| A way to reach the library | `platform/<interface>/`, its own package | Its own `pyproject.toml` naming a console script, `scripts/`, and `tests/` |
 | A logical operator | Nowhere. The vocabulary of ten is fixed ([10-data-model.md](10-data-model.md)) | A decision log entry arguing the exception |
-| A prompt | `planner/prompts/`, one file per stage | Nothing else writes prompt text (ADR-005) |
+| A check or a graph function over a plan | `plan/`, if it needs no model and no source | Nothing else |
+| A prompt | `prompts/`, one file per component that writes prompts | Nothing else writes prompt text (ADR-005) |
 | Anything reading `blue-data` | `data/`, and called from elsewhere | No other packaged module imports `blue-data` |
 | Anything calling a model | `llm/`, and called from elsewhere | Nothing else calls a provider |
 
@@ -176,19 +233,13 @@ because an operator may declare several and the router already answers that ques
 ## Tests
 
 `lib/tests/unit/` mirrors `lib/src/blue_data_planner/` directory for directory, so the test for
-`planner/physical_planner.py` is `tests/unit/planner/test_physical_planner.py`. It mirrors
-`lib/scripts/` the same way, which is why `tests/unit/scripts/tag_bench/` exists. Four directories
-sit beside `unit/` and mirror nothing.
+`physical_planner.py` is `tests/unit/test_physical_planner.py` and the test for
+`plan/validation.py` is `tests/unit/plan/test_validation.py`. It mirrors `lib/scripts/` the same
+way, which is why `tests/unit/scripts/tag_bench/` exists.
 
-| Directory | Holds |
-| --- | --- |
-| `doubles/` | In-memory replacements for I/O boundaries, chiefly the data registry, plus fakes for the four planning stages |
-| `stubs/` | Deterministic fakes for heavy optional dependencies: litellm and LOTUS |
-| `fixtures/` | Recorded inputs and the cassettes that replay model responses |
-| `benchmarks/` | The TAG-Bench harness, excluded from the default run |
-
-A platform package tests only translation: argument parsing, response shape, error mapping, exit
-codes. Its tests import doubles from `lib/tests/` rather than defining their own.
+`doubles/`, `stubs/`, `fixtures/`, and `benchmarks/` sit beside `unit/` and mirror nothing. What
+each holds, and what a platform package's tests cover, is in
+[11-testing-strategy.md](11-testing-strategy.md#4-layout).
 
 ### Where the benchmark lives
 
@@ -231,4 +282,4 @@ when asked for by name.
 | Building or populating a registry | `blue-data`'s own tooling. The benchmark script is the single exception, and it is not shipped |
 | LOTUS source | Its own package, installed through the `lotus` extra (ADR-004) |
 | A REST API | Reserved as `platform/api/`, not in the first release |
-| A hosted operator registry | Would be `platform/registry-mcp/`, mirroring `blue-data`. Whether to build one is an open question ([13-decision-log.md](13-decision-log.md#open-questions)) |
+| A hosted operator registry | The registry and the router are in-process, built by whoever assembles the planner. `blue-data` hosts its data registry that way, and nothing here needs a remote lookup |

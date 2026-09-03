@@ -18,32 +18,43 @@ The canonical interface. The CLI and the MCP server call it; neither adds behavi
 
 ### The public surface
 
-`blue_data_planner/__init__.py` holds `__version__` and nothing else. Seven modules below it are
-public, and each one is imported by name.
+`blue_data_planner/__init__.py` holds `__version__` and the run path, so a caller who runs a planner
+and reads its result writes one import. Everything else is reached through the module that owns it.
 
-Python runs a package's `__init__.py` before any module inside it, so a root that imports
-`DataPlanner` would drag a model client and a registry into every import, including one that only
-wanted a plan data class. An empty root is what keeps each module's cost to what it names
-(ADR-016).
-
-| Module | Holds |
+| Import | Holds |
 | --- | --- |
-| `blue_data_planner.planner` | `DataPlanner`, `build_data_planner`, the four stages, `OperatorRouter` |
-| `blue_data_planner.types` | Plan, node, result, and limit types, the enums, `BlueDataPlannerError`, and the operator and budget exceptions |
-| `blue_data_planner.validation` | `validate_logical_plan`, `validate_physical_plan`, `PlanValidationError` |
+| `blue_data_planner` | `DataPlanner`, `build_data_planner`, `PlanResult`, `PlanLimits`, `RunStatus`, `BlueDataPlannerError`, `__version__` |
+| `blue_data_planner.data_planner` | `DataPlanner`, `build_data_planner` |
+| `blue_data_planner.logical_planner`, `.physical_planner`, `.fragment_runner` | The three planning components, one module each |
+| `blue_data_planner.catalog_searcher` | `CatalogSearcher` |
+| `blue_data_planner.run_state` | `RunState` |
+| `blue_data_planner.types` | Plan, node, result, and limit types, the enums, and every exception this library defines, `BlueDataPlannerError` first |
+| `blue_data_planner.plan` | `validate_logical_plan`, `validate_physical_plan`, `candidate_fragments` |
 | `blue_data_planner.execution` | `execute_physical_operator`, `check_output_columns` |
-| `blue_data_planner.operators` | `blue_operators`, `lotus_operators` |
+| `blue_data_planner.operators` | `OperatorRouter` |
+| `blue_data_planner.operators.blue`, `.lotus` | `blue_operators`, `lotus_operators` |
 | `blue_data_planner.data` | `DataCatalog`, `DataRegistryClient`, `DataRegistryProvider`, `BlueDataRegistryProvider`, `open_registry` |
 | `blue_data_planner.llm` | `LLMClient`, `Conversation`, `LLMUsage`, `LLMError` |
+
+Public is the package root, every module directly inside it, and the `__init__.py` of `types/`,
+`plan/`, `execution/`, `operators/`, `data/`, and `llm/`. A module nested inside one of those
+directories is not, and can be split or renamed within a minor version. The adapters are the one
+exception: `operators/__init__.py` re-exports the router alone, so an adapter is imported from the
+module named for its suite.
+
+That exception is what keeps the root cheap to import. Python runs a package's `__init__.py` before
+any module inside it, so what the root names is paid by every import from this package. The run path
+costs little — `types/` reaches nothing outside itself, `llm/` imports its provider inside
+`LLMClient`'s own methods, and `data/` imports a light dependency — while an operator suite is the
+one import heavy enough to be worth keeping off that path.
 
 Public means three things at once. A name here is covered by semantic versioning, so renaming or
 removing it breaks a version. `platform/*` imports these modules and no others
 ([08-coding-style.md](08-coding-style.md)). And every signature here is typed, since the package
-ships `py.typed`. Everything else — every module under the seven — can be split or renamed
-within a minor version.
+ships `py.typed`.
 
-A caller who wants physical operators alone reads two of the seven: `operators` and `types`. Nothing
-on that path imports `planner`.
+A caller who wants physical operators alone reads `operators.blue` and `types`, and constructs no
+planner.
 
 When an adapter needs something absent from this list, the library is missing a method, and the fix
 is to add one rather than to import a private module.
@@ -54,17 +65,18 @@ Nothing is constructed in place and nothing reads the environment, so a caller b
 passes them in.
 
 ```python
+from blue_data_planner import PlanLimits, build_data_planner
 from blue_data_planner.data import BlueDataRegistryProvider, DataCatalog
 from blue_data_planner.llm import LLMClient
-from blue_data_ops.operators import versioned_registry
-from blue_data_planner.operators import blue_operators, lotus_operators
-from blue_data_planner.planner import OperatorRouter, build_data_planner
-from blue_data_planner.types import PlanLimits
+from blue_data_planner.operators import OperatorRouter
+from blue_data_planner.operators.blue import blue_operators
+from blue_data_planner.operators.lotus import lotus_operators
 
 data_registry = BlueDataRegistryProvider().get_registry("blue", "default", {})
 
 router = OperatorRouter()
-for operator in blue_operators(versioned_registry(), data_registry):
+# operator_registry is a blue-data-ops OperatorRegistry, built the way that package documents
+for operator in blue_operators(operator_registry, data_registry):
     router.register(operator)
 for operator in lotus_operators():  # empty when LOTUS is not installed
     router.register(operator)
@@ -77,18 +89,17 @@ planner = build_data_planner(
 )
 ```
 
-`build_data_planner` is the default wiring, and what every adapter calls. It constructs the four
-stages and hands each the limit that stage enforces. A caller who wants a different model per stage,
-or a fake stage in a test, builds them and calls the constructor:
+`build_data_planner` is the default wiring, and what every adapter calls. It constructs the three
+planning components and the discovery step, and hands each one that enforces a bound of its own the
+number it obeys. A caller who wants a different model per component, or a fake component in a test,
+builds them and calls the constructor:
 
 ```python
-from blue_data_planner.planner import (
-    CatalogSearcher,
-    DataPlanner,
-    FragmentRunner,
-    LogicalPlanner,
-    PhysicalPlanner,
-)
+from blue_data_planner import DataPlanner
+from blue_data_planner.catalog_searcher import CatalogSearcher
+from blue_data_planner.fragment_runner import FragmentRunner
+from blue_data_planner.logical_planner import LogicalPlanner
+from blue_data_planner.physical_planner import PhysicalPlanner
 
 planner = DataPlanner(
     logical_planner=LogicalPlanner(
@@ -135,8 +146,8 @@ with no search run, since resolving one would start the second pass.
 
 ### Bounds on a run
 
-Every bound is a field of `PlanLimits`. Five are counted by the run loop; the other three bound a
-loop inside one component, and `build_data_planner` hands each component its own number. Defaults
+Every bound is a field of `PlanLimits`. Four are counted by the run loop and one by the operator-call budget; the other three bound a loop
+inside one component, and `build_data_planner` hands each component its own number. Defaults
 are in [12-deployment-ops.md](12-deployment-ops.md).
 
 | Bound | Counted | Enforced by | Reaching it |
@@ -194,9 +205,8 @@ does raise, in the order a caller meets it:
 | `LLMError` | The provider fails after retries | Only from a direct `LLMClient` call. `DataPlanner` catches it and ends the request as `llm_failed` |
 | `ValueError`, `TypeError`, and a suite's own validation errors | Malformed state, a missing configuration value, an unknown node or operator id | Always. These are bugs and they propagate |
 
-Every exception this library defines inherits `BlueDataPlannerError`, which is in `types/errors.py`
-alongside all of these but `PlanValidationError`, which lives with the checks that raise it. It
-inherits nothing from `blue-data-ops`, so an operator suite's own exceptions stay distinguishable
+Every exception this library defines is in `types/errors.py` and inherits `BlueDataPlannerError`,
+which is there too. It inherits nothing from `blue-data-ops`, so an operator suite's own exceptions stay distinguishable
 from a planner's. A caller using
 `DataPlanner` sees the last row and nothing above it, because each of the others is caught by the
 component that expects it.
@@ -220,7 +230,7 @@ blue-data-planner ask "Which Bay Area data scientist postings are at healthcare 
 | `--explain` | flag | off | Call `plan` instead of `run`: print the plan and the cover, and stop |
 | `--json` | flag | off | Print the whole `PlanResult` as JSON instead of a table |
 | `--show-attempts` | flag | off | Include rejected fragment attempts in the printed output |
-| `--model` | string | from the environment | The litellm model string for all four stages |
+| `--model` | string | from the environment | The litellm model string every component uses |
 | `--registry` | string | from the environment | Which `blue-data` registry to read |
 | `--quiet` | flag | off | Suppress the per-fragment progress lines |
 
@@ -339,8 +349,8 @@ showing what ran out. That is a successful tool call reporting a failed run, not
 
 ### Registry access
 
-The operator registry and the router are in-process
-([13-decision-log.md](13-decision-log.md#open-questions)). No tool exposes a registry lookup, and
+The operator registry and the router are in-process, built by whoever assembles the planner
+(ADR-009). No tool exposes a registry lookup, and
 physical planning makes no network call to discover an operator. Which operators a deployment
 registered is fixed at startup by what it installed and assembled.
 

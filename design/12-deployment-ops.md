@@ -19,8 +19,8 @@ own `pyproject.toml`. There is no repository-wide version.
 
 The MCP package pins `blue-data-planner` to an exact version, so a library release requires an MCP
 release. That is deliberate: an adapter translates for one library version and has no reason to
-float ahead of it. `blue-data-planner` pins `blue-data-ops` the same way, because a plan is bound
-against what each operator declares ([05-software-stack.md](05-software-stack.md#packages)).
+float ahead of it. Every operator suite is pinned rather than floating for the reason ADR-004 gives:
+an adapter names each operation and its parameters.
 
 ---
 
@@ -54,37 +54,30 @@ pip install -e '.[dev]'     # + the test and lint gates
 Which Blue operators an install can bind is a `blue-data-ops` question, answered by that package's
 own extras.
 
-A model client is not an extra. The planner cannot run without one, so `litellm`, `tenacity`, and
-`jinja2` are required dependencies of `lib/` ([05-software-stack.md](05-software-stack.md)).
+A model client is not an extra: the planner cannot run without one, so its dependencies are
+required rather than optional ([05-software-stack.md](05-software-stack.md)).
 
 The CLI and the MCP server are separate packages rather than extras of the library, so there is no
-`blue-data-planner[server]`. Each is installed on its own.
+`blue-data-planner[server]`. Each is installed on its own. The MCP package pins `mcp` below 2.0,
+which is where the decorator-based registration the server uses still sits under one import path.
 
 ---
 
 ## 3. Running the MCP server
 
-`blue-data-planner-mcp` is a network service over streamable HTTP, not a stdio subprocess. It binds
-loopback by default.
+`blue-data-planner-mcp` runs over stdio, so an agent framework or a desktop client launches it as a
+subprocess and owns its lifetime. Installing the package puts the command on the path.
 
 ```bash
-python -c 'from blue_data_planner_mcp import serve; serve()'
+blue-data-planner-mcp
 ```
 
-| Setting | Default | Set by |
-| --- | --- | --- |
-| Host | `127.0.0.1` | `serve(host=...)` |
-| Port | `8000` | `serve(port=...)` |
-| Path | `/mcp` | `serve(path=...)` |
+There is nothing to bind and no port to choose. A client is configured with the command and the
+environment the server needs ([02-scenarios.md](02-scenarios.md#scenario-2-answering-a-data-question-inside-an-agent)),
+and the server reads everything else from the environment in [section 4](#4-configuration).
 
-The server takes its host, port, and path as arguments, and everything else from the environment in
-[section 4](#4-configuration). Changing the host off loopback lets the network run plans against
-every source the registry holds, including the operators that write to one, so it is worth deciding
-deliberately.
-
-`plan_and_execute` and `plan` are the whole tool list. Neither takes limits, so the server builds
-one planner at startup from the environment in section 4, and every call runs under it
-([09-api-interface-spec.md](09-api-interface-spec.md#planning-tools)). Both need a reachable
+The server builds one planner at startup from the environment in section 4, and every call runs
+under it ([09-api-interface-spec.md](09-api-interface-spec.md#planning-tools)). It needs a reachable
 registry and a model before the first call, so a server that starts is not yet a server that can
 answer.
 
@@ -98,16 +91,17 @@ into the constructor. `.env` files are never committed.
 
 | Variable | Default | For |
 | --- | --- | --- |
-| `OPENAI_API_KEY` | None, required | The four planning stages, and LOTUS operations |
-| `BLUE_DATA_PLANNER_MODEL` | `openai/gpt-4o` | The litellm model string all four stages use |
+| `OPENAI_API_KEY` | None, required | Every component that calls a model, and LOTUS operations |
+| `BLUE_DATA_PLANNER_MODEL` | `openai/gpt-4o` | The litellm model string every component uses |
 | `BLUE_DATA_PLANNER_LOTUS_MODEL` | `openai/gpt-4o` | The litellm model string LOTUS configures for itself, independently of `BLUE_DATA_PLANNER_MODEL` (ADR-005) |
 | `BLUE_DATA_REGISTRY_PLATFORM` | `blue` | Which platform the registry belongs to |
 | `BLUE_DATA_REGISTRY_NAME` | `default` | Which registry to read |
+| The rest of `BLUE_DATA_REGISTRY_*` | `blue-data`'s own | Which store holds the registry and how to reach it. `blue-data` defines these, and a deployment sets whichever its store needs |
 | `LOG_LEVEL` | `INFO` | Logging verbosity |
 
-One model string serves every stage. `DataPlanner`'s constructor takes a client per stage, so a
-deployment that wants a stronger model for logical planning than for writing parameters builds the
-stages itself ([09-api-interface-spec.md](09-api-interface-spec.md#assembly)). Whether that split
+One model string serves every component. `DataPlanner`'s constructor takes a client per component,
+so a deployment that wants a stronger model for logical planning than for writing parameters builds
+them itself ([09-api-interface-spec.md](09-api-interface-spec.md#assembly)). Whether that split
 should be the default is open question 18.
 
 ---
@@ -134,8 +128,8 @@ run succeeded or not, under the name it carries here.
 The four recovery bounds decide *which* repair a rejected fragment gets, not how much a request may
 spend in total
 ([04-detailed-architecture.md](04-detailed-architecture.md#5-recovering-from-a-failure)). Multiplied
-out they permit far more work than any request should do: three cuts of one node set, inside three
-covers, inside three logical plans, each cut writing parameters three times.
+out they permit far more work than any request should do: two cuts of one node set, inside two
+covers, inside two logical plans, each cut writing parameters three times.
 
 `operator_calls` is the only ceiling on the total, which is why ADR-014 says its default matters
 more than it otherwise would. A four-fragment plan that runs cleanly spends four calls. One rejected
@@ -153,14 +147,10 @@ None of the eight is a measured value. Three are deliberately conservative: `fra
 better answered by a new plan than by a third cut, and `search_terms` caps one `DISCOVER` node at
 eight registry searches.
 
-The TAG-Bench harness reports operator calls per request, model calls per stage, how often a plan
+The TAG-Bench harness reports operator calls per request, model calls per component, how often a plan
 schedules a replan, and how often each repair fires
 ([11-testing-strategy.md](11-testing-strategy.md#9-benchmark-suites)), and these numbers are meant
 to be replaced by what it shows. Open question 2 holds the one that most needs the measurement.
-
-A caller who needs different bounds builds a planner with its own `PlanLimits`. A planner configured
-for a benchmark run and one configured for an interactive session are two objects rather than one
-object called two ways ([06-library.md](06-library.md#budgets-and-limits)).
 
 ---
 
@@ -268,10 +258,10 @@ reporting the number.
 
 | Not here | Why |
 | --- | --- |
-| A Docker image | Nothing to containerize until there is a long-running service. The MCP server is the closest thing, and it is run from an installed package |
+| A Docker image | Nothing here is a long-running service. The MCP server is a subprocess its client starts, from an installed package |
 | A `docker-compose.yml` | Backends are a `blue-data` decision, and none is bundled |
 | A REST API and a `/health` endpoint | Not in the first release. `platform/api/` is reserved |
-| A hosted operator registry | The registry and router are in-process ([13-decision-log.md](13-decision-log.md#open-questions)) |
+| A hosted operator registry | The registry and router are in-process, built by whoever assembles the planner |
 | An ingestion path | Building and populating a registry belongs to `blue-data`, and this package only reads one (ADR-003) |
-| Authentication and authorization | Belongs to the deployment. The MCP server binds loopback by default and adds no auth of its own |
+| Authentication and authorization | Belongs to the deployment. The MCP server listens on no socket, so whoever may launch the subprocess may plan |
 | Per-request limit overrides | Bounds are set when a planner is built. A deployment that needs two sets of bounds builds two planners |

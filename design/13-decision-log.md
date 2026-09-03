@@ -4,18 +4,14 @@ Each entry records a decision that had a real alternative and that other documen
 against. Anything still provisional, and anything that only says what a release leaves out, is an
 open question at the end rather than an entry here.
 
-No entry carries a date or a status. Nothing here is superseded: a decision that stopped being true
-was removed, and `git log` holds what it said.
-
-The open questions at the end are everything not yet decided. A question is deliberately not an
-entry: an entry guides implementation, so recording a guess as one sends the code in whatever
-direction the guess happened to point.
+No entry carries a date or a status, and nothing here is superseded. The open questions at the end
+are everything not yet decided.
 
 ---
 
 ## ADR-001 — Python Packaging and Tooling
 
-**Decision:** Python 3.10 or newer. One `pyproject.toml` per package, `src/` layout, setuptools as
+**Decision:** Python 3.11 or newer. One `pyproject.toml` per package, `src/` layout, setuptools as
 the build backend. Runtime dependencies in `dependencies`, development tooling in
 `optional-dependencies.dev`, and anything one adapter alone needs in that adapter's own package.
 
@@ -111,7 +107,7 @@ mean two provider abstractions in one process for no gain. A model string instea
 a provider change out of the code. A response schema is what makes a plan naming an invented
 operation impossible rather than merely rejected, and what checks operator parameters before an
 operator runs. Prompts are hand-written because automatic optimization needs a score to tune
-against, which end-to-end accuracy does not yet provide.
+against, and end-to-end accuracy scores a whole run rather than one component's prompt.
 
 **Consequences:** Two model configurations exist and are set independently, which is a place they
 can drift apart. Accounting follows the split: a call through `llm/` is recorded in
@@ -213,10 +209,10 @@ The column type has to be declared rather than inferred. Semantic operators retu
 everything — one asked to extract a year gives back `"1815"` — so a numeric operator downstream
 fails on a type nobody chose. Inference cannot fix it, because it has to refuse the spellings a plan
 most needs to accept: `y` is a boolean only when something declares the column one. The logical
-planner is the stage that knows what a later node will read.
+planner is the component that knows what a later node will read.
 
 **Consequences:** An operator's description carries all the weight in the physical planner's prompt,
-because the fields no longer tell operators apart. The logical planner writes one type per column
+because one plain-language instruction does not tell operators apart. The logical planner writes one type per column
 and can get it wrong, which shows up as a recoverable failure and a retry rather than as a wrong
 answer. There is no date type, so a date travels as an ISO 8601 string, and a comma-formatted number
 such as `"142,984"` declared `int` is refused rather than repaired.
@@ -227,8 +223,8 @@ such as `"142,984"` declared `int` is refused rather than repaired.
 
 **Decision:** Two lookups answer different questions. `blue-data-ops`'s `OperatorRegistry`, the
 versioned catalog of Blue operator classes, answers which classes exist and at what version.
-`planner/operator_router.py` answers which operators, from any suite, declare a given logical
-operator, holding one `PhysicalOperator` per candidate. Only the router is read while planning, and
+`operators/router.py` answers which operators, from any suite, declare a given logical operator,
+holding one `PhysicalOperator` per candidate. Only the router is read while planning, and
 it is the only one of the two this repository owns.
 
 Each adapter is a function returning `list[PhysicalOperator]`; whoever assembles the planner
@@ -237,10 +233,12 @@ registers them.
 **Rationale:** The two jobs pull in different directions. The registry carries versioning, pinned
 ids, and discovery that planning never needs, and it is built around `blue-data-ops`'s `Operator`
 base class; forcing an outside suite's operations into that base class to make them registrable
-would mean a wrapper class per operation for no gain. An adapter returns rather than registers
-because taking the router as a parameter would make `operators/` import `planner/` — naming the type
-in a public signature requires the import whether or not `TYPE_CHECKING` guards it — and that
-independence is what the split buys.
+would mean a wrapper class per operation for no gain.
+
+An adapter returns rather than registers, though the router sits beside it and registering would be
+possible. Which suites a deployment offers is a decision about that deployment, and an
+adapter that registered its own operators would take it; returning a list leaves it with whoever
+assembles the planner, and makes an adapter's whole result assertable in one test.
 
 **Consequences:** A Blue operator appears in both lookups, once as a class and once as a
 `PhysicalOperator`, and the adapter producing the second is the only thing holding the two in
@@ -263,8 +261,8 @@ plan should never vary, rather than the few that change per call. And it can be 
 what a caller must supply, marking an attribute required while also giving it a default, so
 required-ness cannot be read off it at all. Generation carries all three through into the schema.
 
-`blue-data-ops` shows each of them, and it is the only suite there is evidence from. Nothing
-suggests another would be better, because no suite declares its attributes for a planner's benefit.
+No suite declares its attributes for a planner's benefit, and `blue-data-ops` shows all three
+mismatches.
 A generated model is also opaque to pyright, so a mistake in one shows up when a call runs rather
 than when the types are checked.
 
@@ -276,24 +274,24 @@ validator wherever declaration and validator disagree.
 
 ## ADR-011 — `execution/` Invokes Operators; `DataPlanner` Owns the Run Loop
 
-**Decision:** `execution/` is a component beside `planner/`, holding `execute_physical_operator` and
-`check_output_columns` and nothing else. It runs one operator its caller resolved and handed to it,
+**Decision:** `execution/` is a directory of its own beside the modules that plan, holding
+`execute_physical_operator` and `check_output_columns` and nothing else. It runs one operator its caller resolved and handed to it,
 bills the call against the operator budget, and checks the result against the output columns its
-caller declared. It imports no model client, no registry, no router, and nothing in `planner/`.
+caller declared. It imports only `types/`: no model client, no registry, no router, and no planning component.
 
 The run loop lives in `DataPlanner`. It schedules, dispatches on node kind, counts attempts, chooses
 the repair, installs a cover and drops what the change invalidated, and assembles the result.
 
 **Rationale:** Invoking a resolved operator and producing a plan are different jobs with different
 dependencies: writing parameters needs a model client and the router, running a call needs neither.
-Keeping `execution/` free of `planner/` is what makes it testable without a model and keeps the
+Keeping `execution/` free of every planning component is what makes it testable without a model and keeps the
 dependency direction one-way. A separate plan runner beside `FragmentRunner` was considered and not
 taken: the reason for keeping the loop out of `execution/` is satisfied either way, and one class is
 simpler than two.
 
 **Consequences:** `execution/` is two modules and names no `RunStatus`. `DataPlanner` is the only
 thing that runs a plan. The types both name — plans, nodes, fragments, operators, results — live in
-the package root `types/`, so `execution/` can name them without importing `planner/`.
+the package root `types/`, so `execution/` can name them without importing a planning component.
 
 ---
 
@@ -311,7 +309,7 @@ DataBundle = list[Data]  # what one fragment passes to the next
 Operator input and output are this shape on both sides, so a callable receives a bundle and returns
 one. A fragment's inputs are the tables its upstream fragments produced, concatenated in the order
 it lists them. Each adapter converts at its own edge: the LOTUS adapter builds one data frame per
-table and flattens coming out, and the Blue adapter converts nothing.
+table and flattens coming out.
 
 **Rationale:** A row that is a plain dict belongs to no suite. It keeps pandas out of every module
 except the adapter that needs it, and it makes a stored intermediate result readable. A bundle
@@ -320,8 +318,7 @@ intersect each read every table handed to them. Declaring a fragment's value to 
 would make a multi-output operator unrepresentable by construction rather than by decision.
 
 **Consequences:** Conversion happens per fragment rather than once, so consecutive LOTUS fragments
-pay for a data frame they could have kept. This shrinks no install: `blue-data` requires `pandas`
-and `numpy`, so both are present whatever this repository declares. Every reader of a fragment's
+pay for a data frame they could have kept. Every reader of a fragment's
 output indexes a table before a row, so the rows of a single-output fragment are `result.output[0]`.
 `row_count` counts rows across every table and describes no shape; nothing reports table count.
 
@@ -399,29 +396,81 @@ per query and scores that query as an error.
 
 ---
 
-## ADR-016 — The Root Package Is Empty; the Public Surface Is Seven Modules
+## ADR-017 — The Package Root Exports the Run Path
 
-**Decision:** `blue_data_planner/__init__.py` holds `__version__` and nothing else. The public
-surface is seven modules imported by name: `planner`, `types`, `validation`, `execution`,
-`operators`, `data`, and `llm`. A name in one of them is covered by semantic versioning,
-`platform/*` imports those modules and no others, and everything below or beside them can be split
-or renamed within a minor version.
+**Decision:** `blue_data_planner/__init__.py` holds `__version__` and the run path: `DataPlanner`,
+`build_data_planner`, `PlanResult`, `PlanLimits`, `RunStatus`, and `BlueDataPlannerError`. Public is
+the root, every module directly inside it, and the `__init__.py` of `types/`, `plan/`, `execution/`,
+`operators/`, `data/`, and `llm/`. An operator adapter is the one exception: `operators/__init__.py`
+re-exports the router alone, so an adapter is imported from the module named for its suite.
 
-**Rationale:** A consumer reading a plan data class should not pay for a model client, a data
-registry, and an operator suite. Python runs a package's `__init__.py` before any module inside it,
-so a root that re-exports `DataPlanner` makes that separation unreachable without a lazy
-`__getattr__`, which trades a real boundary for a mechanism that hides where imports happen. An
-empty root gives the same separation with no mechanism at all.
+**Rationale:** Python runs a package's `__init__.py` before any module inside it, so whatever the
+root names is paid by every import from the package. Of everything this library imports, an operator
+suite is the only one heavy enough for that to matter: the plan types reach nothing outside
+themselves, the model client imports its provider inside its own methods, and the data boundary's
+dependency is light. So the root can carry the run path without making a plan data class expensive,
+as long as no adapter sits on that path.
 
-The alternative, one flat root re-exporting everything a caller needs, reads as the single entry
-point the engineering principles ask for. It answers a different question: the single entry point is
-about behavior — planning goes through `DataPlanner` rather than being reassembled by an adapter —
-and a named module list says that just as well.
+The alternative, a root re-exporting everything a caller could need, is the more common shape for a
+Python package and reads better at a call site. It cannot be had here without putting a suite import
+in front of every consumer, including one that only wanted to read a recorded plan.
 
-**Consequences:** `from blue_data_planner import DataPlanner` does not work; the import is `from
-blue_data_planner.planner import DataPlanner`. The import rule an adapter obeys becomes a fixed list
-rather than "whatever `__init__.py` exports" ([08-coding-style.md](08-coding-style.md)), which is
-checkable by reading a file's imports.
+**Consequences:** `from blue_data_planner import DataPlanner` works and
+`from blue_data_planner.operators import blue_operators` does not, since an adapter is
+`operators.blue`. Adding a name to the root is a deliberate act, and adding one that pulls in an
+adapter changes what every import from the package costs. The import rule an adapter obeys names a
+shape rather than a list of modules ([08-coding-style.md](08-coding-style.md)).
+
+---
+
+## ADR-018 — Intersection Is a `JOIN`; the Vocabulary Gains No Set Operations
+
+**Decision:** A request meaning "the rows in both" is a `JOIN` node whose instruction says so. The
+logical vocabulary holds no `INTERSECT` and no set-difference operator, and the ten operators stay
+as they are. The descriptions the logical planner reads carry the distinction: a `JOIN` is the rows
+matching between two tables, a `UNION` is the rows from either.
+
+**Rationale:** Only `JOIN` and `UNION` take two inputs, and the response schema holds the planner to
+the ten (ADR-005), so writing a two-table merge is a choice between two named operators rather than
+an open one. An inner join over matching values is what an intersection asks for, and "both" against
+"either" is the whole of the discrimination.
+
+An `INTERSECT` operator would move that discrimination rather than remove it. A planner would then
+choose between `INTERSECT` and `JOIN` for every two-table merge, and the mistake worth worrying
+about is unchanged: a request for a set operation reaching for `UNION` because `UNION` is the one
+operator that looks like one. Either way, what settles the choice is how the two are described to the
+planner, which is prompt text rather than an operator. Adding one also invalidates every operator
+declaration written against the vocabulary (ADR-006), which is a lot to pay for a distinction a
+clause in a description already draws.
+
+**Consequences:** Nothing structural catches a `UNION` written where a `JOIN` was meant. Both take
+two inputs, so the arity check passes, and both carry the same columns, so the output column check
+passes. The fragment review is what catches it, from the instruction and a sample of the result
+(ADR-013), at the cost of one operator call and a replan. The physical planner cannot prefer a set
+operation over a general join, because routing is by logical operator; a capability finer than the
+kind is declared in an operator's `limitations` and reported as a recoverable failure.
+
+---
+
+## ADR-019 — The MCP Server Runs Over stdio
+
+**Decision:** `blue-data-planner-mcp` runs over stdio. A client launches it as a subprocess and owns
+its lifetime, so the server binds no socket and has no host, port, or path. Each platform package
+names a console script under `[project.scripts]`, which is the command a client is configured with.
+
+**Rationale:** Nothing asks for a network service. The stated integration target is an agent
+framework, which configures a command and an environment rather than a URL, and one planner per
+client is what a subprocess gives for free. Streamable HTTP would be justified if several clients had to
+share one assembled planner, and no scenario needs that.
+
+The `blue-data` and `blue-data-kb-source` MCP servers both run over stdio, so a client that already
+launches one launches this the same way.
+
+**Consequences:** Nothing here is a long-running service, so no image and no health endpoint. There
+is no listening socket to authenticate, and whoever may launch the subprocess may plan. A deployment
+that later needs several clients on one planner changes the transport, which is a change to this
+entry and to the two documents written against it
+([05-software-stack.md](05-software-stack.md), [12-deployment-ops.md](12-deployment-ops.md)).
 
 ---
 
@@ -431,26 +480,19 @@ Design questions first, then defects in code that exists today.
 
 | # | Question | Blocks |
 | --- | --- | --- |
-| 1 | Should the operator registry and the router ever be hosted behind an MCP server (`platform/registry-mcp/`) rather than built in-process by whoever assembles the planner? Nothing in the scenarios needs a remote lookup, and putting one inside physical planning would add a failure mode to a stage that is already the hardest to debug. Nothing rules one out either, and the Blue repository design suggests a registry may optionally be hosted. Revisiting it changes nothing in `lib/`, because the router is already the only thing planning reads (ADR-009). | Whether `platform/registry-mcp/` gets built |
 | 2 | How often do plans actually schedule a replan? If rarely, the limit can be low; if it is most requests over discovered sources, planning is two-pass in practice and the design should say so. The TAG-Bench harness reports it ([11-testing-strategy.md](11-testing-strategy.md)), so what is left is running it. | The `PlanLimits` defaults |
-| 3 | Which of a fragment's columns can be resolved to a `ColumnRef`, so the fragment runner sees the catalog's `distinct_count`, `min`, `max`, and `semantic_type` for it? A fragment's `scan_sources` names an entity path for each `SCAN` it contains, so a column of a table the fragment itself scans resolves without ambiguity. A column arriving on the frontier does not: resolving it means tracing back through the cover to whichever fragment scanned it. Three rules are on the table. The narrow one resolves only the fragment's own scans, and is safe because its failure is missing information rather than wrong information. The middle one traces through fragments built only from the kinds that leave columns unchanged, which are `FILTER`, `DISTINCT`, and `SORT_SUPERLATIVE`, and stops at any fragment containing `PROJECT`, `EXPAND`, `AGGREGATE`, `JOIN`, or `SCAN`. The wide one traces by column name regardless of kind, and can put a scanned column's statistics in front of a model for a column a `PROJECT` quietly redefined. The narrow rule loses the case a lone `FILTER` over scanned rows presents, which is the shape TAG-Bench produces most, so the choice is worth measuring rather than guessing. | What the fragment runner sees when it writes parameters for a fragment that scans nothing ([06-library.md](06-library.md#which-column-gets-a-view)) |
-| 4 | Which engine hosts a fragment that contains no `SCAN`? A fragment's `scan_sources` names a catalog path per `SCAN`, so an operator reading a registered source knows where to run and can make the frontier's tables addressable alongside what it scans ([04, what an operator does with its input](04-detailed-architecture.md#what-an-operator-does-with-its-input)). A fragment with no `SCAN` names no path, so `blue.nl2sql` bound to a lone `DISTINCT`, or to a scan-less `{FILTER, JOIN}`, has no database to connect to even though the work is expressible in SQL over the pushed-in tables. Three ways to close it. The fragment names a working source, which adds a field to `PhysicalPlanFragment` and makes choosing it a new model decision. The operator carries a default host in its `properties`, which follows the rule that an operator satisfies its own preconditions, at the price of an operator whose real capability depends on configuration and fails only at run time without it. Or the case belongs to an operator that owns its engine, declaring no `source_kinds` and ingesting everything from the frontier, which is what an in-process SQL engine would look like; on that reading a scan-less fusion is not a pushdown at all, since none of the data is at the source. The `properties` route was the earlier preference; an operator of our own that owns its engine is the route question 39 opens, and neither is decided. | Whether an operator can fuse a group of nodes whose data all arrives from other fragments |
+| 3 | Which of a fragment's columns can be resolved to a `ColumnRef`, so the fragment runner sees the catalog's `distinct_count`, `min`, `max`, and `semantic_type` for it? A fragment's `scan_sources` names a catalog path for each `SCAN` it contains, so a column of a table the fragment itself scans resolves without ambiguity. A column arriving on the frontier does not: resolving it means tracing back through the cover to whichever fragment scanned it. Three rules are on the table. The narrow one resolves only the fragment's own scans, and is safe because its failure is missing information rather than wrong information. The middle one traces through fragments built only from the kinds that leave columns unchanged, which are `FILTER`, `DISTINCT`, and `SORT_SUPERLATIVE`, and stops at any fragment containing `PROJECT`, `EXPAND`, `AGGREGATE`, `JOIN`, or `SCAN`. The wide one traces by column name regardless of kind, and can put a scanned column's statistics in front of a model for a column a `PROJECT` quietly redefined. The narrow rule loses the case a lone `FILTER` over scanned rows presents, which is the shape TAG-Bench produces most, so the choice is worth measuring rather than guessing. | What the fragment runner sees when it writes parameters for a fragment that scans nothing ([06-library.md](06-library.md#which-column-gets-a-view)) |
+| 4 | Which engine hosts a fragment that contains no `SCAN`? A fragment's `scan_sources` names a catalog path per `SCAN`, so an operator reading a registered source knows where to run and can make the frontier's tables addressable alongside what it scans ([04, what an operator does with its input](04-detailed-architecture.md#what-an-operator-does-with-its-input)). A fragment with no `SCAN` names no path, so `blue.nl2sql` bound to a lone `DISTINCT`, or to a scan-less `{FILTER, JOIN}`, has no database to connect to even though the work is expressible in SQL over the pushed-in tables. Three ways to close it. The fragment names a working source, which adds a field to `PhysicalPlanFragment` and makes choosing it a new model decision. The operator carries a default host in its `properties`, which follows the rule that an operator satisfies its own preconditions, at the price of an operator whose real capability depends on configuration and fails only at run time without it. Or the case belongs to an operator that owns its engine, declaring no `source_kinds` and ingesting everything from the frontier, which is what an in-process SQL engine would look like; on that reading a scan-less fusion is not a pushdown at all, since none of the data is at the source. An operator of our own that owns its engine is the route question 39 opens. None of the three is decided. | Whether an operator can fuse a group of nodes whose data all arrives from other fragments |
 | 5 | Two logical operators have no implementation, and each gap has a different cause. `EXPAND` opens one row into many, which neither the Blue operators nor LOTUS does; `segment_text` is chunking, which stays inside the operator that needs it rather than appearing in a plan. Filling it is a small operator, which question 39 asks whether this repository writes, but its meaning is unsettled either way: whether `EXPAND` is an unnest over a column that already holds a list, or a semantic expansion reading a row and writing several, decides whether one operator covers it or two. `DISTINCT` admits no such ambiguity — the union operator already removes duplicates, so a thin `distinct` over one table would close the exact-match half, and entity resolution beyond exact match could arrive later as a second candidate for the same node — but a lone `DISTINCT` depends on question 4, since `blue.nl2sql` declares `DISTINCT` and carries it only inside a fragment that also scans. Until an operator exists, either node is answered as `no_operator` and sent back to the logical planner, so the gap is visible rather than silent. | Whether a plan can open rows to the granularity a request asked for, and whether it can deduplicate outside a SQL fragment |
 | 6 | Should a result stay valid when only the cut around it changed? A continuation reading a node a fragment absorbed forces that fragment to be dropped and every node in it to run again, even the ones whose logical inputs did not change ([04, what reading an absorbed node costs](04-detailed-architecture.md#what-reading-an-absorbed-node-costs)). Two ways out. Keying validity on a node's upstream logical nodes rather than on the shape of the cover would save the downstream work. Dropping the disjointness rule would let a continuation build its own fragment over `SCAN`, `FILTER`, and the new node while the earlier fragment keeps its result, at the price of running the same scan twice and of giving up the property that each node runs exactly once, which is what makes an attempt list readable as a record of where each pushdown boundary was drawn. Both carry the same consistency risk: a saved result from a fused call sitting beside newly materialized rows from a different cut, so two nodes in one plan could hold values their operators never agreed on. | Whether a failure-driven replan pays for a whole fused call a second time, and whether the attempt record still answers where the boundary was |
 | 7 | When a control node's inputs all have results and a fragment is also ready, which runs first? Running the fragments first gives the logical planner more results to write the continuation against, and costs nothing in wasted work, since a new logical version carries over every node the run has something for. Firing the control node first can save operator calls on a branch the continuation turns out not to need, at the price of planning against less. [06-library.md](06-library.md#the-run-loop) leaves `next_ready` free to do either, and nothing has measured which is better. | How much a `DISCOVER` node costs on a plan with parallel branches |
-| 8 | Should a fragment pattern be allowed to constrain the order of the nodes it covers? `logical_operators` is a set, so a candidate is any connected convex subgraph built from those kinds, and an operator that can only absorb a filter *after* a scan has no way to say so. Every operator declared so far is order-insensitive over the kinds it accepts, which is why the set is enough today. | Whether an operator whose capability depends on node order can be declared at all |
-| 9 | Does `intersect` earn its own logical operator? It is declared as a `JOIN` on full-tuple equality, which is accurate and hides the intent. A plan that means "the rows in both" reads as a join whose predicate a later reader has to decode, and the physical planner has no way to prefer a set operation over a general join. | Whether the logical vocabulary grows by one |
+| 8 | Should a fragment pattern be allowed to constrain the order of the nodes it covers? `logical_operators` is a set, so a candidate is any connected convex subgraph built from those kinds, and an operator that can only absorb a filter *after* a scan has no way to say so. No declared operator's capability depends on the order of the nodes it covers, so a set says everything a declaration needs to. | Whether an operator whose capability depends on node order can be declared at all |
 | 15 | Nothing checks that an operator receives the number of tables its logical operator declares. `INPUT_ARITY` governs what the logical planner writes and validation checks a node's input count against it, but the bundle an operator is handed is the concatenation of its upstream outputs (ADR-012), and no check ties that length back to the arity. `blue.join` given one table returns an empty result rather than a recoverable failure naming the problem. The two counts can only diverge once a multi-output operator exists. | Whether a wrongly shaped bundle fails loudly, as the error-handling rules require, or quietly |
-| 18 | Should the four planning stages share one model by default? [12-deployment-ops.md](12-deployment-ops.md#4-configuration) sets `BLUE_DATA_PLANNER_MODEL` for all of them, and `DataPlanner`'s constructor takes a client per stage, so the split is available and simply not the default ([09-api-interface-spec.md](09-api-interface-spec.md#assembly)). The stages do different work. Logical planning writes a plan from a catalog preview and is the one call whose mistakes every later stage inherits, since a badly cut plan cannot be rescued by a good cover. Writing parameters and reviewing a result are narrower, run several times per request, and see concrete columns and values rather than a whole catalog. That shape favors a stronger model for the first and a cheaper one for the rest, which is also what the cost profile favors, and nothing has measured whether the quality holds. Against it: a split default doubles what a deployment configures before it can run anything, and two model strings is two things to get wrong. The TAG-Bench harness reports model calls per stage, which says where the spend is but not whether a cheaper model would have answered the same. | What a deployment pays per request, and whether one badly chosen model string degrades every stage at once |
-| 24 | Does `OperatorRouter` belong in `planner/`? The class is a lookup and nothing else — register an operator, return the ones declaring a logical operator, resolve an id — and it depends only on `types/`, naming nothing from any planning stage. It sits in `planner/` because the stages read it ([07-repo-organization.md](07-repo-organization.md#inside-libsrcblue_data_planner)). Moving it to `operators/` would remove a constraint the design currently works around: [06-library.md](06-library.md#the-adapters) has `blue_operators` and `lotus_operators` return a list rather than register into a router, because an adapter that registered its own operators would make `operators/` import `planner/`. With the router in `operators/`, an adapter could register directly and that workaround would have no reason to exist. Against the move: ADR-009 keeps the router and `blue-data-ops`'s registry apart as different questions with different id formats, `select@2.0.0` against `blue.select`, and a router sitting in the module that wraps that registry invites a reader to conflate them. | Whether an operator adapter returns a list or registers, and whether `planner/` holds anything that is not a stage |
-| 27 | Does `platform/cli/` need a `commands/` package? [07-repo-organization.md](07-repo-organization.md#target-tree) gives it one, and [09-api-interface-spec.md](09-api-interface-spec.md#2-cli) specifies a single command, `ask`, with about fifteen options. The house evidence points the other way. The `blue-data-llm-source` CLI is the same shape — a small tool with two subcommands — and keeps them in one flat `commands.py`. The `blue-data` CLI does have a `commands/` directory, holding only a `.gitkeep`, never populated, while the CLI logic that actually runs sits in flat modules. So a directory for one command would follow a convention neither sibling actually uses. Against dropping it: fifteen options on one command is a lot, and a second command is easy to imagine. | Whether the CLI package's shape follows a convention or copies scaffolding |
-| 29 | Does `platform/mcp/` split along the right lines? `server.py` is a thin bootstrap and `schema.py` holds the wire models, but `registration.py` carries three unrelated jobs in 217 lines: choosing and freezing which operators this deployment exposes, translating an operator result into the wire shape, and binding a tool per operator onto the server. The second of those is split from `schema.py` by naming rather than by concern — the wire types are in one file and the functions that fill them are in the other. Nothing in it breaks ADR-002 today, since none of it decides anything per request, but the planning tools land in the same file and need neither of the two paths that are there: one planner serving two tools rather than one operator per tool, and a `PlanResult` rather than a `RunResult`. Adding them without splitting makes `registration.py` everything that is not bootstrap or types. | Whether the MCP package's files are named for concerns or for whatever was written first |
-| 30 | Three things [07-repo-organization.md](07-repo-organization.md#target-tree) promises do not exist, and one thing that should be promised is missing from it. No `LICENSE` exists at the repository root, in `lib/`, or in `platform/mcp/`, though the tree names all three and the packages are meant for PyPI. `platform/mcp/scripts/` is named and absent. Under `lib/scripts/`, the tree names `build.sh` and `publish.sh`, which are absent, but not `install.sh`, which every sibling repository carries and which is the only one of the three doing work worth copying: it installs the unpublished `blue-data` from a local checkout through an overridable path and fails with a clear message when it is not there. This repository has that problem in the same form ([12-deployment-ops.md](12-deployment-ops.md#2-installation)), so the omission is worth deciding rather than inheriting. | Whether the packages can be published, and whether a new contributor can install one |
-| 32 | Should a prompt ever be optimized automatically rather than written by hand? ADR-005 fixes hand-written prompts versioned in the repository, and the reason is that tuning needs a score to tune against. The TAG-Bench harness produces end-to-end accuracy, which scores a whole run rather than one stage's prompt, so a tuner reading it would credit the logical planner for what the fragment runner repaired. Answering it means either a per-stage score or accepting that a whole-run score is enough, and `gepa` is the candidate dependency ([05-software-stack.md](05-software-stack.md#what-is-deliberately-absent)). | Whether `planner/prompts/` stays hand-written, and whether `lib/` gains a tuning dependency |
+| 18 | Should the three planning components and the discovery step share one model by default? [12-deployment-ops.md](12-deployment-ops.md#4-configuration) sets `BLUE_DATA_PLANNER_MODEL` for all of them, and `DataPlanner`'s constructor takes a client per component, so the split is available and simply not the default ([09-api-interface-spec.md](09-api-interface-spec.md#assembly)). The components do different work. Logical planning writes a plan from a catalog preview and is the one call whose mistakes every later stage inherits, since a badly cut plan cannot be rescued by a good cover. Writing parameters and reviewing a result are narrower, run several times per request, and see concrete columns and values rather than a whole catalog. That shape favors a stronger model for the first and a cheaper one for the rest, which is also what the cost profile favors, and nothing has measured whether the quality holds. Against it: a split default doubles what a deployment configures before it can run anything, and two model strings is two things to get wrong. The TAG-Bench harness reports model calls per component, which says where the spend is but not whether a cheaper model would have answered the same. | What a deployment pays per request, and whether one badly chosen model string degrades every component at once |
+| 32 | Should a prompt ever be optimized automatically rather than written by hand? ADR-005 fixes hand-written prompts versioned in the repository, and the reason is that tuning needs a score to tune against. The TAG-Bench harness produces end-to-end accuracy, which scores a whole run rather than one component's prompt, so a tuner reading it would credit the logical planner for what the fragment runner repaired. Answering it means either a per-component score or accepting that a whole-run score is enough, and `gepa` is the candidate dependency ([05-software-stack.md](05-software-stack.md#what-is-deliberately-absent)). | Whether `prompts/` stays hand-written, and whether `lib/` gains a tuning dependency |
 | 33 | Does the fragment rule list still need convexity? [04-detailed-architecture.md](04-detailed-architecture.md#what-a-fragment-may-be) lists connected, convex, disjoint, and single exit as four separate properties, and `validate_physical_plan` enforces that list. For a plan that already passed `validate_logical_plan`, the other three give convexity for nothing. Every non-root node of a fragment has all its consumers inside the fragment; following consumers terminates only at the root, since a valid plan holds no node nothing reads; so every node of a fragment reaches its root, and an outside node lying between two inside nodes would close a cycle, which a DAG has none of. Both premises carry the argument, and one of them is already in question: dropping the disjointness rule, which question 6 weighs, would take the argument with it. Two ways to close it. Say in `04` which of the four the others already give, so a reader learns the list is not independent and a check for it need not be written. Or leave the four standing, on the grounds that the implication holds only as long as disjointness does. | Whether the fragment rules read as four independent constraints when three of them imply the fourth |
-| 37 | What may an adapter absorb, and what must it refuse? Every suite mismatches what a plan needs in its own way, and with no shared rule each mismatch is settled in whichever adapter hits it first. Five absorptions look like translation rather than behavior, and are the current preference for the permitted list: shaping a parameter schema an operation has none of, converting between the bundle and the suite's own shape, mapping the suite's failures onto the recoverable and unrecoverable kinds, supplying the registry or model client an operation needs to run at all, and offering fewer operations or narrower capability than the suite advertises. Four look like behavior and are the current preference for the forbidden list: declaring a capability the operation lacks, computing or patching part of a result, retrying or splitting or reordering work the run loop owns, and returning an empty result in place of a reported failure. A fifth candidate for the forbidden list is narrower and less obvious: whether an adapter must refuse an operation that plans. `blue-data-ops 2.3` ships six that do — `plan_discover`, `operator_discover`, `data_discover`, `query_breakdown`, `multipart_query`, `nl2query_router` — plus its own `plan/` executor, and binding one would put a second planner inside a fragment the run loop cannot see. Against a blanket refusal: `data_discover` searches a registry the way `CatalogSearcher` does, and a `DISCOVER` node is where that search already belongs, so the overlap may be one to bind rather than refuse. What the rule has to answer is the case that broke: `blue.nl2sql` declares `accepts_bound_inputs` while its own card tags `accepts-none`, and the adapter raises `NotImplementedError` mid-run rather than never offering the candidate. | Whether a capability gap is answered in the adapter, upstream, or by an operator of our own, and which `blue-data-ops` operations an adapter offers at all |
-| 38 | Where does an operation's capability declaration come from? A `PhysicalOperator` carries `logical_operators`, `source_kinds`, `accepts_bound_inputs`, and `limitations`, and the adapter hand-writes all four. `blue-data-ops 2.3` states most of them itself, on an `OperatorCard`: closed `accepts-*`, `requires-*`, and `capability-*` tags plus a `when_to_invoke` line, written by whoever wrote the operation. Reading the card where it exists would have caught the `nl2sql` defect, since the card says `accepts-none`. Against reading it: the card is `blue-data-ops`'s own scheme and nothing else has one — LOTUS declares no capability metadata at all, and a suite this repository writes declares whatever it chooses — so deriving one suite's declarations and hand-writing every other suite's is two rules for one field. The tag vocabulary is also close to but not the same question: `capability-filter` and `LogicalOperator.FILTER` agree, while `accepts-data` says an operation reads a bundle and not whether it can read one alongside a source it scans. A third route is to keep hand-writing and have the conformance test compare against the card where a suite has one, so a disagreement fails a test rather than a run. | Whether a hand-written declaration is checked against anything, and whether the adapter conformance test reads more than `AttributeSpec` |
+| 37 | What may an adapter absorb, and what must it refuse? Every suite mismatches what a plan needs in its own way, and with no shared rule each mismatch is settled in whichever adapter hits it first. Five absorptions look like translation rather than behavior, and are the candidates for a permitted list: shaping a parameter schema an operation has none of, converting between the bundle and the suite's own shape, mapping the suite's failures onto the recoverable and unrecoverable kinds, supplying the registry or model client an operation needs to run at all, and offering fewer operations or narrower capability than the suite advertises. Four look like behavior and are the candidates for a forbidden list: declaring a capability the operation lacks, computing or patching part of a result, retrying or splitting or reordering work the run loop owns, and returning an empty result in place of a reported failure. A fifth candidate for the forbidden list is narrower and less obvious: whether an adapter must refuse an operation that plans. A suite may ship operations that plan on their own, and binding one would put a second planner inside a fragment the run loop cannot see. Against a blanket refusal: one such operation searches a data registry the way `CatalogSearcher` does, and a `DISCOVER` node is where that search already belongs, so the overlap may be one to bind rather than refuse. What the rule has to answer is an operation whose declared capability contradicts its own metadata: an adapter that binds it anyway fails partway through a run, where never offering the candidate would have cost nothing. | Whether a capability gap is answered in the adapter, upstream, or by an operator of our own, and which `blue-data-ops` operations an adapter offers at all |
+| 38 | Where does an operation's capability declaration come from? A `PhysicalOperator` carries `logical_operators`, `source_kinds`, `accepts_bound_inputs`, and `limitations`, and the adapter hand-writes all four. `blue-data-ops` states most of them itself, on an `OperatorCard`: closed `accepts-*`, `requires-*`, and `capability-*` tags plus a `when_to_invoke` line, written by whoever wrote the operation. Reading the card where it exists would have caught the `nl2sql` defect, since the card says `accepts-none`. Against reading it: the card is `blue-data-ops`'s own scheme and nothing else has one — LOTUS declares no capability metadata at all, and a suite this repository writes declares whatever it chooses — so deriving one suite's declarations and hand-writing every other suite's is two rules for one field. The tag vocabulary is also close to but not the same question: `capability-filter` and `LogicalOperator.FILTER` agree, while `accepts-data` says an operation reads a bundle and not whether it can read one alongside a source it scans. A third route is to keep hand-writing and have the conformance test compare against the card where a suite has one, so a disagreement fails a test rather than a run. | Whether a hand-written declaration is checked against anything, and whether the adapter conformance test reads more than `AttributeSpec` |
 | 39 | Should this repository write operators of its own, and which? The intent is a small suite of deterministic operations over the bundle — the exact-match half of `DISTINCT`, the unnest reading of `EXPAND`, a group-by an aggregate can bind to — so the vocabulary of ten has a candidate for every node without waiting on another owner, and so a TAG-Bench run needs no Blue operator. Alongside it, an operation that writes and runs a program from the instruction a fragment carries, which is the shape a compound candidate over frontier tables would take and the one thing that would give a scan-less fragment an engine (question 4). Nothing about either is settled: what backs the deterministic operations, whether the program-writing operation belongs in the same suite as operations that cannot fail nondeterministically, what either is called, whether they live under `operators/` beside the adapters or in a package of their own, and how an owned suite reaches the router (ADR-004 and ADR-009 are written for suites with another owner). A program-writing operation also runs model-written code in the planner's process, which needs an answer on what may name what before it can be offered outside a benchmark. Against writing any: this repository plans, and every operator it owns is behavior it now has to test rather than translate. | Whether `EXPAND` and `DISTINCT` have candidates, whether TAG-Bench can run without Blue operators, and whether `operators/` holds anything but adapters |
-| 40 | Should the package group planning into `planner/` at all? The four stages, the router, the run state, and the entry point sit there ([07-repo-organization.md](07-repo-organization.md#why-the-entry-point-sits-in-planner)), and everything beside it is a boundary (`data/`, `llm/`, `operators/`), shared data (`types/` and `validation.py`), or the one module that invokes an operator (`execution/`). The grouping separates planning from an operator library, which is worth drawing where the two share a package and nearly meaningless in a repository that only plans: `planner/` names almost the whole package rather than one part of it, so the extra level separates nothing. Flattening would put `data_planner.py` and the four stages at the package root and leave the boundaries one level down. Against it: a root of a dozen modules reads worse than six directories, question 24 is a question only because the nesting exists, and `planner` is one of the seven names ADR-016 fixes as the public surface, so the move rewrites the import every consumer writes. | Whether the public surface is seven modules or a flatter set, and whether `planner/` exists to hold anything |
-| 41 | Is the bundle shape chosen to match one suite's operator signature? ADR-012 fixes a list of tables on both sides of an operator call, and the Blue adapter converts nothing because that is read as the shape the Blue operations already take and return ([06-library.md](06-library.md#the-adapters)). Two things are unsettled. Whether the alignment is deliberate or incidental: if it is deliberate, the shape follows one suite and every other adapter pays the conversion, and if it is not, the shape is chosen for what a plan passes and the Blue adapter converts like any other. And what a callable invokes on the suite's side, which no document names now: a dependency's method name is a fact that goes stale, and naming it in two places is how two documents came to disagree about it. | Whether ADR-012's shape rests on a dependency's signature, and whether the Blue adapter is a pass-through |
-| 42 | Does anything here emit traces or logs of its own, and if so which package? [12-deployment-ops.md](12-deployment-ops.md#7-logging) fixes the library at standard-library logging with no handler configured, so an embedding application decides the format and the destination, and nothing in [05-software-stack.md](05-software-stack.md) declares a tracing dependency. Three routes. The adapters own it: the MCP package declares an exporter, emits structured JSON logs, and opens one span per tool request, leaving the library uninstrumented. The library owns it: spans cover each planning stage, each operator call, and each model call, which is the only route that can show where a run's time and money went, at the price of a tracing dependency in `lib/` and an import in code every consumer runs. Or nothing ships in the first release and the run record stays the instrument. What argues for instrumenting at all is the fragment span: it would carry the logical nodes a fragment covered and the operator that ran them, which is where the pushdown boundary was drawn, and a trace can show that where a counter cannot. Against it: `PlanResult` already carries every plan, every attempt, the counters, and one usage record per model call, so a trace would restate what the caller is handed. | Whether a deployment can see inside a run without reading the returned result, and which package pays for it |
+| 41 | Is the bundle shape chosen to match one suite's operator signature? ADR-012 fixes a list of tables on both sides of an operator call, and no document says how much conversion the Blue adapter then needs ([06-library.md](06-library.md#the-adapters)). Two things are unsettled. Whether the alignment with the Blue operations is deliberate or incidental: if it is deliberate, the shape follows one suite and every other adapter pays the conversion, and if it is not, the shape is chosen for what a plan passes and the Blue adapter converts like any other. And what a callable invokes on the suite's side, which no document names either: a dependency's method name is a fact that goes stale, and naming it in two places is how two documents came to disagree about it. | Whether ADR-012's shape rests on a dependency's signature, and whether the Blue adapter is a pass-through |
+| 42 | Does anything here emit traces or logs of its own, and if so which package? [12-deployment-ops.md](12-deployment-ops.md#7-logging) fixes the library at standard-library logging with no handler configured, so an embedding application decides the format and the destination, and nothing in [05-software-stack.md](05-software-stack.md) declares a tracing dependency. Three routes. The adapters own it: the MCP package declares an exporter, emits structured JSON logs, and opens one span per tool request, leaving the library uninstrumented. The library owns it: spans cover each planning component, each operator call, and each model call, which is the only route that can show where a run's time and money went, at the price of a tracing dependency in `lib/` and an import in code every consumer runs. Or nothing ships in the first release and the run record stays the instrument. What argues for instrumenting at all is the fragment span: it would carry the logical nodes a fragment covered and the operator that ran them, which is where the pushdown boundary was drawn, and a trace can show that where a counter cannot. Against it: `PlanResult` already carries every plan, every attempt, the counters, and one usage record per model call, so a trace would restate what the caller is handed. | Whether a deployment can see inside a run without reading the returned result, and which package pays for it |

@@ -23,18 +23,17 @@ rather than a copy of the code.
 
 | Module | Holds |
 | --- | --- |
-| `blue_data_planner/__init__.py` | `__version__`, and nothing else. The public surface is the modules below it (ADR-016) |
-| `blue_data_planner/types/` | Every data class that crosses a module boundary: plans, nodes, fragments, operators, results, catalog readings, model usage, limits. Split across `errors.py`, `plan.py`, `catalog.py`, and `run.py`, re-exported by `__init__.py` as `blue_data_planner.types`. Imports nothing outside itself |
-| `blue_data_planner/validation.py` | `validate_logical_plan`, `validate_physical_plan`, and their error type |
-| `blue_data_planner/planner/logical_planner.py` | `LogicalPlanner` |
-| `blue_data_planner/planner/physical_planner.py` | `PhysicalPlanner` |
-| `blue_data_planner/planner/fragment_runner.py` | `FragmentRunner` |
-| `blue_data_planner/planner/catalog_searcher.py` | `CatalogSearcher` |
-| `blue_data_planner/planner/operator_router.py` | `OperatorRouter` |
-| `blue_data_planner/planner/data_planner.py` | `DataPlanner`, `build_data_planner` |
-| `blue_data_planner/planner/run_state.py` | `RunState` |
+| `blue_data_planner/__init__.py` | The run path in one import: `DataPlanner`, `build_data_planner`, `PlanResult`, `PlanLimits`, `RunStatus`, `BlueDataPlannerError`, and `__version__` |
+| `blue_data_planner/data_planner.py` | `DataPlanner`, `build_data_planner` |
+| `blue_data_planner/run_state.py` | `RunState` |
+| `blue_data_planner/logical_planner.py` | `LogicalPlanner` |
+| `blue_data_planner/physical_planner.py` | `PhysicalPlanner` |
+| `blue_data_planner/fragment_runner.py` | `FragmentRunner` |
+| `blue_data_planner/catalog_searcher.py` | `CatalogSearcher` |
+| `blue_data_planner/types/` | Every data class that crosses a module boundary: plans, nodes, fragments, operators, results, catalog readings, model usage, limits |
+| `blue_data_planner/plan/` | `validate_logical_plan`, `validate_physical_plan`, and `candidate_fragments` |
 | `blue_data_planner/execution/` | `execute_physical_operator`, `check_output_columns` |
-| `blue_data_planner/operators/` | One adapter per operator suite: `blue_operators` over `blue-data-ops`, `lotus_operators` over LOTUS |
+| `blue_data_planner/operators/` | `OperatorRouter`, and one adapter per operator suite: `blue_operators` over `blue-data-ops`, `lotus_operators` over LOTUS |
 | `blue_data_planner/data/` | The `blue-data` boundary, the three catalog readings, and opening a serialized registry |
 | `blue_data_planner/llm/` | `LLMClient`, usage accounting, prompt templating, error types |
 
@@ -78,7 +77,7 @@ owns is the loop.
 | `CatalogSearcher` | `llm_client`, `catalog`, `max_search_terms` | Turns an instruction into search terms and searches the registry |
 | `DataPlanner` | The four above, and `limits` | Creates the run state, schedules, chooses repairs, and assembles the result |
 
-Injecting the components is what lets a caller give the three stages different models, and what lets
+Injecting the components is what lets a caller give the three planning components different models, and what lets
 the run loop be tested against four fakes and no provider. Everything a caller injects arrives
 through a constructor; nothing is constructed in place, and nothing reads the environment.
 
@@ -131,29 +130,14 @@ def run(self, request: str) -> PlanResult:
 `None` means the request is not over. Every helper below returns `RunStatus | None` on that rule, so
 the loop reads as one condition rather than a set of flags.
 
-The one `try` in the library sits here. A provider that fails after the client's retries is neither
-a programming error nor malformed state, so it ends the request with a status like any other
-failure, and the plans, attempts, and usage the run had already accumulated come back with it.
-Catching it at the top of the loop rather than inside a stage is what keeps every stage free of
-provider handling.
+The one `try` in the library sits here rather than inside a component, which is what keeps every
+component free of provider handling. Why a provider failure ends the request with a status rather
+than an exception is under [Errors](#errors).
 
-```python
-def _run_pass(self, state: RunState) -> RunStatus | None:
-    work = state.next_ready()
-    if work is None:
-        return RunStatus.OK
-    if isinstance(work, PipelineNode):
-        return self._resolve_control_node(state, work)
-    result = self._fragment_runner.run(work, state.inputs_for(work), state.budget)
-    state.record_fragment(result)
-    if result.decision is RunDecision.CONTINUE:
-        return None
-    if result.decision is RunDecision.STOP:
-        return result.status
-    if result.decision is RunDecision.REPLAN:
-        return self._replan_after_failure(state, result.failure_reason)
-    return self._repair(state, work, result.failure_reason)
-```
+One pass takes what `next_ready` hands back and dispatches on it. A fragment goes to
+`FragmentRunner`, and its result is recorded whatever it says. A control node is resolved. A plan
+with nothing left ends the request as `ok`. The fragment's own `RunDecision` then says whether the
+pass continues, ends the request with the status the runner returned, replans, or goes to a repair.
 
 `next_ready` returns the next fragment whose frontier all has results, a control node whose inputs
 all have results, or `None` when the plan is finished. A union return is what lets one scheduler
@@ -177,77 +161,24 @@ A rejected fragment goes to the narrowest repair with attempts left
 never appears here, because `FragmentRunner` has already spent its attempts by the time it returns
 anything other than `continue`.
 
-```python
-def _repair(
-    self, state: RunState, fragment: PhysicalPlanFragment, reason: str | None
-) -> RunStatus | None:
-    node_ids = frozenset(fragment.logical_node_ids)
-    if state.fragment_attempts[node_ids] < self._limits.fragment_attempts:
-        state.fragment_attempts[node_ids] += 1
-        result = self._physical_planner.recover_fragment(
-            state.logical_plan, state.cover, node_ids, reason
-        )
-    elif state.cover_attempts < self._limits.cover_attempts:
-        state.cover_attempts += 1
-        result = self._physical_planner.cover(
-            state.logical_plan, state.current_results, reason
-        )
-    else:
-        return self._replan_after_failure(state, reason)
-    state.record_usage(result.usage)
-    if result.plan is None:
-        return self._replan_after_failure(state, result.failure_reason)
-    state.install_cover(result.plan)
-    return None
-```
+The order is fixed. While `fragment_attempts` has an attempt left for this node set, the physical
+planner covers that set again; then, while `cover_attempts` has one, it covers the whole plan again;
+then the run replans. Each step spends its attempt before asking, and a planner that comes back with
+no plan sends the run to the replan rather than ending it.
 
 Only the loop knows how many attempts each repair has left, which is why the choice sits here rather
 than in either planner. The two replan paths count separately, because a replan a control node asked
-for and a replan a failure forced are different events with different limits.
+for and a replan a failure forced are different events with different limits, and either returns
+`replan_exhausted` once its own bound is spent.
 
-```python
-def _replan_after_failure(self, state: RunState, reason: str | None) -> RunStatus | None:
-    if state.failure_replans >= self._limits.failure_replans:
-        return RunStatus.REPLAN_EXHAUSTED
-    state.failure_replans += 1
-    return self._plan_and_cover(state, reason)
+Resolving a control node searches the catalog when the node is `DISCOVER`, records what came back
+under the node's id, and returns to the logical planner against `control_replans`.
 
-
-def _resolve_control_node(self, state: RunState, node: PipelineNode) -> RunStatus | None:
-    if node.kind is ControlOperator.DISCOVER:
-        found = self._catalog_searcher.search(node, state.inputs_for_node(node))
-        state.record_usage(found.usage)
-        state.record_discovery(node.id, found.discovery)
-    if state.control_replans >= self._limits.control_replans:
-        return RunStatus.REPLAN_EXHAUSTED
-    state.control_replans += 1
-    return self._plan_and_cover(state, node.attributes["instruction"])
-```
-
-`_plan_and_cover` is the one path into both planners, used for the first plan, for every
-continuation, and for the cover that follows each.
-
-```python
-def _plan_and_cover(self, state: RunState, reason: str | None) -> RunStatus | None:
-    plan = self._logical_planner.generate(
-        state.request,
-        parent=state.logical_plan_or_none,
-        carried_node_ids=state.carried_node_ids(),
-        results=state.current_results,
-        reason=reason,
-    )
-    state.record_usage(plan.usage)
-    state.record_rejected_plans(plan.rejected)
-    if plan.plan is None:
-        return plan.status
-    state.install_logical_plan(plan.plan)
-    cover = self._physical_planner.cover(plan.plan, state.current_results)
-    state.record_usage(cover.usage)
-    if cover.plan is None:
-        return self._replan_after_failure(state, cover.failure_reason)
-    state.install_cover(cover.plan)
-    return None
-```
+One path leads into both planners, used for the first plan, for every continuation, and for the
+cover that follows each. The logical planner writes a plan from the request, the parent plan, the
+nodes carried over, the results the run holds, and the reason if there is one; a plan it could not
+write ends the request with its status. The physical planner then covers whatever was installed, and
+a cover it could not write sends the run to the replan.
 
 A logical plan no operator can cover is the `no_operator` case from
 [04](04-detailed-architecture.md#failures-that-skip-recovery). It goes straight back to the logical
@@ -257,7 +188,7 @@ planner without an operator call being spent.
 
 ## Shared types
 
-`types/` imports nothing outside itself, so `execution/`, `planner/`, and the adapters can
+`types/` imports nothing outside itself, so `execution/`, the planning components, and the adapters can
 share a vocabulary without importing each other.
 
 That rule fixes what belongs here, because a type `PlanResult` names has to be nameable by
@@ -273,25 +204,10 @@ each class answers for and the methods it carries.
 ### The plan
 
 ```python
-class LogicalOperator(str, Enum):
-    SCAN = "SCAN"
-    FILTER = "FILTER"
-    PROJECT = "PROJECT"
-    EXPAND = "EXPAND"
-    AGGREGATE = "AGGREGATE"
-    DISTINCT = "DISTINCT"
-    SORT_SUPERLATIVE = "SORT_SUPERLATIVE"
-    JOIN = "JOIN"
-    UNION = "UNION"
-    RETURN = "RETURN"
+class LogicalOperator(str, Enum): ...   # the ten, named in 10-data-model.md
+class ControlOperator(str, Enum): ...   # REPLAN, DISCOVER
 
-
-class ControlOperator(str, Enum):
-    REPLAN = "REPLAN"
-    DISCOVER = "DISCOVER"
-
-
-INPUT_ARITY: dict[LogicalOperator, int]  # SCAN 0, JOIN and UNION 2, every other 1
+INPUT_ARITY: dict[LogicalOperator, int]
 ```
 
 The ten logical operators are frozen. Adding one changes an interface every operator suite has to
@@ -330,7 +246,7 @@ operator parameters, and no result (ADR-008). All four are properties of a cover
 since all four can differ between passes over the same node.
 
 The three query methods read `nodes` and `input_node_ids` and nothing else, so a plan answers
-questions about its own shape without reaching into `planner/` or `execution/` (ADR-011). `node`
+questions about its own shape without reaching into a planning component or `execution/` (ADR-011). `node`
 raises on an unknown id rather than returning `None`. `consumers` is what the single-exit check
 reads and what invalidation walks. `nodes_in_dependency_order` puts every node behind the nodes it
 reads and raises on a cycle, so `to_dict` and `validate_logical_plan` share one traversal.
@@ -351,10 +267,7 @@ class PhysicalPlan:
 
 @dataclass
 class DataPipeline:
-    logical_plans: dict[str, LogicalPlan]
-    physical_plans: dict[str, PhysicalPlan]
-    current_logical_plan_id: str | None
-    current_physical_plan_id: str | None
+    ...
 
     @property
     def logical_plan(self) -> LogicalPlan: ...
@@ -380,27 +293,14 @@ strict and exists for reading a recorded plan back, not for running one
 
 ### A physical operator
 
-```python
-@dataclass(frozen=True)
-class PhysicalOperator:
-    operator_id: str  # suite-qualified: "blue.nl2sql", "lotus.sem_filter"
-    logical_operators: frozenset[LogicalOperator]
-    description: str
-    parameter_schema: type[BaseModel]
-    call: Callable[[DataBundle, dict[str, Any]], DataBundle]
-    source_kinds: frozenset[str] | None = None
-    accepts_bound_inputs: bool = False
-    limitations: str | None = None
-```
-
-One candidate implementation, as the router holds it and as both the physical planner and the
+`PhysicalOperator` is one candidate implementation, as the router holds it and as both the physical planner and the
 fragment runner read it. `logical_operators` is the whole matching rule: candidate fragments are the
 connected, convex subgraphs built from nodes whose kind is in that set, and `source_kinds` then
 constrains which sources the scans in such a fragment may be bound to
 ([10](10-data-model.md#a-physical-operator)).
 
 A single-member set means the operator can only ever cover one node. `description` and `limitations`
-carry the weight in the physical planner's prompt, since the parameter schema is what a later stage
+carry the weight in the physical planner's prompt, since the parameter schema is what a later component
 fills rather than what tells two candidates apart.
 
 `parameter_schema` is a Pydantic model rather than a JSON schema dict, because it is passed to the
@@ -425,14 +325,7 @@ outside itself, so a type it uses cannot live below it, and `ExecutionResult` an
 ```python
 @dataclass(frozen=True)
 class PlanLimits:
-    operator_calls: int
-    plan_corrections: int
-    parameter_attempts: int
-    fragment_attempts: int
-    cover_attempts: int
-    failure_replans: int
-    control_replans: int
-    search_terms: int
+    ...   # one field per bound in the table below
 
 
 class CallBudget:
@@ -448,8 +341,8 @@ Every bound the system obeys is a field of `PlanLimits`, and it is set once, whe
 built. Nothing overrides one per request, so a planner configured for a benchmark run and a planner
 configured for an interactive session are two objects rather than one object called two ways.
 
-Five of the eight are counted by the run loop. The other three bound a loop inside a component, and
-`build_data_planner` hands each of those components its own number.
+Four of the eight are counted by the run loop and one by the call budget. The other three bound a
+loop inside a component, and `build_data_planner` hands each of those components its own number.
 
 | Bound | Enforced by |
 | --- | --- |
@@ -473,59 +366,22 @@ enums that travel in them are fixed in
 statuses rather than exceptions, so a failed run is as inspectable as a successful one and one
 structure serves every adapter (ADR-015).
 
-```python
-class RunStatus(str, Enum):
-    OK = "ok"
-    PLANNED = "planned"
-    INVALID_PLAN = "invalid_plan"
-    REPLAN_EXHAUSTED = "replan_exhausted"
-    BUDGET_EXHAUSTED = "budget_exhausted"
-    OPERATOR_FAILED = "operator_failed"
-    LLM_FAILED = "llm_failed"
-```
-
-`planned` is what `plan` returns, and `llm_failed` is what a provider that fails after retries
-returns. Neither is reachable from a stage: `LogicalPlanResult` and `FragmentResult` carry a
+`RunStatus` has one member per way a request can end, and
+[09-api-interface-spec.md](09-api-interface-spec.md#errors) lists them against what each means to a
+caller. `planned` is what `plan` returns, and `llm_failed` is what a provider that fails after retries
+returns. Neither is reachable from a component: `LogicalPlanResult` and `FragmentResult` carry a
 `RunStatus` too, and both belong to the run loop.
 
-The four per-stage result types never leave the process. `DataPlanner` reads each one, records what
+The four per-component result types never leave the process. `DataPlanner` reads each one, records what
 it holds on the run state, and moves on.
 
-```python
-@dataclass(frozen=True)
-class LogicalPlanResult:
-    status: RunStatus  # ok, or invalid_plan when the corrections ran out
-    plan: LogicalPlan | None
-    rejected: list[RejectedPlan]
-    usage: list[LLMUsage]
+They are `LogicalPlanResult`, `PhysicalPlanResult`, `FragmentResult`, and `CatalogSearchResult`, and
+[10, what each component returns](10-data-model.md#what-each-component-returns) fixes their fields.
 
-
-@dataclass(frozen=True)
-class PhysicalPlanResult:
-    plan: PhysicalPlan | None  # None exactly when a node has no operator
-    failure_reason: str | None
-    usage: list[LLMUsage]
-
-
-@dataclass(frozen=True)
-class FragmentResult:
-    status: RunStatus
-    decision: RunDecision
-    attempts: list[FragmentAttempt]  # rejected ones included, in order
-    failure_reason: str | None
-    usage: list[LLMUsage]
-
-
-@dataclass(frozen=True)
-class CatalogSearchResult:
-    discovery: DiscoveryResult
-    usage: list[LLMUsage]
-```
-
-Each stage returns what it did instead of writing it down as it goes, so a stage that raises cannot
+Each component returns what it did instead of writing it down as it goes, so one that raises cannot
 leave a half-written record behind and the run state keeps one writer. Model usage follows the same
-rule: every stage reports what its own calls cost, and `DataPlanner` appends each list to the run in
-the order the stages ran.
+rule: every component reports what its own calls cost, and `DataPlanner` appends each list to the
+run in the order they ran.
 
 `CatalogSearchResult` exists because `DiscoveryResult` goes into the run's results map and reaches
 the caller inside `PlanResult.results`. Usage carried there would be counted twice, so the search
@@ -533,13 +389,18 @@ returns a pair: what it found, and what finding it cost.
 
 One thing is accumulated rather than returned. `CallBudget` is billed inside
 `execute_physical_operator`, and it has to keep its count when a fragment raises, so it travels as
-an argument. `FragmentRunner` catching `BudgetExhaustedError` is the same concern from the other
-side: the attempts already made and their usage are the record of what the runner was doing when the
-request ended, and they are returned rather than lost.
+an argument. `FragmentRunner` catches `BudgetExhaustedError` for the same reason, from the other
+side.
 
 ---
 
-## Validation
+## `plan/`
+
+Everything that can be answered about a plan without a model, a source, or an operator call. The
+module imports only `types/`, so a check and an enumeration are testable with a plan and nothing
+else.
+
+### Checking a plan
 
 ```python
 def validate_logical_plan(
@@ -548,13 +409,11 @@ def validate_logical_plan(
 
 
 def validate_physical_plan(plan: LogicalPlan, physical_plan: PhysicalPlan) -> None: ...
-
-
-class PlanValidationError(BlueDataPlannerError): ...
 ```
 
-Both raise rather than return, and both run before anything is executed. `validation.py` imports
-only `types/`.
+Both raise rather than return, and both run before anything is executed. What they raise is
+`PlanValidationError`, which is in `types/errors.py` with every other exception this library
+defines.
 
 `validate_logical_plan` enforces the plan rules ([10-data-model.md](10-data-model.md#1-the-plan))
 and `validate_physical_plan` the fragment and cover rules
@@ -571,9 +430,29 @@ not fail loudly on its own: a fragment whose non-root node is read from outside 
 waiting for a table nobody produces, which shows up as a run that stops making progress rather than
 as an error.
 
+### Enumerating candidate fragments
+
+```python
+def candidate_fragments(
+    plan: LogicalPlan, root_node_id: str, logical_operators: frozenset[LogicalOperator]
+) -> list[frozenset[str]]: ...
+```
+
+Every node set rooted at `root_node_id` that an operator declaring `logical_operators` could cover:
+built only from nodes whose kind is in that set, and satisfying the fragment rules
+([04, what a fragment may be](04-detailed-architecture.md#what-a-fragment-may-be)). The singleton is
+in the list whenever the root's own kind is in the set, so an operator covering one node and an
+operator covering six come out of the same call.
+
+Enumeration is graph work and pairing a node set with an operator is a planning decision, so this
+returns node sets and the physical planner does the pairing. It reads no operator and no catalog,
+which is what lets the shape of every candidate over a given plan be asserted without a model.
+
 ---
 
-## `planner/`
+## The components
+
+The three planning components, the discovery step, and the state the run loop writes.
 
 ### `LogicalPlanner`
 
@@ -663,8 +542,9 @@ with its node set intact, which is what lets the results of those fragments surv
 the model weighs when it considers absorbing that node into a wider fragment ([04, the cover
 repair](04-detailed-architecture.md#the-cover-repair)).
 
-Inside, the planner works top down from the root of the plan. For each uncovered node it enumerates
-the candidate fragments rooted there, one per matching operator per subgraph, and a model picks one.
+Inside, the planner works top down from the root of the plan. For each uncovered node it asks
+`candidate_fragments` for the node sets each operator the router offers could cover, pairs each set
+with that operator, and a model picks one.
 The response schema is built from that call's own candidates, so a candidate set with no `SCAN` has
 no field in which to name a source, and where a scan does appear the catalog's paths are the allowed
 values. `plan` is `None` exactly when some node has no candidate at all, alone or in any fragment
@@ -696,25 +576,21 @@ request between calls and a test builds a fragment, some rows, a catalog double,
 
 For one fragment it loops until a result is accepted or the parameter attempts run out.
 
-1. Resolve `fragment.operator_id` through the router.
-2. Describe each input table: its row count, and for every column its name, its type, and a sample
-    of values. Then annotate the columns that resolve to a catalog record with their `ColumnView`.
-    One list per table, annotated in place, so a column the catalog has never seen still appears
-    with what the rows show.
-3. Write the operator's parameters, constrained by its `parameter_schema`, as structured output.
-4. Call `execute_physical_operator` with the operator, the parameters, the inputs, the root's
-    declared output columns, and the budget. This is the only place an operator is invoked. An
-    unrecoverable failure returns `decision=stop` with `status=operator_failed` and no review turn,
-    since no other operator would avoid the same failure.
-5. Review the result. The review sees the fused instruction, the operator's description, the
-    instructions of every node the fragment absorbed, and a sample of the result.
-6. On `accept`, return `decision=continue`. On `reject`, spend an attempt and go back to step 3. On
-    `replan`, return `decision=replan` with the review's assessment as the failure reason. Out of
-    attempts, return `decision=escalate`.
+It resolves the fragment's operator id through the router, describes the input tables and the views
+of whatever columns resolve to a catalog record, writes the operator's parameters against its
+`parameter_schema`, calls `execute_physical_operator`, and reviews what came back. What the runner
+puts in front of the model at each turn is fixed in
+[10, what the fragment runner reads](10-data-model.md#what-the-fragment-runner-reads).
 
-Steps 3 and 5 are turns in one conversation, so the review sees what was written and why. Every
-attempt runs against the same `inputs`, read once by the caller, so a reduction one attempt achieved
-cannot compound into the next.
+A review that accepts ends the loop with `decision=continue`. One that rejects spends an attempt and
+the parameters are written again; one that asks for a replan returns `decision=replan` with its
+assessment as the failure reason; running out of attempts returns `decision=escalate`. An
+unrecoverable operator failure returns `decision=stop` with `status=operator_failed` and no review
+turn at all, since no other operator would avoid the same failure.
+
+Writing the parameters and reviewing the result are turns in one conversation, so the review sees
+what was written and why. Every attempt runs against the same `inputs`, read once by the caller, so
+a reduction one attempt achieved cannot compound into the next.
 
 `run` catches `BudgetExhaustedError` for one reason: a budget that runs out mid-fragment would
 otherwise take with it every attempt already made, and those attempts and their usage are the record
@@ -745,55 +621,18 @@ into concrete search terms, capped at `max_search_terms`, and each term goes to
 found, and how many terms the cap dropped. It is kept under the node's id in the run's results map
 and read by the logical planner when it writes the continuation.
 
-This is not a fourth stage. Its output is catalog records rather than rows, it enters no data flow,
+It carries out no planning stage. Its output is catalog records rather than rows, it enters no data
+flow,
 and no operator call is spent ([04](04-detailed-architecture.md#resolving-a-discovery-node)). It
 takes `inputs` because an instruction such as "find press release documents for each company in the
 input" expands into one term per company.
-
-### `OperatorRouter`
-
-```python
-class OperatorRouter:
-    def register(self, operator: PhysicalOperator) -> None: ...
-    def operators_for(self, logical_op: LogicalOperator) -> list[PhysicalOperator]: ...
-    def resolve(self, operator_id: str) -> PhysicalOperator: ...
-```
-
-Lookup, and nothing more. `register` rejects a repeated `operator_id`. `operators_for` returns every
-registered operator declaring that logical operator, in registration order, and is what the physical
-planner reads while it enumerates candidates. `resolve` turns a cover's recorded `operator_id` back
-into the operator, and raises on an id nothing registered; the fragment runner is its only caller.
-
-There is no startup coverage check, asking whether every logical operator has at least one
-implementation registered. Fragments make that question weaker than it looks: an operator declaring
-`DISTINCT` alongside SQL sources does not make a `DISTINCT` node over rows that arrived from another
-fragment runnable, so passing the check proves nothing about any particular node. The question that
-matters is asked per node, by the physical planner, and answered as `no_operator`, which returns to
-the logical planner without spending an operator call
-([04](04-detailed-architecture.md#failures-that-skip-recovery)).
-
-Only the router is read while planning, never `OperatorRegistry` (ADR-009). The two answer different
-questions and use different id formats: a registry operator id is the operator's `name`, an `@`, and
-a version, such as `select@2.0.0`; a router id is suite-qualified, such as `blue.select`. The
-adapter that produces a `PhysicalOperator` from a registry class is the only thing holding the two
-in agreement.
 
 ### `RunState`
 
 ```python
 @dataclass
 class RunState:
-    request: str
-    budget: CallBudget
-    pipeline: DataPipeline
-    results: dict[str, dict[str, ExecutionResult | DiscoveryResult]]
-    attempts: list[FragmentAttempt]
-    rejected_plans: list[RejectedPlan]
-    planner_usage: list[LLMUsage]
-    fragment_attempts: dict[frozenset[str], int]
-    cover_attempts: int
-    failure_replans: int
-    control_replans: int
+    ...
 
     @property
     def logical_plan(self) -> LogicalPlan: ...
@@ -816,7 +655,7 @@ class RunState:
 ```
 
 The one mutable object per request. `DataPlanner` creates it, `DataPlanner` alone writes to it, and
-`to_result` freezes it into the `PlanResult` a caller receives. No stage holds it: each takes what
+`to_result` freezes it into the `PlanResult` a caller receives. No component holds it: each takes what
 it reads and returns what it produced, which is what keeps the four components carrying nothing
 about a request between calls. It holds no `PlanLimits`, because the bounds belong to the planner
 rather than to one run of it; the loop reads them off itself.
@@ -867,7 +706,7 @@ map copy rather than a data copy.
 ## `execution/`
 
 The single place any operator is invoked. It imports no model client, no registry, no router, and
-nothing in `planner/`.
+no planning component.
 
 ```python
 def execute_physical_operator(
@@ -886,18 +725,11 @@ def check_output_columns(
 ) -> ExecutionResult: ...
 ```
 
-`execute_physical_operator` does four things in order.
-
-1. Validates `parameters` against `operator.parameter_schema`. A failure here is a bug rather than a
-    spent call, since the runner wrote them under that same schema, so it raises and the budget is
-    not touched.
-2. Bills one operator call. An exhausted budget raises `BudgetExhaustedError`, which the runner
-    catches.
-3. Invokes `operator.call` on the bundle it was handed. A Blue operator takes that bundle as it
-    stands; a LOTUS operator converts at its own edge (ADR-012).
-4. Runs `check_output_columns` against the declared columns it was handed, matching the declared
-    names and coercing each column to the type declared beside it. A missing or uncoercible column
-    is a recoverable failure ([10](10-data-model.md#declared-output-columns)).
+`execute_physical_operator` validates the parameters against the operator's schema, bills one
+operator call, invokes the operator on the bundle it was handed, and checks the result with
+`check_output_columns` against the declared columns, coercing each to its declared type. A missing
+or uncoercible column is a recoverable failure
+([10](10-data-model.md#declared-output-columns)).
 
 The two orderings are deliberate. The parameter check runs before the billing, because the runner
 wrote the parameters under that same schema, so a mismatch is a bug rather than a spent call. The
@@ -919,8 +751,40 @@ because writing parameters and reviewing a result both belong to the runner (ADR
 ## `operators/`
 
 No operator is written here. `blue-data-ops` owns the Blue operators, the abstract `Operator`, and
-the `OperatorRegistry` that versions them; LOTUS owns its own. This module holds one adapter per
-suite, and an adapter is the only place either dependency is imported.
+the `OperatorRegistry` that versions them; LOTUS owns its own. This module holds the router and one
+adapter per suite, and an adapter is the only place either dependency is imported.
+
+`__init__.py` re-exports `OperatorRouter` alone, and an adapter is imported from the module named
+for its suite. Importing the router therefore loads no suite, which matters because an adapter
+imports its suite at module import time.
+
+### `OperatorRouter`
+
+```python
+class OperatorRouter:
+    def register(self, operator: PhysicalOperator) -> None: ...
+    def operators_for(self, logical_op: LogicalOperator) -> list[PhysicalOperator]: ...
+    def resolve(self, operator_id: str) -> PhysicalOperator: ...
+```
+
+Lookup, and nothing more. `register` rejects a repeated `operator_id`. `operators_for` returns every
+registered operator declaring that logical operator, in registration order, and is what the physical
+planner reads while it enumerates candidates. `resolve` turns a cover's recorded `operator_id` back
+into the operator, and raises on an id nothing registered; the fragment runner is its only caller.
+
+There is no startup coverage check, asking whether every logical operator has at least one
+implementation registered. Fragments make that question weaker than it looks: an operator declaring
+`DISTINCT` alongside SQL sources does not make a `DISTINCT` node over rows that arrived from another
+fragment runnable, so passing the check proves nothing about any particular node. The question that
+matters is asked per node, by the physical planner, and answered as `no_operator`, which returns to
+the logical planner without spending an operator call
+([04](04-detailed-architecture.md#failures-that-skip-recovery)).
+
+Only the router is read while planning, never `OperatorRegistry` (ADR-009). The two answer different
+questions and use different id formats: a registry operator id is the operator's `name`, an `@`, and
+a version, such as `select@2.0.0`; a router id is suite-qualified, such as `blue.select`. The
+adapter that produces a `PhysicalOperator` from a registry class is the only thing holding the two
+in agreement.
 
 ### What an adapter reads
 
@@ -970,19 +834,20 @@ def lotus_operators() -> list[PhysicalOperator]: ...
 ```
 
 Each adapter returns its `PhysicalOperator` values, and whoever assembles the planner registers what
-comes back (ADR-009). Naming `OperatorRouter` in a public signature would require importing it,
-whether or not the import sits behind `TYPE_CHECKING`, so an adapter that registered its own
-operators would make `operators/` import `planner/`. Returning a list keeps that import out.
+comes back. An adapter sits beside the router and could register into it directly; returning a list
+is kept because it makes an adapter's whole result assertable in one test, and because it leaves
+which suites a deployment offers to whoever assembles the planner rather than to the adapter.
 
 Nothing else changes when a suite is added. The physical planner builds its candidates from the
 router while it covers a plan, so a newly registered operator competes for every fragment its
 declaration allows without a code or prompt edit.
 
-The Blue adapter converts no data: a `DataBundle` is what the Blue operations take and return, so a
-callable validates parameters, invokes the operation, and maps errors (ADR-012). The LOTUS adapter
-converts at its own edge, building one data frame per table going in and flattening coming out, and
-imports LOTUS inside the callable rather than at module import time, so the package imports with
-LOTUS absent and the router simply gains no LOTUS operators (ADR-004).
+Every callable validates parameters, invokes the operation, and maps errors, converting between the
+bundle and its own suite's shape wherever the two differ (ADR-012). How much conversion the Blue
+adapter needs is open question 41 in [13-decision-log.md](13-decision-log.md#open-questions). The
+LOTUS adapter converts at its own edge, building one data frame per table going in and flattening
+coming out, and imports LOTUS inside the callable rather than at module import time, so the package
+imports with LOTUS absent and the router simply gains no LOTUS operators (ADR-004).
 
 ---
 
@@ -1060,22 +925,15 @@ Three readings of the same registry, one per caller, all fixed in
 `DataCatalog` selects and renders what `blue-data` has already collected and enriched. It profiles
 no column, samples no table, and infers no type of its own, so a `ColumnView` is a projection rather
 than a computation: it pairs an attribute's stored `stats` and `value_semantics` with its
-description. What belongs to this repository is the choice of what each stage sees, which is prompt
+description. What belongs to this repository is the choice of what each component sees, which is prompt
 shaping.
 
-| What a stage needs | Where `blue-data` already has it |
-| --- | --- |
-| Sources, databases, collections, entities, attributes | The per-level getters on the registry |
-| Descriptions written during enrichment | `get_source_description` and its per-level counterparts |
-| Sample values, distinct and null counts, min and max | The `stats` property filled by stats collection |
-| Whether a column holds short codes rather than readable words | The `value_semantics` property, whose semantic types include `ENUM_CATEGORY`, `CODE`, and `POSTAL_CODE` |
-| Finding a source nobody named | The registry's ranked record search |
+Each reading is assembled from what the registry already holds: the levels of the catalog, the
+descriptions enrichment wrote, the per-column statistics collection filled, whatever the registry
+records about how a column's values are spelled, and its own ranked record search.
 
-Two consequences follow. Planning quality depends on whether a source has been enriched, and a
-source that never was renders with names and kinds alone, which planning still works with. And the
-ranked search combines keyword match, value match, and vector similarity, but vector similarity
-needs a vector source and an embedding function; a file-backed registry without them ranks on the
-other two signals.
+One consequence follows. Planning quality depends on whether a source has been enriched, and a
+source that never was renders with names and kinds alone, which planning still works with.
 
 ### Which column gets a view
 
@@ -1087,7 +945,7 @@ so a column with no view still reaches the prompt with its name, its type, and i
 and only the catalog's whole-column statistics are missing. That is what keeps an operator-generated
 column from reading as a column that does not exist.
 
-Which columns resolve is not settled. `fragment.scan_sources` names an entity path for each `SCAN`
+Which columns resolve is not settled. `fragment.scan_sources` names a catalog path for each `SCAN`
 in the fragment, so a column of a table the fragment itself scans is that path plus the column name.
 A column arriving on the frontier is harder: resolving it means tracing back through the cover to
 whichever fragment scanned it, which can be done for the fragment kinds that leave columns unchanged
@@ -1137,12 +995,12 @@ class Conversation:
 def complete_structured(self, conversation: Conversation, response_model: type[M]) -> M: ...
 ```
 
-The conversation is what makes two of the design's patterns work. The logical planner appends a
-validation error and asks again. The fragment runner writes parameters and then reviews the result
-in the same exchange, so the review sees what was written and why.
+The conversation is what makes two of the design's patterns work: the logical planner appends a
+validation error and asks again, and the fragment runner reviews a result in the exchange that wrote
+its parameters.
 
-It also carries the usage, which is what lets a stage report what its calls cost without an
-out-parameter: the stage reads `conversation.usage` when it builds its result. A stage making
+It also carries the usage, which is what lets a component report what its calls cost without an
+out-parameter: the component reads `conversation.usage` when it builds its result. One making
 several exchanges concatenates them. There is no accumulator class, since a total is a `sum()` over
 the list.
 
@@ -1150,8 +1008,7 @@ the list.
 says so. A model call an operator makes internally, as a LOTUS operator does, is invisible here:
 LOTUS holds its own model configuration, is not routed through `llm/`, and reports no per-call token
 count, so the call is billed as part of the one operator call that contains it
-([05-software-stack.md](05-software-stack.md#two-model-configurations-one-budget)). What a run spent
-on planning is exact; what it spent inside operators is a call count.
+([05-software-stack.md](05-software-stack.md#two-model-configurations-one-budget)).
 
 An async twin exists for parallel provider calls, and is the library's one departure from being
 synchronous ([08-coding-style.md](08-coding-style.md)). Prompts are written by hand and versioned in
@@ -1183,59 +1040,13 @@ anything else reaches the interface boundary as the bug it is (ADR-015).
 `LLMError` is the one failure caught at the top of the run loop rather than by the component that
 provoked it. A provider outage is neither a programming error nor malformed state, so 04's rule
 applies and it becomes a status, `llm_failed`, alongside `operator_failed`. Catching it there rather
-than in each stage is what keeps provider handling out of all four components, and what lets the run
+than in each component is what keeps provider handling out of all four, and what lets the run
 return everything it had already accumulated.
 
 ---
 
 ## Using it
 
-```python
-from blue_data_planner.operators import blue_operators, lotus_operators
-from blue_data_planner.planner import OperatorRouter, build_data_planner
-from blue_data_planner.types import LogicalOperator, PlanLimits
-
-router = OperatorRouter()
-for operator in blue_operators(registry, data_registry):
-    router.register(operator)
-for operator in lotus_operators():  # empty when LOTUS is not installed
-    router.register(operator)
-
-planner = build_data_planner(
-    router=router, catalog=catalog, llm_client=client, limits=PlanLimits(...)
-)
-result = planner.run(
-    "Which Bay Area data scientist postings are at healthcare companies?"
-)
-
-result.status  # RunStatus.OK
-result.answer  # the rows
-result.attempts  # every fragment run, rejected ones included, in order
-result.counters["operator_calls"]  # what the run spent on operators
-sum(call.cost for call in result.planner_usage)  # what planning cost
-```
-
-Where each pushdown boundary was drawn is read off the cover, and every earlier cover is still there
-beside it:
-
-```python
-cover = result.pipeline.cover
-[(f.operator_id, f.logical_node_ids) for f in cover.fragments]
-# [("tablesuite.nl2sql", ["n1", "n2", "n3"]), ("textsuite.semantic_filter", ["n4"])]
-```
-
-Planning without spending anything is the same call with a different name:
-
-```python
-explained = planner.plan("Which Bay Area data scientist postings are at healthcare companies?")
-explained.status  # RunStatus.PLANNED
-explained.answer  # None
-```
-
-The operators registered for one logical operator are what the physical planner builds its
-candidates from, so registering a suite is the whole of adding it:
-
-```python
-[op.operator_id for op in router.operators_for(LogicalOperator.FILTER)]
-# ["tablesuite.select", "tablesuite.nl2sql", "textsuite.semantic_filter"]
-```
+Assembling a planner, running a request, and reading a cover off the result are shown end to end in
+[09, assembly](09-api-interface-spec.md#assembly) and in
+[02-scenarios.md](02-scenarios.md#scenario-3-embedding-the-planner-in-an-application).

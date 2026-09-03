@@ -110,7 +110,6 @@ one such record per call, which is what a caller reads to convert a call count i
 | Package | `blue-data`, installed from the internal source |
 | Types used | `DataRegistry`, `DataSource`, and the registry's ranked record search |
 | Properties read | The descriptions enrichment wrote, and the statistics and value semantics collected per column |
-| Typing | `blue-data` ships no `py.typed`, so its imports carry a pyright ignore at this boundary and delegate through `Any` |
 | Storage backends | Chosen by installing a `blue-data` extra: `postgres`, `mysql`, `mongodb`, `neo4j`, `redis`, `chromadb` |
 
 Which backend a deployment installs is a `blue-data` decision, not one this repository makes. No
@@ -120,17 +119,16 @@ storage driver appears in any `pyproject.toml` here.
 
 ## Data in flight
 
-A fragment passes a list of tables, each a plain list of row dicts (ADR-012). Nothing in `planner/`,
-`execution/`, or the plan types imports a data frame library.
+A fragment passes a list of tables, each a plain list of row dicts (ADR-012). Nothing in the planning
+components, `execution/`, or the plan types imports a data frame library.
 
 | Library | Where it is used | Required |
 | --- | --- | --- |
-| `pandas` | Inside the LOTUS adapter only, one frame built per table going in and flattened coming out | Arrives with `blue-data`, and with LOTUS |
-| `numpy` | Reached only through `blue-data-ops` operators | Arrives with `blue-data` |
+| `pandas` | Inside the LOTUS adapter only, one frame built per table going in and flattened coming out | Declared by the `lotus` extra, not by the library |
+| `numpy` | Reached only through `blue-data-ops` operators | Declared by neither |
 
-`blue-data` requires `pandas` and `numpy`, so both are present in every install regardless of the
-extras. What the rule in ADR-012 buys is therefore a shape that belongs to no suite and readable
-intermediate results, rather than a smaller install.
+What the rule in ADR-012 buys is a row shape belonging to no suite and readable intermediate
+results. Whether a data frame library reaches an install at all is a dependency's decision.
 
 ---
 
@@ -162,23 +160,22 @@ operation by name and parameters.
 | Configuration loading | `python-dotenv` |
 
 Click matches `platform/cli/` in the sibling Blue repositories, and Rich renders the per-fragment
-progress table and the result rows that [02-scenarios.md](02-scenarios.md) shows. This is a stated
-departure from `.github/instructions/python.instructions.md`, which prescribes `argparse`: that rule
-covers scripts, and a shipped multi-command CLI is the case it does not cover.
+progress table and the result rows that [02-scenarios.md](02-scenarios.md) shows.
 
 ### MCP server
 
 | Concern | Choice |
 | --- | --- |
-| Library | `mcp`, pinned below 2.0 |
-| Transport | Streamable HTTP, bound to loopback by default |
+| Library | `mcp` |
+| Transport | stdio, so a client launches the server as a subprocess |
 | Configuration loading | `python-dotenv` |
 
-The pin below 2.0 is deliberate: `mcp` 2.0 renamed `mcp.server.fastmcp.FastMCP`, so staying on 1.x
-keeps the import path the server code uses.
+The server needs a library that registers a tool with a decorator and runs over stdio. Which
+version an install pins is in [12-deployment-ops.md](12-deployment-ops.md#2-installation).
 
-The server takes its host, port, and path as arguments and reads everything else from the
-environment; [12-deployment-ops.md](12-deployment-ops.md) lists those settings.
+The server reads what it needs from the environment, which
+[12-deployment-ops.md](12-deployment-ops.md#4-configuration) lists, and has no host, port, or path
+of its own.
 
 ### REST API
 
@@ -197,7 +194,7 @@ injected values. `.env` files are never committed.
 | Variable | Read by | For |
 | --- | --- | --- |
 | `OPENAI_API_KEY` | litellm, through `llm/` | The five planner calls above, and LOTUS operations |
-| `BLUE_DATA_PLANNER_MODEL` | The adapter, passed to `llm/` | The default litellm model string for the planning stages |
+| `BLUE_DATA_PLANNER_MODEL` | The adapter, passed to `llm/` | The default litellm model string for every component that calls a model |
 | `BLUE_DATA_REGISTRY_*` | The adapter, passed to `data/` | Which registry and store the run reads |
 
 The full list of settings and their defaults belongs to
@@ -208,18 +205,9 @@ of the four repairs, and the caps on plan corrections and discovery search terms
 
 ## Quality check
 
-| Gate | Tool | Settings |
-| --- | --- | --- |
-| Tests | `pytest` | `testpaths = ["tests/unit"]`, coverage reported per run |
-| Async tests | `pytest-asyncio` | `asyncio_mode = "auto"` |
-| Recorded model responses | `pytest-recording` | Cassettes for prompt-sensitive behavior, re-recorded when a prompt changes materially |
-| Coverage | `pytest-cov` | Reported against `src` |
-| Lint and import order | `ruff` | Line length 100, rules `E`, `F`, `I`, `UP` |
-| Types | `pyright` | Strict mode, with `tests/stubs` on the resolution path |
-
-Heavy optional dependencies are stubbed in `lib/tests/stubs/` so the default suite runs without
-litellm or LOTUS installed. I/O boundaries are replaced with in-memory doubles in
-`lib/tests/doubles/`. What each tier covers is [11-testing-strategy.md](11-testing-strategy.md).
+The gates are `pytest` with `pytest-asyncio`, `pytest-recording`, and `pytest-cov`, then `ruff`,
+then `pyright`. How each is configured is in [08-coding-style.md](08-coding-style.md), and what each
+test tier covers is in [11-testing-strategy.md](11-testing-strategy.md).
 
 ---
 
@@ -255,7 +243,7 @@ has the files and which script writes each one.
 | `tenacity` | `lib/` | Required | Retry with backoff around model calls |
 | `jinja2` | `lib/` | Required | Prompt templating |
 | `lotus-ai` | `lib/` | `lotus` extra | The first outside operator suite |
-| `mcp` | `platform/mcp/` | Required, pinned below 2.0 | MCP server |
+| `mcp` | `platform/mcp/` | Required | MCP server |
 | `click` | `platform/cli/` | Required | CLI command routing |
 | `rich` | `platform/cli/` | Required | CLI output formatting |
 | `python-dotenv` | `platform/*` | Required | Loads `.env` at adapter startup |

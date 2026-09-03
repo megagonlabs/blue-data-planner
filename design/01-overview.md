@@ -96,20 +96,13 @@ planning tool.
 
 ## Design philosophy
 
-Three questions are kept apart because they fail apart. What the request asks for, how much of it
-one operator should take on, and what parameters that operator runs with are decided by different
-stages against different information, and each is recorded separately. A wrong value in a parameter
-is then repaired by writing the parameter again, and the plan above it stands.
-
-That separation is what a logical node is for. It says what a step is for and nothing about how to
+The three questions are decided separately, and what a logical node carries follows from that. It says what a step is for and nothing about how to
 carry it out: one instruction in plain language, no source, no operator, and none of the parameters
 an implementation would need. All of those belong to a particular attempt, and all can differ
 between attempts at the same node.
 
-A plan is a typed structure that can be stored, read back, and checked. So are the groupings laid
-over it, each fragment's inputs and outputs, and every failure reason. Nothing that matters about a
-run exists only as formatted prose. Plans are never edited in place: a repair adds a new version, so
-what ran earlier stays readable exactly as it ran.
+Plans are never edited in place: a repair adds a new version, so what ran earlier stays readable
+exactly as it ran.
 
 The planner never quietly ignores malformed state or missing required values. Failures it is meant
 to recover from, such as invalid operator parameters or a result that does not hold up, are recorded

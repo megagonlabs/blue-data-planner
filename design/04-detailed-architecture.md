@@ -55,6 +55,9 @@ can be found and repaired on its own ([section 5](#5-recovering-from-a-failure))
 | Physical planning | How much of the plan does each operator take on, and against which source | `PhysicalPlanner` | The plan, what each operator declares, and what the catalog holds | Once per pass, over the whole plan |
 | Fragment execution | What parameters does it run with, and was the result any good | `FragmentRunner` | The rows its inputs produced | Once per fragment, during execution |
 
+A stage is a step of planning; the component beside it is the class that carries the step out, and
+the three together are the planning components.
+
 The first two stages run before anything executes. The third runs during execution, so it is the
 only stage that sees data.
 
@@ -515,22 +518,13 @@ decides whether these repairs apply at all.
 
 ## Budgets and limits
 
-Eight limits bound a request. Each is fixed when the planner is built, counted per request, and
-reported in the result whether the run succeeded or not. ADR-014 covers which of them is budgeted
+Eight limits bound a request. Each is fixed when the planner is built, counted at the scope its row
+below gives, and reported in the result whether the run succeeded or not. ADR-014 covers which of them is budgeted
 and why, and [06-library.md](06-library.md#budgets-and-limits) says which component enforces each.
 
-| Limit | Counts | Reached when |
-| --- | --- | --- |
-| `operator_calls` | Calls through `execute_physical_operator`, re-executions included | Request ends with `budget_exhausted` |
-| `plan_corrections` | Regenerations of one plan after a failed validation | Request ends with `invalid_plan` |
-| `parameter_attempts` | Parameter repairs: parameter writings for one fragment | The run moves on to the fragment repair |
-| `fragment_attempts` | Fragment repairs: covers of one node set | The run moves on to the cover repair |
-| `cover_attempts` | Cover repairs: covers of the whole plan after a failure | The run moves on to the replan |
-| `failure_replans` | Replans after a failure | Request ends with `replan_exhausted` |
-| `control_replans` | Returns to the logical planner from a `REPLAN` or `DISCOVER` node | Request ends with `replan_exhausted` |
-| `search_terms` | Terms one `DISCOVER` node expands into | The remaining terms are dropped and the count is reported |
-
-`PlanResult.counters` reports one number per row, under these names.
+What each one counts and what happens when it is reached are in
+[12-deployment-ops.md](12-deployment-ops.md#5-request-limits), beside the defaults.
+`PlanResult.counters` reports one number per limit, under the limit's own name.
 
 Calls through `llm/` are not budgeted. A plan correction spends one and no operator call, since the
 rejected plan never runs, and so does every physical planning decision. The parameter repair is the

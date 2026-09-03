@@ -153,7 +153,7 @@ Three of the four choices here are forced, and one is not.
 | `n7` | `textsuite.semantic_filter` | Reading a profile for whether the company works in healthcare is a judgment, and only a semantic operator declares `FILTER` over text |
 | `n2`, `n3`, `n4` | `tablesuite.nl2sql` | All three are kinds `nl2sql` declares, and they scan a SQLite source, so any group of them is a candidate |
 
-The last row is the decision the stage exists to make. `nl2sql` may take the scan alone, the scan
+The last row is the decision physical planning exists to make. `nl2sql` may take the scan alone, the scan
 and the location filter, or all three, and each is a different trade: one SQL query that filters 312
 rows down to 48 inside the database, against three calls whose middle step can be checked on its
 own. The planner takes all three.
@@ -209,9 +209,10 @@ cover 1
   f1  n2,n3,n4  tablesuite.nl2sql          rejected: the same, with the predicate written into the SQL text
 cover 2
   f1  n2,n3     tablesuite.nl2sql          ok (48 rows)
-  f2  n4        textsuite.semantic_filter  ok (11 rows)
-  f4  n6        tablesuite.join            ok (11 rows)
-  f5  n7        textsuite.semantic_filter  ok (2 rows)
+  f5  n4        textsuite.semantic_filter  ok (11 rows)
+  f2  n5        tablesuite.document_fetch  kept from cover 1 (140 rows)
+  f3  n6        tablesuite.join            ok (11 rows)
+  f4  n7        textsuite.semantic_filter  ok (2 rows)
 
 title                     company        location
 Senior Data Scientist     Corvus Health  San Francisco, CA
@@ -224,7 +225,7 @@ compares the two fragment by fragment. `n5` is in a fragment whose node set did 
 what it had, and runs.
 
 The scan of `postings` is paid for twice, which is what the wider fragment cost when it failed. That
-is the trade the stage weighs, and both attempts are in the record, so where the boundary was drawn
+is the trade physical planning weighs, and both attempts are in the record, so where the boundary was drawn
 and what happened to it can be read afterwards without running anything again.
 
 ### Reading a plan without running it
@@ -330,7 +331,7 @@ without reproducing it, and a developer looking at a bad result can find the dec
 wrong instead of guessing at why a model answered the way it did.
 
 ```python
-from blue_data_planner.planner import build_data_planner
+from blue_data_planner import build_data_planner
 
 planner = build_data_planner(router=router, catalog=catalog, llm_client=client, limits=limits)
 result = planner.run("Which Bay Area data scientist postings are at healthcare companies?")
@@ -427,16 +428,17 @@ operator can do. Without it, a description promising SQL over anything is all th
 on.
 
 Registering is the whole integration. Nobody edits planner code and nobody edits a prompt by hand,
-because both stages build their choices from the router while they plan.
+because both planning components build their choices from the router while they plan.
 
 ```python
-from blue_data_ops.operators import versioned_registry
-from blue_data_planner.operators import blue_operators, lotus_operators
-from blue_data_planner.planner import OperatorRouter
+from blue_data_planner.operators import OperatorRouter
+from blue_data_planner.operators.blue import blue_operators
+from blue_data_planner.operators.lotus import lotus_operators
 from blue_data_planner.types import LogicalOperator
 
 router = OperatorRouter()
-for operator in blue_operators(versioned_registry(), data_registry):
+# operator_registry is a blue-data-ops OperatorRegistry, built the way that package documents
+for operator in blue_operators(operator_registry, data_registry):
     router.register(operator)
 for operator in lotus_operators():  # empty when LOTUS is not installed
     router.register(operator)

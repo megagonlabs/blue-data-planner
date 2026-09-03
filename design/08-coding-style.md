@@ -23,13 +23,13 @@ All four pass before work is reported as complete, in every package, and they ru
 ```toml
 [tool.ruff]
 line-length = 100
-target-version = "py310"
+target-version = "py311"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP"]   # pycodestyle, pyflakes, isort, pyupgrade
 
 [tool.pyright]
-pythonVersion = "3.10"
+pythonVersion = "3.11"
 typeCheckingMode = "strict"
 venvPath = "."
 venv = ".venv"
@@ -38,7 +38,7 @@ extraPaths = ["tests/stubs"]     # lib/ only: fakes for heavy optional dependenc
 
 Prompt text is the one thing exempt from `E501`, because a line break inside a prompt changes the
 bytes sent to a provider. The exemption names each file holding prompt text and nothing else, which
-is the stage prompts under `planner/prompts/`.
+is the planning prompts under `prompts/`.
 
 ---
 
@@ -51,7 +51,7 @@ suggestions.
 Every module opens with `from __future__ import annotations`, which allows forward references and
 keeps type-only imports from causing circular imports.
 
-Use 3.10 syntax and built-in generics:
+Use 3.11 syntax and built-in generics:
 
 ```python
 # correct
@@ -94,7 +94,7 @@ class DataPlanner:
 
 The exception is `LLMClient`, whose one call has an async twin, so a caller with many independent
 provider calls can run them together ([06-library.md](06-library.md#llm)). The planner is not such a
-caller: the run loop takes one ready fragment at a time, and inside a stage each call is written
+caller: the run loop takes one ready fragment at a time, and inside a component each call is written
 against what the last one returned.
 
 **Adapter bridge.** The MCP server's handlers are async because the SDK's are. They call the
@@ -112,7 +112,7 @@ plan, so a long request does not block the event loop and stall the transport fo
 | Module-level constants | UPPER_SNAKE_CASE | `INPUT_ARITY` |
 | Enum members | UPPER_SNAKE_CASE | `LogicalOperator.SORT_SUPERLATIVE`, `ErrorKind.RECOVERABLE` |
 | Private members | single `_` prefix | `_run_pass` |
-| Modules and packages | lowercase | `planner/`, `fragment_runner.py` |
+| Modules and packages | lowercase | `operators/`, `fragment_runner.py` |
 
 No double-underscore name mangling. A single `_` marks everything private, whether a method, a
 module-level helper, or a module.
@@ -142,7 +142,7 @@ Borrowed metaphors go the same way. An ordered set of fallbacks is named by what
 rungs, which says only that the steps are ordered and nothing about what any of them does.
 
 A term borrowed from another field has to mean here what it means there. `Placement` was rejected
-for the stage that groups nodes because placing operators in distributed stream processing means
+for the component that groups nodes because placing operators in distributed stream processing means
 assigning them to machines, which runs the other way.
 
 ### Identifiers that appear in stored data
@@ -178,18 +178,17 @@ Six import rules carry architectural weight, and each can be checked by reading 
 
 | Rule | Why |
 | --- | --- |
-| `types/` imports nothing outside itself, and `validation.py` imports only `types/` | Everything may import them without a cycle. It also fixes what belongs there: every data class crossing a module boundary, the catalog readings and `LLMUsage` included, since a type `PlanResult` names has to be nameable by everything that reads one. The modules inside `types/` may import each other, and nothing else in `blue_data_planner` |
-| `execution/` imports no `planner/`, `operators/`, `llm/`, or `data/` | Invoking an operator needs no model, no router, and no registry (ADR-011) |
+| `types/` imports nothing outside itself, and `plan/` imports only `types/` | Everything may import them without a cycle. It also fixes what belongs there: every data class crossing a module boundary, the catalog readings and `LLMUsage` included, since a type `PlanResult` names has to be nameable by everything that reads one. The modules inside `types/` may import each other, and nothing else in `blue_data_planner` |
+| `execution/` imports only `types/`: no component, no `operators/`, no `llm/`, no `data/` | Invoking an operator needs no model, no router, and no registry (ADR-011) |
 | Within `lib/src/`, only `data/` imports `blue-data` | One place to change, one place to substitute in tests (ADR-003) |
 | Only `operators/lotus/` imports LOTUS, and only inside a callable | The package imports with LOTUS absent (ADR-004) |
 | Only `operators/` imports `blue-data-ops` | The Blue operator library enters through one adapter, the way LOTUS does |
-| `platform/*` imports only the seven public modules | An adapter cannot grow planning logic it can reach (ADR-002) |
+| `platform/*/src/` imports only the public surface | An adapter cannot grow planning logic it can reach (ADR-002). A platform package's tests stand outside the rule, which is what lets them use the library's own doubles |
 
-The last rule names a fixed list, because the root `__init__.py` holds `__version__` and nothing
-else. The seven are `planner`, `types`, `validation`, `execution`, `operators`, `data`, and `llm`
-([09-api-interface-spec.md](09-api-interface-spec.md#the-public-surface)). Keeping the root empty is
-what keeps each module's import cost to what it names, since Python runs a package's `__init__.py`
-before any module inside it (ADR-016).
+The last rule names a shape rather than a count, and
+[09-api-interface-spec.md](09-api-interface-spec.md#the-public-surface) fixes it: a module nested
+inside one of the directories is not public, and an operator adapter is the one thing imported from
+a module its own package does not re-export.
 
 The third rule is scoped to `lib/src/` because `lib/scripts/` and `lib/tests/` ship in no package.
 `lib/scripts/tag_bench/register_databases.py` imports `blue-data` directly to build a registry,
@@ -296,7 +295,7 @@ interface boundary, and let each interface decide what to do with one.
 
 The library has one `try` of its own that is not a conversion: `LLMError` is caught at the top of
 the run loop, so a provider outage becomes the `llm_failed` status with everything the run had
-already accumulated, and no stage has to handle the provider itself.
+already accumulated, and no component has to handle the provider itself.
 
 ---
 
