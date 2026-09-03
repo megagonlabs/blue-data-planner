@@ -3,33 +3,33 @@
 from __future__ import annotations
 
 
-class BlueDataOpsError(Exception):
+class BlueDataPlannerError(Exception):
     """Base class for every error this package raises."""
 
 
-class PlanFormatError(BlueDataOpsError):
+class PlanFormatError(BlueDataPlannerError):
     """A serialized plan is missing a key, or carries a value its node kind does not take."""
 
 
-class UnknownNodeError(BlueDataOpsError):
+class UnknownNodeError(BlueDataPlannerError):
     """A node id names no node in the plan."""
 
 
-class UnknownFragmentError(BlueDataOpsError):
+class UnknownFragmentError(BlueDataPlannerError):
     """A fragment id names no fragment in the cover, or a node belongs to none."""
 
 
-class OperatorRoutingError(BlueDataOpsError):
+class OperatorRoutingError(BlueDataPlannerError):
     """An operator id is registered twice, or names no registered operator."""
 
 
-class BudgetExhaustedError(BlueDataOpsError):
+class BudgetExhaustedError(BlueDataPlannerError):
     """A budget reached its cap."""
 
 
-class RecoverableOperatorError(BlueDataOpsError):
+class RecoverableOperatorError(BlueDataPlannerError):
     """An operator refused its input in a way a different operator might not."""
 
 
-class UnrecoverableOperatorError(BlueDataOpsError):
+class UnrecoverableOperatorError(BlueDataPlannerError):
     """An operator failed for a reason no other operator would avoid."""
