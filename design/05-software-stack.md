@@ -11,16 +11,14 @@ dependency belongs to which package.
 | Concern | Choice |
 | --- | --- |
 | Language | Python |
-| Minimum version | 3.10 |
-| Maximum version | None, except with the `lotus` extra installed, which caps at 3.12 (ADR-004) |
+| Minimum version | 3.11 |
+| Maximum version | None of its own. The `lotus` extra narrows the range, which is part of why it is an extra (ADR-004) |
 | Source layout | `src/`, one `pyproject.toml` per package |
 | Build backend | setuptools |
 | Development runner | `uv run python ...` |
 | Documented install path for consumers | `python -m venv` plus `pip install` |
 
 The two install paths are deliberate and have to agree about extras and minimum versions (ADR-001).
-Type hints use everything from 3.10 onward, including `X | Y` unions, and every module opens with
-`from __future__ import annotations`.
 
 ---
 
@@ -35,13 +33,8 @@ platform package is a dependency of the library.
 | `blue-data-planner-cli` | `platform/cli/` | `blue-data-planner`, `click`, `rich`, `python-dotenv` |
 | `blue-data-planner-mcp` | `platform/mcp/` | `blue-data-planner`, `mcp`, `pydantic` |
 
-The MCP package pins `blue-data-planner` to an exact version. The CLI follows the same rule, because a
-platform package translates for one library version and has no reason to float ahead of it.
-
-`blue-data-ops` is pinned to an exact version too. `operators/blue.py` reads what each operator
-declares — its logical operators, its source kinds, whether it accepts bound inputs — and a plan is
-bound against those declarations, so a floating operator library would change which fragments are
-coverable between runs.
+The MCP package pins `blue-data-planner` to an exact version. The CLI follows the same rule, because
+a platform package translates for one library version and has no reason to float ahead of it.
 
 ---
 
@@ -81,17 +74,17 @@ response schema rather than parsed out of text.
 | Discovery search terms | The terms one `DISCOVER` node expands into | [04, resolving a discovery node](04-detailed-architecture.md#resolving-a-discovery-node) |
 
 Two of those schemas are built per call rather than declared once. Physical planning's is assembled
-from that call's own candidates, so a candidate set holding no `SCAN` has no field in which to name a
-source, and where a scan does appear the catalog's paths are the allowed values. Fragment parameters
-use the schema of whichever operator the cover bound, which is not known until the cover is written.
-Building the schema per call is what keeps an impossible choice from appearing as an option, so
-nothing has to reject one afterwards.
+from that call's own candidates, so a candidate set holding no `SCAN` has no field in which to name
+a source, and where a scan does appear the catalog's paths are the allowed values. Fragment
+parameters use the schema of whichever operator the cover bound, which is not known until the cover
+is written. Building the schema per call is what keeps an impossible choice from appearing as an
+option, so nothing has to reject one afterwards.
 
-How far a schema is enforced depends on the provider. One that supports strict structured output,
-OpenAI among them, applies it during decoding, and a response the schema forbids cannot be produced
-at all. Where a provider does not, litellm falls back to describing the schema in the prompt. Either
-way the response is validated against the schema on arrival, and one that fails is a failed call
-rather than something repaired, so the difference between the two is cost and not correctness.
+How far a schema is enforced depends on the provider. One that supports strict structured output
+applies it during decoding, and a response the schema forbids cannot be produced at all. Where a
+provider does not, litellm falls back to describing the schema in the prompt. Either way the
+response is validated against the schema on arrival, and one that fails is a failed call rather than
+something repaired, so the difference between the two is cost and not correctness.
 
 `pydantic` is a required dependency of `lib/`, so nothing new is installed for this.
 
@@ -103,8 +96,8 @@ to one does not affect the other.
 
 Only one budget exists: operator calls. A model call LOTUS makes happens inside an operator call, so
 it bills against that budget like the rest of the call; a call through `llm/` bills against nothing
-(ADR-014). The client records tokens, cost, and latency per call regardless, and a result carries one
-such record per call, which is what a caller reads to convert a call count into money.
+(ADR-014). The client records tokens, cost, and latency per call regardless, and a result carries
+one such record per call, which is what a caller reads to convert a call count into money.
 
 ---
 
@@ -114,9 +107,9 @@ such record per call, which is what a caller reads to convert a call count into 
 
 | Concern | Choice |
 | --- | --- |
-| Package | `blue-data>=0.1.0`, installed from the internal source |
+| Package | `blue-data`, installed from the internal source |
 | Types used | `DataRegistry`, `DataSource`, and the registry's ranked record search |
-| Properties read | The descriptions enrichment wrote, and the `stats` and `value_semantics` properties collected per column |
+| Properties read | The descriptions enrichment wrote, and the statistics and value semantics collected per column |
 | Typing | `blue-data` ships no `py.typed`, so its imports carry a pyright ignore at this boundary and delegate through `Any` |
 | Storage backends | Chosen by installing a `blue-data` extra: `postgres`, `mysql`, `mongodb`, `neo4j`, `redis`, `chromadb` |
 
@@ -148,18 +141,12 @@ intermediate results, rather than a smaller install.
 | LOTUS | `lotus-ai` | `lotus` |
 
 LOTUS is the first suite integrated. It is called as an outside dependency and its source is never
-copied in (ADR-004). Its
-install constraints are heavier than the rest of the stack, which is why it sits behind an extra:
+copied in (ADR-004). It sits behind an extra because its install constraints are heavier than the
+rest of the stack: it narrows the Python range, holds numpy and pandas each to one major line, and
+brings a multi-gigabyte machine-learning stack with it. A consumer planning against other suites
+pays for none of that.
 
-| Constraint from `lotus-ai` 1.2.x | Effect |
-| --- | --- |
-| `requires-python >=3.10,<3.13` | Caps Python at 3.12 for an install that includes the extra |
-| `numpy>=1.25,<2` | Holds numpy on the 1.x line |
-| `pandas>=2,<3` | Holds pandas on the 2.x line |
-| `sentence-transformers`, `faiss-cpu`, `torch` | A multi-gigabyte install, which consumers who plan against Blue operators alone do not pay for |
-
-
-The version is pinned in the extra rather than floated, because the adapter describes each LOTUS
+The extra states a version range rather than floating, because the adapter describes each LOTUS
 operation by name and parameters.
 
 ---
@@ -219,10 +206,7 @@ of the four repairs, and the caps on plan corrections and discovery search terms
 
 ---
 
-## Quality gates
-
-Every package runs the same three gates, and all three have to pass before work is reported as
-complete.
+## Quality check
 
 | Gate | Tool | Settings |
 | --- | --- | --- |
@@ -234,9 +218,8 @@ complete.
 | Types | `pyright` | Strict mode, with `tests/stubs` on the resolution path |
 
 Heavy optional dependencies are stubbed in `lib/tests/stubs/` so the default suite runs without
-litellm, sentence-transformers, or LOTUS installed. I/O boundaries are replaced with in-memory
-doubles in `lib/tests/doubles/`. What each tier covers is
-[11-testing-strategy.md](11-testing-strategy.md).
+litellm or LOTUS installed. I/O boundaries are replaced with in-memory doubles in
+`lib/tests/doubles/`. What each tier covers is [11-testing-strategy.md](11-testing-strategy.md).
 
 ---
 
@@ -266,7 +249,7 @@ has the files and which script writes each one.
 | `blue-data-ops` | `lib/` | Required, pinned to an exact version | The Blue operators and their registry |
 | `blue-data` | `lib/` | Required | Data source interfaces and the registry |
 | `pydantic` | `lib/`, `platform/mcp/` | Required | Response schemas for structured output, attribute validation |
-| `jsonmerge` | `lib/` | Required, pinned `==1.9.2` | Blue-compatible JSON merge |
+| `jsonmerge` | `lib/` | Required, pinned to an exact version | Blue-compatible JSON merge |
 | `jsonpath-ng` | `lib/` | Required | Path expressions in templating and JSON utilities |
 | `litellm` | `lib/` | Required | Provider-agnostic model calls |
 | `tenacity` | `lib/` | Required | Retry with backoff around model calls |

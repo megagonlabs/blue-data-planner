@@ -135,7 +135,7 @@ Four terms carry the design, and each is fixed in
 | Term | Means |
 | --- | --- |
 | Logical operator | What a step is for, in a vocabulary that belongs to no operator suite: `SCAN`, `FILTER`, `PROJECT`, `EXPAND`, `AGGREGATE`, `DISTINCT`, `SORT_SUPERLATIVE`, `JOIN`, `UNION`, `RETURN` |
-| Physical operator | One implementation, such as `blue.nl2sql` or `lotus.sem_filter`, declaring which logical operators it can carry out, which kinds of source it can read, whether it accepts tables bound in from elsewhere, and what it cannot do |
+| Physical operator | One implementation declaring which logical operators it can carry out, which kinds of source it can read, whether it accepts tables bound in from elsewhere, and what it cannot do |
 | Fragment | A group of neighboring nodes one physical operator runs in a single call. Connected, convex, disjoint from every other fragment, and single exit |
 | Cover | One physical plan's fragments over one logical plan. Written whole, never patched, and kept beside the covers it replaced |
 
@@ -173,24 +173,14 @@ here: `types/` holds data, and every other module holds behavior.
 Inside it, `errors.py`, `plan.py`, `catalog.py`, and `run.py` split those classes by subject, and
 `__init__.py` re-exports all four. Every importer reads the one name `blue_data_planner.types`.
 
-`validation.py` holds two structural checks, both run before anything is executed.
-
-| Check | Rejects |
-| --- | --- |
-| A logical plan | Cycles, references to nodes that do not exist, repeated node ids, a missing or duplicated ending, a node whose output nothing reads, and a node given fewer inputs than `INPUT_ARITY` requires (ADR-007) |
-| A cover | A node covered twice or not at all, a fragment that is not connected or not convex, a fragment holding a node that is not an operator node, and a fragment where a node other than the root has a consumer outside it |
-
-The second check is defensive: the physical planner enumerates only fragments that satisfy the rules,
-so a cover it assembles should already pass. It is worth running anyway, because a broken cover does
-not fail loudly on its own. A fragment whose non-root node is read from outside leaves the reader
-waiting for a table nobody will produce, which shows up as a run that stops making progress rather
-than as an error.
+`validation.py` holds two structural checks, both run before anything is executed. One rejects a
+logical plan the run loop could not schedule; the other rejects a cover that could not be run. What
+each turns down is in [06-library.md](06-library.md#validation).
 
 ### `operators/`
 
-No operator is written here. The Blue operators, the abstract operator class, and the versioned
-registry that resolves a pinned id such as `select@2.0.0` all belong to `blue-data-ops`; LOTUS is its
-own package. This module holds one adapter per suite.
+No operator is written here. The Blue operators and the registry that resolves them belong to
+`blue-data-ops`, and LOTUS is its own package. This module holds one adapter per suite.
 
 | Path | Holds |
 | --- | --- |

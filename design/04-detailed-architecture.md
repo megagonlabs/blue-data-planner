@@ -63,10 +63,10 @@ only stage that sees data.
 Physical planning cuts the plan into fragments. A fragment is a group of neighboring logical nodes
 that one operator runs in a single call, and the operator is said to absorb the nodes in it.
 
-Most operators absorb one node. `lotus.sem_filter` filters a table, so it takes a `FILTER` node and
-nothing else. Others absorb many. `blue.nl2sql` writes and runs one SQL query that scans, filters,
-joins, and aggregates, so it can take a whole region of the plan at once. Handing it that region is
-a pushdown, in the sense the term has in federated query processing.
+Most operators absorb one node. A semantic filter takes a `FILTER` node and nothing else. Others
+absorb many. A Text-to-SQL operator writes and runs one SQL query that scans, filters, joins, and
+aggregates, so it can take a whole region of the plan at once. Handing it that region is a pushdown,
+in the sense the term has in federated query processing.
 
 How much to push down is the decision physical planning exists to make. A larger fragment means
 fewer calls and less data moved between them, and the operator either does the whole thing correctly
@@ -74,8 +74,8 @@ or fails as a unit. A smaller fragment can be checked and repaired step by step,
 running each step separately.
 
 Physical here is relative to this planner, not absolute. It means a unit this planner does not look
-inside. `blue.nl2sql` runs a full query engine behind its natural-language interface, and that
-engine writes its own logical and physical plans, none of which appear here. Federated query
+inside. A Text-to-SQL operator runs a full query engine behind its natural-language interface, and
+that engine writes its own logical and physical plans, none of which appear here. Federated query
 processing works the same way. A subplan pushed to a remote source shows up in the mediator's plan
 as one operator, and the source plans it again from scratch.
 
@@ -140,9 +140,9 @@ is refused when it is read
 
 ### Writing a plan that can be pushed down
 
-`nl2sql` can only absorb a scan, its filters, and its joins if those nodes exist when physical
-planning runs. A plan that stops at its scans and defers the rest has nothing to absorb, and the
-pushdown decision never comes up.
+A Text-to-SQL operator can only absorb a scan, its filters, and its joins if those nodes exist when
+physical planning runs. A plan that stops at its scans and defers the rest has nothing to absorb,
+and the pushdown decision never comes up.
 
 The prompt therefore asks for a complete plan, from `SCAN` through `RETURN`, whenever the planner
 has enough to write one. A control node is for the case where it genuinely does not: the request
@@ -155,9 +155,9 @@ world knowledge looks like.
 
 ### Validation
 
-`validate_logical_plan` then checks the plan. A rejected plan goes back to the same conversation with
-the validation error appended, up to a fixed number of corrections. The rejected plan and its error
-both stay in the session, so a run that ends in `invalid_plan` shows what was attempted.
+`validate_logical_plan` then checks the plan. A rejected plan goes back to the same conversation
+with the validation error appended, up to a fixed number of corrections. The rejected plan and its
+error both stay in the session, so a run that ends in `invalid_plan` shows what was attempted.
 
 Validation accepts two plan shapes: exactly one `RETURN` node, or a terminal control node and no
 `RETURN` at all. The `RETURN` arrives in a continuation. A plan carrying a control node and a
@@ -192,20 +192,20 @@ which sources it may be given.
 An operator declaring a single logical operator can only ever match a single node, which is what
 every atomic operator declares.
 
-| Physical operator | Declares | Matches |
+| Operator | Declares | Matches |
 | --- | --- | --- |
-| `lotus.sem_filter` | `{FILTER}` | One `FILTER` node |
-| `blue.join` | `{JOIN}` | One `JOIN` node |
-| `blue.nl2sql` | `{SCAN, FILTER, PROJECT, JOIN, AGGREGATE, DISTINCT, SORT_SUPERLATIVE}`, SQL sources, accepts bound inputs | Any convex subgraph of those kinds whose scans are SQL |
+| A semantic filter | `{FILTER}` | One `FILTER` node |
+| A join | `{JOIN}` | One `JOIN` node |
+| A Text-to-SQL operator | `{SCAN, FILTER, PROJECT, JOIN, AGGREGATE, DISTINCT, SORT_SUPERLATIVE}`, SQL sources, accepts bound inputs | Any convex subgraph of those kinds whose scans are SQL |
 
 A node several other nodes read is a fragment of its own, because absorbing it would break the
 single-exit rule. Pushing it into both branches would mean scanning twice, which no cover does.
 
-A declaration says nothing about the order the kinds appear in. `nl2sql` cannot state that it
-absorbs a `FILTER` only when the filter sits directly above its own scan, because the declaration
-has no vocabulary for position. For SQL that costs nothing, since any convex subgraph of those kinds
-is expressible as one query. How to handle an operator whose real capability depends on shape is an
-open question.
+A declaration says nothing about the order the kinds appear in. A Text-to-SQL operator cannot state
+that it absorbs a `FILTER` only when the filter sits directly above its own scan, because the
+declaration has no vocabulary for position. For SQL that costs nothing, since any convex subgraph of
+those kinds is expressible as one query. How to handle an operator whose real capability depends on
+shape is an open question.
 
 ### Choosing among candidates
 
@@ -278,7 +278,7 @@ where the data exists. The runner sees the input tables' columns, their row coun
 rows. For the columns the fragment touches it also sees catalog values: sample values as they are
 actually spelled, and whether `blue-data` inferred that a column holds short codes instead of
 readable words. A transaction-type column storing `PRIJEM` where a reader would expect `credit` is
-one. That is what lets the runner write `operand_val: ["San Francisco", "Palo Alto"]` instead of
+one. That is what lets the runner write `values: ["San Francisco", "Palo Alto"]` instead of
 guessing at how a column spells its contents.
 
 ### What an operator does with its input
@@ -288,15 +288,14 @@ does not already have, and making it addressable is the operator's job.
 
 | Physical operator | Empty input | Non-empty input |
 | --- | --- | --- |
-| `lotus.sem_filter` and other single-node operators | Cannot happen. A one-node fragment always has a frontier | Filter the one table it was handed |
-| `blue.nl2sql` | Read the scan target from the parameters and emit SQL | Make each table addressable, then emit SQL referring to it by name. The scan target still comes from the parameters; the input tables are auxiliary |
+| A single-node operator | Cannot happen. A one-node fragment always has a frontier | Transform the tables it was handed |
+| A source-reading operator that does not accept bound inputs | Read the scan target from the parameters and run against the source | Cannot happen. The physical planner never offers it such a fragment |
+| A source-reading operator that accepts bound inputs, such as a Text-to-SQL operator | The same | Make each table addressable, then emit SQL referring to it by name. The scan target still comes from the parameters; the input tables are auxiliary |
 
-How a bound table reaches a SQL source is the operator's decision, not the planner's. Values can
-travel inside the SQL text, as an `IN` list or a `VALUES` clause, which needs no write access and
-holds up to roughly a thousand rows. They can also travel out of band into a session-scoped
-temporary table, which needs write access and scales to millions. The operator declares that it
-accepts bound inputs, and the implementation picks a method by size. A planner choosing between the
-two would be a second planner inside the fragment runner.
+How a bound table reaches the source is the operator's decision, not the planner's. Carrying values
+inside the query text and loading them into a temporary table suit different volumes of rows, and
+the operator is what sees how many rows travel. A planner choosing between them would be a second
+planner inside the fragment runner.
 
 Pushing values from one source into another is a bind join, or semi-join reduction, in federated
 query processing. The mechanism is borrowed from there.
@@ -330,9 +329,9 @@ operator that ran, the instructions of every node the fragment absorbed, and a s
 
 The absorbed nodes' instructions are what make a fused call checkable. A single call asked to scan,
 filter, and join returns one table and no evidence of the steps inside it, so the review asks
-whether each absorbed step is reflected in the result. An `nl2sql` call handed a semantic predicate
-it cannot express in SQL tends to return rows that ignore the predicate, and the node that carried
-that predicate is the reason there is anything to notice.
+whether each absorbed step is reflected in the result. A Text-to-SQL call handed a semantic
+predicate it cannot express in SQL tends to return rows that ignore the predicate, and the node that
+carried that predicate is the reason there is anything to notice.
 
 | Decision | Means |
 | --- | --- |
@@ -409,15 +408,15 @@ fragment's root reads them, and it is what lets a later cover fuse the same node
 A carried node is not free to read. Reading one that a fragment absorbed throws that whole fragment
 away and runs it again.
 
-Suppose `n2`, `n3`, and `n4` were covered by one `nl2sql` fragment rooted at `n4`, and the
-continuation writes `n9` reading `n3`. The rows `n3` describes were never materialized: they existed
-inside one SQL query and went out with it, and the only table the fragment produced is `n4`'s. So
-anything reading `n3` needs `n3` to be the root of a fragment, which the old cut does not allow.
-Putting `n3` and `n9` in one new fragment breaks disjointness, and leaving `n3` where it is breaks
-single exit, since `n9` would read a node that is not its fragment's root. Either way the old cut no
-longer holds. The plan is cut again, all three nodes lose their standing, and all three run again.
-The general rule behind both cases is that a node read from outside its fragment has to be that
-fragment's root.
+Suppose `n2`, `n3`, and `n4` were covered by one Text-to-SQL fragment rooted at `n4`, and the
+continuation writes `n9` reading `n3`. The rows `n3` describes were never materialized: they
+existed inside one SQL query and went out with it, and the only table the fragment produced is
+`n4`'s. So anything reading `n3` needs `n3` to be the root of a fragment, which the old cut does not
+allow. Putting `n3` and `n9` in one new fragment breaks disjointness, and leaving `n3` where it is
+breaks single exit, since `n9` would read a node that is not its fragment's root. Either way the old
+cut no longer holds. The plan is cut again, all three nodes lose their standing, and all three run
+again. The general rule behind both cases is that a node read from outside its fragment has to be
+that fragment's root.
 
 The ordinary replan path never pays this, and the reason is structural. A control node is absorbed
 into no fragment, so every node it lists as an input has a consumer outside every fragment and is
@@ -458,10 +457,10 @@ a run can be counted without instrumenting anything further.
 ### The parameter repair
 
 The runner writes parameters again for the same fragment and operator, with the failed call's error
-or the review's assessment in the conversation it already holds. This is the common case in
-practice. A model writing an operator's parameters has to name columns and spell values the way the
-data spells them, and getting that wrong is both frequent and cheap to fix, since neither the
-operator choice nor the fragment boundary was wrong.
+or the review's assessment in the conversation it already holds. A model writing an operator's
+parameters has to name columns and spell values the way the data spells them, and getting that wrong
+is both frequent and cheap to fix, since neither the operator choice nor the fragment boundary was
+wrong.
 
 ### The fragment repair
 
@@ -482,7 +481,7 @@ This is the repair that can grow a fragment, and it is the only one that can. Su
 `FILTER`, and `PROJECT` were each covered alone, ran, and the projection came back wrong because the
 three steps needed to happen inside one query. The fragment repair cannot reach that fix, since it
 may only rearrange the projection's own node set. The cover repair covers the plan again and may put
-all three into one `nl2sql` fragment.
+all three into one Text-to-SQL fragment.
 
 Absorbing a node that already ran drops its result, and the results of every executed node
 downstream of it, since those saw a value the new fragment is about to produce again. Everything the
@@ -517,8 +516,8 @@ decides whether these repairs apply at all.
 ## Budgets and limits
 
 Eight limits bound a request. Each is fixed when the planner is built, counted per request, and
-reported in the result whether the run succeeded or not. ADR-014 covers which of them is budgeted and
-why, and [06-library.md](06-library.md#budgets-and-limits) says which component enforces each.
+reported in the result whether the run succeeded or not. ADR-014 covers which of them is budgeted
+and why, and [06-library.md](06-library.md#budgets-and-limits) says which component enforces each.
 
 | Limit | Counts | Reached when |
 | --- | --- | --- |

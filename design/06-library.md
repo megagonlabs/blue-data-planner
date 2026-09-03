@@ -1,7 +1,7 @@
 # blue-data-planner — Library
 
-This document names the classes and functions of the `blue-data-planner` package and says what each one
-is responsible for. It settles the names that [02-scenarios.md](02-scenarios.md) shows only for
+This document names the classes and functions of the `blue-data-planner` package and says what each
+one is responsible for. It settles the names that [02-scenarios.md](02-scenarios.md) shows only for
 illustration.
 
 Three things are out of scope here.
@@ -83,9 +83,9 @@ the run loop be tested against four fakes and no provider. Everything a caller i
 through a constructor; nothing is constructed in place, and nothing reads the environment.
 
 Limits are fixed when the planner is built, so `run` and `plan` take a request and nothing else.
-Three of the eight bounds are enforced inside a component's own loop rather than by the run loop, and
-each of those components is built with the one number it obeys, so its constructor says which bound
-that is. `build_data_planner` takes one `PlanLimits` and distributes those three, which is why
+Three of the eight bounds are enforced inside a component's own loop rather than by the run loop,
+and each of those components is built with the one number it obeys, so its constructor says which
+bound that is. `build_data_planner` takes one `PlanLimits` and distributes those three, which is why
 assembling by hand is the only path that sets a bound in more than one place.
 
 `build_data_planner` is the default wiring, and the only thing an adapter needs. Without it the CLI,
@@ -95,8 +95,8 @@ translation ([07-repo-organization.md](07-repo-organization.md)).
 ### Two operations
 
 Both take a request in plain language, and neither takes a plan. A plan is what a request produced,
-so there is no entry point that accepts one and runs it, and `from_dict` reads a recorded plan rather
-than feeding one back in.
+so there is no entry point that accepts one and runs it, and `from_dict` reads a recorded plan
+rather than feeding one back in.
 
 | Operation | Does | Returns |
 | --- | --- | --- |
@@ -104,8 +104,8 @@ than feeding one back in.
 | `plan` | Writes one logical plan and one cover, then stops | A `PlanResult` with status `planned` and `answer` set to `None` |
 
 `plan` is what the CLI's `--explain` prints and what a measurement of where pushdown boundaries get
-drawn reads. It spends no operator call. A plan whose first pass ends in a `DISCOVER` node comes back
-as it stands, with no search run, since resolving one would start the second pass.
+drawn reads. It spends no operator call. A plan whose first pass ends in a `DISCOVER` node comes
+back as it stands, with no search run, since resolving one would start the second pass.
 
 `planned` is a `RunStatus` member alongside `ok` and the failure statuses. One result type serves
 both operations, and the rule that `answer` is `None` unless the status is `ok` survives unchanged.
@@ -131,10 +131,11 @@ def run(self, request: str) -> PlanResult:
 `None` means the request is not over. Every helper below returns `RunStatus | None` on that rule, so
 the loop reads as one condition rather than a set of flags.
 
-The one `try` in the library sits here. A provider that fails after the client's retries is neither a
-programming error nor malformed state, so it ends the request with a status like any other failure,
-and the plans, attempts, and usage the run had already accumulated come back with it. Catching it at
-the top of the loop rather than inside a stage is what keeps every stage free of provider handling.
+The one `try` in the library sits here. A provider that fails after the client's retries is neither
+a programming error nor malformed state, so it ends the request with a status like any other
+failure, and the plans, attempts, and usage the run had already accumulated come back with it.
+Catching it at the top of the loop rather than inside a stage is what keeps every stage free of
+provider handling.
 
 ```python
 def _run_pass(self, state: RunState) -> RunStatus | None:
@@ -156,13 +157,13 @@ def _run_pass(self, state: RunState) -> RunStatus | None:
 
 `next_ready` returns the next fragment whose frontier all has results, a control node whose inputs
 all have results, or `None` when the plan is finished. A union return is what lets one scheduler
-serve both, and the two are told apart by type rather than by a flag, since a control node belongs to
-no fragment.
+serve both, and the two are told apart by type rather than by a flag, since a control node belongs
+to no fragment.
 
-Which one comes first when both are ready is left open. Running the fragments first gives the logical
-planner more results to write the continuation against; firing the control node first can save
-operator calls on a branch the continuation turns out not to need. Neither has been measured, so
-nothing here fixes the order, and open question 7 in
+Which one comes first when both are ready is left open. Running the fragments first gives the
+logical planner more results to write the continuation against; firing the control node first can
+save operator calls on a branch the continuation turns out not to need. Neither has been measured,
+so nothing here fixes the order, and open question 7 in
 [13-decision-log.md](13-decision-log.md#open-questions) holds the trade.
 
 Nothing here re-runs a fragment whose root already holds a result. That rule lives in `next_ready`,
@@ -259,15 +260,15 @@ planner without an operator call being spent.
 `types/` imports nothing outside itself, so `execution/`, `planner/`, and the adapters can
 share a vocabulary without importing each other.
 
-That rule fixes what belongs here, because a type `PlanResult` names has to be nameable by everything
-that reads a `PlanResult`. Following it through reaches further than the plan types: `PlanResult`
-holds `LLMUsage`, and the `DiscoveryResult` in its `results` map holds `CatalogMatch`. So the line is
-drawn once and drawn wide — **`types/` holds data, and every other module holds behavior.** `data/`
-produces the catalog readings and `llm/` produces the usage records, and both import their shapes
-from here.
+That rule fixes what belongs here, because a type `PlanResult` names has to be nameable by
+everything that reads a `PlanResult`. Following it through reaches further than the plan types:
+`PlanResult` holds `LLMUsage`, and the `DiscoveryResult` in its `results` map holds `CatalogMatch`.
+So the line is drawn once and drawn wide — **`types/` holds data, and every other module holds
+behavior.** `data/` produces the catalog readings and `llm/` produces the usage records, and both
+import their shapes from here.
 
-[10-data-model.md](10-data-model.md) fixes every field and every JSON form; what follows is what each
-class answers for and the methods it carries.
+[10-data-model.md](10-data-model.md) fixes every field and every JSON form; what follows is what
+each class answers for and the methods it carries.
 
 ### The plan
 
@@ -293,10 +294,10 @@ class ControlOperator(str, Enum):
 INPUT_ARITY: dict[LogicalOperator, int]  # SCAN 0, JOIN and UNION 2, every other 1
 ```
 
-The ten logical operators are frozen. Adding one changes an interface every operator suite has to map
-onto, and invalidates every operator declaration already written against the set. `ControlOperator`
-is separate because a control node is bound to no operator and has no arity: both members take any
-number of inputs, including none.
+The ten logical operators are frozen. Adding one changes an interface every operator suite has to
+map onto, and invalidates every operator declaration already written against the set.
+`ControlOperator` is separate because a control node is bound to no operator and has no arity: both
+members take any number of inputs, including none.
 
 `INPUT_ARITY` counts the tables a node transforms, not the inputs it may list. A node listing more
 than its arity has reference inputs, whose rows its instruction mentions without transforming them
@@ -325,14 +326,14 @@ class LogicalPlan:
 ```
 
 A node carries one plain-language instruction and nothing else: no source, no operator id, no
-operator parameters, and no result (ADR-008). All four are properties of a cover or of the run, since
-all four can differ between passes over the same node.
+operator parameters, and no result (ADR-008). All four are properties of a cover or of the run,
+since all four can differ between passes over the same node.
 
 The three query methods read `nodes` and `input_node_ids` and nothing else, so a plan answers
 questions about its own shape without reaching into `planner/` or `execution/` (ADR-011). `node`
-raises on an unknown id rather than returning `None`. `consumers` is what the single-exit check reads
-and what invalidation walks. `nodes_in_dependency_order` puts every node behind the nodes it reads
-and raises on a cycle, so `to_dict` and `validate_logical_plan` share one traversal.
+raises on an unknown id rather than returning `None`. `consumers` is what the single-exit check
+reads and what invalidation walks. `nodes_in_dependency_order` puts every node behind the nodes it
+reads and raises on a cycle, so `to_dict` and `validate_logical_plan` share one traversal.
 
 ```python
 @dataclass(frozen=True)
@@ -552,22 +553,23 @@ def validate_physical_plan(plan: LogicalPlan, physical_plan: PhysicalPlan) -> No
 class PlanValidationError(BlueDataPlannerError): ...
 ```
 
-Both raise rather than return, and both run before anything is executed. `validation.py` imports only
-`types/`.
+Both raise rather than return, and both run before anything is executed. `validation.py` imports
+only `types/`.
 
-| Check | Rejects |
-| --- | --- |
-| `validate_logical_plan` | Cycles, references to nodes that do not exist, repeated node ids, anything but exactly one `RETURN` or a terminal control node with no `RETURN`, a node whose output nothing reads, and a node given fewer inputs than `INPUT_ARITY` requires (ADR-007) |
-| `validate_physical_plan` | A node covered twice or not at all, a fragment that is not connected or not convex, a fragment holding a node that is not an operator node, and a fragment where a node other than the root has a consumer outside it |
+`validate_logical_plan` enforces the plan rules ([10-data-model.md](10-data-model.md#1-the-plan))
+and `validate_physical_plan` the fragment and cover rules
+([04, what a fragment may be](04-detailed-architecture.md#what-a-fragment-may-be)). Neither adds a
+rule of its own.
 
 `carried_node_ids` exempts the nodes a continuation carried over from the shape and reachability
 checks, whose objections do not apply to a node the run already has something for. `LogicalPlanner`
 catches the error and regenerates.
 
-The physical check is defensive. The physical planner enumerates only fragments that satisfy the rules,
-so a cover it assembles should already pass. It is worth running because a broken cover does not fail
-loudly on its own: a fragment whose non-root node is read from outside leaves that reader waiting for
-a table nobody produces, which shows up as a run that stops making progress rather than as an error.
+The physical check is defensive. The physical planner enumerates only fragments that satisfy the
+rules, so a cover it assembles should already pass. It is worth running because a broken cover does
+not fail loudly on its own: a fragment whose non-root node is read from outside leaves that reader
+waiting for a table nobody produces, which shows up as a run that stops making progress rather than
+as an error.
 
 ---
 
@@ -600,11 +602,11 @@ The planner reads a catalog preview it fetches itself, ranked against `request`,
 handed in. That costs one registry read per pass and removes the preview from four signatures and
 from the run state.
 
-`results` is the run's map for the parent version, and it answers two different questions. A `REPLAN`
-node's continuation is written against the rows its inputs produced, so the planner reads real
-columns and values. A `DISCOVER` node's entry holds the catalog records its search found, which is
-what lets the continuation's scans name a source. One argument covers both because both live in the
-same map.
+`results` is the run's map for the parent version, and it answers two different questions. A
+`REPLAN` node's continuation is written against the rows its inputs produced, so the planner reads
+real columns and values. A `DISCOVER` node's entry holds the catalog records its search found, which
+is what lets the continuation's scans name a source. One argument covers both because both live in
+the same map.
 
 `reason` is either a failure reason from the review or the physical planner, or the instruction from
 the control node that ended the pass. It stays at the level the planner works in: it says what could
@@ -615,13 +617,13 @@ Two things happen inside `generate` rather than above it. The response schema is
 node schemas, so a plan naming an invented operation cannot be produced by a provider that enforces
 one, and is refused when it is read where a provider does not
 ([05](05-software-stack.md#structured-output)). A plan that fails validation goes back to the same
-conversation with the error appended, up to `max_plan_corrections`, and every rejected plan comes back in
-`rejected` with the error that rejected it.
+conversation with the error appended, up to `max_plan_corrections`, and every rejected plan comes
+back in `rejected` with the error that rejected it.
 
 The prompt asks for a complete plan from `SCAN` through `RETURN` whenever the planner has enough to
 write one, because `nl2sql` can only absorb a scan and its filters if those nodes exist by the time
-the cover is written. Nothing in validation enforces that
-([04, writing a plan that can be pushed down](04-detailed-architecture.md#writing-a-plan-that-can-be-pushed-down)).
+the cover is written. Nothing in validation enforces that ([04, writing a plan that can be pushed
+down](04-detailed-architecture.md#writing-a-plan-that-can-be-pushed-down)).
 
 ### `PhysicalPlanner`
 
@@ -656,10 +658,10 @@ older one ([04](04-detailed-architecture.md#a-cover-is-written-whole)). What `re
 changes is confined to `node_ids`: every other fragment in `previous` is carried into the new plan
 with its node set intact, which is what lets the results of those fragments survive installation.
 
-`results` answers two questions here too. A `DISCOVER` entry's catalog records are the paths a `SCAN`
-may be bound to, and the presence of an entry says the node already ran, which is the cost the model
-weighs when it considers absorbing that node into a wider fragment
-([04, the cover repair](04-detailed-architecture.md#the-cover-repair)).
+`results` answers two questions here too. A `DISCOVER` entry's catalog records are the paths a
+`SCAN` may be bound to, and the presence of an entry says the node already ran, which is the cost
+the model weighs when it considers absorbing that node into a wider fragment ([04, the cover
+repair](04-detailed-architecture.md#the-cover-repair)).
 
 Inside, the planner works top down from the root of the plan. For each uncovered node it enumerates
 the candidate fragments rooted there, one per matching operator per subgraph, and a model picks one.
@@ -688,9 +690,9 @@ class FragmentRunner:
     ) -> FragmentResult: ...
 ```
 
-`run` takes the rows for one fragment rather than the plan they came from, and the budget rather than
-the object holding it. Everything it works on arrives per call, so it holds nothing about a request
-between calls and a test builds a fragment, some rows, a catalog double, and a counter.
+`run` takes the rows for one fragment rather than the plan they came from, and the budget rather
+than the object holding it. Everything it works on arrives per call, so it holds nothing about a
+request between calls and a test builds a fragment, some rows, a catalog double, and a counter.
 
 For one fragment it loops until a result is accepted or the parameter attempts run out.
 
@@ -720,9 +722,9 @@ of what the runner was doing when the request ended. Catching it is what lets th
 `decision=stop` with `status=budget_exhausted`.
 
 The absorbed nodes' instructions are what make a fused call checkable. A single call asked to scan,
-filter, and join returns one table and no evidence of the steps inside it, so the review asks whether
-each absorbed step is reflected in the result
-([04, reviewing the result](04-detailed-architecture.md#reviewing-the-result)).
+filter, and join returns one table and no evidence of the steps inside it, so the review asks
+whether each absorbed step is reflected in the result ([04, reviewing the
+result](04-detailed-architecture.md#reviewing-the-result)).
 
 ### `CatalogSearcher`
 
@@ -764,17 +766,17 @@ into the operator, and raises on an id nothing registered; the fragment runner i
 
 There is no startup coverage check, asking whether every logical operator has at least one
 implementation registered. Fragments make that question weaker than it looks: an operator declaring
-`DISTINCT` alongside SQL sources does not make a `DISTINCT` node over rows LOTUS produced runnable,
-so passing the check proves nothing about any particular node. The
-question that matters is asked per node, by the physical planner, and answered as `no_operator`,
-which returns to the logical planner without spending an operator call
+`DISTINCT` alongside SQL sources does not make a `DISTINCT` node over rows that arrived from another
+fragment runnable, so passing the check proves nothing about any particular node. The question that
+matters is asked per node, by the physical planner, and answered as `no_operator`, which returns to
+the logical planner without spending an operator call
 ([04](04-detailed-architecture.md#failures-that-skip-recovery)).
 
 Only the router is read while planning, never `OperatorRegistry` (ADR-009). The two answer different
 questions and use different id formats: a registry operator id is the operator's `name`, an `@`, and
-a version, such as `select@2.0.0`; a router id is suite-qualified, such as `blue.select`. The adapter
-that produces a `PhysicalOperator` from a registry class is the only thing holding the two in
-agreement.
+a version, such as `select@2.0.0`; a router id is suite-qualified, such as `blue.select`. The
+adapter that produces a `PhysicalOperator` from a registry class is the only thing holding the two
+in agreement.
 
 ### `RunState`
 
@@ -814,19 +816,19 @@ class RunState:
 ```
 
 The one mutable object per request. `DataPlanner` creates it, `DataPlanner` alone writes to it, and
-`to_result` freezes it into the `PlanResult` a caller receives. No stage holds it: each takes what it
-reads and returns what it produced, which is what keeps the four components carrying nothing about a
-request between calls. It holds no `PlanLimits`, because the bounds belong to the planner rather than
-to one run of it; the loop reads them off itself.
+`to_result` freezes it into the `PlanResult` a caller receives. No stage holds it: each takes what
+it reads and returns what it produced, which is what keeps the four components carrying nothing
+about a request between calls. It holds no `PlanLimits`, because the bounds belong to the planner
+rather than to one run of it; the loop reads them off itself.
 
 The four counters here are the ones the loop reads to choose a repair. `fragment_attempts` is keyed
-by node set because that is the unit the fragment repair is bounded against, and covering a set again
-either keeps it, spending another attempt, or splits it into smaller sets that each start their own
-count. Splitting strictly shrinks a set, so the repair ends at single nodes.
+by node set because that is the unit the fragment repair is bounded against, and covering a set
+again either keeps it, spending another attempt, or splits it into smaller sets that each start
+their own count. Splitting strictly shrinks a set, so the repair ends at single nodes.
 
 `record_fragment` takes the whole `FragmentResult`, so it appends that fragment's attempts and its
-model usage together. The logical and physical planners return usage beside their result, so the loop
-appends it with `record_usage`, and `CatalogSearchResult` is split the same way.
+model usage together. The logical and physical planners return usage beside their result, so the
+loop appends it with `record_usage`, and `CatalogSearchResult` is split the same way.
 
 Everything else `PlanResult.counters` reports is derived in `to_result` rather than tracked twice:
 `operator_calls` from `budget.spent`, `plan_corrections` from the length of `rejected_plans`,
@@ -852,12 +854,13 @@ holding all three.
 `install_cover` compares the new cover with the previous one fragment by fragment. A fragment whose
 node set is unchanged keeps its root's result. One that changed or is new drops the results of every
 node in it and of every executed node downstream of those, then runs again. The single-exit rule is
-what makes the drop safe: no node outside a fragment was reading those tables. Nothing is lost by the
-removal, since `attempts` still holds every attempt including the ones whose results were dropped.
+what makes the drop safe: no node outside a fragment was reading those tables. Nothing is lost by
+the removal, since `attempts` still holds every attempt including the ones whose results were
+dropped.
 
-`install_logical_plan` adds the version, moves the pointer, and seeds its results slot with a copy of
-the parent's restricted to the carried nodes. Because the values are shared references, that is a map
-copy rather than a data copy.
+`install_logical_plan` adds the version, moves the pointer, and seeds its results slot with a copy
+of the parent's restricted to the carried nodes. Because the values are shared references, that is a
+map copy rather than a data copy.
 
 ---
 
@@ -928,20 +931,31 @@ logical operator can only ever cover one node; a set is what makes pushdown poss
 
 `source_kinds` is written in `blue-data`'s connection-protocol vocabulary: the string each source
 class records at registration, such as `sql/sqlite`, `vector/chromadb`, or `network/bn`. It is the
-same vocabulary a `SourceRecord.kind` reports ([10](10-data-model.md#what-the-logical-planner-reads)),
-so a declaration and a source are directly comparable.
+same vocabulary a `SourceRecord.kind` reports
+([10](10-data-model.md#what-the-logical-planner-reads)), so a declaration and a source are directly
+comparable.
 
 `accepts_bound_inputs` constrains only an operation that reads a registered source. One with no
 source of its own receives everything it works on from the fragment's frontier, so there is nothing
 for the field to allow or forbid, and it reads n/a.
 
-Which operations each suite offers, and what each declares, is the suite's own reference:
-`blue-data-ops` for the Blue operators, LOTUS for its own. Registering an operator there is enough
-to put it in play here.
+A declaration has to describe what the operation does, because planning binds against the
+declaration and never looks inside the operation. One that overstates a capability turns into a
+candidate the operator cannot serve, and the failure arrives partway through a run where the
+alternative was never being offered at all. Where a declaration comes from, and what an adapter may
+absorb to make one true, are open questions 37 and 38 in
+[13-decision-log.md](13-decision-log.md#open-questions).
 
-`EXPAND` has no Blue operator and no LOTUS operation. A plan asking to open one row into many is
-answered as `no_operator` and sent back to the logical planner. Filling the gap is a small operator
-in `blue-data-ops` rather than a design change here, and it is open question 5 in
+What each suite's operations do is the suite's own reference: `blue-data-ops` for the Blue
+operators, LOTUS for its own. Which of them a plan can be bound to is this repository's answer, and
+a narrower one: an operation reaches the router only once its adapter carries an entry for it and a
+parameter model to fill (ADR-010), so registering an operator upstream does not put it in play here
+([07-repo-organization.md](07-repo-organization.md#where-a-new-thing-goes)).
+
+A logical operator no registered operation declares is answered as `no_operator`, and the node goes
+back to the logical planner. A gap in the registered suites therefore shows up as a replan rather
+than as a wrong answer, and the run record names the node that had no candidate. Which of the ten
+lack one, and who writes the operators that would close a gap, are open questions 5 and 39 in
 [13-decision-log.md](13-decision-log.md#open-questions).
 
 ### The adapters
@@ -957,15 +971,15 @@ def lotus_operators() -> list[PhysicalOperator]: ...
 
 Each adapter returns its `PhysicalOperator` values, and whoever assembles the planner registers what
 comes back (ADR-009). Naming `OperatorRouter` in a public signature would require importing it,
-whether or not the import sits behind `TYPE_CHECKING`, so an adapter that registered its own operators
-would make `operators/` import `planner/`. Returning a list keeps that import out.
+whether or not the import sits behind `TYPE_CHECKING`, so an adapter that registered its own
+operators would make `operators/` import `planner/`. Returning a list keeps that import out.
 
 Nothing else changes when a suite is added. The physical planner builds its candidates from the
 router while it covers a plan, so a newly registered operator competes for every fragment its
 declaration allows without a code or prompt edit.
 
-The Blue adapter converts no data: a `DataBundle` is what the Blue operators take and return, so a
-callable validates parameters, calls `operator.run`, and maps errors (ADR-012). The LOTUS adapter
+The Blue adapter converts no data: a `DataBundle` is what the Blue operations take and return, so a
+callable validates parameters, invokes the operation, and maps errors (ADR-012). The LOTUS adapter
 converts at its own edge, building one data frame per table going in and flattening coming out, and
 imports LOTUS inside the callable rather than at module import time, so the package imports with
 LOTUS absent and the router simply gains no LOTUS operators (ADR-004).
@@ -1005,24 +1019,25 @@ Two kinds of write have to be told apart, because the design answers them differ
 
 | Write | Goes to | Done by |
 | --- | --- | --- |
-| A session-scoped temporary table a bind join pushes into a SQL source | The source | `blue.nl2sql`, choosing by size between values in the SQL text and a table out of band ([04](04-detailed-architecture.md#what-an-operator-does-with-its-input)) |
+| A session-scoped temporary table a bind join pushes into a SQL source | The source | An operator declaring `accepts_bound_inputs`, choosing by size between values in the SQL text and a table out of band ([04](04-detailed-architecture.md#what-an-operator-does-with-its-input)) |
 | Registering a source, syncing it, collecting its statistics, enriching it | The registry | `blue-data`'s own tooling, before a registry ever reaches this package |
 
 The boundary has to permit the first. Without `connect_source` a bind join cannot scale past an `IN`
 list, and pushing a table into a source is how a fragment reaches data another fragment produced.
 
 The second is ingestion, and the boundary refuses it. A registry reaches this package already
-populated, so `register_source` and the sync, statistics, and enrichment calls have no place here. That is a real
-constraint on a caller, not just a tidier signature list: a caller with data and no registry builds
-one with `blue-data` first, and only then constructs a planner over it. It is also a constraint on
-planning quality, which depends on how well that population was done — a source nobody enriched
-renders with names and kinds alone, and planning still works with it
+populated, so `register_source` and the sync, statistics, and enrichment calls have no place here.
+That is a real constraint on a caller, not just a tidier signature list: a caller with data and no
+registry builds one with `blue-data` first, and only then constructs a planner over it. It is also a
+constraint on planning quality, which depends on how well that population was done — a source nobody
+enriched renders with names and kinds alone, and planning still works with it
 ([10](10-data-model.md#4-catalog-readings)).
 
-A third case sits between them and is not settled. `blue.create_table` creates a table through the
-source and registers it, so the table appears in the catalog afterwards, and `blue-data` offers the
-two only as one call. Whether this library performs that combined operation at all is open question
-20 in [13-decision-log.md](13-decision-log.md#open-questions).
+A write that creates a table through a source and registers it in one call looks as though it sits
+between the two, and it does not arise. No node in the logical vocabulary asks for a write
+([10-data-model.md](10-data-model.md)), so no plan can ask for one and no adapter offers an
+operation that performs one. Adding a write to the vocabulary is a decision-log entry rather than an
+adapter entry ([07-repo-organization.md](07-repo-organization.md#where-a-new-thing-goes)).
 
 ### `DataCatalog`
 
@@ -1042,8 +1057,8 @@ Three readings of the same registry, one per caller, all fixed in
 | `search_records` | `CatalogSearcher` for a `DISCOVER` node, and `PhysicalPlanner` when it binds a scan | Where the data a request needs lives. One call per search term |
 | `column_views` | `FragmentRunner`, for the columns its fragment touches | How a column's values are actually spelled |
 
-`DataCatalog` selects and renders what `blue-data` has already collected and enriched. It profiles no
-column, samples no table, and infers no type of its own, so a `ColumnView` is a projection rather
+`DataCatalog` selects and renders what `blue-data` has already collected and enriched. It profiles
+no column, samples no table, and infers no type of its own, so a `ColumnView` is a projection rather
 than a computation: it pairs an attribute's stored `stats` and `value_semantics` with its
 description. What belongs to this repository is the choice of what each stage sees, which is prompt
 shaping.
@@ -1056,11 +1071,11 @@ shaping.
 | Whether a column holds short codes rather than readable words | The `value_semantics` property, whose semantic types include `ENUM_CATEGORY`, `CODE`, and `POSTAL_CODE` |
 | Finding a source nobody named | The registry's ranked record search |
 
-Two consequences follow. Planning quality depends on whether a source has been enriched, and a source
-that never was renders with names and kinds alone, which planning still works with. And the ranked
-search combines keyword match, value match, and vector similarity, but vector similarity needs a
-vector source and an embedding function; a file-backed registry without them ranks on the other two
-signals.
+Two consequences follow. Planning quality depends on whether a source has been enriched, and a
+source that never was renders with names and kinds alone, which planning still works with. And the
+ranked search combines keyword match, value match, and vector similarity, but vector similarity
+needs a vector source and an embedding function; a file-backed registry without them ranks on the
+other two signals.
 
 ### Which column gets a view
 
@@ -1068,13 +1083,13 @@ A `ColumnRef` is a full catalog path in parts, from source down to attribute, an
 view only when it resolves to one. `column_views` returns nothing for a column that does not.
 
 A view is an annotation, never the column list. The runner reads the columns from the input tables,
-so a column with no view still reaches the prompt with its name, its type, and its sample values, and
-only the catalog's whole-column statistics are missing. That is what keeps an operator-generated
+so a column with no view still reaches the prompt with its name, its type, and its sample values,
+and only the catalog's whole-column statistics are missing. That is what keeps an operator-generated
 column from reading as a column that does not exist.
 
-Which columns resolve is not settled. `fragment.scan_sources` names an entity path for each `SCAN` in
-the fragment, so a column of a table the fragment itself scans is that path plus the column name. A
-column arriving on the frontier is harder: resolving it means tracing back through the cover to
+Which columns resolve is not settled. `fragment.scan_sources` names an entity path for each `SCAN`
+in the fragment, so a column of a table the fragment itself scans is that path plus the column name.
+A column arriving on the frontier is harder: resolving it means tracing back through the cover to
 whichever fragment scanned it, which can be done for the fragment kinds that leave columns unchanged
 and cannot be done safely through one that derives them. How far to trace decides whether a `FILTER`
 running alone over scanned rows sees catalog values at all, and it is open question 3 in
@@ -1086,12 +1101,13 @@ running alone over scanned rows sees catalog values at all, and it is open quest
 def open_registry(registry_path: Path) -> DataRegistryClient: ...
 ```
 
-Reads a serialized `blue-data` registry into memory. A reopened registry reconnects to its own sources,
-so the databases behind it are never converted and a query still runs against the live files.
+Reads a serialized `blue-data` registry into memory. A reopened registry reconnects to its own
+sources, so the databases behind it are never converted and a query still runs against the live
+files.
 
-This is the read counterpart of an ingestion step the library does not have. The TAG-Bench registry is
-written once by `lib/scripts/tag_bench/register_databases.py`, which calls `blue-data` directly: a
-script under `lib/scripts/` ships in no package, so the import rule that governs
+This is the read counterpart of an ingestion step the library does not have. The TAG-Bench registry
+is written once by `lib/scripts/tag_bench/register_databases.py`, which calls `blue-data` directly:
+a script under `lib/scripts/` ships in no package, so the import rule that governs
 `src/blue_data_planner/` does not reach it ([07-repo-organization.md](07-repo-organization.md),
 [08-coding-style.md](08-coding-style.md)).
 
@@ -1122,12 +1138,13 @@ def complete_structured(self, conversation: Conversation, response_model: type[M
 ```
 
 The conversation is what makes two of the design's patterns work. The logical planner appends a
-validation error and asks again. The fragment runner writes parameters and then reviews the result in
-the same exchange, so the review sees what was written and why.
+validation error and asks again. The fragment runner writes parameters and then reviews the result
+in the same exchange, so the review sees what was written and why.
 
 It also carries the usage, which is what lets a stage report what its calls cost without an
-out-parameter: the stage reads `conversation.usage` when it builds its result. A stage making several
-exchanges concatenates them. There is no accumulator class, since a total is a `sum()` over the list.
+out-parameter: the stage reads `conversation.usage` when it builds its result. A stage making
+several exchanges concatenates them. There is no accumulator class, since a total is a `sum()` over
+the list.
 
 `PlanResult.planner_usage` therefore covers calls through this module and nothing else, and the name
 says so. A model call an operator makes internally, as a LOTUS operator does, is invisible here:
@@ -1204,7 +1221,7 @@ beside it:
 ```python
 cover = result.pipeline.cover
 [(f.operator_id, f.logical_node_ids) for f in cover.fragments]
-# [("blue.nl2sql", ["n1", "n2", "n3"]), ("lotus.sem_filter", ["n4"])]
+# [("tablesuite.nl2sql", ["n1", "n2", "n3"]), ("textsuite.semantic_filter", ["n4"])]
 ```
 
 Planning without spending anything is the same call with a different name:
@@ -1215,10 +1232,10 @@ explained.status  # RunStatus.PLANNED
 explained.answer  # None
 ```
 
-The operators registered for one logical operator are what the physical planner builds its candidates
-from, so registering a suite is the whole of adding it:
+The operators registered for one logical operator are what the physical planner builds its
+candidates from, so registering a suite is the whole of adding it:
 
 ```python
 [op.operator_id for op in router.operators_for(LogicalOperator.FILTER)]
-# ["blue.select", "blue.semantic_filter", "blue.nl2sql", "lotus.sem_filter"]
+# ["tablesuite.select", "tablesuite.nl2sql", "textsuite.semantic_filter"]
 ```

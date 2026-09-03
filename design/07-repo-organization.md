@@ -108,15 +108,14 @@ blue-data-planner/
 | `lib/` | All planning behavior. The `blue-data-planner` package | Yes, to PyPI |
 | `platform/` | One directory per external interface, each independently built and versioned | Yes, to PyPI |
 
-The division that matters is between `lib/` and `platform/`. `lib/` owns behavior; a platform package
-parses requests, formats responses, maps errors, and loads configuration. Planning, operator
+The division that matters is between `lib/` and `platform/`. `lib/` owns behavior; a platform
+package parses requests, formats responses, maps errors, and loads configuration. Planning, operator
 selection, and execution never live in an adapter, and an adapter imports only the public surface
 (ADR-002).
 
-A second division cuts through `lib/` itself. Only `lib/src/` is packaged, since
-`[tool.setuptools.packages.find]` looks nowhere else. `lib/scripts/` and `lib/tests/` are therefore
-build steps and measurements rather than shipped code, which is what lets the benchmark scripts hold
-an import the library does not allow itself.
+A second division cuts through `lib/` itself. Only `lib/src/` is packaged, so `lib/scripts/` and
+`lib/tests/` are build steps and measurements rather than shipped code, which is what lets the
+benchmark scripts hold an import the library does not allow itself.
 
 ---
 
@@ -137,12 +136,8 @@ an import the library does not allow itself.
 `planner/run_state.py`. There is no `assembly.py` and nothing but `types/` and `validation.py` at
 the package root.
 
-The diagram in [03-high-level-architecture.md](03-high-level-architecture.md) draws `DataPlanner`
-outside the `planner/` box, which invites the opposite conclusion. That diagram is about which
-component reads which, not about directories, and the same diagram puts the run state inside the box.
-Reading `planner/` as "the stages" rather than as "everything that turns a request into an answer" is
-a choice about the package, and the second reading is the one that keeps the entry point beside the
-loop it runs and the state that loop writes.
+`planner/` means everything that turns a request into an answer rather than the stages alone, which
+keeps the entry point beside the loop it runs and the state that loop writes.
 
 Wiring has no module of its own for the same reason. `build_data_planner` receives the router, the
 catalog, and the model client and constructs only the four stages, so it names the same things
@@ -160,9 +155,9 @@ by suite and holds nothing else.
 | `blue.py` | `blue_operators`, over a `blue-data-ops` `OperatorRegistry` |
 | `lotus/` | `lotus_operators`, over the LOTUS package |
 
-An adapter is a directory rather than a module when the suite needs more than one file to wrap, which
-is why `lotus/` is a package and `blue.py` is not. Grouping by logical operator was rejected, because
-an operator may declare several and the router already answers that question.
+An adapter is a directory rather than a module when the suite needs more than one file to wrap,
+which is why `lotus/` is a package and `blue.py` is not. Grouping by logical operator was rejected,
+because an operator may declare several and the router already answers that question.
 
 ### Where a new thing goes
 
@@ -181,16 +176,16 @@ an operator may declare several and the router already answers that question.
 ## Tests
 
 `lib/tests/unit/` mirrors `lib/src/blue_data_planner/` directory for directory, so the test for
-`planner/physical_planner.py` is `tests/unit/planner/test_physical_planner.py`. It mirrors `lib/scripts/` the same
-way, which is why `tests/unit/scripts/tag_bench/` exists. Four directories sit beside `unit/` and
-mirror nothing.
+`planner/physical_planner.py` is `tests/unit/planner/test_physical_planner.py`. It mirrors
+`lib/scripts/` the same way, which is why `tests/unit/scripts/tag_bench/` exists. Four directories
+sit beside `unit/` and mirror nothing.
 
 | Directory | Holds |
 | --- | --- |
 | `doubles/` | In-memory replacements for I/O boundaries, chiefly the data registry, plus fakes for the four planning stages |
-| `stubs/` | Deterministic fakes for heavy optional dependencies: litellm, sentence-transformers, LOTUS. On pyright's resolution path through `extraPaths` |
+| `stubs/` | Deterministic fakes for heavy optional dependencies: litellm and LOTUS |
 | `fixtures/` | Recorded inputs and the cassettes that replay model responses |
-| `benchmarks/` | The TAG-Bench harness, excluded from the default run by `testpaths` |
+| `benchmarks/` | The TAG-Bench harness, excluded from the default run |
 
 A platform package tests only translation: argument parsing, response shape, error mapping, exit
 codes. Its tests import doubles from `lib/tests/` rather than defining their own.
@@ -215,9 +210,9 @@ in [10-data-model.md](10-data-model.md#6-benchmark-inputs).
 `register_databases.py` is the one place in the repository outside `data/` that imports `blue-data`.
 Registering sources, syncing them, collecting statistics, and enriching them are ingestion, which
 belongs to `blue-data` rather than here, so the library offers no way to do any of it and a caller
-with no registry builds one with `blue-data` first. The benchmark still needs a registry built, and it
-is a build step in an unpackaged directory, so it calls `blue-data` directly rather than forcing an
-ingestion surface into `data/` ([06-library.md](06-library.md#opening-a-registry)). The rule the
+with no registry builds one with `blue-data` first. The benchmark still needs a registry built, and
+it is a build step in an unpackaged directory, so it calls `blue-data` directly rather than forcing
+an ingestion surface into `data/` ([06-library.md](06-library.md#opening-a-registry)). The rule the
 library holds itself to is scoped to `lib/src/` and stated that way in
 [08-coding-style.md](08-coding-style.md).
 

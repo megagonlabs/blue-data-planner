@@ -132,8 +132,8 @@ uv run pyright
 ## 4. Layout
 
 `lib/tests/unit/` mirrors `lib/src/blue_data_planner/` directory for directory, so the test for
-`planner/physical_planner.py` is `tests/unit/planner/test_physical_planner.py`. It mirrors `lib/scripts/` too. Four
-directories sit beside it and mirror nothing.
+`planner/physical_planner.py` is `tests/unit/planner/test_physical_planner.py`. It mirrors
+`lib/scripts/` too. Four directories sit beside it and mirror nothing.
 
 ```text
 lib/tests/
@@ -171,8 +171,8 @@ resolution path through `extraPaths`, so both the test run and the type check se
 
 `doubles/data.py` holds the replacement for the `blue-data` boundary. It implements
 `DataRegistryClient`'s methods and records every call, so a test asserts what the catalog asked the
-registry for rather than what a database returned. `SQLSourceDouble` beside it stands in
-for a returned SQL source, following the real connect, cursor, execute, commit, disconnect sequence.
+registry for rather than what a database returned. `SQLSourceDouble` beside it stands in for a
+returned SQL source, following the same call sequence the real one expects.
 
 Two doubles serve the planner.
 
@@ -196,8 +196,8 @@ reaches its lazy import.
 ## 6. Recorded model responses
 
 Cassettes cover behavior that depends on what a real model returns, which the scripted client cannot
-show. Prompt shaping is exactly that: whether a prompt carrying a column's coded values gets `PRIJEM`
-back rather than `credit` is a question about a model, not about this code.
+show. Prompt shaping is exactly that: whether a prompt carrying a column's coded values gets
+`PRIJEM` back rather than `credit` is a question about a model, not about this code.
 
 | Question | Tested with |
 | --- | --- |
@@ -205,9 +205,9 @@ back rather than `credit` is a question about a model, not about this code.
 | Does a real model return a usable response to this prompt? | A cassette |
 
 Cassettes live in `lib/tests/fixtures/` and are committed. They cover the four stages that write
-prompts — the logical planner, the physical planner, the fragment runner's parameters and review, and
-the catalog searcher — with a few requests each rather than one per prompt variation. A prompt that
-changes materially means re-recording, by deleting the cassette and running with
+prompts — the logical planner, the physical planner, the fragment runner's parameters and review,
+and the catalog searcher — with a few requests each rather than one per prompt variation. A prompt
+that changes materially means re-recording, by deleting the cassette and running with
 `--record-mode=once`. A missing cassette fails the test rather than reaching the network, which is
 what keeps the default run offline.
 
@@ -232,10 +232,10 @@ produce one test per line of that document.
 | `DataPlanner`, `RunState` | Each of the four repairs is reachable and counts against its own bound, installing a cover keeps the results of fragments that did not change, and every `RunStatus` comes back with counters that explain it |
 | `data/` | Each catalog reading carries what its stage is entitled to and nothing more, and a source nobody enriched still renders |
 | `llm/` | A conversation keeps its turns and the usage of every call made on it, and a provider failing after retries raises `LLMError` |
-| `operators/` | An operator's declaration reaches the router as the suite wrote it, a bundle crosses in both directions unchanged including a multi-table bundle (ADR-012), a suite's failure is mapped to the right error kind, and LOTUS is imported only when an operator runs, so the package imports with LOTUS absent (ADR-004) |
+| `operators/` | An operator's declaration reaches the router intact and describes what the operation does, cross-checked against the suite's own attribute declarations and against the operation's validator wherever those two disagree (ADR-010), a bundle crosses in both directions unchanged including a multi-table bundle (ADR-012), a suite's failure is mapped to the right error kind, and LOTUS is imported only when an operator runs, so the package imports with LOTUS absent (ADR-004) |
 
-The run loop's row is the one worth reading twice. The four repairs are what the design is for, and a
-test naming each one and the counter it spends is the shortest description of the loop that anyone
+The run loop's row is the one worth reading twice. The four repairs are what the design is for, and
+a test naming each one and the counter it spends is the shortest description of the loop that anyone
 can check ([04-detailed-architecture.md](04-detailed-architecture.md#5-recovering-from-a-failure)).
 
 ---

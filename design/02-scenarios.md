@@ -10,13 +10,13 @@ organization has a few dozen sources registered in `blue-data`. Two of them matt
 
 The analyst's questions name neither source. Working out which one answers which part of a question
 is the planner's job, and the two are not equally easy to find: the catalog preview a planner reads
-lists sources and their descriptions, so `jobs` is visible from the request text alone, while nothing
-at the source level says `research_library` holds company profiles. Scenario 1 shows what the planner
-does about that.
+lists sources and their descriptions, so `jobs` is visible from the request text alone, while
+nothing at the source level says `research_library` holds company profiles. Scenario 1 shows what
+the planner does about that.
 
-> Everything shown in code blocks is for illustration. Commands, class and method names, JSON field
-> names, and printed output are written to show the shape of each interaction, and none of them
-> define the implementation. The real names and structures are settled in
+> Everything shown below is for illustration. Commands, class and method names, JSON field names,
+> operator ids, and printed output are written to show the shape of each interaction, and none of
+> them define the implementation. The real names and structures are settled in
 > [06-library.md](06-library.md), [09-api-interface-spec.md](09-api-interface-spec.md), and
 > [10-data-model.md](10-data-model.md).
 
@@ -27,8 +27,8 @@ does about that.
 An analyst has a question about data that is already registered, and does not want to write code.
 The CLI takes the question in plain language, plans it, runs the plan, and prints the result.
 
-The analyst does not say which source holds what, and does not work out which parts of the question a
-database can answer and which parts need a language model. In the question below, location is a
+The analyst does not say which source holds what, and does not work out which parts of the question
+a database can answer and which parts need a language model. In the question below, location is a
 column a database can compare directly, while "data scientist role" and "healthcare company" are
 judgments no column holds.
 
@@ -39,11 +39,11 @@ blue-data-planner ask "Which Bay Area data scientist postings are at healthcare 
 ### The first plan: a question about the catalog
 
 The logical planner reads the request and the catalog preview. The preview shows that a job postings
-source exists. It shows nothing that holds company profiles, and whether one exists changes the shape
-of everything after the postings: with profiles, the healthcare judgment is a join and then a filter
-over profile text; without them, it is a filter over the posting's own description, and the postings
-scan has to carry that description as a column. Rather than guess between two different plans, the
-planner writes a `DISCOVER` node and ends there.
+source exists. It shows nothing that holds company profiles, and whether one exists changes the
+shape of everything after the postings: with profiles, the healthcare judgment is a join and then a
+filter over profile text; without them, it is a filter over the posting's own description, and the
+postings scan has to carry that description as a column. Rather than guess between two different
+plans, the planner writes a `DISCOVER` node and ends there.
 
 ```json
 {
@@ -58,9 +58,9 @@ planner writes a `DISCOVER` node and ends there.
 }
 ```
 
-`output_node_id` is `null` because the plan has no `RETURN` node yet, which is what a plan ending on a
-control node looks like. `n1` is bound to no operator and spends no operator call. Physical planning
-has nothing to cover, so the pass goes straight to the node.
+`output_node_id` is `null` because the plan has no `RETURN` node yet, which is what a plan ending on
+a control node looks like. `n1` is bound to no operator and spends no operator call. Physical
+planning has nothing to cover, so the pass goes straight to the node.
 
 `CatalogSearcher` turns the instruction into search terms and runs one registry search per term. The
 search reaches records below the source level, which is where the preview stops, and that is what
@@ -76,8 +76,8 @@ n1 DISCOVER  2 terms, 4 matches
 ### The continuation: a complete plan
 
 Control returns to the logical planner, which now sees the request, the preview, the node it already
-resolved, and the records the search found. It writes the rest as one plan, from the scans through to
-the `RETURN`.
+resolved, and the records the search found. It writes the rest as one plan, from the scans through
+to the `RETURN`.
 
 Writing it complete is what makes the next stage possible. A plan that stopped at its scans and left
 filtering for later would give physical planning nothing to group, and the question of how much one
@@ -94,25 +94,25 @@ operator should take on would never come up.
      "required_output_columns": []},
 
     {"id": "n2", "kind": "SCAN", "input_node_ids": [],
-     "attributes": {"instruction": "job postings"},
+     "attributes": {"instruction": "load job postings"},
      "required_output_columns": [{"name": "title", "dtype": "str"},
                                  {"name": "company_id", "dtype": "int"},
                                  {"name": "location", "dtype": "str"}]},
 
     {"id": "n3", "kind": "FILTER", "input_node_ids": ["n2"],
-     "attributes": {"instruction": "the posting location is in the San Francisco Bay Area"},
+     "attributes": {"instruction": "find the postings whose location is in the San Francisco Bay Area"},
      "required_output_columns": [{"name": "title", "dtype": "str"},
                                  {"name": "company_id", "dtype": "int"},
                                  {"name": "location", "dtype": "str"}]},
 
     {"id": "n4", "kind": "FILTER", "input_node_ids": ["n3"],
-     "attributes": {"instruction": "the posting title is a data scientist role"},
+     "attributes": {"instruction": "find the postings whose title is a data scientist role"},
      "required_output_columns": [{"name": "title", "dtype": "str"},
                                  {"name": "company_id", "dtype": "int"},
                                  {"name": "location", "dtype": "str"}]},
 
     {"id": "n5", "kind": "SCAN", "input_node_ids": [],
-     "attributes": {"instruction": "company profile documents"},
+     "attributes": {"instruction": "load company profile documents"},
      "required_output_columns": [{"name": "company_id", "dtype": "int"},
                                  {"name": "company", "dtype": "str"},
                                  {"name": "profile", "dtype": "str"}]},
@@ -125,7 +125,7 @@ operator should take on would never come up.
                                  {"name": "profile", "dtype": "str"}]},
 
     {"id": "n7", "kind": "FILTER", "input_node_ids": ["n6"],
-     "attributes": {"instruction": "the company works in healthcare"},
+     "attributes": {"instruction": "find the postings whose company works in healthcare"},
      "required_output_columns": [{"name": "title", "dtype": "str"},
                                  {"name": "location", "dtype": "str"},
                                  {"name": "company", "dtype": "str"}]},
@@ -138,8 +138,8 @@ operator should take on would never come up.
 ```
 
 This is a new version of the logical plan rather than an edit of the first one. It names its parent,
-and it carries over `n1` because `n1` produced a result. Nothing else carried over, since nothing else
-had run. The first version stays readable exactly as it was written.
+and it carries over `n1` because `n1` produced a result. Nothing else carried over, since nothing
+else had run. The first version stays readable exactly as it was written.
 
 ### Deciding how much to push down
 
@@ -148,15 +148,15 @@ Three of the four choices here are forced, and one is not.
 
 | Nodes | Operator | Why |
 | --- | --- | --- |
-| `n5` | `blue.query` | The profiles are documents. No operator in this registry reads a document source and does anything else in the same call |
-| `n6` | `blue.join` | It joins tables from two different sources, which no single source can do |
-| `n7` | `lotus.sem_filter` | Reading a profile for whether the company works in healthcare is a judgment, and only a semantic operator declares `FILTER` over text |
-| `n2`, `n3`, `n4` | `blue.nl2sql` | All three are kinds `nl2sql` declares, and they scan a SQLite source, so any group of them is a candidate |
+| `n5` | `tablesuite.document_fetch` | The profiles are documents. No operator in this registry reads a document source and does anything else in the same call |
+| `n6` | `tablesuite.join` | It joins tables from two different sources, which no single source can do |
+| `n7` | `textsuite.semantic_filter` | Reading a profile for whether the company works in healthcare is a judgment, and only a semantic operator declares `FILTER` over text |
+| `n2`, `n3`, `n4` | `tablesuite.nl2sql` | All three are kinds `nl2sql` declares, and they scan a SQLite source, so any group of them is a candidate |
 
-The last row is the decision the stage exists to make. `nl2sql` may take the scan alone, the scan and
-the location filter, or all three, and each is a different trade: one SQL query that filters 312 rows
-down to 48 inside the database, against three calls whose middle step can be checked on its own. The
-planner takes all three.
+The last row is the decision the stage exists to make. `nl2sql` may take the scan alone, the scan
+and the location filter, or all three, and each is a different trade: one SQL query that filters 312
+rows down to 48 inside the database, against three calls whose middle step can be checked on its
+own. The planner takes all three.
 
 ```json
 {
@@ -168,7 +168,7 @@ planner takes all three.
       "id": "f1",
       "logical_node_ids": ["n2", "n3", "n4"],
       "root_logical_node_id": "n4",
-      "operator_id": "blue.nl2sql",
+      "operator_id": "tablesuite.nl2sql",
       "scan_sources": {"n2": "/source/jobs/database/jobs/collection/public/entity/postings"},
       "instruction": "Find Bay Area data scientist job postings, with their title, company id, and location",
       "input_data": [],
@@ -176,21 +176,21 @@ planner takes all three.
                                   {"name": "company_id", "dtype": "int"},
                                   {"name": "location", "dtype": "str"}]
     },
-    {"id": "f2", "logical_node_ids": ["n5"], "operator_id": "blue.query", "...": {}},
-    {"id": "f3", "logical_node_ids": ["n6"], "operator_id": "blue.join", "...": {}},
-    {"id": "f4", "logical_node_ids": ["n7"], "operator_id": "lotus.sem_filter", "...": {}}
+    {"id": "f2", "logical_node_ids": ["n5"], "operator_id": "tablesuite.document_fetch", "...": {}},
+    {"id": "f3", "logical_node_ids": ["n6"], "operator_id": "tablesuite.join", "...": {}},
+    {"id": "f4", "logical_node_ids": ["n7"], "operator_id": "textsuite.semantic_filter", "...": {}}
   ]
 }
 ```
 
-`n8` appears in no fragment. Projecting named columns admits no implementation choice, so `RETURN` is
-bound to nothing.
+`n8` appears in no fragment. Projecting named columns admits no implementation choice, so `RETURN`
+is bound to nothing.
 
 ### Running it, and taking one boundary back
 
-The first cover is wrong, and the run finds out by running it. `nl2sql` writes a query that filters on
-location and quietly ignores the rest, because "is a data scientist role" is not a predicate SQL can
-express. The result has the right number of rows to look plausible.
+The first cover is wrong, and the run finds out by running it. `nl2sql` writes a query that filters
+on location and quietly ignores the rest, because "is a data scientist role" is not a predicate SQL
+can express. The result has the right number of rows to look plausible.
 
 What catches it is the instruction of the node that was absorbed. A fused call returns one table and
 no evidence of the steps inside it, so the review checks the result against each absorbed
@@ -204,14 +204,14 @@ wording makes SQL read a title for meaning. The run then moves to the fragment r
 
 ```text
 cover 1
-  f1  n2,n3,n4  blue.nl2sql       rejected: titles that are not data scientist roles
-  f2  n5        blue.query        ok (140 rows)
-  f1  n2,n3,n4  blue.nl2sql       rejected: the same, with the predicate written into the SQL text
+  f1  n2,n3,n4  tablesuite.nl2sql          rejected: titles that are not data scientist roles
+  f2  n5        tablesuite.document_fetch  ok (140 rows)
+  f1  n2,n3,n4  tablesuite.nl2sql          rejected: the same, with the predicate written into the SQL text
 cover 2
-  f1  n2,n3     blue.nl2sql       ok (48 rows)
-  f2  n4        lotus.sem_filter  ok (11 rows)
-  f4  n6        blue.join         ok (11 rows)
-  f5  n7        lotus.sem_filter  ok (2 rows)
+  f1  n2,n3     tablesuite.nl2sql          ok (48 rows)
+  f2  n4        textsuite.semantic_filter  ok (11 rows)
+  f4  n6        tablesuite.join            ok (11 rows)
+  f5  n7        textsuite.semantic_filter  ok (2 rows)
 
 title                     company        location
 Senior Data Scientist     Corvus Health  San Francisco, CA
@@ -220,8 +220,8 @@ Data Scientist, Clinical  Meridian Bio   Palo Alto, CA
 
 The second cover is written for the whole plan, not patched into the first, and installing it
 compares the two fragment by fragment. `n5` is in a fragment whose node set did not change, so its
-140 rows are kept and `blue.query` does not run again. The group that changed drops what it had, and
-runs.
+140 rows are kept and `tablesuite.document_fetch` does not run again. The group that changed drops
+what it had, and runs.
 
 The scan of `postings` is paid for twice, which is what the wider fragment cost when it failed. That
 is the trade the stage weighs, and both attempts are in the record, so where the boundary was drawn
@@ -245,12 +245,12 @@ pushdown boundary before anything is spent on it.
 
 ## Scenario 2: Answering a Data Question Inside an Agent
 
-An agent built with a framework such as LangChain or LangGraph handles a conversation with a user and
-needs data work done partway through it. The MCP server gives the agent one tool for that.
+An agent built with a framework such as LangChain or LangGraph handles a conversation with a user
+and needs data work done partway through it. The MCP server gives the agent one tool for that.
 
-The split of work is deliberate. The agent runs the conversation, remembers what was said earlier, and
-decides when it needs data. The planner takes one self-contained request and answers it. Agents are
-out of scope for this repository, so the tool has to be usable by an agent somebody else wrote.
+The split of work is deliberate. The agent runs the conversation, remembers what was said earlier,
+and decides when it needs data. The planner takes one self-contained request and answers it. Agents
+are out of scope for this repository, so the tool has to be usable by an agent somebody else wrote.
 
 The agent framework is configured with the MCP server:
 
@@ -268,14 +268,15 @@ The agent framework is configured with the MCP server:
 }
 ```
 
-A user asks the agent to help with a job search. Several turns in, the agent decides it needs postings
-and calls the tool with a request it composed from the conversation:
+A user asks the agent to help with a job search. Several turns in, the agent decides it needs
+postings and calls the tool with a request it composed from the conversation:
 
 ```text
 plan_and_execute(task="Bay Area data scientist postings at healthcare companies")
 ```
 
-It gets back structured JSON: the rows, every plan the request produced, and what each node produced.
+It gets back structured JSON: the rows, every plan the request produced, and what each node
+produced.
 
 ```json
 {
@@ -306,26 +307,27 @@ It gets back structured JSON: the rows, every plan the request produced, and wha
 }
 ```
 
-The MCP response collapses what an agent reasons about into counts. `attempts` is a number rather than
-seven full records, and the discovery node reports how many records matched rather than listing them,
-because the full record would bloat every response. The library and the CLI carry both in full.
+The MCP response collapses what an agent reasons about into counts. `attempts` is a number rather
+than seven full records, and the discovery node reports how many records matched rather than listing
+them, because the full record would bloat every response. The library and the CLI carry both in
+full.
 
 The agent does not have to know that the run discovered a source, ended a pass, and took a pushdown
 boundary back, since the tool call still reads as one request and one answer. The record is there if
-it ever needs to explain where an answer came from. The planner does not know an agent called it, and
-it holds nothing from one call to the next.
+it ever needs to explain where an answer came from. The planner does not know an agent called it,
+and it holds nothing from one call to the next.
 
 ---
 
 ## Scenario 3: Embedding the Planner in an Application
 
-A developer is building a data application in Python and wants planning inside it rather than behind a
-command or a server. Alongside the answer, the application needs the record of how that answer was
+A developer is building a data application in Python and wants planning inside it rather than behind
+a command or a server. Alongside the answer, the application needs the record of how that answer was
 produced, so it can show its work, store a plan that worked, and investigate one that did not.
 
 Every part of a run is kept as data. A run that returned the wrong rows can be examined afterward
-without reproducing it, and a developer looking at a bad result can find the decision that went wrong
-instead of guessing at why a model answered the way it did.
+without reproducing it, and a developer looking at a bad result can find the decision that went
+wrong instead of guessing at why a model answered the way it did.
 
 ```python
 from blue_data_planner.planner import build_data_planner
@@ -349,9 +351,9 @@ Three questions have three different answers, and each is in a different place.
 | What actually ran, and what was rejected | `attempts`, each with its node set, its operator, its parameters, and the review's assessment |
 
 A developer investigating a run that returned postings for data engineers reads `attempts` and finds
-the first two: one fragment covering `n2`, `n3`, and `n4`, run by `blue.nl2sql`, with an assessment
-naming titles that do not answer `n4`. The plan was right and the cut was wrong, which points at the
-physical planner's prompt rather than at the logical planner.
+the first two: one fragment covering `n2`, `n3`, and `n4`, run by `tablesuite.nl2sql`, with an
+assessment naming titles that do not answer `n4`. The plan was right and the cut was wrong, which
+points at the physical planner's prompt rather than at the logical planner.
 
 The planner takes a request and nothing else. A plan is what a request produced, not something a
 caller hands in, so there is no way to store one and run it later: asking the same question again
@@ -402,7 +404,6 @@ PhysicalOperator(
     parameter_schema={"question": {"type": "string"}, "source": {"type": "string"}},
     call=_nl2sql,
     source_kinds=frozenset({"sql/sqlite", "sql/mysql", "sql/postgres"}),
-    accepts_bound_inputs=True,
     limitations=(
         "Cannot express a semantic predicate, and cannot bind tables from other fragments "
         "into the query it writes."
@@ -417,13 +418,13 @@ The two sit at opposite ends of what a declaration can say.
 | Logical operators | One | Seven |
 | Largest group it can cover | One `FILTER` node | Any connected group of those seven kinds |
 | Sources | None. It reads the rows it is handed | SQLite, MySQL, and Postgres, and every `SCAN` in a group has to be one of those |
-| Tables from other fragments | Its input is one table | Declares `accepts_bound_inputs=True`, but the operator raises instead of binding any it is handed |
-| Stated limitations | None | Cannot express a semantic predicate, which is what kept `n4` out of its group in Scenario 1, and cannot bind tables from other fragments into the query it writes |
+| Tables from other fragments | Its input is one table | None. It writes its query from its parameters and the schema of the source it reads, so it is a candidate only for a fragment with an empty frontier |
+| Stated limitations | None | Cannot express a semantic predicate, the limit that kept `n4` out of the SQL fragment in Scenario 1, and cannot bind tables from other fragments into the query it writes |
 
 An operator declaring one logical operator can only ever cover one node. Declaring several is what
-makes a group possible, and `limitations` is what keeps the group from growing past what the operator
-can do. Without it, a
-description promising SQL over anything is all the planner has to go on.
+makes a group possible, and `limitations` is what keeps the group from growing past what the
+operator can do. Without it, a description promising SQL over anything is all the planner has to go
+on.
 
 Registering is the whole integration. Nobody edits planner code and nobody edits a prompt by hand,
 because both stages build their choices from the router while they plan.
@@ -445,6 +446,6 @@ for operator in lotus_operators():  # empty when LOTUS is not installed
 ```
 
 `blue.nl2sql` answers for `FILTER` alongside the three operators that do nothing else, because
-`FILTER` is one of the seven kinds it declares. That is why the physical planner had a choice to make
-at `n2`, `n3`, and `n4` in Scenario 1, and why it had somewhere to go when the choice turned out
-wrong.
+`FILTER` is one of the seven kinds it declares. That is why the physical planner had a choice to
+make at `n2`, `n3`, and `n4` in Scenario 1, and why it had somewhere to go when the choice turned
+out wrong.

@@ -1,10 +1,10 @@
 # blue-data-planner — API / Interface Spec
 
 Three interfaces call into the library: the Python library itself, a CLI, and an MCP server. A REST
-API is reserved and not built
-([03-high-level-architecture.md](03-high-level-architecture.md)). No planning, operator selection, or
-execution logic lives in an interface; each one parses requests, formats responses, maps errors, and
-loads configuration. Authentication and authorization belong to the deployment.
+API is reserved and not built ([03-high-level-architecture.md](03-high-level-architecture.md)). No
+planning, operator selection, or execution logic lives in an interface; each one parses requests,
+formats responses, maps errors, and loads configuration. Authentication and authorization belong to
+the deployment.
 
 This document covers what each interface accepts and returns.
 [10-data-model.md](10-data-model.md) specifies the shape of a plan and a result, including the JSON
@@ -136,8 +136,8 @@ with no search run, since resolving one would start the second pass.
 ### Bounds on a run
 
 Every bound is a field of `PlanLimits`. Five are counted by the run loop; the other three bound a
-loop inside one component, and `build_data_planner` hands each component its own number. Defaults are
-in [12-deployment-ops.md](12-deployment-ops.md).
+loop inside one component, and `build_data_planner` hands each component its own number. Defaults
+are in [12-deployment-ops.md](12-deployment-ops.md).
 
 | Bound | Counted | Enforced by | Reaching it |
 | --- | --- | --- | --- |
@@ -169,8 +169,8 @@ Returned whichever way a request ends, and fixed in
 | `counters` | `dict[str, int]` | One entry per `PlanLimits` field, holding what was spent |
 | `planner_usage` | `list[LLMUsage]` | One record per model call through `llm/`, in call order |
 
-`answer` is `None` rather than `[]` on any status other than `ok`, so a caller who ignores the status
-cannot mistake a failed run for an empty answer (ADR-015).
+`answer` is `None` rather than `[]` on any status other than `ok`, so a caller who ignores the
+status cannot mistake a failed run for an empty answer (ADR-015).
 
 No field reports a node's outcome on its own. Whether a node succeeded is whether the current plan's
 slot in `results` holds an entry for it, and which operator ran it is that entry's `operator_id`
@@ -205,8 +205,8 @@ component that expects it.
 
 ## 2. CLI
 
-One command. `plan` and `run` subcommands are deliberately absent: a plan is an output rather than an
-input, so there is nothing for a `run` subcommand to read.
+One command. `plan` and `run` subcommands are deliberately absent: a plan is an output rather than
+an input, so there is nothing for a `run` subcommand to read.
 
 ```bash
 blue-data-planner ask "Which Bay Area data scientist postings are at healthcare companies?"
@@ -225,8 +225,8 @@ blue-data-planner ask "Which Bay Area data scientist postings are at healthcare 
 | `--quiet` | flag | off | Suppress the per-fragment progress lines |
 
 Each of the eight bounds has a flag, named `--max-` plus its `PlanLimits` field name. The prefix is
-what says the number is a cap, which the field name alone does not: `PlanLimits` drops it because the
-type name already says limits, and a command line has no such container.
+what says the number is a cap, which the field name alone does not: `PlanLimits` drops it because
+the type name already says limits, and a command line has no such container.
 
 | Flag | Sets |
 | --- | --- |
@@ -250,12 +250,12 @@ operator that ran it, and what happened, which is the pushdown boundary and its 
 
 ```text
 cover 1
-  f1  n2,n3,n4  blue.nl2sql       rejected: titles that are not data scientist roles
-  f2  n5        blue.query        ok (140 rows)
-  f1  n2,n3,n4  blue.nl2sql       rejected: the same, with the predicate written into the SQL text
+  f1  n2,n3,n4  tablesuite.nl2sql          rejected: titles that are not data scientist roles
+  f2  n5        tablesuite.document_fetch  ok (140 rows)
+  f1  n2,n3,n4  tablesuite.nl2sql          rejected: the same, with the predicate written into the SQL text
 cover 2
-  f1  n2,n3     blue.nl2sql       ok (48 rows)
-  f2  n4        lotus.sem_filter  ok (11 rows)
+  f1  n2,n3     tablesuite.nl2sql          ok (48 rows)
+  f2  n4        textsuite.semantic_filter  ok (11 rows)
 ```
 
 The answer follows on standard output as a Rich table, or as JSON under `--json`. A run that did not
@@ -279,9 +279,8 @@ ends as `replan_exhausted`, which is code 1 ([06-library.md](06-library.md#opera
 
 ## 3. MCP server
 
-The server hosts the planning tools, which is what an agent uses to hand over a whole question. An
-agent wanting to drive one operation itself reaches for `blue-data-ops`'s own MCP server, which hosts
-one tool per operator.
+The server hosts the planning tools, which is what an agent uses to hand over a whole question.
+Driving one operation directly is an operator suite's own concern, and no tool here exposes one.
 
 ### Planning tools
 
@@ -323,8 +322,8 @@ run may spend is a deployment decision rather than something an agent has a basi
 Four shapes differ from the library's on purpose, and each is a count where the library carries a
 list ([10, shapes that leave the process](10-data-model.md#5-shapes-that-leave-the-process)):
 `attempts`, `rejected_plans`, a `DISCOVER` node's matches, and `planner_usage`. An agent reasons
-about the outcome, and the full records would bloat every response. The library and the CLI carry all
-four in full.
+about the outcome, and the full records would bloat every response. The library and the CLI carry
+all four in full.
 
 A run that did not finish returns the same object with its status, `answer` null, and the counters
 showing what ran out. That is a successful tool call reporting a failed run, not a tool error.
@@ -335,8 +334,7 @@ showing what ran out. That is a successful tool call reporting a failed run, not
 | --- | --- |
 | A run that did not finish | Success, with a status in the payload |
 | An operator failing inside a run | Success. The fragment's attempt carries it |
-| An operator tool's own failure: recoverable, timeout, or empty | Success, with the detail in `exec_meta` |
-| An unknown tool, a malformed argument, a projection or encoding failure | Tool error, `isError` true |
+| An unknown tool, a malformed argument, or a result that will not encode | Tool error, `isError` true |
 | A missing API key or an unreachable registry | Tool error, `isError` true |
 
 ### Registry access

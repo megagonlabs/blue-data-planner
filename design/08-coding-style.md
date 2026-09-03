@@ -1,9 +1,8 @@
 # blue-data-planner — Coding Style
 
 This follows the shared Blue style in the `blue-data-kb-source` repository's own
-`08-coding-style.md`, with
-the differences this repository actually has: it is synchronous, its errors are partly statuses
-rather than exceptions, and it has import rules that hold the components apart.
+`08-coding-style.md`, with the differences this repository has: it is synchronous, its errors are
+partly statuses rather than exceptions, and it has import rules that hold the components apart.
 
 `.github/instructions/python.instructions.md` is the working copy of these rules, read by coding
 agents. This document is the source of truth; that file follows it.
@@ -37,10 +36,9 @@ venv = ".venv"
 extraPaths = ["tests/stubs"]     # lib/ only: fakes for heavy optional dependencies
 ```
 
-Prompt text is the one thing exempt from `E501`, through `per-file-ignores`, because a line break
-inside a prompt changes the bytes sent to a provider. The exemption names each file that holds
-prompt text and nothing else: the stage prompts under `planner/prompts/` and the `nl2x` operators
-that carry their own.
+Prompt text is the one thing exempt from `E501`, because a line break inside a prompt changes the
+bytes sent to a provider. The exemption names each file holding prompt text and nothing else, which
+is the stage prompts under `planner/prompts/`.
 
 ---
 
@@ -71,18 +69,17 @@ def next_ready(self) -> Optional[PhysicalPlanFragment]: ...
 
 Every package ships a `py.typed` marker, so public signatures are part of the released interface.
 
-Two dependencies ship no types of their own: `blue-data` and, in time, `lotus-ai`. `blue-data-ops`
-ships `py.typed`. The untyped imports
-carry a targeted `pyright: ignore` where they enter and delegate through `Any` from there, so
-untyped values stop at `data/`, at `operators/lotus/`, and at the one benchmark script that
-imports `blue-data` directly, rather than spreading past them.
+A dependency shipping no types of its own is imported behind a targeted `pyright: ignore` where it
+enters and delegates through `Any` from there. The import rules below put those imports in three
+places, so untyped values stop at `data/`, at `operators/lotus/`, and at the one benchmark script
+that imports `blue-data` directly, rather than spreading past them.
 
 ---
 
 ## Synchronous by default
 
 The library is synchronous. `DataPlanner.run`, `RunState.next_ready`, `execute_physical_operator`,
-every operator's `apply`, and every call through `data/` are ordinary functions.
+every physical operator's callable, and every call through `data/` are ordinary functions.
 
 ```python
 # correct
@@ -95,10 +92,10 @@ class DataPlanner:
     async def run(self, request: str) -> PlanResult: ...
 ```
 
-The exception is `LLMClient`, which has both `execute_api_call` and `aexecute_api_call`, so a caller
-with many independent provider calls can run them together. The planner is not such a caller: the
-run loop takes one ready fragment at a time, and inside a stage each call is written against what
-the last one returned.
+The exception is `LLMClient`, whose one call has an async twin, so a caller with many independent
+provider calls can run them together ([06-library.md](06-library.md#llm)). The planner is not such a
+caller: the run loop takes one ready fragment at a time, and inside a stage each call is written
+against what the last one returned.
 
 **Adapter bridge.** The MCP server's handlers are async because the SDK's are. They call the
 synchronous library directly for fast work, and through `asyncio.to_thread` for anything that runs a
@@ -114,7 +111,7 @@ plan, so a long request does not block the event loop and stall the transport fo
 | Methods and functions | snake_case | `operators_for`, `next_ready`, `execute_physical_operator` |
 | Module-level constants | UPPER_SNAKE_CASE | `INPUT_ARITY` |
 | Enum members | UPPER_SNAKE_CASE | `LogicalOperator.SORT_SUPERLATIVE`, `ErrorKind.RECOVERABLE` |
-| Private members | single `_` prefix | `_run_pass`, `_coercion.py` |
+| Private members | single `_` prefix | `_run_pass` |
 | Modules and packages | lowercase | `planner/`, `fragment_runner.py` |
 
 No double-underscore name mangling. A single `_` marks everything private, whether a method, a
@@ -195,8 +192,8 @@ what keeps each module's import cost to what it names, since Python runs a packa
 before any module inside it (ADR-016).
 
 The third rule is scoped to `lib/src/` because `lib/scripts/` and `lib/tests/` ship in no package.
-`lib/scripts/tag_bench/register_databases.py` imports `blue-data` directly to build a registry, which
-is ingestion the library deliberately does not offer
+`lib/scripts/tag_bench/register_databases.py` imports `blue-data` directly to build a registry,
+which is ingestion the library deliberately does not offer
 ([07-repo-organization.md](07-repo-organization.md#where-the-benchmark-lives)). Nothing else outside
 `data/` imports it.
 
@@ -222,7 +219,7 @@ class OperatorRouter:
 
 A docstring that runs longer than a line is a sign the code needs splitting, with one exception:
 where a rule is not obvious from the code, say why in the docstring rather than leaving a reader to
-guess. `_wire_json` in the MCP adapter is the working example.
+guess.
 
 ---
 
@@ -294,12 +291,12 @@ interface boundary, and let each interface decide what to do with one.
 | Interface | Handling |
 | --- | --- |
 | Python library | Exceptions propagate to the caller |
-| MCP server | An operator's failures arrive as `ErrorRecord` values in its result and are projected onto the wire as structured JSON. An exception raised in the adapter itself becomes a tool error at the handler boundary and never a synthetic `ErrorRecord` |
+| MCP server | A run that did not finish, and an operator failing inside one, are successful tool calls whose payload carries the status and the attempt. An exception raised in the adapter itself becomes a tool error at the handler boundary ([09-api-interface-spec.md](09-api-interface-spec.md#errors)) |
 | CLI | A top-level handler renders the message through Rich and sets an exit code |
 
-The library has one `try` of its own that is not a conversion: `LLMError` is caught at the top of the
-run loop, so a provider outage becomes the `llm_failed` status with everything the run had already
-accumulated, and no stage has to handle the provider itself.
+The library has one `try` of its own that is not a conversion: `LLMError` is caught at the top of
+the run loop, so a provider outage becomes the `llm_failed` status with everything the run had
+already accumulated, and no stage has to handle the provider itself.
 
 ---
 

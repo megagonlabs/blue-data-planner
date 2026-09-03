@@ -1,9 +1,9 @@
 # blue-data-planner — Data Model
 
-blue-data-planner owns no durable storage. Every shape in this document lives in memory for the length
-of one request, and a few of them leave the process as JSON: a plan and a result in an MCP response,
-a result printed as JSON by the CLI, and whatever a library caller chooses to write down. The data
-this system reads is owned by `blue-data`; the data it writes is returned to the caller.
+blue-data-planner owns no durable storage. Every shape in this document lives in memory for the
+length of one request, and a few of them leave the process as JSON: a plan and a result in an MCP
+response, a result printed as JSON by the CLI, and whatever a library caller chooses to write down.
+The data this system reads is owned by `blue-data`; the data it writes is returned to the caller.
 
 This document fixes the shapes. [06-library.md](06-library.md) names the classes and says what each
 is responsible for; here each one gets its fields, its JSON form, and the rules its values follow.
@@ -27,7 +27,8 @@ record; the plan, the rows, and every attempt end up in the `PlanResult` the cal
 
 The vocabulary follows [04-detailed-architecture.md](04-detailed-architecture.md). A logical
 operator is a node kind such as `FILTER`. A physical operator is one implementation such as
-`lotus.sem_filter`. A fragment is the group of nodes one physical operator runs in a single call.
+`textsuite.semantic_filter`. A fragment is the group of nodes one physical operator runs in a single
+call.
 
 The word type is kept for data types. `ColumnDataType` and a field called `dtype` describe the type
 of a value; `kind` describes everything else, such as a node kind or a source kind
@@ -48,8 +49,9 @@ Nothing in this list exists, and none of it is planned.
 
 Writes through `data/` go to a source, never to storage of this system's own. A bind join pushes a
 session-scoped temporary table into a SQL source, and the insert operators write rows a caller asked
-for; both belong to the source rather than here. Whether an operator may also register what it created,
-putting it in the catalog, is a `blue-data-ops` question rather than one this design settles.
+for; both belong to the source rather than here. Whether an operator may also register what it
+created, putting it in the catalog, is a `blue-data-ops` question rather than one this design
+settles.
 
 ---
 
@@ -164,14 +166,6 @@ A node may list more inputs than it transforms. The first `INPUT_ARITY[kind]` ar
 works on, and the rest are reference inputs, whose rows its instruction mentions without
 transforming them.
 
-A `FILTER` comparing against a value another node produced is the ordinary case. "Postings posted
-after the cutoff date" reads its rows from its data input and the cutoff from a reference input, and
-both reach the operator the same way. When the filter runs on its own, the runner sees a one-row
-table and writes the date into the operator's parameters. When the filter is absorbed into an
-`nl2sql` fragment, the same table arrives on the fragment's frontier and becomes an `IN` list or a
-temporary table
-([04, what an operator does with its input](04-detailed-architecture.md#what-an-operator-does-with-its-input)).
-
 Arity has one job: telling a plan that cannot run from one that can. A `JOIN` given one input is
 broken, and that is what the check catches.
 
@@ -227,8 +221,7 @@ only because a node said the column is one. The job is narrow, and three rules f
     it as a number is a value change, and that belongs to the operator call. Nothing here infers a
     type from content, so the ambiguity inference would have to resolve never comes up.
 
-There is no date type. A date travels as a `str` in its ISO 8601 form, which is how `blue-data`
-renders one and what every operator here reads.
+There is no date type. A date travels as a `str` in its ISO 8601 form.
 
 ### The physical half
 
@@ -310,7 +303,7 @@ class PhysicalOperator:
 | `logical_operators` | Every logical operator this implementation can execute. A single member means it can only ever cover one node |
 | `source_kinds` | The kinds of registered source it can read, or `None` when it reads none |
 | `accepts_bound_inputs` | Whether it can take tables from other fragments alongside the source it reads. A source-access operator that cannot is limited to fragments with an empty frontier |
-| `limitations` | What it cannot do, in plain language, where its author can state it. `nl2sql` cannot express a semantic predicate, and saying so is what gives the physical planner something to weigh against a description that otherwise promises everything |
+| `limitations` | What it cannot do, in plain language, where its author can state it. A Text-to-SQL operator cannot express a semantic predicate, and saying so is what gives the physical planner something to weigh against a description that otherwise promises everything |
 | `description`, `parameter_schema`, `call` | What it does, the shape of its parameters, and the callable execution invokes |
 
 `parameter_schema` is a Pydantic model class, hand-written per operator (ADR-010). It serves twice:
@@ -402,7 +395,7 @@ A `DataPipeline` serializes as its two maps and its two pointers. One version of
           "id": "f1",
           "logical_node_ids": ["n1", "n2"],
           "root_logical_node_id": "n2",
-          "operator_id": "blue.nl2sql",
+          "operator_id": "tablesuite.nl2sql",
           "scan_sources": {
             "n1": "/source/jobs/database/jobs/collection/public/entity/postings"
           },
@@ -486,8 +479,9 @@ class PlanResult:
 
 `answer` is `None` rather than `[]` unless `status` is `ok`, so a caller who ignores the status
 cannot mistake a failed run for an empty answer (ADR-015). That covers the planning-only operation
-too: it returns the same object with status `planned`, holding the logical plan and the cover written
-for it and nothing run ([03-high-level-architecture.md](03-high-level-architecture.md#dataplanner)).
+too: it returns the same object with status `planned`, holding the logical plan and the cover
+written for it and nothing run
+([03-high-level-architecture.md](03-high-level-architecture.md#dataplanner)).
 
 `pipeline` holds every plan the request produced, superseded versions included, so a reader sees not
 only how the request ran but every arrangement that was tried on the way. `parent_id` gives the
@@ -540,11 +534,11 @@ node downstream of those
 ([04, a cover is written whole](04-detailed-architecture.md#a-cover-is-written-whole)).
 
 Three atomic fragments running `SCAN`, `FILTER`, and `PROJECT` leave three entries. If the next
-cover fuses all three into one `nl2sql` fragment, all three entries go, and the fused call records
-one entry under the `PROJECT` node. The scan's rows are produced inside the SQL query and never
-materialize again, so the old entry has to go instead of being kept under a second key: nothing may
-read a table the current cover no longer produces. The single-exit rule is what makes the removal
-safe, since no node outside the fragment was reading those tables.
+cover fuses all three into one Text-to-SQL fragment, all three entries go, and the fused call
+records one entry under the `PROJECT` node. The scan's rows are produced inside the SQL query and
+never materialize again, so the old entry has to go instead of being kept under a second key:
+nothing may read a table the current cover no longer produces. The single-exit rule is what makes
+the removal safe, since no node outside the fragment was reading those tables.
 
 Nothing is lost by the removal. `attempts` still holds every attempt, including the ones whose
 results were dropped.
@@ -573,8 +567,8 @@ raised before returning anything, and `assessment` is the review's reasoning in 
 
 ### What each stage returns
 
-Four result types never leave the process. `DataPlanner` reads each one, records what it holds on the
-run state, and moves on.
+Four result types never leave the process. `DataPlanner` reads each one, records what it holds on
+the run state, and moves on.
 
 ```python
 @dataclass(frozen=True)
@@ -614,9 +608,9 @@ class RejectedPlan:
 ```
 
 Every stage reports what its own model calls cost, and `DataPlanner` appends each list to
-`PlanResult.planner_usage` in the order the stages ran. `CatalogSearchResult` is a pair rather than a
-field on `DiscoveryResult` because a `DiscoveryResult` goes into the run's results map and reaches the
-caller inside `PlanResult.results`, where usage would be counted a second time.
+`PlanResult.planner_usage` in the order the stages ran. `CatalogSearchResult` is a pair rather than
+a field on `DiscoveryResult` because a `DiscoveryResult` goes into the run's results map and reaches
+the caller inside `PlanResult.results`, where usage would be counted a second time.
 
 `LogicalPlanResult.plan` is `None` exactly when `status` is `invalid_plan`, and `rejected` holds
 every plan validation turned down, in the order they were written. A plan accepted on the first try
@@ -705,22 +699,22 @@ class LLMUsage:
 ```
 
 `PlanResult.planner_usage` holds one record per model call in call order. There is no accumulator: a
-total is a `sum()` over the list. Prompt and completion tokens are reported per call and never summed
-together, since the two are priced differently and a total of them answers nothing.
+total is a `sum()` over the list. Prompt and completion tokens are reported per call and never
+summed together, since the two are priced differently and a total of them answers nothing.
 
 The name says the scope. These are the calls the three planning stages and the catalog searcher made
 through `llm/`, and nothing else. A model call an operator makes internally, as a LOTUS operator
-does, is billed as part of the one operator call that contains it and never appears here, because such an
-operator reports no per-call token count
+does, is billed as part of the one operator call that contains it and never appears here, because
+such an operator reports no per-call token count
 ([05-software-stack.md](05-software-stack.md#two-model-configurations-one-budget)). What a run spent
 on planning is exact; what it spent inside operators is the call count in `counters`.
 
 ### Counters
 
 `counters` holds what the run spent, keyed by the name of the limit that bounds it: one entry per
-`PlanLimits` field, and `PlanLimits` holds every bound the system obeys. Every key appears whether or
-not it was spent, so a caller reads a number instead of checking for a key. The bounds themselves are
-fixed when the planner is built, not per request, so nothing in a result reports them
+`PlanLimits` field, and `PlanLimits` holds every bound the system obeys. Every key appears whether
+or not it was spent, so a caller reads a number instead of checking for a key. The bounds themselves
+are fixed when the planner is built, not per request, so nothing in a result reports them
 ([06-library.md](06-library.md#budgets-and-limits)).
 
 ```json
@@ -826,8 +820,8 @@ whole registry or a sample. A source that has never been enriched renders with a
 alone, and planning still works with less to go on.
 
 `kind` is the connection protocol `blue-data` records at registration, so it is available without
-enrichment and without a search. It is what tells the physical planner whether `nl2sql` can run a
-fragment scanning this source.
+enrichment and without a search. It is what tells the physical planner whether a Text-to-SQL
+operator can run a fragment scanning this source.
 
 ### What a search returns
 
@@ -842,10 +836,8 @@ class CatalogMatch:
     search_term: str   # which term found it
 ```
 
-`search_records` takes one query string and ranks catalog records by keyword match, value match, and
-vector similarity together. A discovery node that expands into several terms calls it once per term.
-Vector similarity needs a vector source and an embedding function; a file-backed registry without
-them ranks on the other two signals alone.
+`search_records` takes one query string and returns the catalog records that match it, ranked. A
+discovery node that expands into several terms calls it once per term.
 
 ### What the fragment runner reads
 
@@ -860,19 +852,20 @@ grow with the catalog.
 | `ref` | Which column this describes | The fragment, resolved to a catalog path |
 | `dtype` | The declared type | The attribute record |
 | `description` | The enrichment description, where one exists | The attribute record |
-| `sample_values` | A few values as they are actually spelled | The `stats` property |
-| `distinct_count`, `null_count`, `min`, `max` | Value counts and range | The `stats` property |
-| `semantic_type` | The inferred meaning, such as `ENUM_CATEGORY`, `CODE`, or `POSTAL_CODE` | The `value_semantics` property |
+| `sample_values` | A few values as they are actually spelled | The statistics collected over the column |
+| `distinct_count`, `null_count`, `min`, `max` | Value counts and range | The same |
+| `semantic_type` | The inferred meaning, such as `ENUM_CATEGORY`, `CODE`, or `POSTAL_CODE` | The value semantics inferred for the column |
 
 `semantic_type` is what tells the runner a column holds short codes instead of readable words, so it
-writes `operand_val: ["PRIJEM"]` instead of guessing at `credit`.
+writes a filter against `"PRIJEM"` instead of guessing at `credit`.
 
 A column with no view is still a column. It appears in the input table's column list with its type
 and its sample values, and only the annotation is missing, so nothing about it reads as absent. Two
-kinds of column have none. One an operator generated has no registry record at all, which is why
-`nl2llm` output and a semantically derived column never resolve. One arriving on the frontier may
-have a record, but reaching it means tracing back through the cover to whichever fragment scanned it,
-and how far to trace is open question 3 in [13-decision-log.md](13-decision-log.md#open-questions).
+kinds of column have none. One an operator generated has no registry record at all, which is why a
+column a model wrote and a semantically derived column never resolve. One arriving on the frontier
+may have a record, but reaching it means tracing back through the cover to whichever fragment
+scanned it, and how far to trace is open question 3 in
+[13-decision-log.md](13-decision-log.md#open-questions).
 
 ---
 
@@ -912,8 +905,7 @@ beside it, leaving the download untouched.
 | `data/tag_bench/registry.json` | A `blue-data` registry over those databases, synced, with stats collected and enriched | `lib/scripts/tag_bench/register_databases.py` |
 
 The registry is built once and kept, so tests and benchmark runs open a file instead of re-syncing
-five databases. It is built in memory and serialized once, because a file-backed registry rewrites
-the whole document on every write.
+five databases.
 
 A corrected query carries the released fields plus what a correction needs to be traceable.
 

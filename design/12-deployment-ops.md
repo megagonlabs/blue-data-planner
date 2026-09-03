@@ -18,9 +18,9 @@ own `pyproject.toml`. There is no repository-wide version.
 | `blue-data-planner-cli` | A change to a command, an option, or an exit code |
 
 The MCP package pins `blue-data-planner` to an exact version, so a library release requires an MCP
-release. That is deliberate: an adapter translates for one library version and has no reason to float
-ahead of it. `blue-data-planner` pins `blue-data-ops` the same way, because a plan is bound against
-what each operator declares ([05-software-stack.md](05-software-stack.md#packages)).
+release. That is deliberate: an adapter translates for one library version and has no reason to
+float ahead of it. `blue-data-planner` pins `blue-data-ops` the same way, because a plan is bound
+against what each operator declares ([05-software-stack.md](05-software-stack.md#packages)).
 
 ---
 
@@ -43,14 +43,11 @@ cd lib && pip install -e .
 cd ../platform/mcp && pip install -e .
 ```
 
-`blue-data` and `blue-data-ops` install from the internal source rather than from PyPI, so a working
-environment needs both in place first.
-
 The library's extras select what an install pays for.
 
 ```bash
 pip install -e .            # library only
-pip install -e '.[lotus]'   # + LOTUS; caps Python at 3.12
+pip install -e '.[lotus]'   # + LOTUS
 pip install -e '.[dev]'     # + the test and lint gates
 ```
 
@@ -85,18 +82,19 @@ The server takes its host, port, and path as arguments, and everything else from
 every source the registry holds, including the operators that write to one, so it is worth deciding
 deliberately.
 
-`plan_and_execute` and `plan` are the whole tool list. Neither takes limits, so the server builds one
-planner at startup from the environment in section 4, and every call runs under it
-([09-api-interface-spec.md](09-api-interface-spec.md#planning-tools)). Both need a reachable registry
-and a model before the first call, so a server that starts is not yet a server that can answer.
+`plan_and_execute` and `plan` are the whole tool list. Neither takes limits, so the server builds
+one planner at startup from the environment in section 4, and every call runs under it
+([09-api-interface-spec.md](09-api-interface-spec.md#planning-tools)). Both need a reachable
+registry and a model before the first call, so a server that starts is not yet a server that can
+answer.
 
 ---
 
 ## 4. Configuration
 
 The library takes settings as injected values and reads no environment variable itself. Each adapter
-loads a `.env` file with `dotenv.load_dotenv(override=True)` at startup and passes what it reads into
-the constructor. `.env` files are never committed.
+loads a `.env` file with `dotenv.load_dotenv(override=True)` at startup and passes what it reads
+into the constructor. `.env` files are never committed.
 
 | Variable | Default | For |
 | --- | --- | --- |
@@ -134,12 +132,13 @@ run succeeded or not, under the name it carries here.
 ### How the eight compose
 
 The four recovery bounds decide *which* repair a rejected fragment gets, not how much a request may
-spend in total ([04-detailed-architecture.md](04-detailed-architecture.md#5-recovering-from-a-failure)).
-Multiplied out they permit far more work than any request should do: three cuts of one node set,
-inside three covers, inside three logical plans, each cut writing parameters three times.
+spend in total
+([04-detailed-architecture.md](04-detailed-architecture.md#5-recovering-from-a-failure)). Multiplied
+out they permit far more work than any request should do: three cuts of one node set, inside three
+covers, inside three logical plans, each cut writing parameters three times.
 
-`operator_calls` is the only ceiling on the total, which is why ADR-014 says its default matters more
-than it otherwise would. A four-fragment plan that runs cleanly spends four calls. One rejected
+`operator_calls` is the only ceiling on the total, which is why ADR-014 says its default matters
+more than it otherwise would. A four-fragment plan that runs cleanly spends four calls. One rejected
 fragment adds up to three parameter attempts and then up to two further cuts, so reaching 30 takes a
 run in which most fragments failed and the repairs kept finding something else to try. A request
 stopped by `operator_calls` rather than by a recovery bound is a request that was not converging.
@@ -156,8 +155,8 @@ eight registry searches.
 
 The TAG-Bench harness reports operator calls per request, model calls per stage, how often a plan
 schedules a replan, and how often each repair fires
-([11-testing-strategy.md](11-testing-strategy.md#9-benchmark-suites)), and these numbers are meant to
-be replaced by what it shows. Open question 2 holds the one that most needs the measurement.
+([11-testing-strategy.md](11-testing-strategy.md#9-benchmark-suites)), and these numbers are meant
+to be replaced by what it shows. Open question 2 holds the one that most needs the measurement.
 
 A caller who needs different bounds builds a planner with its own `PlanLimits`. A planner configured
 for a benchmark run and one configured for an interactive session are two objects rather than one
@@ -169,11 +168,11 @@ object called two ways ([06-library.md](06-library.md#budgets-and-limits)).
 
 No storage driver is declared in any `pyproject.toml` here, and no backend is bundled or managed.
 Everything reaches storage through `blue-data`, and which backend a deployment uses is a `blue-data`
-decision made by installing its extras: `postgres`, `mysql`, `mongodb`, `neo4j`, `redis`, `chromadb`.
+decision, made by installing the extra for it.
 
 A registry reaches this package already populated. Registering sources, syncing them, collecting
-statistics, and enriching them are ingestion, which belongs to `blue-data`, so a deployment with data
-and no registry builds one there before it constructs a planner
+statistics, and enriching them are ingestion, which belongs to `blue-data`, so a deployment with
+data and no registry builds one there before it constructs a planner
 ([06-library.md](06-library.md#data)). How well that population was done is what planning quality
 depends on: a source nobody enriched renders with names and kinds alone.
 
@@ -181,25 +180,25 @@ A backend has to be reachable before a request runs. An unreachable source ends 
 unrecoverable operator failure, since retrying with a different operator would fail the same way
 ([04-detailed-architecture.md](04-detailed-architecture.md#failures-that-skip-recovery)).
 
-blue-data-planner writes nothing of its own to disk. There is no plan store, no session log, and no model
-response cache ([10-data-model.md](10-data-model.md#what-is-not-stored)).
+blue-data-planner writes nothing of its own to disk. There is no plan store, no session log, and no
+model response cache ([10-data-model.md](10-data-model.md#what-is-not-stored)).
 
 ---
 
 ## 7. Logging
 
-Logging uses the standard library, on a logger named for the package, with no handler configured. The
-library attaches nothing to the root logger and prints nothing on import, so an embedding application
-decides the format and the destination.
+Logging uses the standard library, on a logger named for the package, with no handler configured.
+The library attaches nothing to the root logger and prints nothing on import, so an embedding
+application decides the format and the destination.
 
 ```python
 logging.getLogger("blue_data_planner")
 ```
 
-The run record is the more useful instrument, and it is not a log. `PlanResult` carries every plan the
-request produced, every fragment attempt including the rejected ones, the counters, and one usage
-record per model call. A failed run is as inspectable as a successful one (ADR-015), so diagnosing one
-means reading the returned structure rather than reconstructing it from log lines.
+The run record is the more useful instrument, and it is not a log. `PlanResult` carries every plan
+the request produced, every fragment attempt including the rejected ones, the counters, and one
+usage record per model call. A failed run is as inspectable as a successful one (ADR-015), so
+diagnosing one means reading the returned structure rather than reconstructing it from log lines.
 
 | Question | Read |
 | --- | --- |
@@ -210,25 +209,21 @@ means reading the returned structure rather than reconstructing it from log line
 | Where did the request stop? | `result.status` and `result.counters` |
 | What did planning cost? | `result.planner_usage` |
 
-Raw row values are never written to a log. They appear in the result, which is returned to the caller
-rather than emitted.
+Raw row values are never written to a log. They appear in the result, which is returned to the
+caller rather than emitted.
 
 ---
 
 ## 8. Observability
 
-Structured JSON logs go to stdout. OpenTelemetry traces are exported over OTLP, enabled by setting
-`OTEL_EXPORTER_OTLP_ENDPOINT`, with spans at each interface request, each of the four planning
-stages, each `execute_physical_operator`, and each model call. Row values stay out of span
-attributes.
+Nothing here emits traces or metrics of its own, and the run record is what a deployment reads
+instead ([section 7](#7-logging)). Whether the library or the adapters gain instrumentation, and
+what it would cover, is open question 42 in [13-decision-log.md](13-decision-log.md#open-questions).
 
-A fragment's span is the one worth naming. It carries the logical nodes the fragment covered and the
-operator that ran them, which is where the pushdown boundary was drawn, and that is the thing a trace
-can show and a counter cannot.
-
-Prometheus metrics are the piece that needs a service first. The library is embedded and synchronous,
-so a `/metrics` endpoint belongs to whatever hosts it, and designing one before `platform/api/` exists
-would be guessing at its shape.
+Two things hold whichever way that is answered. Row values stay out of anything emitted, whether a
+log line or a span attribute. And a `/metrics` endpoint belongs to whatever hosts the library rather
+than to the library, which is embedded and synchronous, so designing one before `platform/api/`
+exists would be guessing at its shape.
 
 ---
 
