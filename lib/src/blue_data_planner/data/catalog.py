@@ -99,10 +99,10 @@ class DataCatalog:
         properties = _properties(record)
         info = properties.get("info")
         if not isinstance(info, dict):
-            raise ValueError(f"Attribute record {path}: no properties.info.type")
+            raise ValueError(f"Attribute record {path}: properties.info missing or not a mapping")
         info = cast("dict[str, Any]", info)
         if not info.get("type"):
-            raise ValueError(f"Attribute record {path}: no properties.info.type")
+            raise ValueError(f"Attribute record {path}: properties.info has no type field")
         stats = properties.get("stats", {})
         if not isinstance(stats, dict):
             raise ValueError(
@@ -156,10 +156,14 @@ class DataCatalog:
     def _source_record(self, raw: dict[str, Any]) -> SourceRecord:
         connection = _properties(raw).get("connection", {})
         if not isinstance(connection, dict):
-            raise ValueError(f"Source record {raw.get('name')}: no properties.connection.protocol")
+            raise ValueError(
+                f"Source record {raw.get('name')}: properties.connection missing or not a mapping"
+            )
         protocol = cast("dict[str, Any]", connection).get("protocol")
         if not protocol:
-            raise ValueError(f"Source record {raw.get('name')}: no properties.connection.protocol")
+            raise ValueError(
+                f"Source record {raw.get('name')}: properties.connection has no protocol field"
+            )
         return SourceRecord(
             path=f"/source/{raw['name']}",
             name=str(raw["name"]),

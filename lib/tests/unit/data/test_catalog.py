@@ -62,6 +62,16 @@ def test_the_preview_puts_the_sources_a_request_matches_ahead_of_the_rest() -> N
     assert catalog.preview("racing results", limit=10).sources[0].name == "tag_bench"
 
 
+def test_a_relevant_source_is_ranked_ahead_of_a_registry_too_large_to_score_in_one_page() -> None:
+    """The search page limit does not truncate the candidate pool before scoring."""
+    filler = [a_source(f"filler_{i}", description="unrelated") for i in range(120)]
+    catalog = DataCatalog(
+        a_registry_holding(*filler, a_source("zzz_target", description="job postings"))
+    )
+
+    assert catalog.preview("job postings", limit=5).sources[0].name == "zzz_target"
+
+
 def test_the_preview_reports_the_registered_total_when_it_returns_a_sample() -> None:
     """A capped list still says how many sources the registry holds."""
     catalog = DataCatalog(
@@ -137,7 +147,7 @@ def test_a_search_ranks_records_at_every_level_and_names_the_term_that_found_eac
     )
 
 
-def test_a_source_level_match_has_no_double_slash_from_the_root_scope() -> None:
+def test_a_source_level_match_carries_its_catalog_path() -> None:
     """A source's scope is the registry root, so its path is /source/{name}, not //source/{name}."""
     catalog = DataCatalog(a_registry_with_a_store_table())
 
@@ -256,12 +266,103 @@ def test_an_unenriched_column_renders_with_its_type_and_no_description() -> None
     assert view.semantic_type is None
 
 
-def test_a_malformed_record_raises() -> None:
-    """A record that exists but cannot be read as a column is a corrupt registry."""
-    no_type = DataCatalog(a_registry_holding(an_attribute(CITY, dtype=None)))
-    with pytest.raises(ValueError, match="properties.info.type"):
-        no_type.column_views([CITY])
+def an_attribute_with_malformed_properties() -> dict[str, Any]:
+    record = an_attribute(CITY)
+    record["properties"] = "oops"
+    return record
 
-    bad_stats = DataCatalog(a_registry_holding(an_attribute(CITY, stats=cast("Any", "two rows"))))
-    with pytest.raises(ValueError, match="stats"):
-        bad_stats.column_views([CITY])
+
+def an_attribute_with_a_non_string_description() -> dict[str, Any]:
+    record = an_attribute(CITY)
+    record["description"] = 123
+    return record
+
+
+def an_attribute_with_info_missing_the_type_field() -> dict[str, Any]:
+    record = an_attribute(CITY)
+    record["properties"]["info"] = {}
+    return record
+
+
+def an_attribute_with_malformed_value_semantics() -> dict[str, Any]:
+    record = an_attribute(CITY)
+    record["properties"]["value_semantics"] = "oops"
+    return record
+
+
+def a_source_with_a_malformed_connection() -> dict[str, Any]:
+    record = a_source("broken")
+    record["properties"]["connection"] = "oops"
+    return record
+
+
+def a_source_missing_a_protocol() -> dict[str, Any]:
+    record = a_source("broken")
+    record["properties"]["connection"] = {}
+    return record
+
+
+@pytest.mark.parametrize(
+    ("record", "call_kind", "expected_message"),
+    [
+        pytest.param(
+            an_attribute_with_malformed_properties(),
+            "column_views",
+            "properties is",
+            id="properties_not_a_mapping",
+        ),
+        pytest.param(
+            an_attribute_with_a_non_string_description(),
+            "column_views",
+            "description is",
+            id="description_not_a_string",
+        ),
+        pytest.param(
+            an_attribute(CITY, dtype=None),
+            "column_views",
+            "properties.info missing or not a mapping",
+            id="info_missing_or_not_a_mapping",
+        ),
+        pytest.param(
+            an_attribute_with_info_missing_the_type_field(),
+            "column_views",
+            "properties.info has no type field",
+            id="info_has_no_type_field",
+        ),
+        pytest.param(
+            an_attribute(CITY, stats=cast("Any", "two rows")),
+            "column_views",
+            "stats is",
+            id="stats_not_a_mapping",
+        ),
+        pytest.param(
+            an_attribute_with_malformed_value_semantics(),
+            "column_views",
+            "value_semantics is",
+            id="value_semantics_not_a_mapping",
+        ),
+        pytest.param(
+            a_source_with_a_malformed_connection(),
+            "preview",
+            "properties.connection missing or not a mapping",
+            id="source_connection_not_a_mapping",
+        ),
+        pytest.param(
+            a_source_missing_a_protocol(),
+            "preview",
+            "properties.connection has no protocol field",
+            id="source_protocol_missing",
+        ),
+    ],
+)
+def test_a_malformed_record_raises(
+    record: dict[str, Any], call_kind: str, expected_message: str
+) -> None:
+    """A record that exists but cannot be read as a column or source is a corrupt registry."""
+    catalog = DataCatalog(a_registry_holding(record))
+
+    with pytest.raises(ValueError, match=expected_message):
+        if call_kind == "column_views":
+            catalog.column_views([CITY])
+        else:
+            catalog.preview("anything", limit=10)

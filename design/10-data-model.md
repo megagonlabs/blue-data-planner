@@ -867,8 +867,7 @@ A `ColumnView` annotates a column the runner already knows about. The authoritat
 comes from the input tables themselves, which the runner reads directly: every column, its values'
 type, the row count, and a sample of rows. A view adds what only the catalog knows, over the whole
 column rather than over a sample. The runner asks for the views of the columns its fragment touches
-in one call, one lookup by catalog path per column, so the prompt carries only what that fragment
-needs and not the whole catalog.
+in one call, so the prompt carries only what that fragment needs.
 
 | Field | Holds | From |
 | --- | --- | --- |
