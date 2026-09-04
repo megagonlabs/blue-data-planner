@@ -6,12 +6,14 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any, Literal
 
+from blue_data.registry.data_registry import (  # pyright: ignore[reportMissingTypeStubs]
+    DataRegistry,  # blue-data ships no py.typed
+)
 from blue_data_ops.operators.operator import Operator
 from blue_data_ops.operators.registry import OperatorRegistry
 from blue_data_ops.operators.types import ErrorCode, ExecMeta, Properties
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
-from blue_data_planner.data import DataRegistryClient
 from blue_data_planner.types import (
     BlueDataPlannerError,
     DataBundle,
@@ -521,7 +523,7 @@ _OPERATOR_SPECS: tuple[_OperatorSpec, ...] = (
 
 
 def blue_operators(
-    registry: OperatorRegistry, data_registry: DataRegistryClient
+    registry: OperatorRegistry, data_registry: DataRegistry
 ) -> list[PhysicalOperator]:
     """Return one physical operator per Blue operation a fragment can be bound to."""
     # The operators are returned rather than registered so this module never imports

@@ -5,6 +5,9 @@ from __future__ import annotations
 from typing import Any, ClassVar
 
 import pytest
+from blue_data.registry.data_registry import (  # pyright: ignore[reportMissingTypeStubs]
+    DataRegistry,  # blue-data ships no py.typed
+)
 from blue_data_ops.operators.join_operator import JoinOperator
 from blue_data_ops.operators.operator import Operator
 from blue_data_ops.operators.registry import ResolveError, default_registry, versioned_registry
@@ -21,7 +24,6 @@ from blue_data_ops.operators.types import (
 )
 from pydantic import BaseModel, ConfigDict
 
-from blue_data_planner.data import DataRegistryClient
 from blue_data_planner.operators.adapters.blue import (
     _OPERATOR_SPECS,  # pyright: ignore[reportPrivateUsage]
     _build_call,  # pyright: ignore[reportPrivateUsage]
@@ -38,7 +40,6 @@ from blue_data_planner.types import (
     RecoverableOperatorError,
     UnrecoverableOperatorError,
 )
-from tests.doubles.data import DataRegistryClientDouble
 
 
 def _meta(code: ErrorCode, stage: ErrorStage, suggestion: str | None = None) -> ExecMeta:
@@ -406,12 +407,8 @@ _EXPECTED_OPERATORS: list[tuple[str, frozenset[LogicalOperator]]] = [
 _KNOWN_GAPS = frozenset({LogicalOperator.EXPAND, LogicalOperator.RETURN})
 
 
-class _DataRegistryClientSeam(DataRegistryClientDouble, DataRegistryClient):
-    """The recording double, typed as a DataRegistryClient so injection resolves it."""
-
-
 def _operators() -> list[PhysicalOperator]:
-    return blue_operators(versioned_registry(), _DataRegistryClientSeam())
+    return blue_operators(versioned_registry(), DataRegistry(name="test", rebuild=True))
 
 
 def _router_from_operators() -> OperatorRouter:
@@ -439,7 +436,7 @@ def test_every_operator_carries_a_description() -> None:
 def test_a_registry_without_2_0_0_cards_is_refused() -> None:
     """Only versioned_registry() carries the 2.0.0 cards the operators resolve."""
     with pytest.raises(ResolveError):
-        blue_operators(default_registry(), _DataRegistryClientSeam())
+        blue_operators(default_registry(), DataRegistry(name="test", rebuild=True))
 
 
 def test_the_operators_leave_only_the_known_gaps_unanswered() -> None:
