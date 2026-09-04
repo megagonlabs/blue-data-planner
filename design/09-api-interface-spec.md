@@ -385,7 +385,7 @@ The library takes settings as injected values. Each adapter loads a `.env` file 
 | --- | --- | --- |
 | `OPENAI_API_KEY` | Both adapters | Planning, physical planning, parameters, review, discovery, and LOTUS operations |
 | `BLUE_DATA_PLANNER_MODEL` | Both adapters | The default litellm model string, which `--model` overrides |
-| `BLUE_DATA_REGISTRY_*` | Both adapters | Which registry and store to read |
+| `BLUE_DATA_REGISTRY_PATH` | Both adapters | The serialized registry an adapter opens and plans against |
 
 Their defaults, and how a deployment sets them, belong to
 [12-deployment-ops.md](12-deployment-ops.md).

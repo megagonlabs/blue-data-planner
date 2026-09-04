@@ -261,8 +261,7 @@ The agent framework is configured with the MCP server:
     "blue-data-planner": {
       "command": "blue-data-planner-mcp",
       "env": {
-        "BLUE_DATA_REGISTRY_STORE": "redis",
-        "BLUE_DATA_REGISTRY_REDIS_URL": "redis://localhost:6379/0"
+        "BLUE_DATA_REGISTRY_PATH": "/srv/blue-data/registry.json"
       }
     }
   }

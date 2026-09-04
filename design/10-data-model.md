@@ -866,8 +866,9 @@ rather than not at all (ADR-021).
 A `ColumnView` annotates a column the runner already knows about. The authoritative list of columns
 comes from the input tables themselves, which the runner reads directly: every column, its values'
 type, the row count, and a sample of rows. A view adds what only the catalog knows, over the whole
-column rather than over a sample, and it is asked for one column at a time so the prompt does not
-grow with the catalog.
+column rather than over a sample. The runner asks for the views of the columns its fragment touches
+in one call, one lookup by catalog path per column, so the prompt carries only what that fragment
+needs and not the whole catalog.
 
 | Field | Holds | From |
 | --- | --- | --- |

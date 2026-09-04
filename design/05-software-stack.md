@@ -208,7 +208,7 @@ injected values. `.env` files are never committed.
 | --- | --- | --- |
 | `OPENAI_API_KEY` | litellm, through `llm/` | The five planner calls above, and LOTUS operations |
 | `BLUE_DATA_PLANNER_MODEL` | The adapter, passed to `llm/` | The default litellm model string for every component that calls a model |
-| `BLUE_DATA_REGISTRY_*` | The adapter, passed to `data/` | Which registry and store the run reads |
+| `BLUE_DATA_REGISTRY_PATH` | The adapter, passed to `data/` | The serialized registry an adapter opens and plans against |
 
 The full list of settings and their defaults belongs to
 [12-deployment-ops.md](12-deployment-ops.md), including the operator call budget, the bound on each
