@@ -447,10 +447,10 @@ for operator in builtin_operators(data_registry, llm_client):
 
 [op.operator_id for op in router.operators_for(LogicalOperator.FILTER)]
 # ["blue.select", "blue.semantic_filter", "blue.nl2sql", "lotus.sem_filter",
-#  "builtin.filter", "builtin.scan", "builtin.nl2table"]
+#  "builtin.filter", "builtin.nl2table"]
 ```
 
-Four of those seven filter and nothing else. The other three answer for `FILTER` because it is one
+Four of those six filter and nothing else. The other two answer for `FILTER` because it is one
 of several kinds each declares, so a filter node can be run on its own or absorbed into a wider
 call. That is why the physical planner had a choice to make at `n2`, `n3`, and `n4` in Scenario 1,
 and why it had somewhere to go when the choice turned out wrong.
