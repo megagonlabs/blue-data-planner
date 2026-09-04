@@ -8,7 +8,7 @@ from pydantic import ValidationError
 
 from blue_data_planner.execution.output_columns import check_output_columns
 from blue_data_planner.types import (
-    BlueDataOpsError,
+    BlueDataPlannerError,
     CallBudget,
     DataBundle,
     ErrorInfo,
@@ -37,7 +37,7 @@ def execute_physical_operator(
     try:
         operator.parameter_schema.model_validate(parameters)
     except ValidationError as error:
-        raise BlueDataOpsError(
+        raise BlueDataPlannerError(
             f"operator {operator.operator_id!r} was given parameters it cannot take: {error}"
         ) from error
     budget.spend()

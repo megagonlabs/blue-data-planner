@@ -6,7 +6,7 @@ import math
 from typing import Any
 
 from blue_data_planner.types import (
-    BlueDataOpsError,
+    BlueDataPlannerError,
     ColumnDataType,
     Data,
     DataBundle,
@@ -31,7 +31,7 @@ BOOLEAN_SPELLINGS: dict[str, bool] = {
 }
 
 
-class DeclaredTypeMismatch(BlueDataOpsError):
+class DeclaredTypeMismatch(BlueDataPlannerError):
     """A value does not spell the type declared for its column."""
 
     def __init__(
@@ -108,7 +108,7 @@ def check_output_columns(
     if result.status is not ExecutionStatus.OK or not required_output_columns:
         return result
     if result.output is None:
-        raise BlueDataOpsError(
+        raise BlueDataPlannerError(
             f"operator {operator_id!r} returned an accepted result with no output"
         )
 

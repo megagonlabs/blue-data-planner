@@ -23,7 +23,9 @@ def test_a_router_can_be_assembled_without_an_internal_import() -> None:
 
 def test_the_routing_error_is_a_package_error() -> None:
     """A caller can catch the routing failure through the package's own base class."""
-    assert issubclass(blue_data_planner.OperatorRoutingError, blue_data_planner.BlueDataOpsError)
+    assert issubclass(
+        blue_data_planner.OperatorRoutingError, blue_data_planner.BlueDataPlannerError
+    )
 
 
 def test_every_new_name_is_listed_in_all() -> None:

@@ -13,7 +13,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from blue_data_planner.data import DataRegistryClient
 from blue_data_planner.types import (
-    BlueDataOpsError,
+    BlueDataPlannerError,
     DataBundle,
     LogicalOperator,
     PhysicalOperator,
@@ -41,9 +41,9 @@ def _raise_for_errors(meta: ExecMeta, operator_id: str) -> None:
     # The remaining codes (DEFAULTS_FAILED, VALIDATION_FAILED, VALIDATION_RESULT_INVALID,
     # EXECUTION_RESULT_INVALID) all mean the operator's own implementation is broken, not
     # that a different set of parameters could have avoided the failure. Raising a bare
-    # BlueDataOpsError, which nothing here catches, lets it reach the interface boundary
+    # BlueDataPlannerError, which nothing here catches, lets it reach the interface boundary
     # with its traceback instead of being recorded as an ordinary fragment failure.
-    raise BlueDataOpsError(message)
+    raise BlueDataPlannerError(message)
 
 
 def _build_call(

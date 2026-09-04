@@ -8,7 +8,7 @@ import pytest
 
 from blue_data_planner.types import (
     INPUT_ARITY,
-    BlueDataOpsError,
+    BlueDataPlannerError,
     ControlOperator,
     DataPipeline,
     LogicalOperator,
@@ -176,8 +176,8 @@ def test_a_pipeline_names_the_pair_that_produced_the_answer() -> None:
             lambda: a_cover_fusing_the_scan_and_the_filter().fragment_for_node("n3"),
             UnknownFragmentError,
         ),
-        (lambda: DataPipeline({}, {}, None, None).logical_plan, BlueDataOpsError),
-        (lambda: DataPipeline({}, {}, None, None).cover, BlueDataOpsError),
+        (lambda: DataPipeline({}, {}, None, None).logical_plan, BlueDataPlannerError),
+        (lambda: DataPipeline({}, {}, None, None).cover, BlueDataPlannerError),
     ],
     ids=[
         "unknown-node-id",
@@ -208,7 +208,7 @@ def test_a_cycle_has_no_dependency_order() -> None:
         output_node_id=None,
     )
 
-    with pytest.raises(BlueDataOpsError, match="cycle"):
+    with pytest.raises(BlueDataPlannerError, match="cycle"):
         plan.nodes_in_dependency_order()
 
 

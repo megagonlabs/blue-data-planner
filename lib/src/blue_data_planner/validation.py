@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from blue_data_planner.types import (
     INPUT_ARITY,
-    BlueDataOpsError,
+    BlueDataPlannerError,
     ControlOperator,
     LogicalOperator,
     LogicalPlan,
@@ -13,7 +13,7 @@ from blue_data_planner.types import (
 )
 
 
-class PlanValidationError(BlueDataOpsError):
+class PlanValidationError(BlueDataPlannerError):
     """A plan or a cover failed a structural check and must not run."""
 
 
@@ -56,7 +56,7 @@ def _check_acyclic(plan: LogicalPlan) -> None:
     # PlanValidationError, so the error is restated as one rather than propagated.
     try:
         plan.nodes_in_dependency_order()
-    except BlueDataOpsError as cycle:
+    except BlueDataPlannerError as cycle:
         raise PlanValidationError(str(cycle)) from None
 
 

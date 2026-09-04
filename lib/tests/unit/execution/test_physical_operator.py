@@ -6,7 +6,7 @@ import pytest
 
 from blue_data_planner.execution import execute_physical_operator
 from blue_data_planner.types import (
-    BlueDataOpsError,
+    BlueDataPlannerError,
     BudgetExhaustedError,
     CallBudget,
     ErrorKind,
@@ -91,7 +91,7 @@ def test_parameters_the_operator_cannot_take_raise_before_the_budget_is_touched(
     )
     budget = CallBudget(cap=5)
 
-    with pytest.raises(BlueDataOpsError):
+    with pytest.raises(BlueDataPlannerError):
         execute_physical_operator(operator, {"unknown": 1}, [], [], budget)
 
     assert budget.spent == 0

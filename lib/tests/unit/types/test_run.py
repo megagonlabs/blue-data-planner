@@ -4,7 +4,12 @@ from __future__ import annotations
 
 import pytest
 
-from blue_data_planner.types import BlueDataOpsError, BudgetExhaustedError, CallBudget, PlanLimits
+from blue_data_planner.types import (
+    BlueDataPlannerError,
+    BudgetExhaustedError,
+    CallBudget,
+    PlanLimits,
+)
 
 
 def test_a_budget_counts_what_it_spends_and_refuses_the_call_that_would_pass_its_cap() -> None:
@@ -21,7 +26,7 @@ def test_a_budget_counts_what_it_spends_and_refuses_the_call_that_would_pass_its
 
 def test_a_budget_refuses_a_cap_it_could_never_honor() -> None:
     """A negative cap is malformed configuration, so it raises rather than clamping."""
-    with pytest.raises(BlueDataOpsError):
+    with pytest.raises(BlueDataPlannerError):
         CallBudget(cap=-1)
 
 

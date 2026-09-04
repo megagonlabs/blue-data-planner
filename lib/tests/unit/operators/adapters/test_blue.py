@@ -30,7 +30,7 @@ from blue_data_planner.operators.adapters.blue import (
 )
 from blue_data_planner.planner.operator_router import OperatorRouter
 from blue_data_planner.types import (
-    BlueDataOpsError,
+    BlueDataPlannerError,
     Data,
     DataBundle,
     LogicalOperator,
@@ -92,8 +92,8 @@ def test_a_timeout_is_unrecoverable() -> None:
 def test_a_broken_operator_raises_something_nothing_catches(
     code: ErrorCode, stage: ErrorStage
 ) -> None:
-    """The four codes naming a broken operator raise a bare BlueDataOpsError."""
-    with pytest.raises(BlueDataOpsError) as caught:
+    """The four codes naming a broken operator raise a bare BlueDataPlannerError."""
+    with pytest.raises(BlueDataPlannerError) as caught:
         _raise_for_errors(_meta(code, stage), "blue.select")
 
     # execute_physical_operator catches only the two operator error types. Raising either of

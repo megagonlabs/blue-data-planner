@@ -10,7 +10,7 @@ from blue_data_planner.types.catalog import (
     SourceRecord,
 )
 from blue_data_planner.types.errors import (
-    BlueDataOpsError,
+    BlueDataPlannerError,
     BudgetExhaustedError,
     OperatorRoutingError,
     PlanFormatError,
@@ -59,7 +59,7 @@ from blue_data_planner.types.run import (
 
 __all__ = [
     "INPUT_ARITY",
-    "BlueDataOpsError",
+    "BlueDataPlannerError",
     "BudgetExhaustedError",
     "CallBudget",
     "CatalogMatch",

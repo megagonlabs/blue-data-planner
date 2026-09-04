@@ -5,7 +5,7 @@ from blue_data_planner.operators.adapters import blue_operators
 from blue_data_planner.planner import OperatorRouter
 from blue_data_planner.types import (
     INPUT_ARITY,
-    BlueDataOpsError,
+    BlueDataPlannerError,
     BudgetExhaustedError,
     CallBudget,
     CatalogMatch,
@@ -59,7 +59,7 @@ from blue_data_planner.validation import (
 
 __all__ = [
     "INPUT_ARITY",
-    "BlueDataOpsError",
+    "BlueDataPlannerError",
     "BudgetExhaustedError",
     "CallBudget",
     "CatalogMatch",

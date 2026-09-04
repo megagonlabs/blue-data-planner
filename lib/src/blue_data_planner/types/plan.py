@@ -10,7 +10,7 @@ from typing import Any, Literal, cast
 from pydantic import BaseModel
 
 from blue_data_planner.types.errors import (
-    BlueDataOpsError,
+    BlueDataPlannerError,
     PlanFormatError,
     UnknownFragmentError,
     UnknownNodeError,
@@ -128,7 +128,9 @@ class LogicalPlan:
             ]
             if not ready:
                 unplaced = [node.id for node in self.nodes if node.id not in placed]
-                raise BlueDataOpsError(f"the plan contains a cycle among nodes {sorted(unplaced)}")
+                raise BlueDataPlannerError(
+                    f"the plan contains a cycle among nodes {sorted(unplaced)}"
+                )
             for node in ready:
                 ordered.append(node)
                 placed.add(node.id)
@@ -246,16 +248,16 @@ class DataPipeline:
     current_logical_plan_id: str | None
     current_physical_plan_id: str | None
 
-    # The two properties raise BlueDataOpsError rather than UnknownNodeError or
+    # The two properties raise BlueDataPlannerError rather than UnknownNodeError or
     # UnknownFragmentError: nothing here is missing a node or a fragment. The run has not
     # written a plan yet, which is true only before the first pass.
     @property
     def logical_plan(self) -> LogicalPlan:
         if self.current_logical_plan_id is None:
-            raise BlueDataOpsError("the pipeline names no current logical plan")
+            raise BlueDataPlannerError("the pipeline names no current logical plan")
         plan = self.logical_plans.get(self.current_logical_plan_id)
         if plan is None:
-            raise BlueDataOpsError(
+            raise BlueDataPlannerError(
                 f"the pipeline names {self.current_logical_plan_id!r} as its current logical "
                 "plan, but holds no logical plan with that id"
             )
@@ -264,10 +266,10 @@ class DataPipeline:
     @property
     def cover(self) -> PhysicalPlan:
         if self.current_physical_plan_id is None:
-            raise BlueDataOpsError("the pipeline names no current physical plan")
+            raise BlueDataPlannerError("the pipeline names no current physical plan")
         cover = self.physical_plans.get(self.current_physical_plan_id)
         if cover is None:
-            raise BlueDataOpsError(
+            raise BlueDataPlannerError(
                 f"the pipeline names {self.current_physical_plan_id!r} as its current physical "
                 "plan, but holds no physical plan with that id"
             )

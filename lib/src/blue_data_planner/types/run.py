@@ -7,7 +7,7 @@ from enum import Enum
 from typing import Any
 
 from blue_data_planner.types.catalog import CatalogMatch
-from blue_data_planner.types.errors import BlueDataOpsError, BudgetExhaustedError
+from blue_data_planner.types.errors import BlueDataPlannerError, BudgetExhaustedError
 from blue_data_planner.types.plan import DataBundle, DataPipeline, LogicalPlan, PhysicalPlan
 
 
@@ -203,7 +203,7 @@ class CallBudget:
 
     def __init__(self, cap: int) -> None:
         if cap < 0:
-            raise BlueDataOpsError(f"a budget cap must not be negative, got {cap}")
+            raise BlueDataPlannerError(f"a budget cap must not be negative, got {cap}")
         self._cap = cap
         self._spent = 0
 
