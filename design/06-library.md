@@ -872,16 +872,22 @@ shared module of functions on the bundle. No entry calls another: both kinds cal
 | Entry | Declares | Holds a model call |
 | --- | --- | --- |
 | A transform entry | One logical operator | No. It does what its parameters say |
-| `builtin.scan` | The scan, plus the filter and the projection it can push into a source | No |
+| `builtin.scan` | The scan alone | No |
 | `builtin.nl2table` | Every operator kind | Yes. It turns the fragment's instruction into a sequence of the other operations and runs it |
 
 `builtin.scan` is the suite's one source-reading deterministic entry, and it reads through `data/`.
-It pushes into the source the column selection, a simple predicate, and values taken from an input
-table, which is the bind join of
-[04](04-detailed-architecture.md#what-an-operator-does-with-its-input). Declaring the filter and the
-projection alongside the scan is what puts the pushdown boundary where the physical planner can see
-it: a `{SCAN, FILTER}` group bound here is pushed, and one cut apart is compensated in process by
-the transform entries. Its `source_kinds` name the kinds it reads and grow as more are implemented.
+It declares `SCAN` alone: it absorbs no `FILTER` and no `PROJECT`, and either kind of node downstream
+of a scan runs as its own fragment, through the matching transform entry. What columns it asks the
+source for is its own implementation choice, informed by its node's `required_output_columns`
+([10](10-data-model.md#declared-output-columns)). That declaration only checks what must be present
+in the result and coerces it to type; it does not limit the result to those columns, so a wider row
+than the declaration names still passes. Narrowing to exactly a named set is `PROJECT`'s job, run as
+its own fragment when the plan asks for it. Given a reference input
+([10](10-data-model.md#how-many-inputs-a-node-takes)), `builtin.scan` binds that input's values into
+the read, which is the bind join of
+[04](04-detailed-architecture.md#what-an-operator-does-with-its-input); how a bind join reaches the
+source is `data/`'s question, taken up below. Its `source_kinds` name the kinds it reads and grow as
+more are implemented.
 
 `builtin.nl2table` is the suite's black box, and the case the pushdown design is written against. It
 reads registered sources, accepts bound inputs, and is the one operator with no same-source
@@ -932,11 +938,33 @@ Two kinds of write have to be told apart, because the design answers them differ
 
 | Write | Goes to | Done by |
 | --- | --- | --- |
-| A session-scoped temporary table a bind join pushes into a SQL source | The source | An operator declaring `accepts_bound_inputs`, choosing by size between values in the SQL text and a table out of band ([04](04-detailed-architecture.md#what-an-operator-does-with-its-input)) |
+| A bind join's values | The source | An operator declaring `accepts_bound_inputs`, choosing among three realizations, below |
 | Registering a source, syncing it, collecting its statistics, enriching it | The registry | `blue-data`'s own tooling, before a registry ever reaches this package |
 
-The boundary has to permit the first. Without `connect_source` a bind join cannot scale past an `IN`
-list, and pushing a table into a source is how a fragment reaches data another fragment produced.
+A bind join carries a reference input's values into a source none of them were read from
+([04](04-detailed-architecture.md#what-an-operator-does-with-its-input)). What it can push determines
+how it is realized.
+
+| Realization | Fits | What travels |
+| --- | --- | --- |
+| Values embedded in the query text, an `IN` list | A source with a predicate language, few enough distinct values | The values, inside the query `execute_query` runs |
+| A session-scoped temporary table | A source with a predicate language, many distinct values | A table, written through the object `connect_source` hands back, then joined against inside the source |
+| One call per value | A source with no predicate language: a document store, or an API answering one key at a time | Nothing but the key, once per distinct value, through `execute_query` called repeatedly |
+
+Choosing among the three is the operator's decision, not the planner's: the operator is what sees how
+many rows travel and what the source can accept. Each realization caps the distinct values it will
+carry, and an operator asked to carry more refuses the input rather than truncate it silently, which
+is a recoverable failure like any other input an operator cannot serve (ADR-015). One call per value
+carries the tightest cap, since every value is its own round trip: 10 distinct values. Values embedded
+in the query text or in a temporary table share a looser cap, since the source does its own filtering:
+100 distinct values. Both numbers are provisional, set low enough to bound a run rather than measured
+against real bind-join volumes.
+
+`connect_source` is what the temporary-table realization needs and the other two do not: embedding
+values in the query text and reading one value at a time both run through `execute_query` alone. The
+boundary has to permit the temporary table anyway, since without it a bind join into a source with a
+predicate language could never scale past an `IN` list, and pushing a table into a source is how a
+fragment reaches data another fragment produced.
 
 The second is ingestion, and the boundary refuses it. A registry reaches this package already
 populated, so `register_source` and the sync, statistics, and enrichment calls have no place here.
