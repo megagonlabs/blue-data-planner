@@ -1,40 +1,18 @@
-"""Everything needed to assemble a router comes off the package root."""
+"""What the package root exports, and nothing more."""
 
 from __future__ import annotations
 
 import blue_data_planner
 
-
-def test_a_router_can_be_assembled_without_an_internal_import() -> None:
-    """Router, adapter, registry, and registry client are all reachable from the root."""
-    router = blue_data_planner.OperatorRouter()
-    operators = blue_data_planner.blue_operators(
-        blue_data_planner.versioned_registry(),
-        blue_data_planner.DataRegistryClient,  # pyright: ignore[reportArgumentType]
-        # The class, not an instance: blue.nl2sql is the only operator that touches the
-        # registry, and not until it is called. This test only builds them.
-    )
-
-    for operator in operators:
-        router.register(operator)
-
-    assert len(router.operators_for(blue_data_planner.LogicalOperator.AGGREGATE)) == 5
+_RUN_PATH = frozenset({"BlueDataPlannerError", "PlanLimits", "PlanResult", "RunStatus"})
 
 
-def test_the_routing_error_is_a_package_error() -> None:
-    """A caller can catch the routing failure through the package's own base class."""
-    assert issubclass(
-        blue_data_planner.OperatorRoutingError, blue_data_planner.BlueDataPlannerError
-    )
+def test_the_root_exports_exactly_the_run_path() -> None:
+    """A caller who runs a planner and reads its result writes one import from the root."""
+    assert set(blue_data_planner.__all__) == _RUN_PATH
 
 
-def test_every_new_name_is_listed_in_all() -> None:
-    """A name reachable but unlisted is not part of the released interface."""
-    for name in (
-        "OperatorRegistry",
-        "OperatorRouter",
-        "OperatorRoutingError",
-        "blue_operators",
-        "versioned_registry",
-    ):
-        assert name in blue_data_planner.__all__
+def test_every_name_the_root_advertises_is_reachable() -> None:
+    """A name listed in __all__ but not on the module is a broken export."""
+    for name in blue_data_planner.__all__:
+        assert hasattr(blue_data_planner, name)

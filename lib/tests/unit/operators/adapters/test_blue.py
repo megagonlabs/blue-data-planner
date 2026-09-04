@@ -28,7 +28,7 @@ from blue_data_planner.operators.adapters.blue import (
     _raise_for_errors,  # pyright: ignore[reportPrivateUsage]
     blue_operators,
 )
-from blue_data_planner.planner.operator_router import OperatorRouter
+from blue_data_planner.operators.router import OperatorRouter
 from blue_data_planner.types import (
     BlueDataPlannerError,
     Data,

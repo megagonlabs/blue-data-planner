@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from blue_data_planner.planner import OperatorRouter
+from blue_data_planner.operators import OperatorRouter
 from blue_data_planner.types import LogicalOperator, OperatorRoutingError
 from tests.doubles.operators import recording_operator
 

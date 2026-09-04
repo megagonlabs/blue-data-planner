@@ -10,11 +10,8 @@ from blue_data_planner.types import (
     LogicalPlan,
     PhysicalPlan,
     PhysicalPlanFragment,
+    PlanValidationError,
 )
-
-
-class PlanValidationError(BlueDataPlannerError):
-    """A plan or a cover failed a structural check and must not run."""
 
 
 def validate_logical_plan(

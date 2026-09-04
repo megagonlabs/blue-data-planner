@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import pytest
 
+from blue_data_planner.plan import validate_logical_plan, validate_physical_plan
 from blue_data_planner.types import (
     ControlOperator,
     LogicalOperator,
@@ -12,11 +13,7 @@ from blue_data_planner.types import (
     PhysicalPlan,
     PhysicalPlanFragment,
     PipelineNode,
-)
-from blue_data_planner.validation import (
     PlanValidationError,
-    validate_logical_plan,
-    validate_physical_plan,
 )
 
 

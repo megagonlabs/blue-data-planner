@@ -19,6 +19,10 @@ class UnknownFragmentError(BlueDataPlannerError):
     """A fragment id names no fragment in the cover, or a node belongs to none."""
 
 
+class PlanValidationError(BlueDataPlannerError):
+    """A plan or a cover failed a structural check and must not run."""
+
+
 class OperatorRoutingError(BlueDataPlannerError):
     """An operator id is registered twice, or names no registered operator."""
 
