@@ -33,7 +33,7 @@ and reads its result writes one import. Everything else is reached through the m
 | `blue_data_planner.execution` | `execute_physical_operator`, `check_output_columns` |
 | `blue_data_planner.operators` | `OperatorRouter` |
 | `blue_data_planner.operators.blue`, `.lotus`, `.builtin` | `blue_operators`, `lotus_operators`, `builtin_operators` |
-| `blue_data_planner.data` | `DataCatalog`, `DataRegistryProvider`, `BlueDataRegistryProvider`, `resolve_registry`, `open_registry`, and the source-level reads |
+| `blue_data_planner.data` | `DataCatalog`, `open_registry`, and the source-level reads |
 | `blue_data_planner.llm` | `LLMClient`, `Conversation`, `LLMUsage`, `LLMError` |
 
 Public is the package root, every module directly inside it, and the `__init__.py` of `types/`,
@@ -65,15 +65,17 @@ Nothing is constructed in place and nothing reads the environment, so a caller b
 passes them in.
 
 ```python
+from pathlib import Path
+
 from blue_data_planner import PlanLimits, build_data_planner
-from blue_data_planner.data import BlueDataRegistryProvider, DataCatalog
+from blue_data_planner.data import DataCatalog, open_registry
 from blue_data_planner.llm import LLMClient
 from blue_data_planner.operators import OperatorRouter
 from blue_data_planner.operators.blue import blue_operators
 from blue_data_planner.operators.builtin import builtin_operators
 from blue_data_planner.operators.lotus import lotus_operators
 
-data_registry = BlueDataRegistryProvider().get_registry("blue", "default", {})
+data_registry = open_registry(Path("registry.json"))
 llm_client = LLMClient(name="planner", properties={"model": "openai/gpt-4o"})
 
 router = OperatorRouter()
@@ -94,9 +96,10 @@ planner = build_data_planner(
 ```
 
 `data_registry` is a `blue-data` registry, obtained from `data/` and passed back into it. A caller
-reads nothing off it and constructs no source from it; `open_registry` is the other way to get one,
-for a registry written to disk. It reaches the Blue adapter unchanged because the operator library
-behind that adapter takes a registry of its own (ADR-003, ADR-004).
+reads nothing off it and constructs no source from it. `open_registry` is the one way in: a registry
+is populated by `blue-data` before it reaches this package (ADR-003), so a caller that assembled one
+itself passes that one in place of this call. It reaches a suite adapter unchanged, because a suite
+that reads data takes a registry of its own (ADR-004).
 
 `build_data_planner` is the default wiring, and what every adapter calls. It constructs the three
 planning components and the discovery step, and hands each one that enforces a bound of its own the

@@ -912,16 +912,6 @@ construction sit behind it too, so nothing outside `data/` constructs a `blue-da
 method on one.
 
 ```python
-class DataRegistryProvider(ABC):
-    @abstractmethod
-    def get_registry(
-        self, platform_name: str, registry_name: str, properties: Properties
-    ) -> DataRegistry: ...
-
-
-def resolve_registry(properties: Properties) -> DataRegistry: ...
-
-
 def source_schema(
     registry: DataRegistry, source: str, database: str, collection: str
 ) -> dict[str, Any]: ...
@@ -930,15 +920,15 @@ def connect_source(registry: DataRegistry, source: str) -> Any: ...
 def execute_query(registry: DataRegistry, source: str, query: str) -> Data: ...
 ```
 
-A registry travels as an opaque handle rather than behind a facade of this package's own. A caller
-obtains one from `data/` and passes it back into `data/` and into the Blue adapter, which hands it
-to an operator library that takes a registry of its own (ADR-004). A facade cannot do that: the
-adapter would have to unwrap it, and what the operator library received would be the registry
-anyway.
+A registry is a value this module hands out and takes back, and every call made on one happens here.
+Whoever else holds one — a caller assembling a planner, an adapter over an operator suite that takes
+a registry of its own (ADR-004) — holds it without reading it.
 
-Three of the four functions read: a source's schema, a source's properties, and a query's rows.
-`connect_source` hands back a live source object, which is what an operator writes through. Reading
-the catalog is `DataCatalog`, below.
+`open_registry` is how a registry enters, and it is the one way in. Reading the catalog is
+`DataCatalog`. Both are below.
+
+Three of the four functions above read: a source's schema, a source's properties, and a query's
+rows. `connect_source` hands back a live source object, which is what an operator writes through.
 
 Two kinds of write have to be told apart, because the design answers them differently.
 
@@ -1000,10 +990,9 @@ class DataCatalog:
 Three readings of the same registry, one per caller, all fixed in
 [10, catalog readings](10-data-model.md#4-catalog-readings).
 
-`max_search_results` is a constructor argument rather than a parameter because `search_records` is
-called once per search term and the caller has no per-term reason to cap one differently from the
-next. `preview` takes its cap from the caller, which is the logical planner deciding how much of a
-registry one prompt carries.
+`max_search_results` is fixed when the catalog is built, since `search_records` runs once per search
+term and one cap serves every term. `preview`'s cap comes from the logical planner, which decides
+how much of a registry one prompt carries.
 
 | Method | Read by | Answers |
 | --- | --- | --- |
@@ -1021,13 +1010,11 @@ Each reading is assembled from what the registry already holds: the levels of th
 descriptions enrichment wrote, the per-column statistics collection filled, whatever the registry
 records about how a column's values are spelled, and its own ranked record search.
 
-Every reading that searches ranks and caps, and none of them filters by score (ADR-021). A weak
-match reaches a prompt at the bottom of a ranked list, where a model can weigh it against the rest.
-An empty list is what a model cannot read: nothing in it distinguishes a registry holding nothing
-relevant from a registry holding nothing at all.
+Every reading that searches ranks its results and takes the top of the list (ADR-021). A weak match
+therefore reaches a prompt at the bottom of a ranked list, where a model weighs it against the rest.
 
-One consequence follows. Planning quality depends on whether a source has been enriched, and a
-source that never was renders with names and kinds alone, which planning still works with.
+Planning quality depends on whether a source has been enriched. A source that never was renders with
+names and kinds alone, which planning still works with.
 
 ### Which column gets a view
 
@@ -1054,10 +1041,10 @@ def open_registry(registry_path: Path) -> DataRegistry: ...
 ```
 
 Reads a serialized `blue-data` registry into memory. A reopened registry reconnects to its own
-sources, so the databases behind it are never converted and a query still runs against the live
-files.
+sources, so the databases behind it stay where they are and a query runs against the live files.
 
-This is the read counterpart of an ingestion step the library does not have. The TAG-Bench registry
+A caller holding a registry it assembled with `blue-data` passes that one to `DataCatalog` directly.
+Populating a registry is ingestion, and it belongs to `blue-data` (ADR-003). The TAG-Bench registry
 is written once by `lib/scripts/tag_bench/register_databases.py`, which calls `blue-data` directly:
 a script under `lib/scripts/` ships in no package, so the import rule that governs
 `src/blue_data_planner/` does not reach it ([07-repo-organization.md](07-repo-organization.md),

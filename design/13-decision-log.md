@@ -58,19 +58,19 @@ statistics, and enriching them are ingestion, which belongs to `blue-data`, so a
 this package already populated. `lib/scripts/` and `lib/tests/` ship in no package and stand outside
 the rule, which is what lets the benchmark build its own registry.
 
-A registry travels as an opaque handle rather than behind a facade of this package's own. `data/`
-hands one out, takes one back, and owns every call made on one; a caller and every other module
-hold it without reading it.
+A registry travels as a plain `blue-data` value rather than behind a wrapper class of this package's
+own. `data/` hands one out, takes one back, and owns every call made on one; a caller and every
+other module hold it without reading it.
 
 **Rationale:** One boundary gives one place to change when `blue-data` changes. Keeping ingestion
 out is what stops the boundary from growing a second surface that duplicates a dependency's own
 tooling. The benchmark still needs a registry built, and a build step is not shipped code.
 
-A facade would break the boundary rather than enforce it. An operator library reached through an
-adapter takes a registry of its own (ADR-004), so the adapter would have to unwrap the facade and
-hand over the registry anyway — and what the operator library received would be a `blue-data`
-registry either way. A facade also has to be kept in step with a dependency it only forwards to.
-The handle keeps the rule the imports can be read for.
+A wrapper class would weaken the boundary rather than enforce it. An operator library reached
+through an adapter takes a registry of its own (ADR-004), so the adapter would have to unwrap the
+wrapper and hand over the `blue-data` registry, which is what that library would hold either way. A
+wrapper that only forwards calls also has to be kept in step with the dependency it forwards to.
+Passing the value keeps the rule that reading a file's imports can check.
 
 **Consequences:** Anything the planner needs from `blue-data` is exposed through the boundary first,
 as a function taking the registry. A caller with data and no registry builds one with `blue-data`
@@ -605,3 +605,4 @@ Design questions first, then defects in code that exists today.
 | 43 | How is the physical planner made to choose a more capable operator over a built-in one? Every operator node kind has a built-in candidate (ADR-020), so a node is almost never answered as `no_operator` and a wrong choice is refused at review instead, one operator call later. `description` and `limitations` are the whole of what separates two candidates in the prompt, so a deterministic operator that cannot express a semantic predicate has to say so in terms a model weighs against a description promising a general engine, and one that runs unoptimized in the planner's process has to say that too. The review rejection rate of fragments bound to a built-in entry, which the TAG-Bench harness reports, is what measures it. | Whether a floor that always has a candidate raises the cost of every request that needed the ceiling |
 | 44 | Can an operator declare that every scan in one fragment reads the same source? `source_kinds` is a set of kinds and says nothing about identity, and `scan_sources` binds each `SCAN` in a fragment separately, so nothing stops a cover from handing one operator two databases. `blue.nl2sql` needs the constraint, since one SQL query cannot span two of them, while `builtin.nl2table` deliberately lacks it and covering such a fragment is the point of it. Without a way to declare the difference the constraint lives in `limitations` as plain language, and a candidate that cannot work is offered anyway. This is question 8's family: a capability the declaration has no vocabulary for. | Whether an operator limited to one source at a time can be declared at all, or is offered candidates it has to refuse |
 | 45 | Are `builtin.scan`'s two bind-join caps a bound of ADR-014's kind? `PlanLimits` holds every other bound the system obeys, and a cap on the distinct values a bind join carries is shaped the same way, but it lives inside one operator's choice of realization rather than at the run loop's level, and the two numbers in force — 10 for one call per value, 100 for an `IN` list or a temporary table ([06](06-library.md#data)) — are placeholders set low enough not to break a run rather than measured against real bind-join volumes. A `PlanLimits` field would let a deployment raise either past a default nobody has tested; leaving both inside `builtin.scan` keeps the operator, which already sees how many rows travel and chooses the realization on that basis, the one thing that decides the number too. | Whether a bind-join cap is configurable per deployment or fixed inside the operator, and what real volumes call for |
+| 46 | Who removes a table a bind join wrote into a source, and when? The temporary-table realization carries a reference input's values into a source by writing a table through the source object rather than by embedding them in the query text ([06-library.md](06-library.md#data)), and nothing says what becomes of that table once the call returns. Three places could own it. The operator that wrote it, dropping it before the call returns, which is the narrowest scope and the only one that still holds when a run ends by raising. The run, dropping every table its fragments wrote when the request ends, which is what would let one written table serve several calls, at the price of leaving a table behind whenever the process dies first. Or the source's own session scope, where a table written into a session-scoped namespace or inside a transaction disappears when the connection closes, which costs nothing to implement and is available only where a source kind offers it — so it cannot be the whole answer for a boundary that reads several kinds. The choice also settles whether two runs writing into one source can collide on a table name, which the first two answer with a per-run name and the third answers by construction. What constrains all three is that a request must leave nothing behind in a source a caller owns, on the failing path as much as on the succeeding one. | Whether the temporary-table realization can be offered outside a benchmark, and what `builtin.scan` does when a call it wrote a table for fails (ADR-020) |

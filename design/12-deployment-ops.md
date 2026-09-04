@@ -95,9 +95,7 @@ into the constructor. `.env` files are never committed.
 | `OPENAI_API_KEY` | None, required | Every component that calls a model, and LOTUS operations |
 | `BLUE_DATA_PLANNER_MODEL` | `openai/gpt-4o` | The litellm model string every component uses |
 | `BLUE_DATA_PLANNER_LOTUS_MODEL` | `openai/gpt-4o` | The litellm model string LOTUS configures for itself, independently of `BLUE_DATA_PLANNER_MODEL` (ADR-005) |
-| `BLUE_DATA_REGISTRY_PLATFORM` | `blue` | Which platform the registry belongs to |
-| `BLUE_DATA_REGISTRY_NAME` | `default` | Which registry to read |
-| The rest of `BLUE_DATA_REGISTRY_*` | `blue-data`'s own | Which store holds the registry and how to reach it. `blue-data` defines these, and a deployment sets whichever its store needs |
+| `BLUE_DATA_REGISTRY_PATH` | None, required | The serialized registry an adapter opens and plans against |
 | `LOG_LEVEL` | `INFO` | Logging verbosity |
 
 One model string serves every component. `DataPlanner`'s constructor takes a client per component,

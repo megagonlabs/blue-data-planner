@@ -60,7 +60,6 @@ blue-data-planner/
 │   │   │   ├── lotus/                 # lotus_operators
 │   │   │   └── builtin/               # builtin_operators, the suite written here
 │   │   ├── data/
-│   │   │   ├── provider.py            # DataRegistryProvider
 │   │   │   ├── registry.py            # open_registry, the source-level reads
 │   │   │   └── catalog.py             # DataCatalog: three readings, shapes from types/
 │   │   └── llm/
