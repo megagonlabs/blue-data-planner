@@ -170,10 +170,13 @@ resolution path through `extraPaths`, so both the test run and the type check se
 
 ### Doubles
 
-`doubles/data.py` holds the replacement for the `blue-data` boundary. It implements
-`DataRegistryClient`'s methods and records every call, so a test asserts what the catalog asked the
-registry for rather than what a database returned. `SQLSourceDouble` beside it stands in for a
-returned SQL source, following the same call sequence the real one expects.
+`doubles/data.py` holds the replacement for a live source. `SQLSourceDouble` stands in for a
+returned SQL source, following the same call sequence the real one expects, so a test covering a
+bind join asserts what an operator wrote rather than needing a database to write it to.
+
+The registry itself is not doubled. A `blue-data` registry runs in memory over records a test
+registers, and `data/` is what a test of the catalog readings is checking, so a double in its place
+would pin only itself. A test builds the registry it needs and reads it through `DataCatalog`.
 
 Three doubles serve the planner.
 

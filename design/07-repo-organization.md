@@ -61,7 +61,7 @@ blue-data-planner/
 │   │   │   └── builtin/               # builtin_operators, the suite written here
 │   │   ├── data/
 │   │   │   ├── provider.py            # DataRegistryProvider
-│   │   │   ├── registry_client.py     # DataRegistryClient, open_registry
+│   │   │   ├── registry.py            # open_registry, the source-level reads
 │   │   │   └── catalog.py             # DataCatalog: three readings, shapes from types/
 │   │   └── llm/
 │   │       ├── client.py              # LLMClient, Conversation

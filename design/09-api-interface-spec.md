@@ -33,7 +33,7 @@ and reads its result writes one import. Everything else is reached through the m
 | `blue_data_planner.execution` | `execute_physical_operator`, `check_output_columns` |
 | `blue_data_planner.operators` | `OperatorRouter` |
 | `blue_data_planner.operators.blue`, `.lotus`, `.builtin` | `blue_operators`, `lotus_operators`, `builtin_operators` |
-| `blue_data_planner.data` | `DataCatalog`, `DataRegistryClient`, `DataRegistryProvider`, `BlueDataRegistryProvider`, `open_registry` |
+| `blue_data_planner.data` | `DataCatalog`, `DataRegistryProvider`, `BlueDataRegistryProvider`, `resolve_registry`, `open_registry`, and the source-level reads |
 | `blue_data_planner.llm` | `LLMClient`, `Conversation`, `LLMUsage`, `LLMError` |
 
 Public is the package root, every module directly inside it, and the `__init__.py` of `types/`,
@@ -92,6 +92,11 @@ planner = build_data_planner(
     limits=PlanLimits(...),
 )
 ```
+
+`data_registry` is a `blue-data` registry, obtained from `data/` and passed back into it. A caller
+reads nothing off it and constructs no source from it; `open_registry` is the other way to get one,
+for a registry written to disk. It reaches the Blue adapter unchanged because the operator library
+behind that adapter takes a registry of its own (ADR-003, ADR-004).
 
 `build_data_planner` is the default wiring, and what every adapter calls. It constructs the three
 planning components and the discovery step, and hands each one that enforces a bound of its own the

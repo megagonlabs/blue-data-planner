@@ -833,6 +833,10 @@ The list is ranked against the request text and capped, and `total_sources` says
 whole registry or a sample. A source that has never been enriched renders with a name and a kind
 alone, and planning still works with less to go on.
 
+A `description` of `None` is what says nobody wrote one. A registry stores an empty string where
+enrichment never ran, and an empty field should not travel into a prompt as though it were a
+description, so every reading below renders one as absent.
+
 `kind` is the connection protocol `blue-data` records at registration, so it is available without
 enrichment and without a search. It is what tells the physical planner whether a Text-to-SQL
 operator can run a fragment scanning this source.
@@ -853,6 +857,10 @@ class CatalogMatch:
 `search_records` takes one query string and returns the catalog records that match it, ranked. A
 discovery node that expands into several terms calls it once per term.
 
+`score` is the registry's own relevance score, where a higher number is a better match, and the list
+is ordered by it. The list is capped rather than filtered, so a weak match appears at the bottom
+rather than not at all (ADR-021).
+
 ### What the fragment runner reads
 
 A `ColumnView` annotates a column the runner already knows about. The authoritative list of columns
@@ -872,6 +880,12 @@ grow with the catalog.
 
 `semantic_type` is what tells the runner a column holds short codes instead of readable words, so it
 writes a filter against `"PRIJEM"` instead of guessing at `credit`.
+
+A column whose statistics were never collected still gets a view, carrying its type and whatever
+else the record holds. Absence and corruption are told apart: no record at all is a column with no
+view, and a record that exists but cannot be read as one — a declared type missing, or statistics
+that are not statistics — is a corrupt registry and raises
+([06-library.md](06-library.md#errors)).
 
 A column with no view is still a column. It appears in the input table's column list with its type
 and its sample values, and only the annotation is missing, so nothing about it reads as absent. Two

@@ -58,14 +58,25 @@ statistics, and enriching them are ingestion, which belongs to `blue-data`, so a
 this package already populated. `lib/scripts/` and `lib/tests/` ship in no package and stand outside
 the rule, which is what lets the benchmark build its own registry.
 
-**Rationale:** One boundary gives one place to change when `blue-data` changes and one place to
-substitute an in-memory double. Keeping ingestion out is what stops the boundary from growing a
-second surface that duplicates a dependency's own tooling. The benchmark still needs a registry
-built, and a build step is not shipped code.
+A registry travels as an opaque handle rather than behind a facade of this package's own. `data/`
+hands one out, takes one back, and owns every call made on one; a caller and every other module
+hold it without reading it.
 
-**Consequences:** Anything the planner needs from `blue-data` is exposed through the boundary first.
-A caller with data and no registry builds one with `blue-data` before constructing a planner. The
-rule stays checkable by reading a file's imports, with one path exclusion.
+**Rationale:** One boundary gives one place to change when `blue-data` changes. Keeping ingestion
+out is what stops the boundary from growing a second surface that duplicates a dependency's own
+tooling. The benchmark still needs a registry built, and a build step is not shipped code.
+
+A facade would break the boundary rather than enforce it. An operator library reached through an
+adapter takes a registry of its own (ADR-004), so the adapter would have to unwrap the facade and
+hand over the registry anyway — and what the operator library received would be a `blue-data`
+registry either way. A facade also has to be kept in step with a dependency it only forwards to.
+The handle keeps the rule the imports can be read for.
+
+**Consequences:** Anything the planner needs from `blue-data` is exposed through the boundary first,
+as a function taking the registry. A caller with data and no registry builds one with `blue-data`
+before constructing a planner. A `blue-data` type is named where the boundary hands a registry out
+and takes one back, which is the price of not wrapping it. The rule stays checkable by reading a
+file's imports, with one path exclusion.
 
 ---
 
@@ -546,6 +557,31 @@ declaring `source_kinds`.
 
 ---
 
+## ADR-021 — The Catalog Readings Rank and Cap, and Never Filter by Score
+
+**Decision:** Every catalog reading that searches asks the registry to rank and takes the top
+results, and none of them drops a record for scoring below a bar. `preview` takes its cap from the
+logical planner, and `search_records` takes one fixed when the catalog is built. What a component
+sees is therefore the best matches the registry can offer, in order, and never nothing.
+
+**Rationale:** A search engine's score threshold is tuned for a consumer, and the consumer here is a
+model reading a prompt rather than a user reading a result list. A model weighs a weak match at the
+bottom of a ranked list against the rest of the list and discounts it. An empty list it cannot
+weigh at all: nothing in one distinguishes a registry holding nothing relevant from a registry
+holding nothing, so a logical planner handed an empty preview has no way to tell a bad search from
+an empty catalog and will plan as though there were no sources. Ranking also degrades gracefully
+where a registry has no vector index, which is the state a registry built by ingestion alone is in.
+Choosing what each component sees is this repository's business, and a threshold chosen for a
+different consumer is not that choice ([06-library.md](06-library.md#datacatalog)).
+
+**Consequences:** A weak match reaches a prompt, so a component has to be written to expect
+irrelevant records in a ranked list rather than to trust that everything returned is relevant. The
+caps are the only bound on how much catalog a prompt carries, which makes them the number to tune
+when a prompt grows too large. Where the underlying registry exposes score thresholds, `data/` sets
+them out of the way rather than relying on their defaults.
+
+---
+
 ## Open Questions
 
 Design questions first, then defects in code that exists today.
@@ -553,7 +589,7 @@ Design questions first, then defects in code that exists today.
 | # | Question | Blocks |
 | --- | --- | --- |
 | 2 | How often do plans actually schedule a replan? If rarely, the limit can be low; if it is most requests over discovered sources, planning is two-pass in practice and the design should say so. The TAG-Bench harness reports it ([11-testing-strategy.md](11-testing-strategy.md)), so what is left is running it. | The `PlanLimits` defaults |
-| 3 | Which of a fragment's columns can be resolved to a `ColumnRef`, so the fragment runner sees the catalog's `distinct_count`, `min`, `max`, and `semantic_type` for it? A fragment's `scan_sources` names a catalog path for each `SCAN` it contains, so a column of a table the fragment itself scans resolves without ambiguity. A column arriving on the frontier does not: resolving it means tracing back through the cover to whichever fragment scanned it. Three rules are on the table. The narrow one resolves only the fragment's own scans, and is safe because its failure is missing information rather than wrong information. The middle one traces through fragments built only from the kinds that leave columns unchanged, which are `FILTER`, `DISTINCT`, and `SORT_SUPERLATIVE`, and stops at any fragment containing `PROJECT`, `EXPAND`, `AGGREGATE`, `JOIN`, or `SCAN`. The wide one traces by column name regardless of kind, and can put a scanned column's statistics in front of a model for a column a `PROJECT` quietly redefined. The narrow rule loses the case a lone `FILTER` over scanned rows presents, which is the shape TAG-Bench produces most, so the choice is worth measuring rather than guessing. | What the fragment runner sees when it writes parameters for a fragment that scans nothing ([06-library.md](06-library.md#which-column-gets-a-view)) |
+| 3 | Which of a fragment's columns can be resolved to a `ColumnRef`, so the fragment runner sees the catalog's `distinct_count`, `min`, `max`, and `semantic_type` for it? A fragment's `scan_sources` names a catalog path for each `SCAN` it contains, so a column of a table the fragment itself scans resolves without ambiguity. A column arriving on the frontier does not: resolving it means tracing back through the cover to whichever fragment scanned it. Three rules are on the table. The narrow one resolves only the fragment's own scans, and is safe because its failure is missing information rather than wrong information. The middle one traces through fragments built only from the kinds that leave columns unchanged, which are `FILTER`, `DISTINCT`, and `SORT_SUPERLATIVE`, and stops at any fragment containing `PROJECT`, `EXPAND`, `AGGREGATE`, `JOIN`, or `SCAN`. The wide one traces by column name regardless of kind, and can put a scanned column's statistics in front of a model for a column a `PROJECT` quietly redefined. The narrow rule loses the case a lone `FILTER` over scanned rows presents, which is the shape TAG-Bench produces most, so the choice is worth measuring rather than guessing. | What the fragment runner sees when it writes parameters for a fragment that scans nothing ([06-library.md](06-library.md#fragmentrunner)) |
 | 6 | Should a result stay valid when only the cut around it changed? A continuation reading a node a fragment absorbed forces that fragment to be dropped and every node in it to run again, even the ones whose logical inputs did not change ([04, what reading an absorbed node costs](04-detailed-architecture.md#what-reading-an-absorbed-node-costs)). Two ways out. Keying validity on a node's upstream logical nodes rather than on the shape of the cover would save the downstream work. Dropping the disjointness rule would let a continuation build its own fragment over `SCAN`, `FILTER`, and the new node while the earlier fragment keeps its result, at the price of running the same scan twice and of giving up the property that each node runs exactly once, which is what makes an attempt list readable as a record of where each pushdown boundary was drawn. Both carry the same consistency risk: a saved result from a fused call sitting beside newly materialized rows from a different cut, so two nodes in one plan could hold values their operators never agreed on. | Whether a failure-driven replan pays for a whole fused call a second time, and whether the attempt record still answers where the boundary was |
 | 7 | When a control node's inputs all have results and a fragment is also ready, which runs first? Running the fragments first gives the logical planner more results to write the continuation against, and costs nothing in wasted work, since a new logical version carries over every node the run has something for. Firing the control node first can save operator calls on a branch the continuation turns out not to need, at the price of planning against less. [06-library.md](06-library.md#the-run-loop) leaves `next_ready` free to do either, and nothing has measured which is better. | How much a `DISCOVER` node costs on a plan with parallel branches |
 | 8 | Should a fragment pattern be allowed to constrain the order of the nodes it covers? `logical_operators` is a set, so a candidate is any connected convex subgraph built from those kinds, and an operator that can only absorb a filter *after* a scan has no way to say so. No declared operator's capability depends on the order of the nodes it covers, so a set says everything a declaration needs to. | Whether an operator whose capability depends on node order can be declared at all |

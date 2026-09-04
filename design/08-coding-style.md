@@ -134,8 +134,8 @@ Names have to be guessable by a reader with no project context. Prefer a name th
 result (`HtmlToMarkdownConverter`) over one that gestures at a role (`ArtifactBridge`). Concrete
 words such as `adapter`, `converter`, `runner`, `router`, and `builder` are welcome where they fit.
 Abstract ones are not: `artifact`, `bridge`, `layer`, `contract`, `machinery`, `seam`, `manager`,
-`entity`, `primitive`, and `verdict` name nothing a reader can picture. `RegistrySeam` says nothing
-about what the class hands back; `DataRegistryClient` says it in the name.
+`entity`, `primitive`, and `verdict` name nothing a reader can picture. A `CatalogBridge` would say
+nothing about what the class hands back; `CatalogSearcher` says it in the name.
 
 Borrowed metaphors go the same way. An ordered set of fallbacks is named by what each step rewrites
 — the parameter repair, the fragment repair, the cover repair, the replan — not by a ladder and its

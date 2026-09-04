@@ -836,7 +836,7 @@ semantic one was needed is open question 43 in
 
 ```python
 def blue_operators(
-    registry: OperatorRegistry, data_registry: DataRegistryClient
+    registry: OperatorRegistry, data_registry: DataRegistry
 ) -> list[PhysicalOperator]: ...
 
 
@@ -844,7 +844,7 @@ def lotus_operators() -> list[PhysicalOperator]: ...
 
 
 def builtin_operators(
-    data_registry: DataRegistryClient, llm_client: LLMClient
+    data_registry: DataRegistry, llm_client: LLMClient
 ) -> list[PhysicalOperator]: ...
 ```
 
@@ -908,31 +908,37 @@ states (ADR-005).
 ## `data/`
 
 The only module in the shipped package that imports `blue-data` (ADR-003). Source and store
-construction sit behind it too, so no class from `blue-data` escapes.
+construction sit behind it too, so nothing outside `data/` constructs a `blue-data` class or calls a
+method on one.
 
 ```python
 class DataRegistryProvider(ABC):
     @abstractmethod
     def get_registry(
         self, platform_name: str, registry_name: str, properties: Properties
-    ) -> DataRegistryClient: ...
+    ) -> DataRegistry: ...
 
 
-def resolve_registry(properties: Properties) -> DataRegistryClient: ...
+def resolve_registry(properties: Properties) -> DataRegistry: ...
 
 
-class DataRegistryClient:
-    """Everything this package does with a blue-data DataRegistry."""
-
-    def search_records(self, query: str) -> list[dict[str, Any]]: ...
-    def get_data_source_schema(self, source: str) -> dict[str, Any]: ...
-    def get_source_properties(self, source: str) -> dict[str, Any]: ...
-    def connect_source(self, source: str) -> Any: ...
-    def execute_query(self, query: str, source: str) -> Data: ...
+def source_schema(
+    registry: DataRegistry, source: str, database: str, collection: str
+) -> dict[str, Any]: ...
+def source_properties(registry: DataRegistry, source: str) -> dict[str, Any]: ...
+def connect_source(registry: DataRegistry, source: str) -> Any: ...
+def execute_query(registry: DataRegistry, source: str, query: str) -> Data: ...
 ```
 
-Four of the five read: the catalog, a source's schema, a source's properties, and a query's rows.
-`connect_source` hands back a live source object, which is what an operator writes through.
+A registry travels as an opaque handle rather than behind a facade of this package's own. A caller
+obtains one from `data/` and passes it back into `data/` and into the Blue adapter, which hands it
+to an operator library that takes a registry of its own (ADR-004). A facade cannot do that: the
+adapter would have to unwrap it, and what the operator library received would be the registry
+anyway.
+
+Three of the four functions read: a source's schema, a source's properties, and a query's rows.
+`connect_source` hands back a live source object, which is what an operator writes through. Reading
+the catalog is `DataCatalog`, below.
 
 Two kinds of write have to be told apart, because the design answers them differently.
 
@@ -984,6 +990,8 @@ adapter entry ([07-repo-organization.md](07-repo-organization.md#where-a-new-thi
 
 ```python
 class DataCatalog:
+    def __init__(self, registry: DataRegistry, max_search_results: int = 10) -> None: ...
+
     def preview(self, request: str, limit: int) -> CatalogPreview: ...
     def search_records(self, term: str) -> list[CatalogMatch]: ...
     def column_views(self, columns: Sequence[ColumnRef]) -> list[ColumnView]: ...
@@ -991,6 +999,11 @@ class DataCatalog:
 
 Three readings of the same registry, one per caller, all fixed in
 [10, catalog readings](10-data-model.md#4-catalog-readings).
+
+`max_search_results` is a constructor argument rather than a parameter because `search_records` is
+called once per search term and the caller has no per-term reason to cap one differently from the
+next. `preview` takes its cap from the caller, which is the logical planner deciding how much of a
+registry one prompt carries.
 
 | Method | Read by | Answers |
 | --- | --- | --- |
@@ -1007,6 +1020,11 @@ shaping.
 Each reading is assembled from what the registry already holds: the levels of the catalog, the
 descriptions enrichment wrote, the per-column statistics collection filled, whatever the registry
 records about how a column's values are spelled, and its own ranked record search.
+
+Every reading that searches ranks and caps, and none of them filters by score (ADR-021). A weak
+match reaches a prompt at the bottom of a ranked list, where a model can weigh it against the rest.
+An empty list is what a model cannot read: nothing in it distinguishes a registry holding nothing
+relevant from a registry holding nothing at all.
 
 One consequence follows. Planning quality depends on whether a source has been enriched, and a
 source that never was renders with names and kinds alone, which planning still works with.
@@ -1032,7 +1050,7 @@ running alone over scanned rows sees catalog values at all, and it is open quest
 ### Opening a registry
 
 ```python
-def open_registry(registry_path: Path) -> DataRegistryClient: ...
+def open_registry(registry_path: Path) -> DataRegistry: ...
 ```
 
 Reads a serialized `blue-data` registry into memory. A reopened registry reconnects to its own
