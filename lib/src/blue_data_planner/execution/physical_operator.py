@@ -44,14 +44,15 @@ def execute_physical_operator(
     try:
         output = operator.call(inputs, parameters)
     except RecoverableOperatorError as error:
-        return _failed(ErrorKind.RECOVERABLE, str(error), operator.operator_id)
+        return _failed(ErrorKind.RECOVERABLE, str(error), operator.operator_id, error.report)
     except UnrecoverableOperatorError as error:
-        return _failed(ErrorKind.UNRECOVERABLE, str(error), operator.operator_id)
+        return _failed(ErrorKind.UNRECOVERABLE, str(error), operator.operator_id, error.report)
     result = ExecutionResult(
         status=ExecutionStatus.OK,
-        output=output,
+        output=output.data,
         operator_id=operator.operator_id,
-        row_count=_row_count(output),
+        row_count=_row_count(output.data),
+        report=output.report,
     )
     # Only the columns the call was handed are checked, because a fused call produces no
     # intermediate tables to check anything else against.
@@ -63,9 +64,12 @@ def _row_count(output: DataBundle) -> int:
     return sum(len(table) for table in output)
 
 
-def _failed(kind: ErrorKind, message: str, operator_id: str) -> ExecutionResult:
+def _failed(
+    kind: ErrorKind, message: str, operator_id: str, report: dict[str, Any] | None
+) -> ExecutionResult:
     return ExecutionResult(
         status=ExecutionStatus.FAILED,
         operator_id=operator_id,
         error=ErrorInfo(kind=kind, message=message),
+        report=report,
     )

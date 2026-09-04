@@ -73,6 +73,9 @@ class ExecutionResult:
     error: ErrorInfo | None = None
     # Rows across every table in `output`, not the number of tables.
     row_count: int | None = None
+    # Carried whichever way the call ended: an operator that failed partway through is the
+    # one with the most to say.
+    report: dict[str, Any] | None = None
 
 
 @dataclass(frozen=True)

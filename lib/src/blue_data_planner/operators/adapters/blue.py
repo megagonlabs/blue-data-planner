@@ -18,6 +18,7 @@ from blue_data_planner.types import (
     BlueDataPlannerError,
     DataBundle,
     LogicalOperator,
+    OperatorOutput,
     PhysicalOperator,
     RecoverableOperatorError,
     UnrecoverableOperatorError,
@@ -54,8 +55,8 @@ def _build_call(
     parameters: type[BaseModel],
     properties: Properties | None,
     ignores_input_bundle: bool = False,
-) -> Callable[[DataBundle, dict[str, Any]], DataBundle]:
-    def call(inputs: DataBundle, attributes: dict[str, Any]) -> DataBundle:
+) -> Callable[[DataBundle, dict[str, Any]], OperatorOutput]:
+    def call(inputs: DataBundle, attributes: dict[str, Any]) -> OperatorOutput:
         try:
             validated = parameters.model_validate(attributes)
         except ValidationError as error:
@@ -81,7 +82,8 @@ def _build_call(
             list(inputs), validated.model_dump(exclude_none=True), properties
         )
         _raise_for_errors(meta, operator_id)
-        return output
+        # The Blue operators say nothing about how they ran, so the report stays unset.
+        return OperatorOutput(data=output)
 
     return call
 

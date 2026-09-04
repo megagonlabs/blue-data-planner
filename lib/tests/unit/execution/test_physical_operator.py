@@ -12,6 +12,7 @@ from blue_data_planner.types import (
     ErrorKind,
     ExecutionStatus,
     LogicalOperator,
+    OperatorOutput,
     OutputColumn,
     RecoverableOperatorError,
     UnrecoverableOperatorError,
@@ -22,7 +23,9 @@ from tests.doubles.operators import recording_operator
 def test_a_call_comes_back_as_the_rows_it_produced_with_the_row_count_across_every_table() -> None:
     """A successful call carries its bundle, its operator id, and rows across the whole bundle."""
     operator, recorder = recording_operator(
-        "blue.select", frozenset({LogicalOperator.FILTER}), [[[{"a": 1}], [{"a": 2}, {"a": 3}]]]
+        "blue.select",
+        frozenset({LogicalOperator.FILTER}),
+        [OperatorOutput(data=[[{"a": 1}], [{"a": 2}, {"a": 3}]])],
     )
     budget = CallBudget(cap=5)
 
@@ -70,7 +73,7 @@ def test_any_other_exception_reaches_the_caller_as_the_bug_it_is() -> None:
 def test_a_result_missing_a_declared_column_fails_recoverably_and_still_bills() -> None:
     """A call that really happened counts even when its output is turned down."""
     operator, _ = recording_operator(
-        "blue.select", frozenset({LogicalOperator.FILTER}), [[[{"a": 1}]]]
+        "blue.select", frozenset({LogicalOperator.FILTER}), [OperatorOutput(data=[[{"a": 1}]])]
     )
     budget = CallBudget(cap=5)
 
@@ -87,7 +90,7 @@ def test_a_result_missing_a_declared_column_fails_recoverably_and_still_bills() 
 def test_parameters_the_operator_cannot_take_raise_before_the_budget_is_touched() -> None:
     """The runner wrote them under this schema, so a mismatch is a bug, not a spent call."""
     operator, _ = recording_operator(
-        "blue.select", frozenset({LogicalOperator.FILTER}), [[[{"a": 1}]]]
+        "blue.select", frozenset({LogicalOperator.FILTER}), [OperatorOutput(data=[[{"a": 1}]])]
     )
     budget = CallBudget(cap=5)
 
@@ -100,10 +103,35 @@ def test_parameters_the_operator_cannot_take_raise_before_the_budget_is_touched(
 def test_an_exhausted_budget_raises_before_the_operator_runs() -> None:
     """The cap ends the request, and the runner catches it with the attempts it already made."""
     operator, recorder = recording_operator(
-        "blue.select", frozenset({LogicalOperator.FILTER}), [[[{"a": 1}]]]
+        "blue.select", frozenset({LogicalOperator.FILTER}), [OperatorOutput(data=[[{"a": 1}]])]
     )
 
     with pytest.raises(BudgetExhaustedError):
         execute_physical_operator(operator, {}, [], [], CallBudget(cap=0))
 
     assert recorder.calls == []
+
+
+def test_a_successful_call_carries_the_operator_report_to_the_result() -> None:
+    """An operator that reports what it did has that report on the result."""
+    operator, _ = recording_operator(
+        "blue.select",
+        frozenset({LogicalOperator.FILTER}),
+        [OperatorOutput(data=[[{"id": 1}]], report={"query": "SELECT 1"})],
+    )
+
+    result = execute_physical_operator(operator, {}, [], [], CallBudget(1))
+
+    assert result.status is ExecutionStatus.OK
+    assert result.report == {"query": "SELECT 1"}
+
+
+def test_a_failed_call_carries_the_report_the_operator_raised_with() -> None:
+    """An operator that failed partway through still reports what it managed to do."""
+    raised = RecoverableOperatorError("no column 'city'", report={"steps_run": 2})
+    operator, _ = recording_operator("blue.select", frozenset({LogicalOperator.FILTER}), [raised])
+
+    result = execute_physical_operator(operator, {}, [], [], CallBudget(1))
+
+    assert result.status is ExecutionStatus.FAILED
+    assert result.report == {"steps_run": 2}

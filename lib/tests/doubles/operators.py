@@ -2,7 +2,7 @@
 
 Lets a test assert the inputs and parameters an operator was called with, and script the
 results or failures the operator hands back, without any real operator involved.
-A scripted result is a bundle of tables, the shape an operator returns.
+A scripted result is an OperatorOutput, the shape an operator returns.
 """
 
 from __future__ import annotations
@@ -12,10 +12,10 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict
 
-from blue_data_planner.types import DataBundle, LogicalOperator, PhysicalOperator
+from blue_data_planner.types import DataBundle, LogicalOperator, OperatorOutput, PhysicalOperator
 
-# What a test scripts for one call: the tables the operator returns, or the error it raises.
-ScriptedResult = DataBundle | Exception
+# What a test scripts for one call: the output the operator returns, or the error it raises.
+ScriptedResult = OperatorOutput | Exception
 RecordedCall = tuple[DataBundle, dict[str, Any]]
 
 
@@ -36,7 +36,7 @@ class RecordingOperator:
     results: list[ScriptedResult] = field(default_factory=list[ScriptedResult])
     calls: list[RecordedCall] = field(default_factory=list[RecordedCall])
 
-    def __call__(self, inputs: DataBundle, parameters: dict[str, Any]) -> DataBundle:
+    def __call__(self, inputs: DataBundle, parameters: dict[str, Any]) -> OperatorOutput:
         self.calls.append((inputs, parameters))
         if not self.results:
             raise AssertionError("the recording operator ran out of scripted results")

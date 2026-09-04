@@ -313,6 +313,17 @@ class DataPipeline:
 
 
 @dataclass(frozen=True)
+class OperatorOutput:
+    """What one operator call returned: its tables, and whatever it has to report."""
+
+    data: DataBundle
+    # Free-form, and nothing reads it while a run continues. It travels to the caller so a
+    # finished run can be read: the query an operator wrote, the operations it ran, what its
+    # own model calls cost.
+    report: dict[str, Any] | None = None
+
+
+@dataclass(frozen=True)
 class PhysicalOperator:
     """One candidate implementation of one or more logical operators."""
 
@@ -320,7 +331,7 @@ class PhysicalOperator:
     logical_operators: frozenset[LogicalOperator]
     description: str
     parameter_schema: type[BaseModel]
-    call: Callable[[DataBundle, dict[str, Any]], DataBundle]
+    call: Callable[[DataBundle, dict[str, Any]], OperatorOutput]
     source_kinds: frozenset[str] | None = None
     accepts_bound_inputs: bool = False
     limitations: str | None = None

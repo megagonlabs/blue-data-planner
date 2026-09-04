@@ -117,7 +117,12 @@ def check_output_columns(
     output: DataBundle = []
     for table_index, records in enumerate(result.output):
         checked = _check_one_table(
-            records, required_output_columns, operator_id, table_index, len(result.output)
+            records,
+            required_output_columns,
+            operator_id,
+            table_index,
+            len(result.output),
+            result.report,
         )
         if isinstance(checked, ExecutionResult):
             return checked
@@ -127,6 +132,7 @@ def check_output_columns(
         output=output,
         operator_id=operator_id,
         row_count=sum(len(table) for table in output),
+        report=result.report,
     )
 
 
@@ -136,6 +142,7 @@ def _check_one_table(
     operator_id: str,
     table_index: int,
     table_count: int,
+    report: dict[str, Any] | None,
 ) -> Data | ExecutionResult:
     """Return one table with its declared columns coerced, or the failure that rejects it."""
     # A zero-row table carries no column evidence either way, and an empty result is an
@@ -156,6 +163,7 @@ def _check_one_table(
             f"required output column(s) {', '.join(repr(name) for name in missing)} are "
             f"absent{where}; the result holds {', '.join(repr(name) for name in records[0])}",
             operator_id,
+            report,
         )
 
     coerced: dict[str, list[Any]] = {}
@@ -169,6 +177,7 @@ def _check_one_table(
                 f"required output column {column.name!r} is declared {column.dtype} but "
                 f"{mismatch}{where}",
                 operator_id,
+                report,
             )
 
     # The coerced values land in copies. A passthrough operator such as a filter hands
@@ -182,9 +191,10 @@ def _check_one_table(
     return table
 
 
-def _recoverable(message: str, operator_id: str) -> ExecutionResult:
+def _recoverable(message: str, operator_id: str, report: dict[str, Any] | None) -> ExecutionResult:
     return ExecutionResult(
         status=ExecutionStatus.FAILED,
         operator_id=operator_id,
         error=ErrorInfo(kind=ErrorKind.RECOVERABLE, message=message),
+        report=report,
     )

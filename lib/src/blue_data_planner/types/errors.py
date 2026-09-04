@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 
 class BlueDataPlannerError(Exception):
     """Base class for every error this package raises."""
@@ -34,6 +36,14 @@ class BudgetExhaustedError(BlueDataPlannerError):
 class RecoverableOperatorError(BlueDataPlannerError):
     """An operator refused its input in a way a different operator might not."""
 
+    def __init__(self, message: str, report: dict[str, Any] | None = None) -> None:
+        super().__init__(message)
+        self.report = report
+
 
 class UnrecoverableOperatorError(BlueDataPlannerError):
     """An operator failed for a reason no other operator would avoid."""
+
+    def __init__(self, message: str, report: dict[str, Any] | None = None) -> None:
+        super().__init__(message)
+        self.report = report

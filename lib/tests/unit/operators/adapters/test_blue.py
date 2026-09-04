@@ -249,21 +249,21 @@ def test_a_single_table_result_passes_through_as_a_bundle() -> None:
     """A node passes a bundle, so a one-table result arrives as a one-table bundle."""
     call = _build_call("blue.echo", _EchoingOperator([_ROWS]), _NoParameters, None)
 
-    assert call([], {}) == [_ROWS]
+    assert call([], {}).data == [_ROWS]
 
 
 def test_a_zero_row_result_is_not_a_failure() -> None:
     """An operator that matched nothing returns an empty table rather than raising."""
     call = _build_call("blue.echo", _EchoingOperator([[]]), _NoParameters, None)
 
-    assert call([], {}) == [[]]
+    assert call([], {}).data == [[]]
 
 
 def test_the_callable_reshapes_nothing_the_operator_returned() -> None:
     """An empty result arrives exactly as `Operator.run` hands it over."""
     call = _build_call("blue.echo", _EchoingOperator([]), _NoParameters, None)
 
-    assert call([], {}) == [[]]
+    assert call([], {}).data == [[]]
 
 
 def test_more_than_one_output_table_passes_through() -> None:
@@ -271,7 +271,7 @@ def test_more_than_one_output_table_passes_through() -> None:
     right: Data = [{"city": "Dallas", "state": "TX"}]
     call = _build_call("blue.echo", _EchoingOperator([_ROWS, right]), _NoParameters, None)
 
-    assert call([], {}) == [_ROWS, right]
+    assert call([], {}).data == [_ROWS, right]
 
 
 def test_a_real_operator_runs_end_to_end() -> None:
@@ -280,7 +280,7 @@ def test_a_real_operator_runs_end_to_end() -> None:
 
     result = call([_ROWS], {"operand_key": "population", "operand": ">", "operand_val": 5})
 
-    assert result == [[{"city": "Dallas", "population": 9}]]
+    assert result.data == [[{"city": "Dallas", "population": 9}]]
 
 
 def test_a_real_join_runs_end_to_end() -> None:
@@ -296,7 +296,7 @@ def test_a_real_join_runs_end_to_end() -> None:
 
     result = call([_ROWS, right], {"join_on": [["city"], ["city"]]})
 
-    assert [row["city"] for row in result[0]] == ["Dallas"]
+    assert [row["city"] for row in result.data[0]] == ["Dallas"]
 
 
 def test_a_real_union_runs_end_to_end() -> None:
@@ -307,7 +307,7 @@ def test_a_real_union_runs_end_to_end() -> None:
         [[{"city": "Austin"}], [{"city": "Austin"}, {"city": "Dallas"}]], {}
     )
 
-    assert result == [[{"city": "Austin"}, {"city": "Dallas"}]]
+    assert result.data == [[{"city": "Austin"}, {"city": "Dallas"}]]
 
 
 def test_a_real_intersect_runs_end_to_end() -> None:
@@ -318,7 +318,7 @@ def test_a_real_intersect_runs_end_to_end() -> None:
         [[{"city": "Austin"}, {"city": "Dallas"}], [{"city": "Dallas"}]], {}
     )
 
-    assert result == [[{"city": "Dallas"}]]
+    assert result.data == [[{"city": "Dallas"}]]
 
 
 def test_the_bundle_the_caller_owns_is_not_the_one_the_operator_gets() -> None:
@@ -350,7 +350,7 @@ def test_an_operator_that_ignores_its_bundle_refuses_tables_it_would_drop() -> N
     )
 
     # An empty table binds nothing, so a fragment arriving with one still runs.
-    assert call([[]], {}) == [[]]
+    assert call([[]], {}).data == [[]]
 
     with pytest.raises(NotImplementedError, match="blue.echo"):
         call([_ROWS], {})
@@ -522,7 +522,7 @@ def test_a_built_operator_runs() -> None:
         [_ROWS], {"operand_key": "population", "operand": ">", "operand_val": 5}
     )
 
-    assert result == [[{"city": "Dallas", "population": 9}]]
+    assert result.data == [[{"city": "Dallas", "population": 9}]]
 
 
 def _operator_for(operator_name: str) -> Operator:
