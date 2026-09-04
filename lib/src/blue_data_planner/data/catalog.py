@@ -2,13 +2,20 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from typing import Any, cast
 
 from blue_data.registry.data_registry import (  # pyright: ignore[reportMissingTypeStubs]
     DataRegistry,  # blue-data ships no py.typed
 )
 
-from blue_data_planner.types.catalog import CatalogMatch, CatalogPreview, SourceRecord
+from blue_data_planner.types.catalog import (
+    CatalogMatch,
+    CatalogPreview,
+    ColumnRef,
+    ColumnView,
+    SourceRecord,
+)
 
 # blue-data's search defaults filter by score, and with no vector index every vector score
 # is zero, so a search over a populated registry returns almost nothing. The readings rank
@@ -47,6 +54,13 @@ def _description(record: dict[str, Any]) -> str | None:
     return description
 
 
+def _attribute_scope(ref: ColumnRef) -> str:
+    return (
+        f"/source/{ref.source}/database/{ref.database}"
+        f"/collection/{ref.collection}/entity/{ref.entity}"
+    )
+
+
 class DataCatalog:
     """Reads the data catalog for the three planning components."""
 
@@ -69,6 +83,50 @@ class DataCatalog:
     def search_records(self, term: str) -> list[CatalogMatch]:
         """Return the catalog records one term found, ranked and capped."""
         return [self._match(raw, term) for raw in self._search(term, self._max_search_results)]
+
+    def column_views(self, columns: Sequence[ColumnRef]) -> list[ColumnView]:
+        """Return one view per column that resolves to a catalog record."""
+        views: list[ColumnView] = []
+        for ref in columns:
+            record = self._registry.get_record(ref.attribute, "attribute", _attribute_scope(ref))
+            if record is None:
+                continue
+            views.append(self._view(ref, cast("dict[str, Any]", record)))
+        return views
+
+    def _view(self, ref: ColumnRef, record: dict[str, Any]) -> ColumnView:
+        path = f"{_attribute_scope(ref)}/attribute/{ref.attribute}"
+        properties = _properties(record)
+        info = properties.get("info")
+        if not isinstance(info, dict):
+            raise ValueError(f"Attribute record {path}: no properties.info.type")
+        info = cast("dict[str, Any]", info)
+        if not info.get("type"):
+            raise ValueError(f"Attribute record {path}: no properties.info.type")
+        stats = properties.get("stats", {})
+        if not isinstance(stats, dict):
+            raise ValueError(
+                f"Attribute record {path}: stats is {type(stats).__name__}, expected a mapping"
+            )
+        stats = cast("dict[str, Any]", stats)
+        semantics = properties.get("value_semantics", {})
+        if not isinstance(semantics, dict):
+            raise ValueError(
+                f"Attribute record {path}: value_semantics is "
+                f"{type(semantics).__name__}, expected a mapping"
+            )
+        semantics = cast("dict[str, Any]", semantics)
+        return ColumnView(
+            ref=ref,
+            dtype=str(info["type"]),
+            description=_description(record),
+            sample_values=list(cast("list[Any]", stats.get("sample_values", []))),
+            distinct_count=stats.get("distinct_count"),
+            null_count=stats.get("null_count"),
+            min=stats.get("min"),
+            max=stats.get("max"),
+            semantic_type=semantics.get("semantic_type"),
+        )
 
     def _match(self, raw: dict[str, Any], search_term: str) -> CatalogMatch:
         scope = str(raw["scope"])

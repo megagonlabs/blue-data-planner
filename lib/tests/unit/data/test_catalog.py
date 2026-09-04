@@ -3,13 +3,15 @@
 from __future__ import annotations
 
 import json
-from typing import Any
+from typing import Any, cast
 
+import pytest
 from blue_data.registry.data_registry import (  # pyright: ignore[reportMissingTypeStubs]
     DataRegistry,  # blue-data ships no py.typed
 )
 
 from blue_data_planner.data.catalog import DataCatalog
+from blue_data_planner.types.catalog import ColumnRef
 
 
 def a_registry_holding(*records: dict[str, Any]) -> DataRegistry:
@@ -151,3 +153,115 @@ def test_a_search_returns_no_more_matches_than_the_catalog_was_built_to_return()
 
     # The registry holds five records, so the cap is what makes this two.
     assert len(catalog.search_records("stores in a city")) == 2
+
+
+CITY = ColumnRef(
+    source="retail",
+    database="shop",
+    collection="public",
+    entity="stores",
+    attribute="city",
+)
+
+
+def an_attribute(
+    ref: ColumnRef,
+    dtype: str | None = "TEXT",
+    description: str = "",
+    stats: dict[str, Any] | None = None,
+    semantic_type: str | None = None,
+) -> dict[str, Any]:
+    properties: dict[str, Any] = {}
+    if dtype is not None:
+        properties["info"] = {"type": dtype}
+    if stats is not None:
+        properties["stats"] = stats
+    if semantic_type is not None:
+        properties["value_semantics"] = {"semantic_type": semantic_type}
+    return {
+        "name": ref.attribute,
+        "type": "attribute",
+        "scope": (
+            f"/source/{ref.source}/database/{ref.database}"
+            f"/collection/{ref.collection}/entity/{ref.entity}"
+        ),
+        "description": description,
+        "properties": properties,
+        "contents": {},
+    }
+
+
+def a_registry_holding_a_profiled_city_column() -> DataRegistry:
+    return a_registry_holding(
+        an_attribute(
+            CITY,
+            description="city the store is in",
+            stats={
+                "sample_values": ["Napa", "Sonoma"],
+                "distinct_count": 2,
+                "null_count": 0,
+                "min": "Napa",
+                "max": "Sonoma",
+            },
+            semantic_type="CITY",
+        )
+    )
+
+
+def test_a_column_view_carries_the_catalogs_whole_column_statistics() -> None:
+    """A view is the registry's own profile of the column, not a sample of it."""
+    catalog = DataCatalog(a_registry_holding_a_profiled_city_column())
+
+    view = catalog.column_views([CITY])[0]
+
+    assert view.ref == CITY
+    assert view.dtype == "TEXT"
+    assert view.description == "city the store is in"
+    assert view.sample_values == ["Napa", "Sonoma"]
+    assert (view.distinct_count, view.null_count) == (2, 0)
+    assert (view.min, view.max) == ("Napa", "Sonoma")
+    assert view.semantic_type == "CITY"
+
+
+def test_a_column_an_operator_generated_gets_no_view() -> None:
+    """A column with no registry record is annotated by nothing, and asks for nothing."""
+    catalog = DataCatalog(a_registry_holding_a_profiled_city_column())
+    generated = ColumnRef(
+        source="retail",
+        database="shop",
+        collection="public",
+        entity="stores",
+        attribute="sentiment",
+    )
+
+    assert catalog.column_views([generated]) == []
+    assert len(catalog.column_views([CITY, generated])) == 1
+
+
+def test_an_unenriched_column_renders_with_its_type_and_no_description() -> None:
+    """A column nobody profiled still gets a view; only the annotation is missing."""
+    catalog = DataCatalog(a_registry_holding(an_attribute(CITY)))
+
+    view = catalog.column_views([CITY])[0]
+
+    assert view.dtype == "TEXT"
+    assert view.description is None
+    assert view.sample_values == []
+    assert (view.distinct_count, view.null_count, view.min, view.max) == (
+        None,
+        None,
+        None,
+        None,
+    )
+    assert view.semantic_type is None
+
+
+def test_a_malformed_record_raises() -> None:
+    """A record that exists but cannot be read as a column is a corrupt registry."""
+    no_type = DataCatalog(a_registry_holding(an_attribute(CITY, dtype=None)))
+    with pytest.raises(ValueError, match="properties.info.type"):
+        no_type.column_views([CITY])
+
+    bad_stats = DataCatalog(a_registry_holding(an_attribute(CITY, stats=cast("Any", "two rows"))))
+    with pytest.raises(ValueError, match="stats"):
+        bad_stats.column_views([CITY])
