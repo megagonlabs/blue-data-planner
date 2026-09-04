@@ -196,6 +196,10 @@ which is ingestion the library deliberately does not offer
 ([07-repo-organization.md](07-repo-organization.md#where-the-benchmark-lives)). Nothing else outside
 `data/` imports it.
 
+A signature elsewhere that has to name a registry takes the type from `blue_data_planner.data`,
+which hands the name out beside the readings. What the rule keeps in one place is every call made on
+a registry; naming one costs nothing and spreads no untyped value.
+
 ---
 
 ## Docstrings

@@ -75,8 +75,9 @@ Passing the value keeps the rule that reading a file's imports can check.
 **Consequences:** Anything the planner needs from `blue-data` is exposed through the boundary first,
 as a function taking the registry. A caller with data and no registry builds one with `blue-data`
 before constructing a planner. A `blue-data` type is named where the boundary hands a registry out
-and takes one back, which is the price of not wrapping it. The rule stays checkable by reading a
-file's imports, with one path exclusion.
+and takes one back, which is the price of not wrapping it, and `data/` hands that name out so the
+dependency is imported in one place. The rule stays checkable by reading a file's imports, with one
+path exclusion.
 
 ---
 

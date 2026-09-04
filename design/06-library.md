@@ -915,7 +915,8 @@ states (ADR-005).
 
 The only module in the shipped package that imports `blue-data` (ADR-003). Source and store
 construction sit behind it too, so nothing outside `data/` constructs a `blue-data` class or calls a
-method on one.
+method on one. It hands out the registry type along with the readings, so a signature elsewhere can
+name a registry it only passes back here.
 
 ```python
 def source_schema(
