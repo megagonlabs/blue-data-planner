@@ -35,7 +35,8 @@ flowchart TB
 
     subgraph opsbox ["operators/"]
         ROUTER["router.py<br/>logical operator to<br/>physical operators"]
-        ADAPT["blue.py, lotus/<br/>one adapter per suite"]
+        ADAPT["blue.py, lotus/<br/>one adapter per outside suite"]
+        BUILTIN["builtin/<br/>the suite written here"]
     end
 
     OPS["blue-data-ops<br/>Blue operators and registry"]
@@ -54,9 +55,12 @@ flowchart TB
     RUNNER --> ROUTER
     RUNNER --> EXEC
     ADAPT -.->|"registered at startup"| ROUTER
+    BUILTIN -.->|"registered at startup"| ROUTER
     ADAPT --> OPS
     ADAPT --> LOTUS
     ADAPT --> DATA
+    BUILTIN --> DATA
+    BUILTIN --> LLM
     LOGICAL --> DATA
     PHYSICAL --> DATA
     RUNNER --> DATA
@@ -177,15 +181,16 @@ each check turns down is in [06-library.md](06-library.md#plan).
 
 ### `operators/`
 
-No operator is written here. The Blue operators and the registry that resolves them belong to
-`blue-data-ops`, and LOTUS is its own package. This module holds the lookup planning reads and one
-adapter per suite.
+The Blue operators and the registry that resolves them belong to `blue-data-ops`, and LOTUS is its
+own package. This module holds the lookup planning reads, one adapter per outside suite, and the one
+suite this repository owns.
 
 | Path | Holds |
 | --- | --- |
 | `router.py` | `OperatorRouter`. Maps a logical operator to the physical operators that can carry it out, and resolves an operator id to the operator behind it. Lookup and nothing more: whether a particular node has an operator depends on the fragment it sits in and the source its scans are bound to, so it is asked per node by the physical planner and answered as `no_operator`. Only the router is read while planning, never the registry (ADR-009). |
 | `blue.py` | Declares the operators of a `blue-data-ops` registry as physical operators. |
 | `lotus/` | Declares LOTUS operations as physical operators. |
+| `builtin/` | The suite written here (ADR-020): deterministic operations over the bundle, one per operator node kind, and `builtin.nl2table`, which turns a fragment's instruction into a sequence of them and runs it. This is what the planner falls back to when no outside suite can take a node, and what hosts a fragment that scans nothing. |
 
 `__init__.py` re-exports the router alone, and an adapter is imported from the module named for its
 suite, so importing the router loads no suite.

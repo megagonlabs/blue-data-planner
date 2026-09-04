@@ -235,6 +235,7 @@ produce one test per line of that document.
 | `data/` | Each catalog reading carries what its component is entitled to and nothing more, and a source nobody enriched still renders |
 | `llm/` | A conversation keeps its turns and the usage of every call made on it, and a provider failing after retries raises `LLMError` |
 | `operators/` | An operator's declaration reaches the router intact and describes what the operation does, cross-checked against the suite's own attribute declarations and against the operation's validator wherever those two disagree (ADR-010), a bundle crosses in both directions unchanged including a multi-table bundle (ADR-012), a suite's failure is mapped to the right error kind, and LOTUS is imported only when an operator runs, so the package imports with LOTUS absent (ADR-004) |
+| `operators/builtin/` | Each operation transforms the bundle as its parameters say and refuses input it cannot serve, `builtin.scan` pushes down what it can and leaves the rest, and `builtin.nl2table` runs the sequence it was given and reports it, returning a recoverable failure rather than retrying when the sequence will not run |
 
 The run loop's row is the one worth reading twice. The four repairs are what the design is for, and
 a test naming each one and the counter it spends is the shortest description of the loop that anyone

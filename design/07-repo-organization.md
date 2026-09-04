@@ -53,11 +53,12 @@ blue-data-planner/
 │   │   ├── execution/
 │   │   │   ├── physical_operator.py   # execute_physical_operator, the one operator call site
 │   │   │   └── output_columns.py      # check_output_columns and its coercions
-│   │   ├── operators/                 # the router, and one adapter per operator suite
+│   │   ├── operators/                 # the router, one adapter per outside suite, and the owned suite
 │   │   │   ├── __init__.py            # OperatorRouter only
 │   │   │   ├── router.py              # OperatorRouter
 │   │   │   ├── blue.py                # blue_operators, over blue-data-ops
-│   │   │   └── lotus/                 # lotus_operators
+│   │   │   ├── lotus/                 # lotus_operators
+│   │   │   └── builtin/               # builtin_operators, the suite written here
 │   │   ├── data/
 │   │   │   ├── provider.py            # DataRegistryProvider
 │   │   │   ├── registry_client.py     # DataRegistryClient, open_registry
@@ -136,7 +137,7 @@ benchmark scripts hold an import the library does not allow itself.
 | `types/` | Every data class that crosses a module boundary, the catalog readings and `LLMUsage` included, since a type `PlanResult` names has to be nameable by everything that reads one. Its four modules split those classes by subject, and `__init__.py` re-exports them under the one name `blue_data_planner.types`. Imports nothing outside itself |
 | `plan/` | The functions over a plan that need no model, no source, and no operator: checking one, and enumerating the fragments an operator could cover. Imports only `types/` |
 | `execution/` | Beside the planning components rather than inside one, so invoking an operator needs no model |
-| `operators/` | The router, and one adapter per operator suite |
+| `operators/` | The router, one adapter per outside operator suite, and `builtin/`, the suite written here (ADR-020) |
 | `data/` | The only packaged module that imports `blue-data` (ADR-003) |
 | `llm/` | The only module that calls a model provider (ADR-005) |
 
@@ -172,14 +173,20 @@ versioning covers.
 
 ### What `operators/` holds
 
-The router and the adapters, and nothing else. No operator is written here: the Blue operator
-library and its registry belong to `blue-data-ops`, and LOTUS is its own package.
+The router, one adapter per outside suite, and the one suite written here. The Blue operator library
+and its registry belong to `blue-data-ops`, and LOTUS is its own package; `builtin/` belongs to this
+repository (ADR-020).
 
 | Module | Holds |
 | --- | --- |
 | `router.py` | `OperatorRouter`, the only lookup read while planning (ADR-009) |
 | `blue.py` | `blue_operators`, over a `blue-data-ops` `OperatorRegistry` |
 | `lotus/` | `lotus_operators`, over the LOTUS package |
+| `builtin/` | `builtin_operators`: one module of functions over the bundle, the deterministic entries wrapping them, and `builtin.nl2table` |
+
+`builtin/` sits beside the adapters because the router reads all three the same way and a deployment
+turns any of them on or off the same way. It is a directory for the same reason `lotus/` is: more
+than one file to hold.
 
 The router sits here rather than beside the planning components because it is a lookup over
 operators and names nothing from any of them, and because an adapter can then register into it directly. It is not the
@@ -219,7 +226,8 @@ One `LICENSE` sits at the repository root and covers everything published from i
 
 | Adding | Goes | Also needs |
 | --- | --- | --- |
-| An operator | Nowhere here. `blue-data-ops`, or the suite's own package | An adapter entry, if a plan should be able to use it |
+| An operator | `blue-data-ops`, or the suite's own package, unless it is deterministic and belongs to no suite | An adapter entry, if a plan should be able to use it |
+| A built-in operation | `operators/builtin/`, as a function over the bundle plus the entry that declares it | Its own tests. An owned operation has behavior, not translation ([11-testing-strategy.md](11-testing-strategy.md)) |
 | An operator suite | `operators/<suite>.py`, or `operators/<suite>/` | An optional dependency extra, a lazy import, and a stub in `tests/stubs/` |
 | A way to reach the library | `platform/<interface>/`, its own package | Its own `pyproject.toml` naming a console script, `scripts/`, and `tests/` |
 | A logical operator | Nowhere. The vocabulary of ten is fixed ([10-data-model.md](10-data-model.md)) | A decision log entry arguing the exception |
@@ -277,7 +285,7 @@ when asked for by name.
 | Not here | Where instead |
 | --- | --- |
 | Agents | Other Blue repositories, or a framework such as LangChain, reaching in through MCP |
-| Operators, the abstract `Operator`, and the operator registry | `blue-data-ops`, reached only through `operators/` |
+| The Blue operators, the abstract `Operator`, and the operator registry | `blue-data-ops`, reached only through `operators/`. The deterministic operations of `builtin/` are this repository's own (ADR-020) |
 | Data source implementations and the registry | `blue-data`, reached only through `data/` |
 | Building or populating a registry | `blue-data`'s own tooling. The benchmark script is the single exception, and it is not shipped |
 | LOTUS source | Its own package, installed through the `lotus` extra (ADR-004) |

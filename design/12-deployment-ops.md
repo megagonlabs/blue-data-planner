@@ -52,7 +52,8 @@ pip install -e '.[dev]'     # + the test and lint gates
 ```
 
 Which Blue operators an install can bind is a `blue-data-ops` question, answered by that package's
-own extras.
+own extras. The `builtin` suite is behind no extra: it is written here and needs nothing installed
+(ADR-020).
 
 A model client is not an extra: the planner cannot run without one, so its dependencies are
 required rather than optional ([05-software-stack.md](05-software-stack.md)).

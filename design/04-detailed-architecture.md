@@ -200,6 +200,7 @@ every atomic operator declares.
 | A semantic filter | `{FILTER}` | One `FILTER` node |
 | A join | `{JOIN}` | One `JOIN` node |
 | A Text-to-SQL operator | `{SCAN, FILTER, PROJECT, JOIN, AGGREGATE, DISTINCT, SORT_SUPERLATIVE}`, SQL sources, accepts bound inputs | Any convex subgraph of those kinds whose scans are SQL |
+| The built-in compound operator | Every operator kind, the source kinds it reads, accepts bound inputs | Any convex subgraph, including one that scans nothing and one that scans two sources (ADR-020) |
 
 A node several other nodes read is a fragment of its own, because absorbing it would break the
 single-exit rule. Pushing it into both branches would mean scanning twice, which no cover does.
@@ -284,6 +285,12 @@ readable words. A transaction-type column storing `PRIJEM` where a reader would 
 one. That is what lets the runner write `values: ["San Francisco", "Palo Alto"]` instead of
 guessing at how a column spells its contents.
 
+An operator that runs deterministically still sits inside a fragment that does not. A built-in
+filter does what its parameters say and nothing more, but a model wrote those parameters from an
+instruction in plain language, so the fragment can go wrong in every way any other fragment can.
+What determinism buys is narrower and worth stating: a rejected result is answered by writing the
+parameters again, with no question of whether the same call would behave the same way twice.
+
 ### What an operator does with its input
 
 The rule is the same for every operator: whatever arrives in the input bundle is data its own engine
@@ -315,6 +322,12 @@ query processing. The mechanism is borrowed from there.
 4. Checks every table in the result against the declared columns it was handed, matching the
     declared names and coercing each column to the type declared beside it. The type vocabulary and
     the coercion rules are in [10-data-model.md](10-data-model.md#declared-output-columns).
+
+An operation that writes something of its own from a model writes it during step 3, on the far side
+of the billing. A query or a sequence of operations the model got wrong therefore costs an operator
+call, where a parameter the runner got wrong costs none (ADR-020). The operator returns whatever it
+wants recorded about the call alongside its rows, and that report travels out on the result whether
+the call succeeded or failed.
 
 Only the fragment's root node has its declaration checked. The declarations on the nodes the
 fragment absorbed are not checked against anything, because a fused call produces no intermediate
@@ -513,6 +526,11 @@ decides whether these repairs apply at all.
 | Recoverable | Bad parameters, a missing or uncoercible required column, an operator raising on input it cannot handle | Start with the parameter repair |
 | Unrecoverable | The failure has nothing to do with any of the four repairs: a source is unreachable, credentials are rejected, the process is out of memory | End the request. Retrying would fail the same way |
 | No operator | No operator matches a node, alone or in any fragment containing it | Go straight to the replan. No operator call is spent |
+
+With the built-in suite registered, every operator node kind has a candidate, so `no_operator` is
+reserved for a scan the suite cannot read: one bound to a source kind outside its declarations, or
+one of the model's world knowledge, which is bound to no source at all. Everything else that used to
+end here now fails at review instead, one operator call later (ADR-020).
 
 ---
 

@@ -33,7 +33,7 @@ rather than a copy of the code.
 | `blue_data_planner/types/` | Every data class that crosses a module boundary: plans, nodes, fragments, operators, results, catalog readings, model usage, limits |
 | `blue_data_planner/plan/` | `validate_logical_plan`, `validate_physical_plan`, and `candidate_fragments` |
 | `blue_data_planner/execution/` | `execute_physical_operator`, `check_output_columns` |
-| `blue_data_planner/operators/` | `OperatorRouter`, and one adapter per operator suite: `blue_operators` over `blue-data-ops`, `lotus_operators` over LOTUS |
+| `blue_data_planner/operators/` | `OperatorRouter`, one adapter per outside suite (`blue_operators` over `blue-data-ops`, `lotus_operators` over LOTUS), and `builtin/`, the suite this repository owns |
 | `blue_data_planner/data/` | The `blue-data` boundary, the three catalog readings, and opening a serialized registry |
 | `blue_data_planner/llm/` | `LLMClient`, usage accounting, prompt templating, error types |
 
@@ -734,12 +734,15 @@ or uncoercible column is a recoverable failure
 The two orderings are deliberate. The parameter check runs before the billing, because the runner
 wrote the parameters under that same schema, so a mismatch is a bug rather than a spent call. The
 billing runs before the operator, so a call that really happened still counts when the column check
-rejects its output.
+rejects its output. An operation that writes something of its own from a model, as `builtin.nl2table`
+does, writes it on the far side of that line, so what it got wrong costs an operator call where a
+bad parameter costs none (ADR-020).
 
 The caller passes the fragment root's declarations and nothing else, because a fused call produces
 no intermediate tables to check the absorbed nodes against. Neither a zero-row table nor an empty
 bundle is a failure. A model call an operator makes internally, as LOTUS does, happens inside this
-call and is billed as part of it rather than tracked separately.
+call and is billed as part of it rather than tracked separately; an operation able to say what that
+call cost puts the figure in its report, which travels out on the result unchanged.
 
 Three things `execution/` does not do, and each one removes an import. It does not schedule, because
 the run loop decides what is ready and hands down one call at a time. It does not resolve an
@@ -750,13 +753,18 @@ because writing parameters and reviewing a result both belong to the runner (ADR
 
 ## `operators/`
 
-No operator is written here. `blue-data-ops` owns the Blue operators, the abstract `Operator`, and
-the `OperatorRegistry` that versions them; LOTUS owns its own. This module holds the router and one
-adapter per suite, and an adapter is the only place either dependency is imported.
+The router, one adapter per outside suite, and the one suite this repository owns. `blue-data-ops`
+owns the Blue operators, the abstract `Operator`, and the `OperatorRegistry` that versions them;
+LOTUS owns its own; and an adapter is the only place either dependency is imported.
 
-`__init__.py` re-exports `OperatorRouter` alone, and an adapter is imported from the module named
-for its suite. Importing the router therefore loads no suite, which matters because an adapter
-imports its suite at module import time.
+`builtin/` is the owned suite (ADR-020): deterministic operations covering the operator node kinds,
+and one compound operation, `builtin.nl2table`, that turns a fragment's instruction into a sequence
+of them and runs it. It reaches the router the same way an adapter's operations do, through a
+function returning a list.
+
+`__init__.py` re-exports `OperatorRouter` alone, and every suite is imported from the module named
+for it. Importing the router therefore loads no suite, which matters because an adapter imports its
+suite at module import time.
 
 ### `OperatorRouter`
 
@@ -818,11 +826,13 @@ parameter model to fill (ADR-010), so registering an operator upstream does not 
 
 A logical operator no registered operation declares is answered as `no_operator`, and the node goes
 back to the logical planner. A gap in the registered suites therefore shows up as a replan rather
-than as a wrong answer, and the run record names the node that had no candidate. Which of the ten
-lack one, and who writes the operators that would close a gap, are open questions 5 and 39 in
+than as a wrong answer, and the run record names the node that had no candidate. With `builtin`
+registered every operator node kind has a candidate, so the answer is rare and a poor choice is
+refused at review instead. What keeps the physical planner reaching for a built-in operation where a
+semantic one was needed is open question 43 in
 [13-decision-log.md](13-decision-log.md#open-questions).
 
-### The adapters
+### What each suite offers
 
 ```python
 def blue_operators(
@@ -831,12 +841,17 @@ def blue_operators(
 
 
 def lotus_operators() -> list[PhysicalOperator]: ...
+
+
+def builtin_operators(
+    data_registry: DataRegistryClient, llm_client: LLMClient
+) -> list[PhysicalOperator]: ...
 ```
 
-Each adapter returns its `PhysicalOperator` values, and whoever assembles the planner registers what
-comes back. An adapter sits beside the router and could register into it directly; returning a list
-is kept because it makes an adapter's whole result assertable in one test, and because it leaves
-which suites a deployment offers to whoever assembles the planner rather than to the adapter.
+Each returns its `PhysicalOperator` values, and whoever assembles the planner registers what comes
+back. Any of the three sits beside the router and could register into it directly; returning a list
+is kept because it makes a suite's whole result assertable in one test, and because it leaves which
+suites a deployment offers to whoever assembles the planner.
 
 Nothing else changes when a suite is added. The physical planner builds its candidates from the
 router while it covers a plan, so a newly registered operator competes for every fragment its
@@ -848,6 +863,39 @@ adapter needs is open question 41 in [13-decision-log.md](13-decision-log.md#ope
 LOTUS adapter converts at its own edge, building one data frame per table going in and flattening
 coming out, and imports LOTUS inside the callable rather than at module import time, so the package
 imports with LOTUS absent and the router simply gains no LOTUS operators (ADR-004).
+
+### The built-in suite
+
+`builtin/` is written here rather than wrapped (ADR-020), and holds two kinds of entry over one
+shared module of functions on the bundle. No entry calls another: both kinds call those functions.
+
+| Entry | Declares | Holds a model call |
+| --- | --- | --- |
+| A transform entry | One logical operator | No. It does what its parameters say |
+| `builtin.scan` | The scan, plus the filter and the projection it can push into a source | No |
+| `builtin.nl2table` | Every operator kind | Yes. It turns the fragment's instruction into a sequence of the other operations and runs it |
+
+`builtin.scan` is the suite's one source-reading deterministic entry, and it reads through `data/`.
+It pushes into the source the column selection, a simple predicate, and values taken from an input
+table, which is the bind join of
+[04](04-detailed-architecture.md#what-an-operator-does-with-its-input). Declaring the filter and the
+projection alongside the scan is what puts the pushdown boundary where the physical planner can see
+it: a `{SCAN, FILTER}` group bound here is pushed, and one cut apart is compensated in process by
+the transform entries. Its `source_kinds` name the kinds it reads and grow as more are implemented.
+
+`builtin.nl2table` is the suite's black box, and the case the pushdown design is written against. It
+reads registered sources, accepts bound inputs, and is the one operator with no same-source
+constraint, so a fragment scanning two sources has a candidate. A fragment scanning none has one
+too, since an operator that owns its engine needs no source to be bound.
+
+Neither entry retries inside itself. A sequence `builtin.nl2table` got wrong comes back as a
+recoverable failure, and the parameter repair rewrites it, so the four repairs stay the only place
+attempts are counted (ADR-014).
+
+The suite's model calls go through `llm/` like every other model call the library makes, so
+`builtin.nl2table` reports its own token counts where an outside suite cannot. Those counts travel
+in the call's report rather than in `PlanResult.planner_usage`, which keeps the scope its name
+states (ADR-005).
 
 ---
 

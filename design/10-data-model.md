@@ -254,7 +254,7 @@ class PhysicalPlan:
 | --- | --- |
 | Coverage | Every operator node of the logical plan appears in exactly one fragment. `RETURN`, `REPLAN`, and `DISCOVER` appear in none |
 | Shape | Each fragment is connected, convex, and single exit: only the root may have consumers outside it ([04, what a fragment may be](04-detailed-architecture.md#what-a-fragment-may-be)) |
-| Sources | `scan_sources` names a catalog path for each `SCAN` in the fragment. A `SCAN` left out of it reads no registered source, which is what a scan of the model's world knowledge looks like. An operator declaring `source_kinds` needs every scan bound to a source of one of those kinds, and an operator declaring none needs every scan left out. What a fragment containing no `SCAN` at all may be bound to is open question 4 |
+| Sources | `scan_sources` names a catalog path for each `SCAN` in the fragment. A `SCAN` left out of it reads no registered source, which is what a scan of the model's world knowledge looks like. An operator declaring `source_kinds` needs every scan bound to a source of one of those kinds, and an operator declaring none needs every scan left out. A fragment containing no `SCAN` is bound to an operator that owns its engine (ADR-020) |
 | Instruction | Written as an instruction to the operator: "Find data scientist job postings, with their title, company id, and location" |
 | Inputs | `input_data` lists the frontier nodes, which are the nodes outside the fragment feeding nodes inside it, in the order their tables arrive. One entry covers everything that node produced, so it may stand for more than one table; those tables share the name and keep their order |
 | Columns | `required_output_columns` is copied from the root node unless the model declares that the fusion cannot produce that list |
@@ -287,7 +287,7 @@ class PhysicalOperator:
     logical_operators: frozenset[LogicalOperator]
     description: str
     parameter_schema: type[BaseModel]
-    call: Callable[[DataBundle, dict[str, Any]], DataBundle]
+    call: Callable[[DataBundle, dict[str, Any]], OperatorOutput]
     source_kinds: frozenset[str] | None = None
     accepts_bound_inputs: bool = False
     limitations: str | None = None
@@ -309,7 +309,8 @@ process and never serialized, so nothing needs it as JSON.
 
 `logical_operators` is the whole matching rule. Candidate fragments are the connected, convex
 subgraphs built from nodes whose kind is in that set, and `source_kinds` then constrains which
-sources those scans may be bound to. Nothing declares the order the kinds may appear in.
+sources those scans may be bound to. Nothing declares the order the kinds may appear in, and nothing
+declares that two scans in one fragment have to read the same source (question 44).
 
 ### Identifiers
 
@@ -447,6 +448,22 @@ DataBundle = list[Data]  # what one fragment passes to the next
 A fragment's input is the bundles its frontier nodes produced, concatenated in the order
 `input_data` lists them, so an operator receives one bundle rather than one per input. A fragment
 with an empty frontier receives an empty bundle.
+
+An operator returns its bundle alongside an optional report of what it did.
+
+```python
+@dataclass(frozen=True)
+class OperatorOutput:
+    data: DataBundle
+    report: dict[str, Any] | None = None
+```
+
+The report is free-form and nothing reads it while a run continues. It travels to the caller so a
+finished run can be read: the query an operator wrote, the operations it ran, what its own model
+calls cost. Most operations can report nothing and leave it unset, which is why the field is one
+untyped dict rather than named fields (ADR-020). What an operation puts in it is that operation's
+own business, so a benchmark may rely on the keys `builtin` writes without this shape promising
+them.
 
 Each adapter converts between this shape and its own suite's at its own edge: the LOTUS adapter
 builds one data frame per table going in and flattens coming out.
@@ -649,6 +666,7 @@ class ExecutionResult:
     operator_id: str | None
     error: ErrorInfo | None
     row_count: int | None
+    report: dict[str, Any] | None
 
 
 @dataclass(frozen=True)
@@ -658,7 +676,8 @@ class ErrorInfo:
 ```
 
 `output` and `row_count` are set when `status` is `ok`, and `error` when it is `failed`. No result
-carries both. `row_count` counts rows across every table in `output`, so it says how much data a
+carries both. `report` is carried whichever way the call ended, since an operator that failed
+partway through is the one with the most to say. `row_count` counts rows across every table in `output`, so it says how much data a
 fragment produced rather than how its bundle is split. Nothing reports table count.
 
 `ErrorInfo.message` names what went wrong and what was expected, in plain language, because it is

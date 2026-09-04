@@ -433,6 +433,7 @@ because both planning components build their choices from the router while they 
 ```python
 from blue_data_planner.operators import OperatorRouter
 from blue_data_planner.operators.blue import blue_operators
+from blue_data_planner.operators.builtin import builtin_operators
 from blue_data_planner.operators.lotus import lotus_operators
 from blue_data_planner.types import LogicalOperator
 
@@ -442,12 +443,15 @@ for operator in blue_operators(operator_registry, data_registry):
     router.register(operator)
 for operator in lotus_operators():  # empty when LOTUS is not installed
     router.register(operator)
+for operator in builtin_operators(data_registry, llm_client):
+    router.register(operator)
 
 [op.operator_id for op in router.operators_for(LogicalOperator.FILTER)]
-# ["blue.select", "blue.semantic_filter", "blue.nl2sql", "lotus.sem_filter"]
+# ["blue.select", "blue.semantic_filter", "blue.nl2sql", "lotus.sem_filter",
+#  "builtin.filter", "builtin.scan", "builtin.nl2table"]
 ```
 
-`blue.nl2sql` answers for `FILTER` alongside the three operators that do nothing else, because
-`FILTER` is one of the seven kinds it declares. That is why the physical planner had a choice to
-make at `n2`, `n3`, and `n4` in Scenario 1, and why it had somewhere to go when the choice turned
-out wrong.
+Four of those seven filter and nothing else. The other three answer for `FILTER` because it is one
+of several kinds each declares, so a filter node can be run on its own or absorbed into a wider
+call. That is why the physical planner had a choice to make at `n2`, `n3`, and `n4` in Scenario 1,
+and why it had somewhere to go when the choice turned out wrong.

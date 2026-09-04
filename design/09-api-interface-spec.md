@@ -32,7 +32,7 @@ and reads its result writes one import. Everything else is reached through the m
 | `blue_data_planner.plan` | `validate_logical_plan`, `validate_physical_plan`, `candidate_fragments` |
 | `blue_data_planner.execution` | `execute_physical_operator`, `check_output_columns` |
 | `blue_data_planner.operators` | `OperatorRouter` |
-| `blue_data_planner.operators.blue`, `.lotus` | `blue_operators`, `lotus_operators` |
+| `blue_data_planner.operators.blue`, `.lotus`, `.builtin` | `blue_operators`, `lotus_operators`, `builtin_operators` |
 | `blue_data_planner.data` | `DataCatalog`, `DataRegistryClient`, `DataRegistryProvider`, `BlueDataRegistryProvider`, `open_registry` |
 | `blue_data_planner.llm` | `LLMClient`, `Conversation`, `LLMUsage`, `LLMError` |
 
@@ -70,9 +70,11 @@ from blue_data_planner.data import BlueDataRegistryProvider, DataCatalog
 from blue_data_planner.llm import LLMClient
 from blue_data_planner.operators import OperatorRouter
 from blue_data_planner.operators.blue import blue_operators
+from blue_data_planner.operators.builtin import builtin_operators
 from blue_data_planner.operators.lotus import lotus_operators
 
 data_registry = BlueDataRegistryProvider().get_registry("blue", "default", {})
+llm_client = LLMClient(name="planner", properties={"model": "openai/gpt-4o"})
 
 router = OperatorRouter()
 # operator_registry is a blue-data-ops OperatorRegistry, built the way that package documents
@@ -80,11 +82,13 @@ for operator in blue_operators(operator_registry, data_registry):
     router.register(operator)
 for operator in lotus_operators():  # empty when LOTUS is not installed
     router.register(operator)
+for operator in builtin_operators(data_registry, llm_client):
+    router.register(operator)
 
 planner = build_data_planner(
     router=router,
     catalog=DataCatalog(data_registry),
-    llm_client=LLMClient(name="planner", properties={"model": "openai/gpt-4o"}),
+    llm_client=llm_client,
     limits=PlanLimits(...),
 )
 ```

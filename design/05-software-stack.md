@@ -120,12 +120,17 @@ storage driver appears in any `pyproject.toml` here.
 ## Data in flight
 
 A fragment passes a list of tables, each a plain list of row dicts (ADR-012). Nothing in the planning
-components, `execution/`, or the plan types imports a data frame library.
+components, `execution/`, the plan types, or the `builtin` suite imports a data frame library.
 
 | Library | Where it is used | Required |
 | --- | --- | --- |
 | `pandas` | Inside the LOTUS adapter only, one frame built per table going in and flattened coming out | Declared by the `lotus` extra, not by the library |
 | `numpy` | Reached only through `blue-data-ops` operators | Declared by neither |
+
+The `builtin` operations work on the bundle as it stands. A data frame would be the obvious way to
+write them and is deliberately not used: it would put a required dependency in front of every
+consumer to save a page of plain Python, and it would tie the library to the major lines the LOTUS
+extra already pins.
 
 What the rule in ADR-012 buys is a row shape belonging to no suite and readable intermediate
 results. Whether a data frame library reaches an install at all is a dependency's decision.
@@ -136,16 +141,24 @@ results. Whether a data frame library reaches an install at all is a dependency'
 
 | Suite | Package | Extra |
 | --- | --- | --- |
+| Blue | `blue-data-ops` | Required |
 | LOTUS | `lotus-ai` | `lotus` |
+| `builtin` | This repository | None. It is always present |
 
-LOTUS is the first suite integrated. It is called as an outside dependency and its source is never
-copied in (ADR-004). It sits behind an extra because its install constraints are heavier than the
-rest of the stack: it narrows the Python range, holds numpy and pandas each to one major line, and
-brings a multi-gigabyte machine-learning stack with it. A consumer planning against other suites
+LOTUS is the first outside suite integrated. It is called as an outside dependency and its source is
+never copied in (ADR-004). It sits behind an extra because its install constraints are heavier than
+the rest of the stack: it narrows the Python range, holds numpy and pandas each to one major line,
+and brings a multi-gigabyte machine-learning stack with it. A consumer planning against other suites
 pays for none of that.
 
 The extra states a version range rather than floating, because the adapter describes each LOTUS
 operation by name and parameters.
+
+`builtin` is written here rather than depended on (ADR-020), and it declares nothing new in the
+dependency table. Its operations work on the bundle, which is plain lists and dicts, so no data
+frame library is needed; it reads sources through `data/`, which the library already depends on; and
+it calls a model through `llm/`, which it already does too. The cost of owning a suite is the tests
+its behavior needs, not an install.
 
 ---
 
