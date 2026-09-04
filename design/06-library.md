@@ -204,8 +204,8 @@ each class answers for and the methods it carries.
 ### The plan
 
 ```python
-class LogicalOperator(str, Enum): ...   # the ten, named in 10-data-model.md
-class ControlOperator(str, Enum): ...   # REPLAN, DISCOVER
+class LogicalOperator(StrEnum): ...   # the ten, named in 10-data-model.md
+class ControlOperator(StrEnum): ...   # REPLAN, DISCOVER
 
 INPUT_ARITY: dict[LogicalOperator, int]
 ```

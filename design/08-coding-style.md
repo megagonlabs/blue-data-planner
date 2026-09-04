@@ -153,7 +153,7 @@ formats and what resolves each one are fixed in
 
 Enum *members* are upper case; their stored *values* are lower case for statuses and decisions
 (`"ok"`, `"failed"`, `"accept"`) and upper case for the logical operators (`"FILTER"`), which read
-as the vocabulary they are. Each enum inherits `str` so a value serializes without conversion.
+as the vocabulary they are.
 
 ---
 
