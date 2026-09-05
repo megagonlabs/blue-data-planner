@@ -206,7 +206,9 @@ _ENTRIES: tuple[_Entry, ...] = (
     _Entry(
         "builtin.join",
         LogicalOperator.JOIN,
-        "Matches the rows of two tables on equal values in named columns.",
+        "Matches the rows of two tables on equal values in named columns, renaming a "
+        "colliding right-hand column with a '_right' suffix; an unmatched left row in a left "
+        "join carries none of the right table's columns.",
         JoinParameters,
         _join,
     ),

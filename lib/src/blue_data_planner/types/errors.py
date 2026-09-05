@@ -36,6 +36,8 @@ class BudgetExhaustedError(BlueDataPlannerError):
 class RecoverableOperatorError(BlueDataPlannerError):
     """An operator refused its input in a way a different operator might not."""
 
+    report: dict[str, Any] | None
+
     def __init__(self, message: str, report: dict[str, Any] | None = None) -> None:
         super().__init__(message)
         self.report = report
@@ -43,6 +45,8 @@ class RecoverableOperatorError(BlueDataPlannerError):
 
 class UnrecoverableOperatorError(BlueDataPlannerError):
     """An operator failed for a reason no other operator would avoid."""
+
+    report: dict[str, Any] | None
 
     def __init__(self, message: str, report: dict[str, Any] | None = None) -> None:
         super().__init__(message)

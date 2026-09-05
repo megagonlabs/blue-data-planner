@@ -182,6 +182,9 @@ def _predicate_columns(predicate: Predicate) -> list[str]:
 
 
 def _elements(value: Any, column: str, separator: str | None) -> list[Any]:
+    # A missing value has no elements to expand, the way SQL's UNNEST(NULL) yields no rows.
+    if value is None:
+        return []
     if isinstance(value, list):
         return cast(list[Any], value)
     if isinstance(value, str) and separator is not None:

@@ -105,6 +105,16 @@ def test_an_expansion_splits_a_delimited_string_when_it_is_given_a_separator() -
     assert [row["tag"] for row in expanded] == ["thai", "cheap"]
 
 
+def test_an_expansion_contributes_no_rows_for_a_missing_value() -> None:
+    """A None value expands to zero rows, like SQL's UNNEST(NULL), rather than refusing
+    the whole table."""
+    expanded = expand_rows(
+        [{"id": 1, "tags": None}, {"id": 2, "tags": ["sushi"]}], "tags", "tag", None
+    )
+
+    assert [(row["id"], row["tag"]) for row in expanded] == [(2, "sushi")]
+
+
 def test_an_aggregation_writes_one_row_per_group() -> None:
     """Rows group by the named columns, and each aggregation lands under the name it asked for."""
     aggregated = aggregate_rows(

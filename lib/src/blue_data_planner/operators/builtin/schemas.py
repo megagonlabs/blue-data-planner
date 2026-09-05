@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
-from typing import Any, Literal
+from typing import Any, Literal, cast
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 # Unknown keys are refused so a runner cannot reach a parameter a declaration leaves out.
-_STRICT = ConfigDict(extra="forbid")
+# populate_by_name lets a predicate field also be set by its own name (rather than only by
+# its and/or/not alias), which is what lets model_dump() round-trip back through model_validate().
+_STRICT = ConfigDict(extra="forbid", populate_by_name=True)
 
 ComparisonOperator = Literal["eq", "ne", "lt", "lte", "gt", "gte", "in", "contains", "is_null"]
 AggregationFunction = Literal["count", "sum", "avg", "min", "max"]
@@ -20,9 +22,20 @@ class Comparison(BaseModel):
 
     model_config = _STRICT
 
-    column: str
+    column: str = Field(min_length=1)
     operator: ComparisonOperator
     value: Any = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def _value_is_present_where_it_is_needed(cls, data: Any) -> Any:
+        # Checked before defaults are applied, so an omitted "value" key (a caller who forgot
+        # it) is distinguishable from one explicitly set to null (a deliberate null comparison).
+        if isinstance(data, dict):
+            fields = cast(dict[str, Any], data)
+            if fields.get("operator") != "is_null" and "value" not in fields:
+                raise ValueError(f"'{fields.get('operator')}' needs a value to compare against")
+        return cast(Any, data)
 
     @model_validator(mode="after")
     def _value_fits_the_operator(self) -> Comparison:
@@ -71,8 +84,8 @@ class ProjectedColumn(BaseModel):
 
     model_config = _STRICT
 
-    column: str
-    into: str | None = None
+    column: str = Field(min_length=1)
+    into: str | None = Field(default=None, min_length=1)
 
 
 class Aggregation(BaseModel):
@@ -81,8 +94,8 @@ class Aggregation(BaseModel):
     model_config = _STRICT
 
     function: AggregationFunction
-    column: str | None = None
-    into: str
+    column: str | None = Field(default=None, min_length=1)
+    into: str = Field(min_length=1)
 
     @model_validator(mode="after")
     def _column_is_given_where_it_is_needed(self) -> Aggregation:
@@ -97,7 +110,7 @@ class SortKey(BaseModel):
 
     model_config = _STRICT
 
-    column: str
+    column: str = Field(min_length=1)
     direction: SortDirection = "asc"
 
 
@@ -106,8 +119,8 @@ class JoinKey(BaseModel):
 
     model_config = _STRICT
 
-    left_column: str
-    right_column: str
+    left_column: str = Field(min_length=1)
+    right_column: str = Field(min_length=1)
 
 
 class FilterParameters(BaseModel):
@@ -131,8 +144,8 @@ class ExpandParameters(BaseModel):
 
     model_config = _STRICT
 
-    column: str
-    into: str | None = None
+    column: str = Field(min_length=1)
+    into: str | None = Field(default=None, min_length=1)
     separator: str | None = None
 
 
