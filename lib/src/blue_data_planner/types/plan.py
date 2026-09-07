@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from enum import Enum
+from enum import StrEnum
 from typing import Any, Literal, cast
 
 from pydantic import BaseModel
@@ -24,7 +24,7 @@ Data = list[Record]
 DataBundle = list[Data]
 
 
-class LogicalOperator(str, Enum):
+class LogicalOperator(StrEnum):
     """The tool-agnostic operations a plan node can carry."""
 
     SCAN = "SCAN"
@@ -39,7 +39,7 @@ class LogicalOperator(str, Enum):
     RETURN = "RETURN"
 
 
-class ControlOperator(str, Enum):
+class ControlOperator(StrEnum):
     """The operations that end a pass and return to the logical planner."""
 
     REPLAN = "REPLAN"

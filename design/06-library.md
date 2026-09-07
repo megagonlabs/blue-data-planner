@@ -204,8 +204,8 @@ each class answers for and the methods it carries.
 ### The plan
 
 ```python
-class LogicalOperator(str, Enum): ...   # the ten, named in 10-data-model.md
-class ControlOperator(str, Enum): ...   # REPLAN, DISCOVER
+class LogicalOperator(StrEnum): ...   # the ten, named in 10-data-model.md
+class ControlOperator(StrEnum): ...   # REPLAN, DISCOVER
 
 INPUT_ARITY: dict[LogicalOperator, int]
 ```
@@ -898,13 +898,19 @@ imports with LOTUS absent and the router simply gains no LOTUS operators (ADR-00
 ### The built-in suite
 
 `builtin/` is written here rather than wrapped (ADR-020), and holds two kinds of entry over one
-shared module of functions on the bundle. No entry calls another: both kinds call those functions.
+shared module of transformations on the tables a bundle carries. No entry calls another: both kinds
+call those functions.
 
 | Entry | Declares | Holds a model call |
 | --- | --- | --- |
 | A transform entry | One logical operator | No. It does what its parameters say |
 | `builtin.scan` | The scan alone | No |
 | `builtin.nl2table` | Every operator kind | Yes. It turns the fragment's instruction into a sequence of the other operations and runs it |
+
+A transform entry takes one logical node whole. Its parameters reach as far as its node kind does,
+so a filter combining conditions under and, or, and not arrives as one node and runs as one call.
+What a logical plan says is settled before an operator is chosen, and no node is split to fit what
+an entry can express.
 
 `builtin.scan` is the suite's one source-reading deterministic entry, and it reads through `data/`.
 It declares `SCAN` alone: it absorbs no `FILTER` and no `PROJECT`, and either kind of node downstream
@@ -940,7 +946,8 @@ states (ADR-005).
 
 The only module in the shipped package that imports `blue-data` (ADR-003). Source and store
 construction sit behind it too, so nothing outside `data/` constructs a `blue-data` class or calls a
-method on one.
+method on one. It hands out the registry type along with the readings, so a signature elsewhere can
+name a registry it only passes back here.
 
 ```python
 def connect_source(registry: DataRegistry, source: str) -> Any: ...

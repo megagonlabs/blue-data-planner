@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from enum import Enum
+from enum import StrEnum
 from typing import Any
 
 from blue_data_planner.types.catalog import CatalogMatch
@@ -11,14 +11,14 @@ from blue_data_planner.types.errors import BlueDataPlannerError, BudgetExhausted
 from blue_data_planner.types.plan import DataBundle, DataPipeline, LogicalPlan, PhysicalPlan
 
 
-class ExecutionStatus(str, Enum):
+class ExecutionStatus(StrEnum):
     """Whether one operator call produced a result."""
 
     OK = "ok"
     FAILED = "failed"
 
 
-class ErrorKind(str, Enum):
+class ErrorKind(StrEnum):
     """What a failure means for the run: try another operator, end the run, or replan."""
 
     RECOVERABLE = "recoverable"
@@ -26,7 +26,7 @@ class ErrorKind(str, Enum):
     NO_OPERATOR = "no_operator"
 
 
-class RunStatus(str, Enum):
+class RunStatus(StrEnum):
     """How one request ended, whether it produced an answer or not."""
 
     OK = "ok"
@@ -38,7 +38,7 @@ class RunStatus(str, Enum):
     LLM_FAILED = "llm_failed"
 
 
-class FragmentReviewDecision(str, Enum):
+class FragmentReviewDecision(StrEnum):
     """What one review turn decided about one fragment's result."""
 
     ACCEPT = "accept"
@@ -46,7 +46,7 @@ class FragmentReviewDecision(str, Enum):
     REPLAN = "replan"
 
 
-class RunDecision(str, Enum):
+class RunDecision(StrEnum):
     """What the run loop does next after one fragment."""
 
     CONTINUE = "continue"

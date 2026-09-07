@@ -156,7 +156,7 @@ formats and what resolves each one are fixed in
 
 Enum *members* are upper case; their stored *values* are lower case for statuses and decisions
 (`"ok"`, `"failed"`, `"accept"`) and upper case for the logical operators (`"FILTER"`), which read
-as the vocabulary they are. Each enum inherits `str` so a value serializes without conversion.
+as the vocabulary they are.
 
 ---
 
@@ -198,6 +198,10 @@ The third rule is scoped to `lib/src/` because `lib/scripts/` and `lib/tests/` s
 which is ingestion the library deliberately does not offer
 ([07-repo-organization.md](07-repo-organization.md#where-the-benchmark-lives)). Nothing else outside
 `data/` imports it.
+
+A signature elsewhere that has to name a registry takes the type from `blue_data_planner.data`,
+which hands the name out beside the readings. What the rule keeps in one place is every call made on
+a registry; naming one costs nothing and spreads no untyped value.
 
 ---
 

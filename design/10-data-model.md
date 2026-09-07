@@ -761,10 +761,6 @@ number any one of them spent rather than a total, since that is the number their
 
 ### Stored values
 
-Every enum inherits `str`, so a value serializes as itself. Casing follows the rule in
-[08-coding-style.md](08-coding-style.md): logical operators are upper case, and statuses and
-decisions are lower case.
-
 | Enum | Values |
 | --- | --- |
 | `LogicalOperator` | `SCAN`, `FILTER`, `PROJECT`, `EXPAND`, `AGGREGATE`, `DISTINCT`, `SORT_SUPERLATIVE`, `JOIN`, `UNION`, `RETURN` |
