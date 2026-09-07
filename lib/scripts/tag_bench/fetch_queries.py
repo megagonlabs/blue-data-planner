@@ -9,7 +9,7 @@ import io
 import json
 import random
 import urllib.request
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import TypedDict
 
@@ -222,7 +222,7 @@ def main() -> None:
     csv_text, source_commit = fetch_queries_csv()
     records = parse_query_rows(csv_text)
     dev_ids, test_ids = build_dev_test_split(records, args.dev_per_type, args.split_seed)
-    fetched_at = datetime.now(timezone.utc).isoformat()
+    fetched_at = datetime.now(UTC).isoformat()
     document = build_queries_document(records, source_commit, fetched_at)
 
     splits_dir = args.data_dir / "splits"

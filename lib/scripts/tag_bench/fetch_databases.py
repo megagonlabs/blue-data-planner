@@ -10,7 +10,7 @@ import urllib.request
 import zipfile
 from pathlib import Path
 
-_INNER_ZIP_ENTRY = "dev_20240627/dev_databases.zip"
+BIRD_INNER_ZIP_ENTRY = "dev_20240627/dev_databases.zip"
 BIRD_DEV_ZIP_URL = "https://bird-bench.oss-cn-beijing.aliyuncs.com/dev.zip"
 
 
@@ -36,7 +36,7 @@ def extract_bird_databases(dev_zip_path: Path, db_names: list[str], output_dir: 
         ValueError: If dev_zip_path's inner archive lacks a .sqlite entry for one of db_names.
     """
     with zipfile.ZipFile(dev_zip_path) as outer:
-        inner_bytes = outer.read(_INNER_ZIP_ENTRY)
+        inner_bytes = outer.read(BIRD_INNER_ZIP_ENTRY)
 
     output_dir.mkdir(parents=True, exist_ok=True)
     with zipfile.ZipFile(io.BytesIO(inner_bytes)) as inner:
@@ -44,7 +44,9 @@ def extract_bird_databases(dev_zip_path: Path, db_names: list[str], output_dir: 
         for db_name in db_names:
             entry = f"dev_databases/{db_name}/{db_name}.sqlite"
             if entry not in names_in_zip:
-                raise ValueError(f"Expected {entry} in {_INNER_ZIP_ENTRY}, but it was not found")
+                raise ValueError(
+                    f"Expected {entry} in {BIRD_INNER_ZIP_ENTRY}, but it was not found"
+                )
             (output_dir / f"{db_name}.db").write_bytes(inner.read(entry))
 
 

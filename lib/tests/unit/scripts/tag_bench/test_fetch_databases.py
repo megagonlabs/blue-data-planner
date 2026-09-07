@@ -10,7 +10,7 @@ from pathlib import Path
 import pytest
 
 from scripts.tag_bench.fetch_databases import (
-    _INNER_ZIP_ENTRY,
+    BIRD_INNER_ZIP_ENTRY,
     extract_bird_databases,
     load_required_db_names,
 )
@@ -43,7 +43,7 @@ def _build_bird_zip(db_name_to_bytes: dict[str, bytes]) -> bytes:
 
     outer_buffer = io.BytesIO()
     with zipfile.ZipFile(outer_buffer, "w") as outer:
-        outer.writestr(_INNER_ZIP_ENTRY, inner_buffer.getvalue())
+        outer.writestr(BIRD_INNER_ZIP_ENTRY, inner_buffer.getvalue())
     return outer_buffer.getvalue()
 
 
