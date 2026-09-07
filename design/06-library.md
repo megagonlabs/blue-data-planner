@@ -973,6 +973,12 @@ the whole of what a source-level read is for. Nothing here reads a source's sche
 properties: catalog detail below the source level reaches a run through `DataCatalog`, whose
 readings come from the catalog records rather than from the source.
 
+A read that fails does so in one of two ways, and they are told apart because a run answers them
+differently. A source that cannot be connected to raises `SourceUnreachableError`, which no other
+query would have avoided. A source that was reached and refused the query raises `SourceQueryError`,
+which is what the parameter repair exists to rewrite. Anything else a read meets — a registry record
+that is not a record, a result that is not a table — is malformed state and raises as the bug it is.
+
 A source names a database, and a collection where its kind has them. One registered source can hold
 several databases, so `execute_query` cannot infer which one a query runs against — the benchmark
 registry holds five under one source. `database` is therefore required and `collection` optional.
@@ -1143,6 +1149,8 @@ dedicated type, and a run that exhausts an allowance returns a status.
 | `PlanValidationError` | A generated plan fails a structural check | `LogicalPlanner`, which regenerates |
 | `RecoverableOperatorError` | An operator refuses its input in a way a different operator might not | `execute_physical_operator`, which returns a recoverable failure |
 | `UnrecoverableOperatorError` | An operator fails for a reason no other operator would avoid | `execute_physical_operator`, which returns an unrecoverable failure |
+| `SourceQueryError` | A source refuses the query a read ran against it | The operator that read the source, which raises a recoverable failure |
+| `SourceUnreachableError` | A registered source cannot be connected to | The operator that read the source, which raises an unrecoverable failure |
 | `BudgetExhaustedError` | The operator call budget reaches its cap | `FragmentRunner`, which returns `budget_exhausted` with the attempts already made |
 | `LLMError` | The provider fails after retries | `DataPlanner`, which ends the request with `llm_failed` |
 | `ValueError`, `TypeError`, and a suite's own validation errors | Malformed state or a missing required value | Nothing. These are bugs and they propagate |

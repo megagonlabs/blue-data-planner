@@ -291,8 +291,15 @@ status cannot read a failure as an empty answer.
 
 ### Catching
 
-Catch specific types. Never bare `except:` or `except Exception:`. Let exceptions reach the
-interface boundary, and let each interface decide what to do with one.
+Catch specific types. Never bare `except:`. Let exceptions reach the interface boundary, and let
+each interface decide what to do with one.
+
+`except Exception:` is permitted in exactly one place: the source read in `data/`, around the call
+into the source and nothing else. A read reaches backends whose failures share no common type, so
+listing them means listing one per source kind, and the first one missed passes the boundary
+uncaught — where nothing can catch it, since no module outside `data/` may import the dependency it
+came from. A failure the design classes as recoverable would reach the caller as a crash. The
+boundary converts instead, naming the original error in its message and keeping it as the cause.
 
 | Interface | Handling |
 | --- | --- |
