@@ -117,7 +117,7 @@ plan, so a long request does not block the event loop and stall the transport fo
 No double-underscore name mangling. A single `_` marks everything private, whether a method, a
 module-level helper, or a module.
 
-### Four rules that decide a name
+### Five rules that decide a name
 
 Each one settles a case where two plausible names were in use at once.
 
@@ -127,6 +127,7 @@ Each one settles a case where two plausible names were in use at once.
 | An id says which graph it names | `logical_node_ids`, `root_logical_node_id`, `InputData.logical_node_id`. A physical plan is full of logical node ids, so an unqualified `node_id` in it reads as its own |
 | Two decisions with different scopes get two names | `FragmentReviewDecision` is what one review returned; `RunDecision` is what the run loop does next |
 | A result type is called a result | `LogicalPlanResult`, `PhysicalPlanResult`, `FragmentResult`, `ExecutionResult`, `PlanResult` |
+| A catalog record's column is an attribute; a table moving between fragments has columns | `AttributeRef`, `AttributeView`, `attribute_views`, and `EntityMatch.attributes` read the registry, which is `blue-data`'s own vocabulary. `required_output_columns`, `OutputColumn`, and `ColumnDataType` describe a table a fragment passes on, whatever kind of source produced it |
 
 ### Names a reader can picture
 
@@ -134,8 +135,10 @@ Names have to be guessable by a reader with no project context. Prefer a name th
 result (`HtmlToMarkdownConverter`) over one that gestures at a role (`ArtifactBridge`). Concrete
 words such as `adapter`, `converter`, `runner`, `router`, and `builder` are welcome where they fit.
 Abstract ones are not: `artifact`, `bridge`, `layer`, `contract`, `machinery`, `seam`, `manager`,
-`entity`, `primitive`, and `verdict` name nothing a reader can picture. A `CatalogBridge` would say
-nothing about what the class hands back; `CatalogSearcher` says it in the name.
+`primitive`, and `verdict` name nothing a reader can picture. A `CatalogBridge` would say nothing
+about what the class hands back; `CatalogSearcher` says it in the name. `entity` is the exception,
+and only because `blue-data` gives it a fixed meaning: one level of a catalog record's path, the one
+a `SCAN` is bound to. Used for anything else it is as empty as the rest of the list.
 
 Borrowed metaphors go the same way. An ordered set of fallbacks is named by what each step rewrites
 — the parameter repair, the fragment repair, the cover repair, the replan — not by a ladder and its

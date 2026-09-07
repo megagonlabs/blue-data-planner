@@ -128,10 +128,10 @@ this package is a planner ([07-repo-organization.md](07-repo-organization.md#why
 
 | Module | Owns |
 | --- | --- |
-| `logical_planner.py` | `LogicalPlanner`. Reads the request and a preview of the catalog, and writes a plan in the fixed vocabulary of logical operators. Every node it writes carries one instruction in plain language, and no source, no operator, and no operator parameters. |
-| `physical_planner.py` | `PhysicalPlanner`. Cuts the plan into fragments and binds each one to a physical operator, and each `SCAN` to a source. It enumerates the fragments each operator's declaration allows and has a model pick among them, since the size of a fragment is the pushdown decision itself. |
-| `fragment_runner.py` | `FragmentRunner`. Runs one ready fragment: writes the operator's parameters against the columns and values its inputs actually carry, has it executed, checks the declared columns, and reviews the result. Returns accept, escalate, replan, or stop. |
-| `catalog_searcher.py` | `CatalogSearcher`. Resolves a `DISCOVER` node by turning its instruction into search terms and searching the registry. Not one of the three planning stages: its output is catalog records read by the logical planner, not rows entering the data flow. |
+| `logical_planner.py` | `LogicalPlanner`. Reads the request, a preview of the catalog, and the entities discovery has found, and writes a plan in the fixed vocabulary of logical operators. Every node it writes carries one instruction in plain language, and no source, no operator, and no operator parameters. |
+| `physical_planner.py` | `PhysicalPlanner`. Cuts the plan into fragments and binds each one to a physical operator, and each `SCAN` to one of the entities discovery found. It enumerates the fragments each operator's declaration allows and has a model pick among them, since the size of a fragment is the pushdown decision itself. |
+| `fragment_runner.py` | `FragmentRunner`. Runs one ready fragment: writes the operator's parameters against the columns its input tables carry and the attributes of the entities it scans, has it executed, checks the declared columns, and reviews the result. Returns accept, escalate, replan, or stop. |
+| `catalog_searcher.py` | `CatalogSearcher`. Resolves a `DISCOVER` node by turning its instruction into search terms and searching the registry for entities, each returned with every attribute it holds. Not one of the three planning stages: its output is catalog records read by the two planners, not rows entering the data flow. |
 | `run_state.py` | `RunState`, the one mutable object per request. Holds every plan version, the results keyed by logical plan and then node, every fragment attempt including the rejected ones, the model usage, and the counters the loop reads to choose a repair. `DataPlanner` creates it and alone writes to it. |
 | `data_planner.py` | `DataPlanner` and `build_data_planner`. The entry point lives beside the planning components it drives, since everything in this package turns a request into an answer and nothing outside it reads `RunState`. |
 
@@ -205,16 +205,19 @@ between that shape and its own suite's at its own edge (ADR-012).
 ### `data/`
 
 The only place in the shipped package where `blue-data` is imported. `DataCatalog` selects and
-renders what `blue-data` has already collected and enriched, and profiles nothing of its own. Five
+renders what `blue-data` has already collected and enriched, and profiles nothing of its own. Four
 callers go through this boundary.
 
 | Caller | Reads |
 | --- | --- |
 | `LogicalPlanner` | A preview of the catalog: which sources exist, and what each is for |
-| `CatalogSearcher` | A registry search, one call per search term |
-| `PhysicalPlanner` | The catalog paths a `SCAN` may be bound to, and the kind of source behind each |
-| `FragmentRunner` | A view of the columns of its fragment that resolve to a catalog record: sample values as they are spelled, and what `blue-data` inferred about them |
+| `CatalogSearcher` | A registry search, one call per search term. A hit is one entity and every attribute it holds |
+| `FragmentRunner` | A view of every attribute of each entity its own fragment scans: sample values as they are spelled, and what `blue-data` inferred about them |
 | An operator bound to a fragment | Its own source, for reading and for the few calls that write |
+
+`PhysicalPlanner` is not among them. Every entity it can bind a `SCAN` to reached the run through a
+`DISCOVER` node, so it reads the run's results rather than the registry
+(ADR-022).
 
 Concrete implementations are supplied at startup rather than constructed in place.
 

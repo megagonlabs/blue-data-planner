@@ -60,8 +60,9 @@ boundary was drawn, so the choice can be measured afterwards.
 The logical vocabulary is ten operations that belong to no operator suite: `SCAN`, `FILTER`,
 `PROJECT`, `EXPAND`, `AGGREGATE`, `DISTINCT`, `SORT_SUPERLATIVE`, `JOIN`, `UNION`, and `RETURN`. Two
 control nodes let a plan stop where it cannot yet be written. `REPLAN` waits for the columns and
-values earlier nodes produce; `DISCOVER` searches the data registry for a source the request never
-named, and the planner writes the rest once it can see what the search returned.
+values earlier nodes produce; `DISCOVER` searches the data registry for the tables a request needs
+and comes back with their columns, and the planner writes the rest once it can see what the search
+returned.
 
 Beyond the three stages, a planner:
 

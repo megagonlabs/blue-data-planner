@@ -72,9 +72,9 @@ owns is the loop.
 | Component | Built with | Because |
 | --- | --- | --- |
 | `LogicalPlanner` | `llm_client`, `catalog`, `max_plan_corrections` | Writes plans, reads a catalog preview ranked against the request, and rewrites a plan validation turned down |
-| `PhysicalPlanner` | `llm_client`, `catalog`, `router` | Enumerates candidates from what operators declare, and binds each scan to a catalog path |
-| `FragmentRunner` | `llm_client`, `catalog`, `router`, `max_parameter_attempts` | Resolves a fragment's operator id, reads column views, writes parameters, reviews the result, and writes them again when the review rejects one |
-| `CatalogSearcher` | `llm_client`, `catalog`, `max_search_terms` | Turns an instruction into search terms and searches the registry |
+| `PhysicalPlanner` | `llm_client`, `router` | Enumerates candidates from what operators declare, and binds each scan to an entity discovery found. It is the one component built without a catalog, since every entity it can bind to arrives in `results` |
+| `FragmentRunner` | `llm_client`, `catalog`, `router`, `max_parameter_attempts` | Resolves a fragment's operator id, reads the attribute views of the entities it scans, writes parameters, reviews the result, and writes them again when the review rejects one |
+| `CatalogSearcher` | `llm_client`, `catalog`, `max_search_terms` | Turns an instruction into search terms and searches the registry for entities |
 | `DataPlanner` | The four above, and `limits` | Creates the run state, schedules, chooses repairs, and assembles the result |
 
 Injecting the components is what lets a caller give the three planning components different models, and what lets
@@ -193,7 +193,7 @@ share a vocabulary without importing each other.
 
 That rule fixes what belongs here, because a type `PlanResult` names has to be nameable by
 everything that reads a `PlanResult`. Following it through reaches further than the plan types:
-`PlanResult` holds `LLMUsage`, and the `DiscoveryResult` in its `results` map holds `CatalogMatch`.
+`PlanResult` holds `LLMUsage`, and the `DiscoveryResult` in its `results` map holds `EntityMatch`.
 So the line is drawn once and drawn wide — **`types/` holds data, and every other module holds
 behavior.** `data/` produces the catalog readings and `llm/` produces the usage records, and both
 import their shapes from here.
@@ -408,7 +408,9 @@ def validate_logical_plan(
 ) -> None: ...
 
 
-def validate_physical_plan(plan: LogicalPlan, physical_plan: PhysicalPlan) -> None: ...
+def validate_physical_plan(
+    plan: LogicalPlan, physical_plan: PhysicalPlan, entity_paths: frozenset[str]
+) -> None: ...
 ```
 
 Both raise rather than return, and both run before anything is executed. What they raise is
@@ -424,11 +426,18 @@ rule of its own.
 checks, whose objections do not apply to a node the run already has something for. `LogicalPlanner`
 catches the error and regenerates.
 
-The physical check is defensive. The physical planner enumerates only fragments that satisfy the
-rules, so a cover it assembles should already pass. It is worth running because a broken cover does
-not fail loudly on its own: a fragment whose non-root node is read from outside leaves that reader
-waiting for a table nobody produces, which shows up as a run that stops making progress rather than
-as an error.
+`entity_paths` is the run's catalog context flattened to the paths it names, and every value in
+every fragment's `scan_sources` has to be one of them. A path the run never searched for is a path a
+model wrote from nothing. The response schema already confines the choice where a provider enforces
+one strictly, so this is the check that catches it where a provider does not
+([05](05-software-stack.md#structured-output)). A frozenset rather than the results map keeps
+`plan/` reading one kind of value.
+
+The physical check is defensive in its other rules. The physical planner enumerates only fragments
+that satisfy them, so a cover it assembles should already pass. It is worth running because a broken
+cover does not fail loudly on its own: a fragment whose non-root node is read from outside leaves
+that reader waiting for a table nobody produces, which shows up as a run that stops making progress
+rather than as an error.
 
 ### Enumerating candidate fragments
 
@@ -483,9 +492,10 @@ from the run state.
 
 `results` is the run's map for the parent version, and it answers two different questions. A
 `REPLAN` node's continuation is written against the rows its inputs produced, so the planner reads
-real columns and values. A `DISCOVER` node's entry holds the catalog records its search found, which
-is what lets the continuation's scans name a source. One argument covers both because both live in
-the same map.
+real columns and values. A `DISCOVER` node's entry holds the entities its search found and every
+attribute each one holds, which is what lets the continuation's scans name a source and declare
+column names the registry actually carries. One argument covers both because both live in the same
+map.
 
 `reason` is either a failure reason from the review or the physical planner, or the instruction from
 the control node that ended the pass. It stays at the level the planner works in: it says what could
@@ -504,13 +514,16 @@ write one, because `nl2sql` can only absorb a scan and its filters if those node
 the cover is written. Nothing in validation enforces that ([04, writing a plan that can be pushed
 down](04-detailed-architecture.md#writing-a-plan-that-can-be-pushed-down)).
 
+Over registered data the planner has enough on the second pass rather than the first. The preview it
+reads names sources and nothing below them, so a first plan writes one `DISCOVER` node per thing the
+request needs found, and the continuation is the complete plan
+([04](04-detailed-architecture.md#1-logical-planning)).
+
 ### `PhysicalPlanner`
 
 ```python
 class PhysicalPlanner:
-    def __init__(
-        self, llm_client: LLMClient, catalog: DataCatalog, router: OperatorRouter
-    ) -> None: ...
+    def __init__(self, llm_client: LLMClient, router: OperatorRouter) -> None: ...
 
     def cover(
         self,
@@ -524,6 +537,7 @@ class PhysicalPlanner:
         plan: LogicalPlan,
         previous: PhysicalPlan,
         node_ids: frozenset[str],
+        results: dict[str, ExecutionResult | DiscoveryResult],
         reason: str,
     ) -> PhysicalPlanResult: ...
 ```
@@ -537,17 +551,24 @@ older one ([04](04-detailed-architecture.md#a-cover-is-written-whole)). What `re
 changes is confined to `node_ids`: every other fragment in `previous` is carried into the new plan
 with its node set intact, which is what lets the results of those fragments survive installation.
 
-`results` answers two questions here too. A `DISCOVER` entry's catalog records are the paths a
-`SCAN` may be bound to, and the presence of an entry says the node already ran, which is the cost
-the model weighs when it considers absorbing that node into a wider fragment ([04, the cover
-repair](04-detailed-architecture.md#the-cover-repair)).
+`results` answers two questions here too, and both entry points need it. A `DISCOVER` entry's
+entities are the ones a `SCAN` may be bound to, and the presence of an entry says the node already
+ran, which is the cost the model weighs when it considers absorbing that node into a wider fragment
+([04, the cover repair](04-detailed-architecture.md#the-cover-repair)). `recover_fragment` needs the
+first of those as much as `cover` does: rebinding a scan to a different entity is one of the fixes a
+fragment repair can reach, and `previous` holds only the entity already chosen
+([04, the fragment repair](04-detailed-architecture.md#the-fragment-repair)).
 
 Inside, the planner works top down from the root of the plan. For each uncovered node it asks
 `candidate_fragments` for the node sets each operator the router offers could cover, pairs each set
-with that operator, and a model picks one.
+with that operator, and a model picks one. One covering operation is one conversation, with the
+run's catalog context in the system message and one turn per binding decision, and a repair starts
+a fresh one ([04, choosing among candidates](04-detailed-architecture.md#choosing-among-candidates)).
+
 The response schema is built from that call's own candidates, so a candidate set with no `SCAN` has
-no field in which to name a source, and where a scan does appear the catalog's paths are the allowed
-values. `plan` is `None` exactly when some node has no candidate at all, alone or in any fragment
+no field in which to name a source, and where a scan does appear the entity paths in `results` are
+the allowed values. The planner searches nothing itself: a path reaches it because a `DISCOVER` node
+found it. `plan` is `None` exactly when some node has no candidate at all, alone or in any fragment
 containing it, and `failure_reason` then says which node and why.
 
 ### `FragmentRunner`
@@ -574,13 +595,18 @@ class FragmentRunner:
 than the object holding it. Everything it works on arrives per call, so it holds nothing about a
 request between calls and a test builds a fragment, some rows, a catalog double, and a counter.
 
+The fragment carries the reading it needs. `scan_sources` names an entity path per `SCAN`, and one
+`attribute_views` call per path returns every attribute of that entity, so nothing about the run
+beyond the fragment has to be passed in. The run's whole catalog context is deliberately not: it
+would put entities this fragment cannot reach in front of the model, and the deeper reading of the
+ones it can reach is what writing parameters needs
+([10, what the fragment runner reads](10-data-model.md#what-the-fragment-runner-reads)).
+
 For one fragment it loops until a result is accepted or the parameter attempts run out.
 
-It resolves the fragment's operator id through the router, describes the input tables and the views
-of whatever columns resolve to a catalog record, writes the operator's parameters against its
-`parameter_schema`, calls `execute_physical_operator`, and reviews what came back. What the runner
-puts in front of the model at each turn is fixed in
-[10, what the fragment runner reads](10-data-model.md#what-the-fragment-runner-reads).
+It resolves the fragment's operator id through the router, describes the input tables and the
+attribute views of the entities it scans, writes the operator's parameters against its
+`parameter_schema`, calls `execute_physical_operator`, and reviews what came back.
 
 A review that accepts ends the loop with `decision=continue`. One that rejects spends an attempt and
 the parameters are written again; one that asks for a replan returns `decision=replan` with its
@@ -617,15 +643,20 @@ class CatalogSearcher:
 
 Resolves a `DISCOVER` node. A model turns the node's instruction and the rows its inputs produced
 into concrete search terms, capped at `max_search_terms`, and each term goes to
-`DataCatalog.search_records`. The `DiscoveryResult` holds the terms, the `CatalogMatch` values they
-found, and how many terms the cap dropped. It is kept under the node's id in the run's results map
-and read by the logical planner when it writes the continuation.
+`DataCatalog.search_records`. The `DiscoveryResult` holds the terms, the `EntityMatch` values they
+found, and how many terms the cap dropped. It is kept under the node's id in the run's results map,
+and together with the other resolved nodes' entries it is the run's catalog context: the logical
+planner reads it to write the continuation, the physical planner to bind a scan.
 
 It carries out no planning stage. Its output is catalog records rather than rows, it enters no data
-flow,
-and no operator call is spent ([04](04-detailed-architecture.md#resolving-a-discovery-node)). It
-takes `inputs` because an instruction such as "find press release documents for each company in the
-input" expands into one term per company.
+flow, and no operator call is spent
+([04](04-detailed-architecture.md#resolving-a-discovery-node)).
+
+It takes `inputs` to narrow the vocabulary it searches in: an instruction such as "find press
+release sources for the companies in the input" writes better terms for having seen which companies
+those are. It writes no term per input row. What a node returns is a bounded set of entities however many
+rows it was handed ([04, what a discovery node's inputs are
+for](04-detailed-architecture.md#what-a-discovery-nodes-inputs-are-for)).
 
 ### `RunState`
 
@@ -912,12 +943,14 @@ construction sit behind it too, so nothing outside `data/` constructs a `blue-da
 method on one.
 
 ```python
-def source_schema(
-    registry: DataRegistry, source: str, database: str, collection: str
-) -> dict[str, Any]: ...
-def source_properties(registry: DataRegistry, source: str) -> dict[str, Any]: ...
 def connect_source(registry: DataRegistry, source: str) -> Any: ...
-def execute_query(registry: DataRegistry, source: str, query: str) -> Data: ...
+def execute_query(
+    registry: DataRegistry,
+    source: str,
+    query: str,
+    database: str,
+    collection: str | None = None,
+) -> Data: ...
 ```
 
 A registry is a value this module hands out and takes back, and every call made on one happens here.
@@ -927,8 +960,15 @@ a registry of its own (ADR-004) — holds it without reading it.
 `open_registry` is how a registry enters, and it is the one way in. Reading the catalog is
 `DataCatalog`. Both are below.
 
-Three of the four functions above read: a source's schema, a source's properties, and a query's
-rows. `connect_source` hands back a live source object, which is what an operator writes through.
+`execute_query` runs a query and returns its rows; `connect_source` hands back a live source object,
+which is what an operator writes through. Both are what `builtin.scan` needs, and together they are
+the whole of what a source-level read is for. Nothing here reads a source's schema or its
+properties: catalog detail below the source level reaches a run through `DataCatalog`, whose
+readings come from the catalog records rather than from the source.
+
+A source names a database, and a collection where its kind has them. One registered source can hold
+several databases, so `execute_query` cannot infer which one a query runs against — the benchmark
+registry holds five under one source. `database` is therefore required and `collection` optional.
 
 Two kinds of write have to be told apart, because the design answers them differently.
 
@@ -980,59 +1020,48 @@ adapter entry ([07-repo-organization.md](07-repo-organization.md#where-a-new-thi
 
 ```python
 class DataCatalog:
-    def __init__(self, registry: DataRegistry, max_search_results: int = 10) -> None: ...
+    def __init__(self, registry: DataRegistry, max_search_results: int = 3) -> None: ...
 
     def preview(self, request: str, limit: int) -> CatalogPreview: ...
-    def search_records(self, term: str) -> list[CatalogMatch]: ...
-    def column_views(self, columns: Sequence[ColumnRef]) -> list[ColumnView]: ...
+    def search_records(self, term: str) -> list[EntityMatch]: ...
+    def attribute_views(self, entity_path: str) -> list[AttributeView]: ...
 ```
 
 Three readings of the same registry, one per caller, all fixed in
 [10, catalog readings](10-data-model.md#4-catalog-readings).
 
-`max_search_results` is fixed when the catalog is built, since `search_records` runs once per search
-term and one cap serves every term. `preview`'s cap comes from the logical planner, which decides
-how much of a registry one prompt carries.
-
 | Method | Read by | Answers |
 | --- | --- | --- |
 | `preview` | `LogicalPlanner`, once per pass | Which sources exist. Source-level records only, ranked against the request and capped, with the total count so the planner can tell a complete list from a sample |
-| `search_records` | `CatalogSearcher` for a `DISCOVER` node, and `PhysicalPlanner` when it binds a scan | Where the data a request needs lives. One call per search term |
-| `column_views` | `FragmentRunner`, for the columns its fragment touches | How a column's values are actually spelled |
+| `search_records` | `CatalogSearcher`, for a `DISCOVER` node | Which entities the request needs and what each holds. One call per search term |
+| `attribute_views` | `FragmentRunner`, for each entity its fragment scans | How each of that entity's attributes spells its values |
+
+`CatalogSearcher` is the only caller of `search_records`. The physical planner binds a `SCAN` to an
+entity the run's catalog context already holds, and a path reaches that context only by having been
+searched for, so no second search arises.
+
+`max_search_results` is fixed when the catalog is built, since `search_records` runs once per search
+term and one cap serves every term. It is small because a match now carries an entity's whole
+attribute list and that list travels in every planning prompt for the rest of the run: ten
+entities' worth is more than a request needs to choose between. `preview`'s cap comes from the
+logical planner, which decides how much of a registry one prompt carries.
+
+`attribute_views` takes one entity and returns a view per attribute it holds, with no way to ask for
+a subset, because the caller that would select is the one deciding which attributes to name and has
+not decided yet ([10](10-data-model.md#what-the-fragment-runner-reads)).
 
 `DataCatalog` selects and renders what `blue-data` has already collected and enriched. It profiles
-no column, samples no table, and infers no type of its own, so a `ColumnView` is a projection rather
-than a computation: it pairs an attribute's stored `stats` and `value_semantics` with its
-description. What belongs to this repository is the choice of what each component sees, which is prompt
-shaping.
-
-Each reading is assembled from what the registry already holds: the levels of the catalog, the
-descriptions enrichment wrote, the per-column statistics collection filled, whatever the registry
-records about how a column's values are spelled, and its own ranked record search.
+no attribute, samples no table, and infers no type of its own, so an `AttributeView` is a projection
+rather than a computation: it pairs an attribute's stored statistics and value semantics with its
+description. What belongs to this repository is the choice of what each component sees, which is
+prompt shaping.
 
 Every reading that searches ranks its results and takes the top of the list (ADR-021). A weak match
 therefore reaches a prompt at the bottom of a ranked list, where a model weighs it against the rest.
 
 Planning quality depends on whether a source has been enriched. A source that never was renders with
-names and kinds alone, which planning still works with.
-
-### Which column gets a view
-
-A `ColumnRef` is a full catalog path in parts, from source down to attribute, and a column earns a
-view only when it resolves to one. `column_views` returns nothing for a column that does not.
-
-A view is an annotation, never the column list. The runner reads the columns from the input tables,
-so a column with no view still reaches the prompt with its name, its type, and its sample values,
-and only the catalog's whole-column statistics are missing. That is what keeps an operator-generated
-column from reading as a column that does not exist.
-
-Which columns resolve is not settled. `fragment.scan_sources` names a catalog path for each `SCAN`
-in the fragment, so a column of a table the fragment itself scans is that path plus the column name.
-A column arriving on the frontier is harder: resolving it means tracing back through the cover to
-whichever fragment scanned it, which can be done for the fragment kinds that leave columns unchanged
-and cannot be done safely through one that derives them. How far to trace decides whether a `FILTER`
-running alone over scanned rows sees catalog values at all, and it is open question 3 in
-[13-decision-log.md](13-decision-log.md#open-questions).
+names and kinds alone, which planning still works with. An entity nobody enriched still returns its
+attributes with their names and types, which is what a scan needs to declare its columns.
 
 ### Opening a registry
 

@@ -109,10 +109,16 @@ and moving those results forward is still a copy of one map
 Within one lineage a continuation may not give an existing node id to a different node. It names an
 existing id only to read a node it carried over.
 
-`output_node_id` is the id of the `RETURN` node, and is `None` only while a plan ends in a control
-node and its ending has not been written yet. Validation accepts exactly two shapes: one `RETURN`
-and no terminal control node, or a terminal control node and no `RETURN` (ADR-007). A plan carrying
-both is rejected, since the planner cannot both defer the ending and write it.
+`output_node_id` is the id of the `RETURN` node, and is `None` only while a plan ends in control
+nodes and its ending has not been written yet. Validation accepts exactly two shapes: one `RETURN`
+and no terminal control node, or one or more terminal control nodes and no `RETURN` (ADR-007). A
+plan carrying both is rejected, since the planner cannot both defer the ending and write it.
+
+Several terminal control nodes is the ordinary shape for a request needing two or more things found. "Find
+data scientist openings at Fortune 500 companies" needs a list of those companies and a job postings
+source, and neither search narrows the other, so both `DISCOVER` nodes belong to the same pass.
+Reachability follows the same rule: every node reaches one of the terminal control nodes, not one
+particular node.
 
 ### `PipelineNode`
 
@@ -139,8 +145,10 @@ A node's `kind` decides which keys its `attributes` carries. Nothing else is acc
 | `RETURN` | Terminal | `{"columns": list[str]}` |
 | `REPLAN`, `DISCOVER` | Control | `{"instruction": str}` |
 
-The instruction is one sentence in plain language saying what the step is for, and it carries no
-operator parameters (ADR-008). Working those out belongs to the fragment runner, and they land in
+The instruction is one sentence in plain language telling whatever runs the node what to do, so it
+starts with a verb: `load job postings`, `find the postings whose title is a data scientist role`,
+`find a source holding one profile per company`. It carries no operator parameters (ADR-008).
+Working those out belongs to the fragment runner, and they land in
 `FragmentAttempt.operator_attributes` shaped by the chosen operator's `parameter_schema`.
 
 ### How many inputs a node takes
@@ -255,7 +263,7 @@ class PhysicalPlan:
 | Coverage | Every operator node of the logical plan appears in exactly one fragment. `RETURN`, `REPLAN`, and `DISCOVER` appear in none |
 | Shape | Each fragment is connected, convex, and single exit: only the root may have consumers outside it ([04, what a fragment may be](04-detailed-architecture.md#what-a-fragment-may-be)) |
 | Sources | `scan_sources` names a catalog path for each `SCAN` in the fragment. A `SCAN` left out of it reads no registered source, which is what a scan of the model's world knowledge looks like. An operator declaring `source_kinds` needs every scan bound to a source of one of those kinds, and an operator declaring none needs every scan left out. A fragment containing no `SCAN` is bound to an operator that owns its engine (ADR-020) |
-| Instruction | Written as an instruction to the operator: "Find data scientist job postings, with their title, company id, and location" |
+| Instruction | One instruction to the operator covering everything the fragment absorbed, starting with a verb as a node's does: "Find data scientist job postings, with their title, company id, and location" |
 | Inputs | `input_data` lists the frontier nodes, which are the nodes outside the fragment feeding nodes inside it, in the order their tables arrive. One entry covers everything that node produced, so it may stand for more than one table; those tables share the name and keep their order |
 | Columns | `required_output_columns` is copied from the root node unless the model declares that the fusion cannot produce that list |
 | Identity | A fragment is what its node set says it is. `id` is fresh in every cover, so an attempt names its cover as well, and two covers are compared by node set, not by id |
@@ -353,7 +361,7 @@ A `DataPipeline` serializes as its two maps and its two pointers. One version of
           "id": "n1",
           "kind": "SCAN",
           "input_node_ids": [],
-          "attributes": {"instruction": "job postings"},
+          "attributes": {"instruction": "load job postings"},
           "required_output_columns": [
             {"name": "title", "dtype": "str"},
             {"name": "company_id", "dtype": "int"},
@@ -364,7 +372,7 @@ A `DataPipeline` serializes as its two maps and its two pointers. One version of
           "id": "n2",
           "kind": "FILTER",
           "input_node_ids": ["n1"],
-          "attributes": {"instruction": "the posting is a data scientist role"},
+          "attributes": {"instruction": "find the postings whose title is a data scientist role"},
           "required_output_columns": [
             {"name": "title", "dtype": "str"},
             {"name": "company_id", "dtype": "int"},
@@ -691,13 +699,14 @@ failure, and the mapping is in
 @dataclass(frozen=True)
 class DiscoveryResult:
     search_terms: list[str]        # one registry search runs per term
-    matches: list[CatalogMatch]
+    matches: list[EntityMatch]
     dropped_terms: int             # terms cut by the per-node cap
 ```
 
 A `DISCOVER` node's entry in the run's `results` map holds one of these, where an operator node's
-entry holds rows. Whoever reads the map reads this one the same way: the logical planner when it
-writes the continuation, and the physical planner when it binds a scan to a source.
+entry holds rows. The entries of every resolved `DISCOVER` node, taken together, are the run's
+catalog context: the logical planner reads them when it writes the continuation, and the physical
+planner reads them when it binds a scan to a source.
 
 ### One model call
 
@@ -773,31 +782,40 @@ is an ordering with a limit.
 
 ## 4. Catalog readings
 
-Three readings of the same registry serve the three planning components, and none of them is
-stored. `DataCatalog`
-selects and renders what `blue-data` has collected and enriched, and never profiles a column or
+Three readings of the same registry serve planning, and none of them is stored. `DataCatalog`
+selects and renders what `blue-data` has collected and enriched, and never profiles an attribute or
 samples a table of its own.
 
 The shapes below live in `types/` with the rest of the shared data classes, and `data/catalog.py`
-holds the code that fills them. `CatalogMatch` is why: it reaches a caller inside
+holds the code that fills them. `EntityMatch` is why: it reaches a caller inside
 `PlanResult.results`, so `types/` has to name it, and splitting one reading from the other two on
 that basis would draw a line no reader could see
 ([06-library.md](06-library.md#shared-types)).
 
 | Reading | Read by | Answers |
 | --- | --- | --- |
-| `CatalogPreview` | The logical planner, once per pass | Which sources exist |
-| `CatalogMatch` | `CatalogSearcher` when a `DISCOVER` node comes up, and the physical planner when it binds a scan | Where the data a request needs lives |
-| `ColumnView` | The fragment runner, for the columns its fragment touches | How a column's values are actually spelled |
+| `CatalogPreview` | The logical planner, once per pass | Which sources exist and what each is for |
+| `EntityMatch` | The logical planner and the physical planner, as the run's catalog context | Which entities exist and what each holds |
+| `AttributeView` | The fragment runner, for the entities its own fragment scans | How an attribute's values are actually spelled |
+
+The last two differ in shape rather than in degree. An `EntityMatch` is broad and shallow — one
+entity and every attribute's name, type, and description — so a run can carry it in every prompt. An
+`AttributeView` is narrow and deep, and its size is set by how long the stored sample values are, so
+it is read for one fragment's scans and goes no further.
+
+Catalog detail below the source level enters a run one way, through a `DISCOVER` node
+([04, resolving a discovery node](04-detailed-architecture.md#resolving-a-discovery-node)). What
+those nodes found is the run's catalog context, and an `AttributeView` deepens one entity the
+context already names.
 
 ### Naming a record
 
 `blue-data` keys every catalog record by a path encoding its full ancestry, from source down to
-attribute. A `ColumnRef` is that path in parts.
+attribute. An `AttributeRef` is that path in parts.
 
 ```python
 @dataclass(frozen=True)
-class ColumnRef:
+class AttributeRef:
     source: str
     database: str
     collection: str
@@ -805,12 +823,17 @@ class ColumnRef:
     attribute: str
 ```
 
-An entity is a table and an attribute is a column, in `blue-data`'s naming. The path form of the
-same reference is `/source/jobs/database/jobs/collection/public/entity/postings/attribute/location`,
-which is what the registry stores, what a fragment's `scan_sources` holds a prefix of, and what a
-lookup uses.
+The path form of the same reference is
+`/source/jobs/database/jobs/collection/public/entity/postings/attribute/location`, which is what the
+registry stores, what a fragment's `scan_sources` holds a prefix of, and what a lookup uses. An
+entity is the unit a `SCAN` is bound to, whatever kind of source holds it: `blue-data` records the
+same five levels for a SQL database, a document store, and a graph.
 
-### What the logical planner reads
+A catalog record's column is an attribute, following `blue-data`. A table moving between fragments
+keeps the word column, since a fragment passes tables of rows whatever kind of source produced them
+([08-coding-style.md](08-coding-style.md#naming)).
+
+### What the logical planner reads first
 
 `CatalogPreview` carries source-level records and nothing below them.
 
@@ -833,67 +856,107 @@ The list is ranked against the request text and capped, and `total_sources` says
 whole registry or a sample. A source that has never been enriched renders with a name and a kind
 alone, and planning still works with less to go on.
 
+The preview tells the logical planner what the registered data could offer, which is worth knowing
+even for a request answered from the model's own world knowledge. It names no entity and no
+attribute, so a plan that scans registered data is written against what a `DISCOVER` node found
+rather than against the preview
+([04, logical planning](04-detailed-architecture.md#1-logical-planning)).
+
 A `description` of `None` is what says nobody wrote one. A registry stores an empty string where
 enrichment never ran, and an empty field should not travel into a prompt as though it were a
 description, so every reading below renders one as absent.
 
-`kind` is the connection protocol `blue-data` records at registration, so it is available without
-enrichment and without a search. It is what tells the physical planner whether a Text-to-SQL
-operator can run a fragment scanning this source.
-
 ### What a search returns
+
+A search hits an entity, and the match carries that entity together with every attribute it holds.
 
 ```python
 @dataclass(frozen=True)
-class CatalogMatch:
-    path: str          # the full path of the record that matched
-    level: str         # source, database, collection, entity, or attribute
+class AttributeRecord:
+    name: str
+    dtype: str
+    description: str | None
+
+
+@dataclass(frozen=True)
+class EntityMatch:
+    path: str                          # the entity's full catalog path
     name: str
     description: str | None
+    source_kind: str                   # "sql/sqlite", read from the source record above it
+    attributes: list[AttributeRecord]
     score: float
-    search_term: str   # which term found it
+    search_term: str                   # which term found it
 ```
 
-`search_records` takes one query string and returns the catalog records that match it, ranked. A
-discovery node that expands into several terms calls it once per term.
+The full attribute list is what makes a declared column name a fact rather than a guess. A logical
+planner that has seen `customers -> CustomerID, Currency, Segment` writes `required_output_columns`
+from those names, and the check `execute_physical_operator` runs against them has something real to
+pass ([declared output columns](#declared-output-columns)).
 
-`score` is the registry's own relevance score, where a higher number is a better match, and the list
-is ordered by it. The list is capped rather than filtered, so a weak match appears at the bottom
-rather than not at all (ADR-021).
+`source_kind` rides on the match because it is what decides which operators may run a fragment
+containing a `SCAN` over this entity. It is recorded on the source record rather than on the entity
+record, and the search reads it from there.
+
+`search_records` takes one query string and returns the entities that match it, ranked. A discovery
+node that expands into several terms calls it once per term. `score` is the registry's own relevance
+score, where a higher number is a better match, and the list is ordered by it. The list is capped
+rather than filtered, so a weak match appears at the bottom rather than not at all (ADR-021).
+
+An entity is found by its own name and description. Reaching one through an attribute's name or
+through a value stored in it is not something the search offers, so a request whose vocabulary
+matches only an attribute needs a term the entity itself answers to.
 
 ### What the fragment runner reads
 
-A `ColumnView` annotates a column the runner already knows about. The authoritative list of columns
-comes from the input tables themselves, which the runner reads directly: every column, its values'
-type, the row count, and a sample of rows. A view adds what only the catalog knows, over the whole
-column rather than over a sample. The runner asks for the views of the columns its fragment touches
-in one call, so the prompt carries only what that fragment needs.
+The runner reads its fragment's scans from the catalog and its inputs from the tables themselves.
 
-| Field | Holds | From |
+| Source of names | Carries | For |
 | --- | --- | --- |
-| `ref` | Which column this describes | The fragment, resolved to a catalog path |
-| `dtype` | The declared type | The attribute record |
-| `description` | The enrichment description, where one exists | The attribute record |
-| `sample_values` | A few values as they are actually spelled | The statistics collected over the column |
-| `distinct_count`, `null_count`, `min`, `max` | Value counts and range | The same |
-| `semantic_type` | The meaning inferred for the column's values, which is what says a column holds short codes rather than readable words | The value semantics the registry recorded |
+| An `AttributeView` per attribute of each entity in `scan_sources` | Name, type, description, sample values, counts, range, inferred meaning | An attribute the fragment is about to scan |
+| The input tables | Column names, their values' type, the row count, and a sample of rows | A table an earlier fragment produced |
 
-`semantic_type` is what tells the runner a column holds short codes instead of readable words, so it
-writes a filter against `"PRIJEM"` instead of guessing at `credit`.
+A fragment whose frontier is empty has no input tables, which is the ordinary shape for pushdown, so
+the catalog is the only thing that can name its columns. A fragment reading an input table needs no
+catalog call for it: the rows in hand are better evidence than a record describing the attribute as
+it was scanned, and whole-column counts taken before a filter ran would describe a table that no
+longer exists. Input columns are therefore read from the table and annotated from nowhere.
 
-A column whose statistics were never collected still gets a view, carrying its type and whatever
-else the record holds. Absence and corruption are told apart: no record at all is a column with no
-view, and a record that exists but cannot be read as one — a declared type missing, or statistics
+The views cover every attribute of the entities the fragment scans, rather than a chosen few. Which
+attributes it will name is the decision the runner has yet to take when it reads them. They cover
+its own scans rather than the run's whole catalog context, which would put entities the fragment
+cannot reach in front of the model.
+
+```python
+@dataclass(frozen=True)
+class AttributeView:
+    ref: AttributeRef
+    dtype: str
+    description: str | None
+    sample_values: list[Any]
+    distinct_count: int | None
+    null_count: int | None
+    min: Any | None
+    max: Any | None
+    semantic_type: str | None
+```
+
+`sample_values` is what a filter's values are written from. In `debit_card_specializing`,
+`customers.Segment` holds `SME`, `LAM`, and `KAM`, and a runner writing a filter for "small and
+medium enterprises" without having seen those three produces a query returning zero rows and no
+error. `semantic_type` says what the registry inferred the values mean, and it is read alongside the
+samples rather than instead of them.
+
+The view carries the first three of the attribute's stored sample values and caps nothing else. That
+one cap is where a wide entity's cost is controlled: annotating all 115 attributes of a match-events
+table in full runs to hundreds of kilobytes, and almost all of it is a handful of attributes holding
+long text rather than the attribute count.
+
+An attribute whose statistics were never collected still gets a view, carrying its type and whatever
+else the record holds. Absence and corruption are told apart: no record at all is an attribute with
+no view, and a record that exists but cannot be read as one — a declared type missing, or statistics
 that are not statistics — is a corrupt registry and raises
 ([06-library.md](06-library.md#errors)).
-
-A column with no view is still a column. It appears in the input table's column list with its type
-and its sample values, and only the annotation is missing, so nothing about it reads as absent. Two
-kinds of column have none. One an operator generated has no registry record at all, which is why a
-column a model wrote and a semantically derived column never resolve. One arriving on the frontier
-may have a record, but reaching it means tracing back through the cover to whichever fragment
-scanned it, and how far to trace is open question 3 in
-[13-decision-log.md](13-decision-log.md#open-questions).
 
 ---
 

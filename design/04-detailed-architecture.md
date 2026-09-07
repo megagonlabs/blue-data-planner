@@ -52,8 +52,8 @@ can be found and repaired on its own ([section 5](#5-recovering-from-a-failure))
 | Stage | Question | Component | Reads | Runs |
 | --- | --- | --- | --- | --- |
 | Logical planning | What is the user asking for | `LogicalPlanner` | The request and a preview of the catalog | Once per pass |
-| Physical planning | How much of the plan does each operator take on, and against which source | `PhysicalPlanner` | The plan, what each operator declares, and what the catalog holds | Once per pass, over the whole plan |
-| Fragment execution | What parameters does it run with, and was the result any good | `FragmentRunner` | The rows its inputs produced | Once per fragment, during execution |
+| Physical planning | How much of the plan does each operator take on, and against which entity | `PhysicalPlanner` | The plan, what each operator declares, and the entities discovery found | Once per pass, over the whole plan |
+| Fragment execution | What parameters does it run with, and was the result any good | `FragmentRunner` | The rows its inputs produced, and a view of every attribute of the entities it scans | Once per fragment, during execution |
 
 A stage is a step of planning; the component beside it is the class that carries the step out, and
 the three together are the planning components.
@@ -115,7 +115,7 @@ pass ends and the logical planner writes a continuation
 | Control node | Waits for | Gives the planner |
 | --- | --- | --- |
 | `REPLAN` | The results of the nodes it lists | Those results, so the rest of the plan can be written against real columns and values |
-| `DISCOVER` | The same, and it may list none | Catalog records found by searching the registry, so a later `SCAN` can name a source |
+| `DISCOVER` | The same, and it may list none | The entities a registry search found, each with every attribute it holds, so a later `SCAN` can name a source and declare real column names |
 
 Only `DISCOVER` does work of its own, and none of it is an operator call
 ([section 4](#resolving-a-discovery-node)).
@@ -130,10 +130,19 @@ plain-language description `blue-data` enrichment wrote for it, where one exists
 against the request text and capped, and it reports the total number of registered sources, so the
 planner can tell a complete list from a sample.
 
-That is deliberately less than the registry holds. Tables, columns, and types are one search away,
-and putting them all in every prompt would make the prompt grow with the registry instead of with
-the request. The preview has one decision to support: whether the sources this request needs are
-already visible.
+That is deliberately less than the registry holds. Entities, attributes, and types are one search
+away, and putting them all in every prompt would make the prompt grow with the registry instead of
+with the request. What the preview supports is a prior: it tells the planner what the registered
+data could offer, which is worth knowing even for a request the planner then answers from the
+model's own world knowledge.
+
+What it cannot support is a plan over registered data. Nothing at the source level says which
+entities exist or what attributes they hold, and a `SCAN` naming an entity nobody searched for
+declares columns the model invented. So a request touching registered data is planned at least
+twice: the first pass writes one `DISCOVER` node per thing the request needs found, and the
+continuation is written against what those searches returned
+([section 4](#resolving-a-discovery-node)). A first plan carrying no `DISCOVER` node is one the
+planner judged answerable from world knowledge alone.
 
 The planner produces a `LogicalPlan` as structured output. The model fills a response schema built
 from the node schemas, so a plan naming an invented operation never reaches validation: a provider
@@ -148,11 +157,12 @@ physical planning runs. A plan that stops at its scans and defers the rest has n
 and the pushdown decision never comes up.
 
 The prompt therefore asks for a complete plan, from `SCAN` through `RETURN`, whenever the planner
-has enough to write one. A control node is for the case where it genuinely does not: the request
-needs data the preview does not show, or the shape of the remaining work depends on columns nobody
-has seen yet.
+has enough to write one. Over registered data that is the continuation, written once the searches
+have returned. A control node is for the case where the planner genuinely cannot write the rest: the
+entities a scan would read have not been found yet, or the shape of the remaining work depends on
+values nobody has seen.
 
-Nothing in validation enforces this. A plan that ends at a control node on its first pass is valid,
+Nothing in validation enforces this. A plan that ends at control nodes on its first pass is valid,
 and so is one with no control node at all, which is what a request answerable from the model's own
 world knowledge looks like.
 
@@ -162,9 +172,15 @@ world knowledge looks like.
 with the validation error appended, up to a fixed number of corrections. The rejected plan and its
 error both stay in the session, so a run that ends in `invalid_plan` shows what was attempted.
 
-Validation accepts two plan shapes: exactly one `RETURN` node, or a terminal control node and no
-`RETURN` at all. The `RETURN` arrives in a continuation. A plan carrying a control node and a
+Validation accepts two plan shapes: exactly one `RETURN` node, or one or more terminal control nodes
+and no `RETURN` at all. The `RETURN` arrives in a continuation. A plan carrying a control node and a
 `RETURN` after it is rejected, since the planner cannot both defer the ending and write it.
+
+A pass may end on several terminal control nodes, and that is the ordinary shape for a request
+needing two or more　things found. "Find data scientist openings at Fortune 500 companies" needs a list of
+those companies and a job postings source, and neither search narrows the other, so making the
+second wait a pass for the first would buy nothing. Every node has to reach one of the terminal
+control nodes; which one is not fixed.
 
 ---
 
@@ -223,6 +239,19 @@ pushdown decision itself. A rule that always absorbs the maximum would settle in
 question the planner is there to answer. Greedy maximal matching stays available as a model-free
 baseline.
 
+One covering operation is one conversation, and each binding decision is a turn in it. The run's
+catalog context sits in the system message, so it is sent once rather than once per node, and the
+model deciding a binding knows what it bound a moment earlier. A repair starts a fresh conversation
+instead of continuing the old one: a cover is written whole and never patched into an older one, so
+the reasoning that produced a superseded cut should not sit in front of the model as though it still
+applied. What happened is carried in the new system message as structured facts — for each node with
+a result, the fragment and operator that produced it and the output's row count and column names,
+and on a repair the failed fragment's node set, the operator bound to it, why it failed, and which
+operators have already been tried on that node set. Row counts are there because absorbing a node
+that already ran throws its result away and pays for the work again, and how much that costs is how
+many rows are discarded ([the cover repair](#the-cover-repair)). Rows themselves stay out: the
+physical planner chooses boundaries and operators, and values are the fragment runner's reading.
+
 Along with the fragment and its operator, the model writes three things.
 
 | Written during physical planning | Why then |
@@ -233,9 +262,15 @@ Along with the fragment and its operator, the model writes three things.
 
 The response schema for one of these calls is built from that call's candidates, the same way an
 operator's `parameter_schema` is built from that operator. A candidate set with no `SCAN` in it has
-no place in the schema to name a source, and where a scan does appear the paths the catalog offers
-become the allowed values. An impossible choice never appears as an option, so nothing has to reject
-it afterwards.
+no place in the schema to name a source, and where a scan does appear the allowed values are the
+entity paths the run's catalog context holds. An impossible choice never appears as an option, so a
+provider enforcing the schema strictly cannot invent a path. Validation checks every bound path
+against the same context, which is what catches one on a provider that does not
+([06-library.md](06-library.md#checking-a-plan)).
+
+The physical planner takes no reading of the catalog of its own. A path reaches it because a
+`DISCOVER` node found it, so the entities a cover may bind a scan to are exactly the entities the
+run has searched for.
 
 Everything else waits for execution. Column names, types, and rows are not known until the upstream
 fragments have run, and the parameters that depend on them are written then
@@ -278,12 +313,17 @@ frontier receives an empty bundle, which is what a scan rooted at a source gets.
 3. Review the result.
 
 The parameters are written here rather than during physical planning because this is the first point
-where the data exists. The runner sees the input tables' columns, their row counts, and a sample of
-rows. For the columns the fragment touches it also sees catalog values: sample values as they are
-actually spelled, and whether `blue-data` inferred that a column holds short codes instead of
-readable words. A transaction-type column storing `PRIJEM` where a reader would expect `credit` is
-one. That is what lets the runner write `values: ["San Francisco", "Palo Alto"]` instead of
-guessing at how a column spells its contents.
+where the data exists. The runner reads its column names from two places, and neither is a guess.
+The input tables carry theirs directly, with their row counts and a sample of rows. For each entity
+the fragment scans, the runner reads a view of every attribute: its name, its type, its description,
+and a few of its values as they are actually spelled
+([10-data-model.md](10-data-model.md#what-the-fragment-runner-reads)).
+
+The scanned side needs the catalog because a fragment doing its own scanning has no input table to
+read from, which is the ordinary shape for pushdown. The values are what the catalog alone can give:
+a transaction-type column storing `PRIJEM` where a reader would expect `credit`, or a segment column
+holding `SME` where the request says "small and medium enterprises". Without them the runner writes
+a query that returns zero rows and reports no error.
 
 An operator that runs deterministically still sits inside a fragment that does not. A built-in
 filter does what its parameters say and nothing more, but a model wrote those parameters from an
@@ -368,7 +408,7 @@ A control node ends the pass, and so does recovery that has run out of repairs
 | Trigger | What the planner reads |
 | --- | --- |
 | A `REPLAN` node became ready | The node's instruction, and the results its inputs produced |
-| A `DISCOVER` node became ready | The node's instruction, and the catalog records the search found |
+| A `DISCOVER` node became ready | The node's instruction, and the entities the search found, each with its attributes |
 | Recovery reached the replan | The review's assessment of what could not be done |
 
 A failure reason stays at the level the planner works in. It says what could not be done, not which
@@ -382,27 +422,57 @@ parameter schema to fill. `CatalogSearcher` does the whole job, and its output g
 instead of to a downstream node.
 
 It reads the node's instruction and, when the node has inputs, the tables those inputs produced. A
-model turns the two into concrete search terms. An instruction reading "find press release documents
-for each company in the input" over a table of company names becomes one search term per company.
-The number of terms one node may expand into is capped.
+model turns the two into concrete search terms, and the number of terms one node may expand into is
+capped.
 
 Each term goes to `blue-data`'s registry search through `data/`, which ranks catalog records by
 keyword match, value match, and vector similarity together. Vector similarity needs a vector source
 and an embedding function; without them the search still runs on the other two signals.
 
-What comes back is a list of catalog records, each with its path, its level, its description, and
-the term that found it. The run keeps them under the node's id, and the planner reads them when it
-writes the continuation. Nothing is converted into rows, and no operator call is spent.
+The search runs at one level, the entity, because that is the unit a `SCAN` is bound to. A hit
+returns that entity together with every attribute it holds: each attribute's name, its type, and the
+description enrichment wrote for it
+([10-data-model.md](10-data-model.md#what-a-search-returns)). The run keeps the hits under the
+node's id, and every resolved node's hits together are the run's catalog context. Nothing is
+converted into rows, and no operator call is spent.
 
-Because those records carry full catalog paths, the continuation is the first plan whose scans can
-be bound to a source. That is what a discovery node buys, and why a request over unknown sources
-reaches pushdown one pass later than a request over familiar ones.
+The attribute list is why discovery answers more than "which source." A continuation written against
+it names a source for each `SCAN`, and it also declares each node's output columns from names the
+registry holds rather than from names the model read out of an entity's description. That is what a
+discovery node buys, and why a request over registered data reaches pushdown one pass later than a
+request the planner answers from world knowledge.
+
+### What a discovery node's inputs are for
+
+A `DISCOVER` node's inputs narrow the search vocabulary. The rows an earlier node produced tell the
+searcher which words and which domain to search in, and the terms it writes are better for having
+seen them.
+
+What they do not do is turn discovery into a lookup. A node returns a bounded set of entities
+whatever its inputs hold, never one match per input row, and this is a permanent exclusion rather
+than a scope cut. Two reasons.
+
+| | Narrowing the vocabulary | One search per input row |
+| --- | --- | --- |
+| Returns | A bounded set of entities and their attributes | A row-to-record mapping, sized by the input |
+| What the term cap costs | Fewer search terms, so a weaker prior | Rows that were never searched at all |
+
+A cap on a per-row lookup produces a wrong answer rather than a degraded one, and no threshold
+suggests itself: 500 input rows against any cap leaves most rows unsearched, while the same cap on a
+vocabulary-narrowing search only weakens the prior. And what discovery returns is carried by every
+planning prompt for the rest of the run, so a mapping of 500 companies to document paths would be
+data travelling as context.
+
+A request genuinely needing a per-row catalog lookup is asking for a data operation, whose results
+enter the data flow, are billed against the operator budget, and go through review and repair like
+any other. Whether the operator vocabulary gains one is an open question
+([13-decision-log.md](13-decision-log.md#open-questions)).
 
 ### Writing a continuation
 
 Returning to the planner does not discard the run. `DataPlanner` calls the logical planner again
-with the request, the catalog preview, the nodes that already succeeded, any catalog records
-discovery found, and the reason the pass ended.
+with the request, the catalog preview, the nodes that already succeeded, everything discovery
+found, and the reason the pass ended.
 
 What comes back is a continuation: new nodes covering the remaining work, whose input ids may point
 at nodes that already ran.
@@ -481,8 +551,12 @@ wrong.
 ### The fragment repair
 
 The physical planner covers the failed fragment's node set again, with the failure reason in
-context. It may bind a different operator to the same set, or cut the set into smaller fragments,
-which is the fix for a fragment that absorbed more than its operator could carry out.
+context. It may bind a different operator to the same set, cut the set into smaller fragments, which
+is the fix for a fragment that absorbed more than its operator could carry out, or bind a `SCAN` in
+it to a different entity, which is the fix for a search that returned several plausible ones and a
+cover that picked the wrong one. The last of those is why this repair reads the run's catalog
+context and not only the cover it is replacing: the cover holds the one entity already chosen, and
+the alternatives are in the context.
 
 Attempts are counted against the node set. Covering it again either keeps the set, which spends
 another attempt against it, or produces smaller sets, each of which starts its own count. Splitting

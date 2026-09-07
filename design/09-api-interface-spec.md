@@ -117,9 +117,7 @@ planner = DataPlanner(
     logical_planner=LogicalPlanner(
         llm_client=big_model, catalog=catalog, max_plan_corrections=5
     ),
-    physical_planner=PhysicalPlanner(
-        llm_client=small_model, catalog=catalog, router=router
-    ),
+    physical_planner=PhysicalPlanner(llm_client=small_model, router=router),
     fragment_runner=FragmentRunner(
         llm_client=small_model, catalog=catalog, router=router, max_parameter_attempts=3
     ),

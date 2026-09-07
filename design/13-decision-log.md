@@ -582,14 +582,72 @@ them out of the way rather than relying on their defaults.
 
 ---
 
+## ADR-022 — Catalog Detail Below the Source Level Enters Only Through `DISCOVER`
+
+**Decision:** A `DISCOVER` node is the one way a run learns anything below the source level. The
+search runs at the entity level, and a hit returns that entity together with every attribute it
+holds: each attribute's name, its type, and the description enrichment wrote for it. What every
+resolved node found, taken together, is the run's catalog context. The logical planner writes its
+continuation against it and the physical planner binds each `SCAN` to an entity named in it, so
+neither searches the registry itself.
+
+A `DISCOVER` node's inputs narrow the vocabulary the searcher writes terms in. A node returns a
+bounded set of entities whatever its inputs hold, never one match per input row.
+
+The fragment runner takes a second, deeper reading, and only of the entities its own fragment scans:
+every attribute of each, with sample values, counts, range, and inferred meaning
+([10-data-model.md](10-data-model.md#4-catalog-readings)).
+
+**Rationale:** The catalog preview names sources and nothing under them, so nothing in a first pass
+says which entities exist or what they hold, and a plan cannot be written against data whose shape
+is unknown. Discovery is what supplies that shape, and the shape has to include the attribute list.
+A planner handed the matched entity record alone writes `required_output_columns` from the entity's
+description, `execute_physical_operator` fails the call on a column the result does not carry, and
+the parameter repair cannot converge because every rewrite repeats the same guess. The whole list
+makes a declared column name a fact.
+
+The entity is the level to search because it is the unit a `SCAN` is bound to, and because
+`blue-data` records the same five levels for every source kind, so one rule covers a SQL database, a
+document store, and a graph without a second rule for each.
+
+One search per input row was weighed and refused permanently rather than deferred. A cap on it
+produces a wrong answer rather than a degraded one — 500 input rows against any cap leaves most rows
+unsearched, while the same cap on a vocabulary-narrowing search only weakens the prior — and the
+mapping it returns would be carried by every planning prompt for the rest of the run, which is data
+travelling as context. A request that genuinely needs a per-row lookup is asking for a data
+operation, whose results enter the data flow and are billed and reviewed like any other (question
+47).
+
+The two readings are split by shape rather than by degree. An attribute list is broad and shallow,
+so a run can carry it everywhere; a per-attribute view is narrow and deep, and its size is set by
+how long the stored sample values are, so it is read for one fragment and goes no further.
+
+**Consequences:** A request touching registered data plans at least twice, and a first plan carrying
+no `DISCOVER` node is one the planner judged answerable from world knowledge alone. A first pass may
+end on several terminal control nodes, since two things needing to be found do not have to be found
+one pass apart, so validation and reachability admit more than one
+([04](04-detailed-architecture.md#validation)).
+
+An entity is found by its own name and description. A search cannot reach one through an attribute's
+name or through a value stored in it, so a request whose vocabulary matches only an attribute needs
+a term the entity itself answers to.
+
+The attribute list travels in every planning prompt for the rest of the run, which is what keeps
+`max_search_results` small and what makes the per-attribute view's sample-value cap the place a wide
+entity's cost is controlled ([06-library.md](06-library.md#datacatalog)).
+
+A path reaching a cover is a path a `DISCOVER` node found, so `validate_physical_plan` can check
+every bound path against the catalog context and refuse one a model invented.
+
+---
+
 ## Open Questions
 
 Design questions first, then defects in code that exists today.
 
 | # | Question | Blocks |
 | --- | --- | --- |
-| 2 | How often do plans actually schedule a replan? If rarely, the limit can be low; if it is most requests over discovered sources, planning is two-pass in practice and the design should say so. The TAG-Bench harness reports it ([11-testing-strategy.md](11-testing-strategy.md)), so what is left is running it. | The `PlanLimits` defaults |
-| 3 | Which of a fragment's columns can be resolved to a `ColumnRef`, so the fragment runner sees the catalog's `distinct_count`, `min`, `max`, and `semantic_type` for it? A fragment's `scan_sources` names a catalog path for each `SCAN` it contains, so a column of a table the fragment itself scans resolves without ambiguity. A column arriving on the frontier does not: resolving it means tracing back through the cover to whichever fragment scanned it. Three rules are on the table. The narrow one resolves only the fragment's own scans, and is safe because its failure is missing information rather than wrong information. The middle one traces through fragments built only from the kinds that leave columns unchanged, which are `FILTER`, `DISTINCT`, and `SORT_SUPERLATIVE`, and stops at any fragment containing `PROJECT`, `EXPAND`, `AGGREGATE`, `JOIN`, or `SCAN`. The wide one traces by column name regardless of kind, and can put a scanned column's statistics in front of a model for a column a `PROJECT` quietly redefined. The narrow rule loses the case a lone `FILTER` over scanned rows presents, which is the shape TAG-Bench produces most, so the choice is worth measuring rather than guessing. | What the fragment runner sees when it writes parameters for a fragment that scans nothing ([06-library.md](06-library.md#fragmentrunner)) |
+| 3 | Would annotating a frontier column from the catalog earn its risk? The fragment runner reads a view of every attribute of the entities its own fragment scans, and reads a column arriving on the frontier off the input table it came in on, which carries names, types, and a sample of rows (ADR-022). A frontier column may also have a catalog record, and reaching it means tracing back through the cover to whichever fragment scanned it. Tracing through fragments built only from the kinds that leave columns unchanged — `FILTER`, `DISTINCT`, `SORT_SUPERLATIVE` — is safe, while tracing by name regardless of kind can put a scanned attribute's statistics in front of a model for a column a `PROJECT` redefined. What is unmeasured is whether whole-column statistics add anything the sample rows do not, for a column the run already holds rows for. The first release annotates neither way. | Whether a `FILTER` running alone over rows an earlier fragment scanned sees catalog statistics as well as its input's rows ([10-data-model.md](10-data-model.md#what-the-fragment-runner-reads)) |
 | 6 | Should a result stay valid when only the cut around it changed? A continuation reading a node a fragment absorbed forces that fragment to be dropped and every node in it to run again, even the ones whose logical inputs did not change ([04, what reading an absorbed node costs](04-detailed-architecture.md#what-reading-an-absorbed-node-costs)). Two ways out. Keying validity on a node's upstream logical nodes rather than on the shape of the cover would save the downstream work. Dropping the disjointness rule would let a continuation build its own fragment over `SCAN`, `FILTER`, and the new node while the earlier fragment keeps its result, at the price of running the same scan twice and of giving up the property that each node runs exactly once, which is what makes an attempt list readable as a record of where each pushdown boundary was drawn. Both carry the same consistency risk: a saved result from a fused call sitting beside newly materialized rows from a different cut, so two nodes in one plan could hold values their operators never agreed on. | Whether a failure-driven replan pays for a whole fused call a second time, and whether the attempt record still answers where the boundary was |
 | 7 | When a control node's inputs all have results and a fragment is also ready, which runs first? Running the fragments first gives the logical planner more results to write the continuation against, and costs nothing in wasted work, since a new logical version carries over every node the run has something for. Firing the control node first can save operator calls on a branch the continuation turns out not to need, at the price of planning against less. [06-library.md](06-library.md#the-run-loop) leaves `next_ready` free to do either, and nothing has measured which is better. | How much a `DISCOVER` node costs on a plan with parallel branches |
 | 8 | Should a fragment pattern be allowed to constrain the order of the nodes it covers? `logical_operators` is a set, so a candidate is any connected convex subgraph built from those kinds, and an operator that can only absorb a filter *after* a scan has no way to say so. No declared operator's capability depends on the order of the nodes it covers, so a set says everything a declaration needs to. | Whether an operator whose capability depends on node order can be declared at all |
@@ -606,3 +664,5 @@ Design questions first, then defects in code that exists today.
 | 44 | Can an operator declare that every scan in one fragment reads the same source? `source_kinds` is a set of kinds and says nothing about identity, and `scan_sources` binds each `SCAN` in a fragment separately, so nothing stops a cover from handing one operator two databases. `blue.nl2sql` needs the constraint, since one SQL query cannot span two of them, while `builtin.nl2table` deliberately lacks it and covering such a fragment is the point of it. Without a way to declare the difference the constraint lives in `limitations` as plain language, and a candidate that cannot work is offered anyway. This is question 8's family: a capability the declaration has no vocabulary for. | Whether an operator limited to one source at a time can be declared at all, or is offered candidates it has to refuse |
 | 45 | Are `builtin.scan`'s two bind-join caps a bound of ADR-014's kind? `PlanLimits` holds every other bound the system obeys, and a cap on the distinct values a bind join carries is shaped the same way, but it lives inside one operator's choice of realization rather than at the run loop's level, and the two numbers in force — 10 for one call per value, 100 for an `IN` list or a temporary table ([06](06-library.md#data)) — are placeholders set low enough not to break a run rather than measured against real bind-join volumes. A `PlanLimits` field would let a deployment raise either past a default nobody has tested; leaving both inside `builtin.scan` keeps the operator, which already sees how many rows travel and chooses the realization on that basis, the one thing that decides the number too. | Whether a bind-join cap is configurable per deployment or fixed inside the operator, and what real volumes call for |
 | 46 | Who removes a table a bind join wrote into a source, and when? The temporary-table realization carries a reference input's values into a source by writing a table through the source object rather than by embedding them in the query text ([06-library.md](06-library.md#data)), and nothing says what becomes of that table once the call returns. Three places could own it. The operator that wrote it, dropping it before the call returns, which is the narrowest scope and the only one that still holds when a run ends by raising. The run, dropping every table its fragments wrote when the request ends, which is what would let one written table serve several calls, at the price of leaving a table behind whenever the process dies first. Or the source's own session scope, where a table written into a session-scoped namespace or inside a transaction disappears when the connection closes, which costs nothing to implement and is available only where a source kind offers it — so it cannot be the whole answer for a boundary that reads several kinds. The choice also settles whether two runs writing into one source can collide on a table name, which the first two answer with a per-run name and the third answers by construction. What constrains all three is that a request must leave nothing behind in a source a caller owns, on the failing path as much as on the succeeding one. | Whether the temporary-table realization can be offered outside a benchmark, and what `builtin.scan` does when a call it wrote a table for fails (ADR-020) |
+| 47 | Should the operator vocabulary gain a node that looks the catalog up once per input row? ADR-022 keeps a `DISCOVER` node to a bounded set of entities however many rows it was handed, so a request such as "find the press release document for each of these 500 companies" has nowhere to go: that lookup is per row, what it returns is data rather than context, and it should be billed against the operator budget and reviewed like any other data operation. An operator node would give it all three. Against adding one: none of the ten logical operators reads the catalog, so this would be the first, and what it returns — paths rather than values — is a kind of row nothing else in a plan produces. How often a request needs one is unmeasured. | Whether a per-row catalog lookup is expressible at all, and whether the logical vocabulary stays as it is |
+| 48 | Which component reads a `relation` record when a plan scans a knowledge-base source? `blue-data` records relations alongside entities and attributes, each with a name, a source, and a target, and nothing in this design reads one. A `JOIN` is the obvious consumer, since a relation says which attributes join two entities, and it could arrive as part of the run's catalog context or as part of the fragment runner's deeper reading. What stops the question being answered for tables alone is that relations are the structure a knowledge-base source carries, and how this planner reads a knowledge base is itself unsettled, so an answer shaped for two SQL tables would likely be the wrong shape for a graph. | Whether a `JOIN` is written against a declared relation or against column names a model matched up, and what a knowledge-base source contributes to a plan |
