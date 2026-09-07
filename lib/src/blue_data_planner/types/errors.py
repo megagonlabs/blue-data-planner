@@ -53,5 +53,9 @@ class UnrecoverableOperatorError(BlueDataPlannerError):
         self.report = report
 
 
+class SourceQueryError(BlueDataPlannerError):
+    """A source was reached and refused the query."""
+
+
 class SourceUnreachableError(BlueDataPlannerError):
     """A registered source could not be connected to."""

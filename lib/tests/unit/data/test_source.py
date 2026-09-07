@@ -13,7 +13,7 @@ from blue_data.source.sql.sqlite.sqlite_sql_source import (  # pyright: ignore[r
 )
 
 from blue_data_planner.data import DataRegistry, connect_source, execute_query
-from blue_data_planner.types.errors import SourceUnreachableError
+from blue_data_planner.types.errors import SourceQueryError, SourceUnreachableError
 
 
 def a_registry_holding_a_retail_database(tmp_path: Path) -> DataRegistry:
@@ -98,3 +98,34 @@ def test_reading_a_source_the_registry_cannot_connect_to_raises_a_source_unreach
 
     with pytest.raises(SourceUnreachableError, match="absent"):
         read_the_source(registry)
+
+
+def a_source_returning(value: Any) -> Callable[..., Any]:
+    """Stand in for a source's own execute_query, handing back one fixed value."""
+
+    def execute_query_returning_the_value(**parameters: Any) -> Any:
+        return value
+
+    return execute_query_returning_the_value
+
+
+def test_a_query_naming_a_column_the_source_does_not_have_raises_a_source_query_error(
+    tmp_path: Path,
+) -> None:
+    """A query the source refuses carries what the source said, so a repair can read it."""
+    registry = a_registry_holding_a_retail_database(tmp_path)
+
+    with pytest.raises(SourceQueryError, match="no such column"):
+        execute_query(registry, "tag_bench", "SELECT nope FROM stores", "retail")
+
+
+def test_a_result_that_is_not_a_table_raises_rather_than_being_returned_as_one(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The Data annotation is checked, not assumed, because blue-data ships no types."""
+    registry = a_registry_holding_a_retail_database(tmp_path)
+    source: Any = connect_source(registry, "tag_bench")
+    monkeypatch.setattr(source, "execute_query", a_source_returning("not a table"))
+
+    with pytest.raises(ValueError, match="expected a list of rows"):
+        execute_query(registry, "tag_bench", "SELECT city FROM stores", "retail")
