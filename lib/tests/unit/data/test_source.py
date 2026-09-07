@@ -3,14 +3,17 @@
 from __future__ import annotations
 
 import sqlite3
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any, cast
 
+import pytest
 from blue_data.source.sql.sqlite.sqlite_sql_source import (  # pyright: ignore[reportMissingTypeStubs]
     SQLiteDBSource,  # blue-data ships no py.typed
 )
 
 from blue_data_planner.data import DataRegistry, connect_source, execute_query
+from blue_data_planner.types.errors import SourceUnreachableError
 
 
 def a_registry_holding_a_retail_database(tmp_path: Path) -> DataRegistry:
@@ -72,3 +75,26 @@ def test_a_connected_source_accepts_a_table_written_through_it(tmp_path: Path) -
     )
 
     assert rows == [{"city": "Reno"}]
+
+
+def reading_a_source_by_connecting(registry: DataRegistry) -> object:
+    return connect_source(registry, "absent")
+
+
+def reading_a_source_by_querying(registry: DataRegistry) -> object:
+    return execute_query(registry, "absent", "SELECT 1 AS one", "retail")
+
+
+@pytest.mark.parametrize(
+    "read_the_source",
+    [reading_a_source_by_connecting, reading_a_source_by_querying],
+    ids=["connect_source", "execute_query"],
+)
+def test_reading_a_source_the_registry_cannot_connect_to_raises_a_source_unreachable_error(
+    tmp_path: Path, read_the_source: Callable[[DataRegistry], object]
+) -> None:
+    """A name the registry holds no connectable source for is an error, not an empty result."""
+    registry = a_registry_holding_a_retail_database(tmp_path)
+
+    with pytest.raises(SourceUnreachableError, match="absent"):
+        read_the_source(registry)

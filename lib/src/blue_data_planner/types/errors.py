@@ -51,3 +51,7 @@ class UnrecoverableOperatorError(BlueDataPlannerError):
     def __init__(self, message: str, report: dict[str, Any] | None = None) -> None:
         super().__init__(message)
         self.report = report
+
+
+class SourceUnreachableError(BlueDataPlannerError):
+    """A registered source could not be connected to."""

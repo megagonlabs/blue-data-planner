@@ -8,6 +8,7 @@ from blue_data.registry.data_registry import (  # pyright: ignore[reportMissingT
     DataRegistry,  # blue-data ships no py.typed
 )
 
+from blue_data_planner.types.errors import SourceUnreachableError
 from blue_data_planner.types.plan import Data
 
 
@@ -16,7 +17,13 @@ def connect_source(registry: DataRegistry, source: str) -> Any:
     # The one untyped-library boundary (blue-data has no py.typed): delegate through Any so
     # unknown member types stop here, not in every caller.
     registry_calls: Any = registry
-    return registry_calls.connect_source(source)
+    connected: Any = registry_calls.connect_source(source)
+    if connected is None:
+        raise SourceUnreachableError(
+            f"Source {source!r} could not be connected to: the registry holds no connectable "
+            f"source under that name"
+        )
+    return connected
 
 
 def execute_query(
