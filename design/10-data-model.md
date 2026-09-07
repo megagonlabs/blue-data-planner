@@ -39,7 +39,7 @@ of a value; `kind` describes everything else, such as a node kind or a source ki
 ## What is not stored
 
 Writes through `data/` go to a source, never to storage of this system's own. A bind join pushes a
-session-scoped temporary table into a SQL source, and the insert operators write rows a caller asked
+temporary table into a SQL source, and the insert operators write rows a caller asked
 for; both belong to the source rather than here. Whether an operator may also register what it
 created, putting it in the catalog, is a `blue-data-ops` question rather than one this design
 settles. What a reader might expect to find stored and will not is under

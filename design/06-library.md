@@ -984,7 +984,7 @@ how it is realized.
 | Realization | Fits | What travels |
 | --- | --- | --- |
 | Values embedded in the query text, an `IN` list | A source with a predicate language, few enough distinct values | The values, inside the query `execute_query` runs |
-| A session-scoped temporary table | A source with a predicate language, many distinct values | A table, written through the object `connect_source` hands back, then joined against inside the source |
+| A temporary table | A source with a predicate language, many distinct values | A table, written through the object `connect_source` hands back, then joined against inside the source |
 | One call per value | A source with no predicate language: a document store, or an API answering one key at a time | Nothing but the key, once per distinct value, through `execute_query` called repeatedly |
 
 Choosing among the three is the operator's decision, not the planner's: the operator is what sees how
