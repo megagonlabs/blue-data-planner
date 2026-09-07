@@ -119,13 +119,24 @@ def test_a_query_naming_a_column_the_source_does_not_have_raises_a_source_query_
         execute_query(registry, "tag_bench", "SELECT nope FROM stores", "retail")
 
 
-def test_a_result_that_is_not_a_table_raises_rather_than_being_returned_as_one(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+@pytest.mark.parametrize(
+    "malformed_result, expected_message",
+    [
+        ("not a table", "expected a list of rows"),
+        ([{"city": "Reno"}, "not a row"], "expected a mapping"),
+    ],
+    ids=["not_a_list", "row_not_a_mapping"],
+)
+def test_a_malformed_result_raises_rather_than_being_returned_as_a_table(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    malformed_result: Any,
+    expected_message: str,
 ) -> None:
     """The Data annotation is checked, not assumed, because blue-data ships no types."""
     registry = a_registry_holding_a_retail_database(tmp_path)
     source: Any = connect_source(registry, "tag_bench")
-    monkeypatch.setattr(source, "execute_query", a_source_returning("not a table"))
+    monkeypatch.setattr(source, "execute_query", a_source_returning(malformed_result))
 
-    with pytest.raises(ValueError, match="expected a list of rows"):
+    with pytest.raises(ValueError, match=expected_message):
         execute_query(registry, "tag_bench", "SELECT city FROM stores", "retail")

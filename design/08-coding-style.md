@@ -294,12 +294,14 @@ status cannot read a failure as an empty answer.
 Catch specific types. Never bare `except:`. Let exceptions reach the interface boundary, and let
 each interface decide what to do with one.
 
-`except Exception:` is permitted in exactly one place: the source read in `data/`, around the call
-into the source and nothing else. A read reaches backends whose failures share no common type, so
-listing them means listing one per source kind, and the first one missed passes the boundary
-uncaught — where nothing can catch it, since no module outside `data/` may import the dependency it
-came from. A failure the design classes as recoverable would reach the caller as a crash. The
-boundary converts instead, naming the original error in its message and keeping it as the cause.
+`except Exception:` is permitted where a call crosses into a dependency reached over several
+backends or providers that share no common failure type — the source read in `data/`, the provider
+call in `llm/`. Listing each one's own exception type would mean listing one per backend or
+provider, and the first one missed would pass the boundary uncaught — where nothing can catch it,
+since no module outside the boundary may import the dependency it came from. A failure the design
+classes as recoverable would reach the caller as a crash. Both boundaries convert instead, naming
+the original error in its message and keeping it as the cause: the source read raises
+`SourceQueryError`, the provider call raises `LLMError`.
 
 | Interface | Handling |
 | --- | --- |

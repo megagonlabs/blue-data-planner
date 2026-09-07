@@ -21,7 +21,7 @@ def connect_source(registry: DataRegistry, source: str) -> Any:
     if connected is None:
         raise SourceUnreachableError(
             f"Source {source!r} could not be connected to: the registry holds no connectable "
-            f"source under that name"
+            "source under that name"
         )
     return connected
 
@@ -39,7 +39,7 @@ def execute_query(
         rows: Any = source_object.execute_query(
             query=query, database=database, collection=collection
         )
-    # blue-data reaches several backends and the DB-API defines no shared error base, so no
+    # blue-data reaches several backends whose failures share no common type, so no
     # narrower catch is available here.
     except Exception as error:
         raise SourceQueryError(
