@@ -958,6 +958,13 @@ def execute_query(
     database: str,
     collection: str | None = None,
 ) -> Data: ...
+def execute_write(
+    registry: DataRegistry,
+    source: str,
+    statement: str,
+    database: str,
+    collection: str | None = None,
+) -> None: ...
 ```
 
 A registry is a value this module hands out and takes back, and every call made on one happens here.
@@ -967,18 +974,19 @@ a registry of its own (ADR-004) — holds it without reading it.
 `open_registry` is how a registry enters, and it is the one way in. Reading the catalog is
 `DataCatalog`. Both are below.
 
-`execute_query` runs a query and returns its rows; `connect_source` hands back a live source object,
-which is what an operator writes through. Both are what `builtin.scan` needs, and together they are
-the whole of what a source-level read is for. Nothing here reads a source's schema or its
+`execute_query` runs a query and returns its rows; `execute_write` runs a statement that changes
+what a source holds and returns nothing; `connect_source` hands back the live source object both of
+them run through. All three are what `builtin.scan` needs, and together they are the whole of what
+this boundary offers over a source. Nothing here reads a source's schema or its
 properties: catalog detail below the source level reaches a run through `DataCatalog`, whose
 readings come from the catalog records rather than from the source.
 
-A read that fails does so in one of two ways, and they are told apart because a run answers them
+A call that fails does so in one of two ways, and they are told apart because a run answers them
 differently. A source the registry cannot resolve to a connectable object raises
 `SourceUnreachableError`, which no other query would have avoided. A source that was reached and
-refused the query raises `SourceQueryError`, which is what the parameter repair exists to rewrite.
-Anything else a read meets — a registry record that is not a record, a result that is not a table —
-is malformed state and raises as the bug it is.
+refused what it was sent raises `SourceQueryError`, which is what the parameter repair exists to
+rewrite. Anything else a call meets — a registry record that is not a record, a result that is not a
+table — is malformed state and raises as the bug it is.
 
 A source names a database, and a collection where its kind has them. One registered source can hold
 several databases, so `execute_query` cannot infer which one a query runs against — the benchmark
@@ -998,23 +1006,27 @@ how it is realized.
 | Realization | Fits | What travels |
 | --- | --- | --- |
 | Values embedded in the query text, an `IN` list | A source with a predicate language, few enough distinct values | The values, inside the query `execute_query` runs |
-| A temporary table | A source with a predicate language, many distinct values | A table, written through the object `connect_source` hands back, then joined against inside the source |
+| A temporary table | A source with a predicate language, many distinct values | A table, written through `execute_write`, then joined against inside the source |
 | One call per value | A source with no predicate language: a document store, or an API answering one key at a time | Nothing but the key, once per distinct value, through `execute_query` called repeatedly |
 
 Choosing among the three is the operator's decision, not the planner's: the operator is what sees how
-many rows travel and what the source can accept. Each realization caps the distinct values it will
+many rows travel and what the source can accept. Two of the three cap the distinct values they will
 carry, and an operator asked to carry more refuses the input rather than truncate it silently, which
 is a recoverable failure like any other input an operator cannot serve (ADR-015). One call per value
-carries the tightest cap, since every value is its own round trip: 10 distinct values. Values embedded
-in the query text or in a temporary table share a looser cap, since the source does its own filtering:
-100 distinct values. Both numbers are provisional, set low enough to bound a run rather than measured
-against real bind-join volumes.
+carries the tighter cap, since every value is its own round trip: 10 distinct values. Values embedded
+in the query text carry a looser one, since the source does its own filtering: 100 distinct values.
+Both numbers are provisional, set low enough to bound a run rather than measured against real
+bind-join volumes. A temporary table is capped by nothing, which is what it is for: without it a
+bind join into a source with a predicate language could never scale past an `IN` list.
 
-`connect_source` is what the temporary-table realization needs and the other two do not: embedding
-values in the query text and reading one value at a time both run through `execute_query` alone. The
-boundary has to permit the temporary table anyway, since without it a bind join into a source with a
-predicate language could never scale past an `IN` list, and pushing a table into a source is how a
-fragment reaches data another fragment produced.
+`execute_write` is what the temporary-table realization needs and the other two do not: embedding
+values in the query text and reading one value at a time both run through `execute_query` alone.
+Pushing a table into a source is how a fragment reaches data another fragment produced, so the
+boundary permits that write and no other.
+
+The operator that wrote such a table drops it before its call returns, on the failing path as much
+as on the succeeding one, under a name unique to the call, so a request leaves nothing behind in a
+source a caller owns (ADR-023).
 
 The second is ingestion, and the boundary refuses it. A registry reaches this package already
 populated, so `register_source` and the sync, statistics, and enrichment calls have no place here.
