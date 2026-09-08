@@ -49,6 +49,31 @@ def execute_query(
     return _as_table(rows, source)
 
 
+def execute_write(
+    registry: DataRegistry,
+    source: str,
+    statement: str,
+    database: str,
+    collection: str | None = None,
+) -> None:
+    """Run one statement that changes a source, committing it."""
+    source_object: Any = connect_source(registry, source)
+    try:
+        source_object.execute_query(
+            query=statement,
+            database=database,
+            collection=collection,
+            optional_properties={"commit": True},
+        )
+    # blue-data reaches several backends whose failures share no common type, so no
+    # narrower catch is available here.
+    except Exception as error:
+        raise SourceQueryError(
+            f"Source {source!r} refused the statement against database {database!r}: "
+            f"{type(error).__name__}: {error}"
+        ) from error
+
+
 def _as_table(rows: Any, source: str) -> Data:
     if not isinstance(rows, list):
         raise ValueError(
