@@ -915,13 +915,13 @@ an entry can express.
 `builtin.scan` is the suite's one source-reading deterministic entry, and it reads through `data/`.
 It declares `SCAN` alone: it absorbs no `FILTER` and no `PROJECT`, and either kind of node downstream
 of a scan runs as its own fragment, through the matching transform entry. What columns it asks the
-source for is its own implementation choice, informed by its node's `required_output_columns`
-([10](10-data-model.md#declared-output-columns)). That declaration only checks what must be present
-in the result and coerces it to type; it does not limit the result to those columns, so a wider row
-than the declaration names still passes. Narrowing to exactly a named set is `PROJECT`'s job, run as
-its own fragment when the plan asks for it. Given a reference input
-([10](10-data-model.md#how-many-inputs-a-node-takes)), `builtin.scan` binds that input's values into
-the read, which is the bind join of
+source for is its own implementation choice: `builtin.scan` always reads every column (`SELECT *`).
+Its node's `required_output_columns` declaration ([10](10-data-model.md#declared-output-columns))
+only checks what must be present in the result and coerces it to type; it does not limit the result
+to those columns, so a wider row than the declaration names still passes. Narrowing to exactly a
+named set is `PROJECT`'s job, run as its own fragment when the plan asks for it. Given a reference
+input ([10](10-data-model.md#how-many-inputs-a-node-takes)), `builtin.scan` binds that input's
+values into the read, which is the bind join of
 [04](04-detailed-architecture.md#what-an-operator-does-with-its-input); how a bind join reaches the
 source is `data/`'s question, taken up below. Its `source_kinds` name the kinds it reads and grow as
 more are implemented.

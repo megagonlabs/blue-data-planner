@@ -355,8 +355,13 @@ def test_a_drop_that_fails_fails_the_call_unrecoverably(
     failing_the_drop_with(monkeypatch, SourceQueryError("simulated drop failure"))
     inputs, parameters = bound_join_that_reads_through_a_table()
 
-    with pytest.raises(UnrecoverableOperatorError, match="left the table"):
+    with pytest.raises(UnrecoverableOperatorError, match="left the table") as excinfo:
         scanning(sqlite_registry, parameters, inputs)
+
+    # The failed DROP is the operator's most reportable failure, so it carries a report too.
+    assert excinfo.value.report is not None
+    assert excinfo.value.report["source"] == "tag_bench"
+    assert cast(str, excinfo.value.report["table"]).startswith("blue_bind_")
 
 
 def test_a_drop_that_fails_because_the_source_is_unreachable_still_names_the_left_over_table(

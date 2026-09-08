@@ -37,14 +37,6 @@ def test_a_statement_that_changes_a_source_outlives_the_connection_that_ran_it(
     assert rows == [{"city": "Reno"}]
 
 
-def test_a_statement_the_source_refuses_raises_a_source_query_error(
-    sqlite_registry: DataRegistry,
-) -> None:
-    """A refused write carries what the source said, so a repair can read it."""
-    with pytest.raises(SourceQueryError, match="no such table"):
-        execute_write(sqlite_registry, "tag_bench", "DROP TABLE absent_table", "retail")
-
-
 def reading_a_source_by_connecting(registry: DataRegistry) -> object:
     return connect_source(registry, "absent")
 
@@ -53,10 +45,14 @@ def reading_a_source_by_querying(registry: DataRegistry) -> object:
     return execute_query(registry, "absent", "SELECT 1 AS one", "retail")
 
 
+def reading_a_source_by_writing(registry: DataRegistry) -> object:
+    return execute_write(registry, "absent", "CREATE TABLE placeholder (c)", "retail")
+
+
 @pytest.mark.parametrize(
     "read_the_source",
-    [reading_a_source_by_connecting, reading_a_source_by_querying],
-    ids=["connect_source", "execute_query"],
+    [reading_a_source_by_connecting, reading_a_source_by_querying, reading_a_source_by_writing],
+    ids=["connect_source", "execute_query", "execute_write"],
 )
 def test_reading_a_source_the_registry_cannot_connect_to_raises_a_source_unreachable_error(
     sqlite_registry: DataRegistry, read_the_source: Callable[[DataRegistry], object]
@@ -75,12 +71,30 @@ def a_source_returning(value: Any) -> Callable[..., Any]:
     return execute_query_returning_the_value
 
 
-def test_a_query_naming_a_column_the_source_does_not_have_raises_a_source_query_error(
+def refusing_a_statement_by_writing(registry: DataRegistry) -> object:
+    return execute_write(registry, "tag_bench", "DROP TABLE absent_table", "retail")
+
+
+def refusing_a_statement_by_querying(registry: DataRegistry) -> object:
+    return execute_query(registry, "tag_bench", "SELECT nope FROM stores", "retail")
+
+
+@pytest.mark.parametrize(
+    "refuse_the_statement, expected_message",
+    [
+        (refusing_a_statement_by_writing, "no such table"),
+        (refusing_a_statement_by_querying, "no such column"),
+    ],
+    ids=["execute_write", "execute_query"],
+)
+def test_a_source_that_refuses_a_statement_raises_a_source_query_error(
     sqlite_registry: DataRegistry,
+    refuse_the_statement: Callable[[DataRegistry], object],
+    expected_message: str,
 ) -> None:
-    """A query the source refuses carries what the source said, so a repair can read it."""
-    with pytest.raises(SourceQueryError, match="no such column"):
-        execute_query(sqlite_registry, "tag_bench", "SELECT nope FROM stores", "retail")
+    """A reached source that refuses a statement carries what it said, so a repair can read it."""
+    with pytest.raises(SourceQueryError, match=expected_message):
+        refuse_the_statement(sqlite_registry)
 
 
 @pytest.mark.parametrize(

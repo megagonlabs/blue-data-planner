@@ -6,9 +6,6 @@ from pathlib import Path
 from typing import Any, cast
 
 import pytest
-from blue_data.source.sql.sqlite.sqlite_sql_source import (  # pyright: ignore[reportMissingTypeStubs]
-    SQLiteDBSource,  # blue-data ships no py.typed
-)
 
 from blue_data_planner.data import DataRegistry
 
@@ -23,6 +20,10 @@ sys.path.insert(0, str(Path(__file__).parent / "stubs"))
 @pytest.fixture
 def sqlite_registry(tmp_path: Path) -> DataRegistry:
     """Register one SQLite source over a directory holding retail.db and its two entities."""
+    from blue_data.source.sql.sqlite.sqlite_sql_source import (  # pyright: ignore[reportMissingTypeStubs]
+        SQLiteDBSource,  # blue-data ships no py.typed
+    )
+
     databases_dir = tmp_path / "databases"
     databases_dir.mkdir()
     connection = sqlite3.connect(databases_dir / "retail.db")

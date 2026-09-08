@@ -171,14 +171,6 @@ resolution path through `extraPaths`, so both the test run and the type check se
 
 ### Doubles
 
-A source that runs embedded is tested against a real instance rather than doubled: a test of a
-source read, a source write, or a bind join runs against it and checks what happened there — a
-table written, a table dropped again, the rows a query returned.
-
-The registry itself is not doubled. A `blue-data` registry runs in memory over records a test
-registers, and `data/` is what a test of the catalog readings is checking, so a double in its place
-would pin only itself. A test builds the registry it needs and reads it through `DataCatalog`.
-
 Three doubles serve the planner.
 
 | Double | Stands in for | Lets a test |
@@ -191,6 +183,13 @@ The scripted client is what makes planner tests deterministic and what keeps the
 section 1 asks for. A test of the parameter repair scripts a review that rejects and then one that
 accepts, and asserts that both attempts came back in the result. No provider is involved, no prompt
 is under test, and nothing in the test names a step the runner takes in between.
+
+Two boundaries are not doubled. A source that runs embedded is tested against a real instance
+instead: a test of a source read, a source write, or a bind join runs against it and checks what
+happened there — a table written, a table dropped again, the rows a query returned. The registry is
+not doubled either: a `blue-data` registry runs in memory over records a test registers, and `data/`
+is what a test of the catalog readings is checking, so a double in its place would pin only itself. A
+test builds the registry it needs and reads it through `DataCatalog`.
 
 ### Stubs
 

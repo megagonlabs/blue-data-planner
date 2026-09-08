@@ -195,8 +195,12 @@ class BoundValues(BaseModel):
 
     model_config = _STRICT
 
-    input_column: str = Field(min_length=1)
-    attribute: str = Field(min_length=1)
+    input_column: str = Field(
+        min_length=1, description="Column of the reference input carrying the values"
+    )
+    attribute: str = Field(
+        min_length=1, description="Entity attribute those values are matched against"
+    )
 
 
 class ScanParameters(BaseModel):
@@ -206,5 +210,11 @@ class ScanParameters(BaseModel):
 
     # The catalog path the cover bound this SCAN to, which is what
     # PhysicalPlanFragment.scan_sources holds for the node.
-    scan_source: str = Field(min_length=1)
+    scan_source: str = Field(
+        min_length=1,
+        description=(
+            "Catalog path of the entity to read, in the form "
+            "/source/{source}/database/{database}/collection/{collection}/entity/{entity}"
+        ),
+    )
     bound_values: BoundValues | None = None

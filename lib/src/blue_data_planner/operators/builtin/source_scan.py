@@ -153,7 +153,8 @@ def _drop_bound_values(registry: DataRegistry, entity: _EntityRef, table: str) -
         # catches both the source refusing the DROP and the source going unreachable during
         # it, so the "left the table" diagnostic survives either way.
         raise UnrecoverableOperatorError(
-            f"builtin.scan left the table {table!r} in source {entity.source!r}: {error}"
+            f"builtin.scan left the table {table!r} in source {entity.source!r}: {error}",
+            report={"table": table, "source": entity.source},
         ) from error
 
 
@@ -161,9 +162,9 @@ def _write(registry: DataRegistry, entity: _EntityRef, statement: str) -> None:
     try:
         execute_write(registry, entity.source, statement, entity.database, entity.collection)
     except SourceUnreachableError as error:
-        raise UnrecoverableOperatorError(str(error)) from error
+        raise UnrecoverableOperatorError(str(error), report={"statement": statement}) from error
     except SourceQueryError as error:
-        raise RecoverableOperatorError(str(error)) from error
+        raise RecoverableOperatorError(str(error), report={"statement": statement}) from error
 
 
 def _entity_ref(scan_source: str) -> _EntityRef:
