@@ -16,7 +16,7 @@ from blue_data_planner.types import (
     RecoverableOperatorError,
 )
 
-# Every operator node kind but SCAN, which builtin.scan answers and this suite does not hold yet.
+# Every operator node kind, each answered by one entry of this suite.
 DETERMINISTIC_KINDS = [
     LogicalOperator.FILTER,
     LogicalOperator.PROJECT,
@@ -26,13 +26,14 @@ DETERMINISTIC_KINDS = [
     LogicalOperator.SORT_SUPERLATIVE,
     LogicalOperator.JOIN,
     LogicalOperator.UNION,
+    LogicalOperator.SCAN,
 ]
 
 TWO_TABLE_IDS = ["builtin.join", "builtin.union"]
 
 
 def the_built_in_operators() -> dict[str, PhysicalOperator]:
-    """Return every built-in operator by id; none of them reads either argument yet."""
+    """Return every built-in operator by id; only builtin.scan's call reads either argument."""
     operators = builtin_operators(cast(Any, None), cast(Any, None))
     return {operator.operator_id: operator for operator in operators}
 
@@ -59,21 +60,21 @@ def a_bundle_of_two_id_tables() -> DataBundle:
 
 
 def test_every_deterministic_node_kind_has_a_built_in_operator() -> None:
-    """A router holding the suite answers each operator node kind but SCAN."""
+    """A router holding the suite answers every operator node kind."""
     router = OperatorRouter()
     for operator in builtin_operators(cast(Any, None), cast(Any, None)):
         router.register(operator)
 
     for kind in DETERMINISTIC_KINDS:
         assert [operator.operator_id for operator in router.operators_for(kind)]
-    assert router.operators_for(LogicalOperator.SCAN) == []
 
 
-def test_every_built_in_operator_declares_that_it_reads_no_source() -> None:
-    """The suite's deterministic operators work on the bundle alone and say what they cannot do."""
-    for operator in the_built_in_operators().values():
-        assert operator.source_kinds is None
-        assert operator.accepts_bound_inputs is False
+def test_every_bundle_only_operator_declares_that_it_reads_no_source() -> None:
+    """Every operator but builtin.scan works on the bundle alone and says what it cannot do."""
+    for operator_id, operator in the_built_in_operators().items():
+        if operator_id != "builtin.scan":
+            assert operator.source_kinds is None
+            assert operator.accepts_bound_inputs is False
         assert operator.limitations
 
 

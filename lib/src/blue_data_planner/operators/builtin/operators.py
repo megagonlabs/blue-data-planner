@@ -1,4 +1,4 @@
-"""The deterministic operators this repository owns, one per operator node kind but SCAN."""
+"""The deterministic operators this repository owns, one per operator node kind."""
 
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ from pydantic import BaseModel, ValidationError
 
 from blue_data_planner.data import DataRegistry
 from blue_data_planner.llm import LLMClient
-from blue_data_planner.operators.builtin import table_transformations
+from blue_data_planner.operators.builtin import source_scan, table_transformations
 from blue_data_planner.operators.builtin.schemas import (
     AggregateParameters,
     DistinctParameters,
@@ -18,6 +18,7 @@ from blue_data_planner.operators.builtin.schemas import (
     FilterParameters,
     JoinParameters,
     ProjectParameters,
+    ScanParameters,
     SortSuperlativeParameters,
     UnionParameters,
 )
@@ -39,11 +40,19 @@ _LIMITATIONS = (
     "reading text belongs to a semantic operator."
 )
 
+# What separates this entry from an operator that owns a query engine: it reads a whole entity
+# and pushes nothing but the values a reference input carried.
+_SCAN_LIMITATIONS = (
+    "Reads a SQL source only, returns the entity whole, and narrows the read by nothing but the "
+    "values a reference input carries, so any other narrowing is a separate FILTER or PROJECT."
+)
+
 
 def builtin_operators(data_registry: DataRegistry, llm_client: LLMClient) -> list[PhysicalOperator]:
     """Return one physical operator per logical operator this suite implements."""
-    # Neither argument is read yet: builtin.scan is what reads a registry, and
-    # builtin.nl2table is what calls a model. Both arrive as their own operators.
+    # llm_client is not read yet: builtin.nl2table is what calls a model, and it arrives as
+    # its own entry.
+    entries = (*_ENTRIES, _scan_entry(data_registry))
     return [
         PhysicalOperator(
             operator_id=entry.operator_id,
@@ -51,11 +60,11 @@ def builtin_operators(data_registry: DataRegistry, llm_client: LLMClient) -> lis
             description=entry.description,
             parameter_schema=entry.parameter_schema,
             call=entry.call,
-            source_kinds=None,
-            accepts_bound_inputs=False,
-            limitations=_LIMITATIONS,
+            source_kinds=entry.source_kinds,
+            accepts_bound_inputs=entry.accepts_bound_inputs,
+            limitations=entry.limitations,
         )
-        for entry in _ENTRIES
+        for entry in entries
     ]
 
 
@@ -124,6 +133,35 @@ def _union(inputs: DataBundle, parameters: dict[str, Any]) -> OperatorOutput:
     return OperatorOutput(data=[table_transformations.union_tables(left, right)])
 
 
+def _scan_entry(data_registry: DataRegistry) -> _Entry:
+    def scan(inputs: DataBundle, parameters: dict[str, Any]) -> OperatorOutput:
+        return _scan(data_registry, inputs, parameters)
+
+    return _Entry(
+        "builtin.scan",
+        LogicalOperator.SCAN,
+        "Reads every row of one registered entity, narrowed to values a reference input carries.",
+        ScanParameters,
+        scan,
+        source_kinds=frozenset({"sql/sqlite"}),
+        accepts_bound_inputs=True,
+        limitations=_SCAN_LIMITATIONS,
+    )
+
+
+def _scan(
+    data_registry: DataRegistry, inputs: DataBundle, parameters: dict[str, Any]
+) -> OperatorOutput:
+    scan = _validated(ScanParameters, parameters, "builtin.scan")
+    if inputs:
+        raise RecoverableOperatorError(
+            f"builtin.scan was handed {len(inputs)} input tables and no bound_values naming "
+            "what they bind"
+        )
+    table, report = source_scan.scan_entity(data_registry, scan.scan_source)
+    return OperatorOutput(data=[table], report=report)
+
+
 def _validated(
     schema: type[ParametersT], parameters: dict[str, Any], operator_id: str
 ) -> ParametersT:
@@ -158,6 +196,9 @@ class _Entry:
     description: str
     parameter_schema: type[BaseModel]
     call: Callable[[DataBundle, dict[str, Any]], OperatorOutput]
+    source_kinds: frozenset[str] | None = None
+    accepts_bound_inputs: bool = False
+    limitations: str | None = _LIMITATIONS
 
 
 _ENTRIES: tuple[_Entry, ...] = (

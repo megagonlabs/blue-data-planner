@@ -188,3 +188,23 @@ class UnionParameters(BaseModel):
     """Nothing: the two tables are concatenated as they are."""
 
     model_config = _STRICT
+
+
+class BoundValues(BaseModel):
+    """The values a reference input carries into a scan, and the attribute they are matched on."""
+
+    model_config = _STRICT
+
+    input_column: str = Field(min_length=1)
+    attribute: str = Field(min_length=1)
+
+
+class ScanParameters(BaseModel):
+    """Which registered entity is read, and the values a reference input narrows it to."""
+
+    model_config = _STRICT
+
+    # The catalog path the cover bound this SCAN to, which is what
+    # PhysicalPlanFragment.scan_sources holds for the node.
+    scan_source: str = Field(min_length=1)
+    bound_values: BoundValues | None = None

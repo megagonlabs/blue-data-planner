@@ -10,11 +10,13 @@ from pydantic import BaseModel, ValidationError
 from blue_data_planner.operators.builtin.schemas import (
     AggregateParameters,
     AndPredicate,
+    BoundValues,
     Comparison,
     FilterParameters,
     NotPredicate,
     OrPredicate,
     ProjectParameters,
+    ScanParameters,
 )
 
 
@@ -73,3 +75,36 @@ def test_parameters_an_operator_could_not_run_are_refused(
     """A schema refuses parameters whose shape the operator has no way to carry out."""
     with pytest.raises(ValidationError):
         schema.model_validate(parameters)
+
+
+def test_a_scan_takes_a_catalog_path_and_optionally_the_values_bound_into_it() -> None:
+    """The path is required; bound values are not, since most scans read a source outright."""
+    plain = ScanParameters.model_validate(
+        {"scan_source": "/source/s/database/d/collection/c/entity/e"}
+    )
+    bound = ScanParameters.model_validate(
+        {
+            "scan_source": "/source/s/database/d/collection/c/entity/e",
+            "bound_values": {"input_column": "city", "attribute": "city"},
+        }
+    )
+
+    assert plain.bound_values is None
+    assert bound.bound_values == BoundValues(input_column="city", attribute="city")
+
+
+@pytest.mark.parametrize(
+    "parameters",
+    [
+        {},
+        {"scan_source": ""},
+        {"scan_source": "/source/s", "columns": ["city"]},
+        {"scan_source": "/source/s", "bound_values": {"input_column": "city"}},
+        {"scan_source": "/source/s", "bound_values": {"input_column": "", "attribute": "city"}},
+    ],
+    ids=["no_path", "empty_path", "unknown_key", "half_a_binding", "empty_column"],
+)
+def test_a_scan_refuses_parameters_it_cannot_act_on(parameters: dict[str, Any]) -> None:
+    """A missing path, an unknown key, or half a binding is refused rather than defaulted."""
+    with pytest.raises(ValidationError):
+        ScanParameters.model_validate(parameters)
