@@ -100,9 +100,10 @@ Unit tests are the main tier and the one that has to stay fast and offline. The 
 measures the system rather than checking it, and it is opt-in by path
 ([07-repo-organization.md](07-repo-organization.md#where-the-benchmark-lives)).
 
-There is no integration tier against a live `blue-data` backend. Postgres, Redis, and the rest are
-reached only through `data/`, which is doubled, so nothing here is tested against a running store.
-That is a real gap and it is named as one in [section 10](#10-what-is-not-covered).
+There is no integration tier against a live networked backend. A source that runs embedded is tested
+against a real instance instead of a double ([section 5](#5-doubles-and-stubs)); a source reached
+over a network is not, since covering it needs a running instance and a tier allowed to be slow. That
+is a real gap and it is named as one in [section 10](#10-what-is-not-covered).
 
 ---
 
@@ -170,9 +171,9 @@ resolution path through `extraPaths`, so both the test run and the type check se
 
 ### Doubles
 
-`doubles/data.py` holds the replacement for a live source. `SQLSourceDouble` stands in for a
-returned SQL source, following the same call sequence the real one expects, so a test covering a
-bind join asserts what an operator wrote rather than needing a database to write it to.
+A source that runs embedded is tested against a real instance rather than doubled: a test of a
+source read, a source write, or a bind join runs against it and checks what happened there — a
+table written, a table dropped again, the rows a query returned.
 
 The registry itself is not doubled. A `blue-data` registry runs in memory over records a test
 registers, and `data/` is what a test of the catalog readings is checking, so a double in its place
@@ -296,7 +297,7 @@ Naming a gap is more useful than implying it is covered.
 
 | Not covered | Why, and what it would take |
 | --- | --- |
-| A live `blue-data` backend | Everything reaches storage through `data/`, which is doubled. Covering it needs a running Postgres or Redis and a tier that is allowed to be slow |
+| A live networked backend | A source that runs embedded is tested against a real instance instead ([section 5](#5-doubles-and-stubs)); one reached over a network needs a running instance and a tier allowed to be slow |
 | The import rules | The six rules in [08-coding-style.md](08-coding-style.md) are checked in review. A test that parses imports would assert a rule rather than a behavior, which is what section 1 rules out |
 | Prompt quality | A cassette shows that one prompt got one response. Whether a prompt is good is what the benchmark measures |
 | LOTUS itself, and the Blue operators | Each adapter is tested; a suite is a dependency and tests its own behavior |

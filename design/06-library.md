@@ -1011,13 +1011,15 @@ how it is realized.
 
 Choosing among the three is the operator's decision, not the planner's: the operator is what sees how
 many rows travel and what the source can accept. Two of the three cap the distinct values they will
-carry, and an operator asked to carry more refuses the input rather than truncate it silently, which
-is a recoverable failure like any other input an operator cannot serve (ADR-015). One call per value
-carries the tighter cap, since every value is its own round trip: 10 distinct values. Values embedded
-in the query text carry a looser one, since the source does its own filtering: 100 distinct values.
-Both numbers are provisional, set low enough to bound a run rather than measured against real
-bind-join volumes. A temporary table is capped by nothing, which is what it is for: without it a
-bind join into a source with a predicate language could never scale past an `IN` list.
+carry. One call per value carries the tighter cap, since every value is its own round trip: 10
+distinct values. Values embedded in the query text carry a looser one, since the source does its own
+filtering: 100 distinct values.
+
+An operator implementing only one of the two capped realizations refuses an input past its cap
+rather than truncate it silently, which is a recoverable failure like any other input an operator
+cannot serve (ADR-015). An operator implementing more than one may instead escalate past a cap to a
+realization it also implements. A temporary table is capped by nothing, which is what it is for:
+without it a bind join into a source with a predicate language could never scale past an `IN` list.
 
 `execute_write` is what the temporary-table realization needs and the other two do not: embedding
 values in the query text and reading one value at a time both run through `execute_query` alone.
