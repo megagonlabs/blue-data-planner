@@ -153,12 +153,25 @@ def _scan(
     data_registry: DataRegistry, inputs: DataBundle, parameters: dict[str, Any]
 ) -> OperatorOutput:
     scan = _validated(ScanParameters, parameters, "builtin.scan")
-    if inputs:
-        raise RecoverableOperatorError(
-            f"builtin.scan was handed {len(inputs)} input tables and no bound_values naming "
-            "what they bind"
+    if scan.bound_values is None:
+        if inputs:
+            raise RecoverableOperatorError(
+                f"builtin.scan was handed {len(inputs)} input tables and no bound_values "
+                "naming what they bind"
+            )
+        table, report = source_scan.scan_entity(data_registry, scan.scan_source)
+    else:
+        if len(inputs) != 1:
+            raise RecoverableOperatorError(
+                f"builtin.scan binds one reference input and was handed {len(inputs)}"
+            )
+        table, report = source_scan.scan_entity_bound_to(
+            data_registry,
+            scan.scan_source,
+            scan.bound_values.attribute,
+            inputs[0],
+            scan.bound_values.input_column,
         )
-    table, report = source_scan.scan_entity(data_registry, scan.scan_source)
     return OperatorOutput(data=[table], report=report)
 
 

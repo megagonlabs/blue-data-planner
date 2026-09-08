@@ -2,17 +2,20 @@
 
 from __future__ import annotations
 
+import math
 from typing import Any, cast
 
 import pytest
 
-from blue_data_planner.data import DataRegistry
-from blue_data_planner.operators.builtin import builtin_operators
+from blue_data_planner.data import DataRegistry, execute_query
+from blue_data_planner.operators.builtin import builtin_operators, source_scan
 from blue_data_planner.types import (
     DataBundle,
     OperatorOutput,
     PhysicalOperator,
     RecoverableOperatorError,
+    SourceQueryError,
+    SourceUnreachableError,
     UnrecoverableOperatorError,
 )
 
@@ -106,3 +109,262 @@ def test_the_report_names_the_query_that_ran(sqlite_registry: DataRegistry) -> N
     assert output.report is not None
     assert output.report["query"] == 'SELECT * FROM "stores"'
     assert output.report["bind_join"] is None
+    assert output.report["bound_value_count"] == 0
+
+
+def bound_to_city(*cities: str) -> tuple[DataBundle, dict[str, Any]]:
+    """A one-table reference input of cities, and the parameters that bind a scan to them."""
+    inputs: DataBundle = [[{"city": city} for city in cities]]
+    parameters = {
+        "scan_source": STORES,
+        "bound_values": {"input_column": "city", "attribute": "city"},
+    }
+    return inputs, parameters
+
+
+def many_cities(count: int) -> list[str]:
+    """`count` distinct city names, the last of which the retail database holds."""
+    return [*(f"City {index}" for index in range(count - 1)), "Reno"]
+
+
+def tables_in_the_retail_database(registry: DataRegistry) -> set[str]:
+    """Every table name the retail database holds, which is how a leftover table is spotted."""
+    rows = execute_query(
+        registry,
+        "tag_bench",
+        "SELECT name FROM sqlite_master WHERE type = 'table'",
+        "retail",
+    )
+    return {str(row["name"]) for row in rows}
+
+
+@pytest.mark.parametrize(
+    "cities, expected_realization",
+    [
+        (["Reno", "Fresno"], "in_list"),
+        # One more than the cap, which is the smallest input that cannot be embedded.
+        (many_cities(source_scan.MAX_EMBEDDED_VALUES + 1), "temporary_table"),
+    ],
+    ids=["in_list", "temporary_table"],
+)
+def test_bound_values_narrow_the_read_to_the_rows_that_match_them(
+    sqlite_registry: DataRegistry, cities: list[str], expected_realization: str
+) -> None:
+    """However many values travel, the source does the narrowing and the report says how."""
+    inputs, parameters = bound_to_city(*cities)
+
+    output = scanning(sqlite_registry, parameters, inputs)
+
+    assert output.data == [[{"store_id": 1, "city": "Reno"}]]
+    assert output.report is not None
+    assert output.report["bind_join"] == expected_realization
+    # Every city in the fixture is distinct, so the count is exactly how many travelled.
+    assert output.report["bound_value_count"] == len(cities)
+
+
+def test_a_repeated_value_travels_once_and_a_null_value_not_at_all(
+    sqlite_registry: DataRegistry,
+) -> None:
+    """A null key matches nothing and a repeat asks for nothing new, so neither travels."""
+    inputs: DataBundle = [[{"city": "Reno"}, {"city": "Reno"}, {"city": None}]]
+    _, parameters = bound_to_city()
+
+    output = scanning(sqlite_registry, parameters, inputs)
+
+    assert output.data == [[{"store_id": 1, "city": "Reno"}]]
+    assert output.report is not None
+    assert output.report["bound_value_count"] == 1
+
+
+def test_a_reference_input_carrying_no_usable_value_returns_no_rows(
+    sqlite_registry: DataRegistry,
+) -> None:
+    """No key can match, so an empty result is the answer rather than a swallowed failure."""
+    inputs, parameters = bound_to_city()
+
+    output = scanning(sqlite_registry, parameters, inputs)
+
+    assert output.data == [[]]
+    assert output.report is not None
+    assert output.report["query"] is None
+
+
+def test_a_value_holding_a_quote_reaches_the_source_intact(
+    sqlite_registry: DataRegistry,
+) -> None:
+    """A value is escaped into the query text rather than breaking out of it."""
+    inputs, parameters = bound_to_city("O'Reno")
+
+    output = scanning(sqlite_registry, parameters, inputs)
+
+    assert output.data == [[]]
+    assert output.report is not None
+    assert output.report["query"] == "SELECT * FROM \"stores\" WHERE \"city\" IN ('O''Reno')"
+
+
+def bound_to_store_id(value: Any) -> tuple[DataBundle, dict[str, Any]]:
+    """A one-table reference input binding on `store_id`, for values that are not strings."""
+    inputs: DataBundle = [[{"store_id": value}]]
+    parameters = {
+        "scan_source": STORES,
+        "bound_values": {"input_column": "store_id", "attribute": "store_id"},
+    }
+    return inputs, parameters
+
+
+@pytest.mark.parametrize(
+    "value, literal",
+    [(1, "1"), (True, "1"), (False, "0"), (2.5, "2.5")],
+    ids=["int", "true", "false", "float"],
+)
+def test_a_numeric_value_renders_unquoted_into_the_query(
+    sqlite_registry: DataRegistry, value: int | float | bool, literal: str
+) -> None:
+    """An int, a bool, and a float all render bare, unlike a string value."""
+    inputs, parameters = bound_to_store_id(value)
+
+    output = scanning(sqlite_registry, parameters, inputs)
+
+    assert output.report is not None
+    assert output.report["query"] == f'SELECT * FROM "stores" WHERE "store_id" IN ({literal})'
+
+
+@pytest.mark.parametrize("value", [math.nan, math.inf, -math.inf], ids=["nan", "inf", "neg_inf"])
+def test_a_non_finite_float_value_refuses_the_call(
+    sqlite_registry: DataRegistry, value: float
+) -> None:
+    """A NaN or an infinite value is not something a source can compare a column against."""
+    inputs, parameters = bound_to_store_id(value)
+
+    with pytest.raises(RecoverableOperatorError, match="not a value a source can compare"):
+        scanning(sqlite_registry, parameters, inputs)
+
+
+@pytest.mark.parametrize(
+    "inputs, bound_values",
+    [
+        ([[{"city": "Reno"}]], None),
+        ([], {"input_column": "city", "attribute": "city"}),
+        (
+            [[{"city": "Reno"}], [{"city": "Oakland"}]],
+            {"input_column": "city", "attribute": "city"},
+        ),
+    ],
+    ids=["input_without_binding", "binding_without_input", "two_inputs"],
+)
+def test_an_input_and_a_binding_that_do_not_agree_refuse_the_call(
+    sqlite_registry: DataRegistry, inputs: DataBundle, bound_values: dict[str, Any] | None
+) -> None:
+    """The operator binds exactly one reference input, and says so rather than guessing."""
+    parameters: dict[str, Any] = {"scan_source": STORES, "bound_values": bound_values}
+
+    with pytest.raises(RecoverableOperatorError, match="builtin.scan"):
+        scanning(sqlite_registry, parameters, inputs)
+
+
+def test_a_reference_input_missing_the_column_it_is_bound_on_refuses_the_call(
+    sqlite_registry: DataRegistry,
+) -> None:
+    """A required column that is not there is a refusal, never a row silently skipped."""
+    inputs: DataBundle = [[{"town": "Reno"}]]
+    _, parameters = bound_to_city()
+
+    with pytest.raises(RecoverableOperatorError, match="city"):
+        scanning(sqlite_registry, parameters, inputs)
+
+
+def test_a_value_the_operator_cannot_compare_against_a_column_refuses_the_call(
+    sqlite_registry: DataRegistry,
+) -> None:
+    """A list is not something a source can match a column against, so it is refused."""
+    inputs: DataBundle = [[{"city": ["Reno"]}]]
+    _, parameters = bound_to_city()
+
+    with pytest.raises(RecoverableOperatorError, match="list"):
+        scanning(sqlite_registry, parameters, inputs)
+
+
+@pytest.mark.parametrize(
+    "scan_source, expected_error",
+    [
+        (STORES, None),
+        (
+            "/source/tag_bench/database/retail/collection/public/entity/absent",
+            RecoverableOperatorError,
+        ),
+    ],
+    ids=["read_succeeds", "read_fails"],
+)
+def test_the_table_a_bind_join_wrote_is_gone_once_the_call_returns(
+    sqlite_registry: DataRegistry,
+    scan_source: str,
+    expected_error: type[Exception] | None,
+) -> None:
+    """A request leaves nothing behind in a source a caller owns, failing path included."""
+    inputs: DataBundle = [
+        [{"city": city} for city in many_cities(source_scan.MAX_EMBEDDED_VALUES + 1)]
+    ]
+    parameters = {
+        "scan_source": scan_source,
+        "bound_values": {"input_column": "city", "attribute": "city"},
+    }
+
+    if expected_error is None:
+        scanning(sqlite_registry, parameters, inputs)
+    else:
+        with pytest.raises(expected_error):
+            scanning(sqlite_registry, parameters, inputs)
+
+    assert tables_in_the_retail_database(sqlite_registry) == {"stores", "store notes"}
+
+
+def bound_join_that_reads_through_a_table() -> tuple[DataBundle, dict[str, Any]]:
+    """Inputs and parameters guaranteed to bind through a temporary table, not an IN list."""
+    inputs: DataBundle = [
+        [{"city": city} for city in many_cities(source_scan.MAX_EMBEDDED_VALUES + 1)]
+    ]
+    parameters = {
+        "scan_source": STORES,
+        "bound_values": {"input_column": "city", "attribute": "city"},
+    }
+    return inputs, parameters
+
+
+def failing_the_drop_with(monkeypatch: pytest.MonkeyPatch, drop_error: Exception) -> None:
+    """Make the DROP statement `_read_through_a_table` issues fail, every other statement not."""
+    real_execute_write = source_scan.execute_write
+
+    def execute_write_unless_dropping(
+        registry: DataRegistry,
+        source: str,
+        statement: str,
+        database: str,
+        collection: str | None = None,
+    ) -> None:
+        if statement.startswith("DROP TABLE"):
+            raise drop_error
+        real_execute_write(registry, source, statement, database, collection)
+
+    monkeypatch.setattr(source_scan, "execute_write", execute_write_unless_dropping)
+
+
+def test_a_drop_that_fails_fails_the_call_unrecoverably(
+    sqlite_registry: DataRegistry, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A repair would write a second orphan table rather than remove the first (ADR-023)."""
+    failing_the_drop_with(monkeypatch, SourceQueryError("simulated drop failure"))
+    inputs, parameters = bound_join_that_reads_through_a_table()
+
+    with pytest.raises(UnrecoverableOperatorError, match="left the table"):
+        scanning(sqlite_registry, parameters, inputs)
+
+
+def test_a_drop_that_fails_because_the_source_is_unreachable_still_names_the_left_over_table(
+    sqlite_registry: DataRegistry, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The source going unreachable during the DROP must not lose the orphan-table diagnostic."""
+    failing_the_drop_with(monkeypatch, SourceUnreachableError("simulated source outage"))
+    inputs, parameters = bound_join_that_reads_through_a_table()
+
+    with pytest.raises(UnrecoverableOperatorError, match="left the table"):
+        scanning(sqlite_registry, parameters, inputs)
