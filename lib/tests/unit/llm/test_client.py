@@ -6,8 +6,9 @@ from typing import Any
 
 import litellm  # the tests/stubs deterministic fake (conftest inserts the stub path)
 import pytest
+from pydantic import BaseModel
 
-from blue_data_planner.llm import LLMClient, LLMError
+from blue_data_planner.llm import Conversation, LLMClient, LLMError, Turn
 
 OP_PROPS: dict[str, Any] = {
     "service_prefix": "openai",
@@ -29,6 +30,7 @@ OP_PROPS: dict[str, Any] = {
 def _reset_fake() -> None:  # pyright: ignore[reportUnusedFunction] — autouse
     litellm.calls.clear()
     litellm.fail_next.clear()
+    litellm.replies.clear()
 
 
 def test_operator_defaults_reach_the_provider() -> None:
@@ -129,3 +131,62 @@ def test_cache_requested_without_diskcache_is_deterministic(
     client = LLMClient("test", {**OP_PROPS, "llm.cache": True})
     with pytest.raises(LLMError, match="diskcache is not installed"):
         client.execute_api_call({}, additional_data={})
+
+
+STRUCTURED_PROPS: dict[str, Any] = {
+    "service_prefix": "openai",
+    "openai.model": "gpt-4o",
+    "output_path": "$.choices[0].message.content",
+}
+
+
+class _OneField(BaseModel):
+    code: str
+
+
+def test_a_conversation_keeps_its_turns_and_one_usage_entry_per_call() -> None:
+    """Two structured calls on one conversation leave four turns and two usage entries."""
+    litellm.replies.extend(['{"code": "result = []"}', '{"code": "result = [{}]"}'])
+    client = LLMClient("test", STRUCTURED_PROPS)
+    conversation = Conversation(turns=[Turn(role="user", content="write a program")])
+
+    first = client.complete_structured(conversation, _OneField)
+    conversation.turns.append(Turn(role="user", content="try again"))
+    second = client.complete_structured(conversation, _OneField)
+
+    assert (first.code, second.code) == ("result = []", "result = [{}]")
+    assert [turn.role for turn in conversation.turns] == [
+        "user",
+        "assistant",
+        "user",
+        "assistant",
+    ]
+    assert len(conversation.usage) == 2
+    assert conversation.usage[0].model == "gpt-4o"
+
+
+def test_every_turn_so_far_reaches_the_provider() -> None:
+    """The second call sends the first call's answer back as context."""
+    litellm.replies.extend(['{"code": "a"}', '{"code": "b"}'])
+    client = LLMClient("test", STRUCTURED_PROPS)
+    conversation = Conversation(turns=[Turn(role="user", content="first")])
+
+    client.complete_structured(conversation, _OneField)
+    conversation.turns.append(Turn(role="user", content="second"))
+    client.complete_structured(conversation, _OneField)
+
+    assert litellm.calls[-1]["messages"] == [
+        {"role": "user", "content": "first"},
+        {"role": "assistant", "content": '{"code": "a"}'},
+        {"role": "user", "content": "second"},
+    ]
+
+
+def test_a_reply_the_response_model_refuses_raises() -> None:
+    """A provider answering with something the schema cannot read is a provider failure."""
+    litellm.replies.append("not json at all")
+    client = LLMClient("test", STRUCTURED_PROPS)
+    conversation = Conversation(turns=[Turn(role="user", content="write a program")])
+
+    with pytest.raises(LLMError, match="did not answer in the shape"):
+        client.complete_structured(conversation, _OneField)

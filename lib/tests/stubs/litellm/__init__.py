@@ -6,6 +6,7 @@ from typing import Any, cast
 
 calls: list[dict[str, Any]] = []
 fail_next: list[Exception] = []  # tests push exceptions to simulate provider failures
+replies: list[str] = []  # tests push exact assistant contents, consumed in order
 
 
 class _Response:
@@ -25,9 +26,10 @@ def completion(**kwargs: Any) -> _Response:
     if messages and isinstance(messages[0], dict):
         first = cast("dict[str, Any]", messages[0])
         prompt = str(first.get("content", ""))
+    content = replies.pop(0) if replies else f"echo:{prompt}"
     return _Response(
         {
-            "choices": [{"message": {"role": "assistant", "content": f"echo:{prompt}"}}],
+            "choices": [{"message": {"role": "assistant", "content": content}}],
             "usage": {"prompt_tokens": len(prompt.split()), "completion_tokens": 3},
             "model": kwargs.get("model"),
         }

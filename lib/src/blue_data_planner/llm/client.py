@@ -4,13 +4,17 @@ import asyncio
 import json
 import threading
 import time
-from dataclasses import dataclass
-from typing import Any, cast
+from dataclasses import dataclass, field
+from typing import Any, Literal, TypeVar, cast
 
+from pydantic import BaseModel, ValidationError
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
 
 from blue_data_planner.llm.errors import LLMError
-from blue_data_planner.llm.templating import build_message, extract_output
+from blue_data_planner.llm.templating import api_properties, build_message, extract_output
+from blue_data_planner.types import LLMUsage
+
+M = TypeVar("M", bound=BaseModel)
 
 # The closed adapter-override key set; unknown llm.* keys are rejected (LLMError).
 _ACCEPTED_LLM_KEYS = {
@@ -68,6 +72,22 @@ def _safe_int(value: Any) -> int:
         return 0
 
 
+@dataclass(frozen=True)
+class Turn:
+    """One message in an exchange with a provider."""
+
+    role: Literal["system", "user", "assistant"]
+    content: str
+
+
+@dataclass
+class Conversation:
+    """The turns of one exchange, and what every call made on it cost."""
+
+    turns: list[Turn] = field(default_factory=list["Turn"])
+    usage: list[LLMUsage] = field(default_factory=list["LLMUsage"])
+
+
 class LLMClient:
     """Build templated requests and execute them through an LLM provider.
 
@@ -110,6 +130,42 @@ class LLMClient:
             cache[cache_key] = payload
         self._record(kwargs, payload, started, cache_hit=False, cost=cost)
         return extract_output(payload, merged)
+
+    def complete_structured(self, conversation: Conversation, response_model: type[M]) -> M:
+        """Answer the conversation with a value shaped by the model, recording the turn and cost."""
+        started = time.monotonic()
+        message = api_properties(self.properties, self.name.lower())
+        message["messages"] = [
+            {"role": turn.role, "content": turn.content} for turn in conversation.turns
+        ]
+        kwargs = self._build_call_kwargs(message, self.properties)
+        kwargs["response_format"] = response_model
+        self._apply_rate_limit(self.properties)
+        payload, cost = self._call_provider(kwargs)
+        record = self._record(kwargs, payload, started, cache_hit=False, cost=cost)
+        content = _message_content(payload)
+        try:
+            value = response_model.model_validate_json(content)
+        except ValidationError as error:
+            raise LLMError(
+                f"the provider did not answer in the shape {response_model.__name__} asks for: "
+                f"{error}",
+                code="bad_response",
+            ) from error
+        conversation.turns.append(Turn(role="assistant", content=content))
+        # Read off the record _record just built rather than self.last_usage: two calls
+        # sharing one client across threads could otherwise interleave between another
+        # call's write and this read, and silently record the wrong call's cost.
+        conversation.usage.append(
+            LLMUsage(
+                model=record.model,
+                prompt_tokens=record.prompt_tokens,
+                completion_tokens=record.completion_tokens,
+                cost=record.cost,
+                latency_seconds=record.latency_seconds,
+            )
+        )
+        return value
 
     # ----------------------------------------------------------------- async --
     async def aexecute_api_call(
@@ -220,7 +276,7 @@ class LLMClient:
         started: float,
         cache_hit: bool,
         cost: float = 0.0,
-    ) -> None:
+    ) -> UsageRecord:
         usage: dict[str, Any] = {}
         raw_usage: Any = payload.get("usage")
         if isinstance(raw_usage, dict):
@@ -235,6 +291,7 @@ class LLMClient:
         )
         self.last_usage = record
         self.ledger.add(record)
+        return record
 
     @retry(
         retry=retry_if_exception_type(LLMError),
@@ -294,3 +351,17 @@ class LLMClient:
             return float(litellm.completion_cost(completion_response=response))
         except Exception:
             return 0.0
+
+
+def _message_content(payload: dict[str, Any]) -> str:
+    # _materialize has already checked that "choices" is a list; everything below it is the
+    # provider's shape and is checked here rather than assumed.
+    choices = cast("list[Any]", payload["choices"])
+    if not choices:
+        raise LLMError("the provider returned no choices", code="bad_response")
+    first = choices[0]
+    message = cast("dict[str, Any]", first).get("message") if isinstance(first, dict) else None
+    content = cast("dict[str, Any]", message).get("content") if isinstance(message, dict) else None
+    if not isinstance(content, str):
+        raise LLMError("the provider returned no message content", code="bad_response")
+    return content

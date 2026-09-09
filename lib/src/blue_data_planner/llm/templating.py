@@ -41,7 +41,7 @@ def build_message(
     if additional_data is None:
         additional_data = {}
 
-    message: dict[str, Any] = _extract_api_properties(properties, default_prefix)
+    message: dict[str, Any] = api_properties(properties, default_prefix)
 
     if properties.get("input_template") is not None:
         input_params = {"input": input_data}
@@ -96,7 +96,8 @@ def _substitute_with_collision_check(
     return safe_substitute(template, **merged)
 
 
-def _extract_api_properties(properties: dict[str, Any], default_prefix: str = "") -> dict[str, Any]:
+def api_properties(properties: dict[str, Any], default_prefix: str = "") -> dict[str, Any]:
+    """Return the provider fields a client's `<prefix>.*` properties carry."""
     # The client name supplies the prefix when service_prefix is absent.
     prefix = str(properties.get("service_prefix", default_prefix)) + "."
     if prefix == ".":
