@@ -5,12 +5,20 @@ from __future__ import annotations
 import re
 from typing import Any
 
+from pydantic import BaseModel
+
 from blue_data_planner.data import DataRegistry
+from blue_data_planner.llm.templating import safe_substitute
 from blue_data_planner.operators.builtin import source_scan
 from blue_data_planner.operators.builtin.schemas import IndexedScanSource, Nl2TableParameters
-from blue_data_planner.types import Data, DataBundle, RecoverableOperatorError
+from blue_data_planner.prompts import prompt_text
+from blue_data_planner.types import Data, DataBundle, OutputColumn, RecoverableOperatorError
 
 _ENTITY_SEGMENT = re.compile(r"/entity/(?P<entity>[^/]+)$")
+
+# Enough rows for a model to see how a column spells its values, and few enough to leave room
+# for the instruction (design/04: the values are what the catalog alone cannot give).
+SAMPLE_ROWS = 5
 
 
 def read_tables(
@@ -65,3 +73,49 @@ def _unique_name(name: str, taken: dict[str, Data]) -> str:
     while f"{name}_{suffix}" in taken:
         suffix += 1
     return f"{name}_{suffix}"
+
+
+class WrittenProgram(BaseModel):
+    """The program one model call produced."""
+
+    code: str
+
+
+def program_prompt(
+    instruction: str, tables: dict[str, Data], required_output_columns: list[OutputColumn]
+) -> str:
+    """Return the prompt one program is written from."""
+    return safe_substitute(
+        prompt_text("nl2table.md"),
+        instruction=instruction,
+        output_columns=_rendered_columns(required_output_columns),
+        tables=_rendered_tables(tables),
+    )
+
+
+def retry_prompt(code: str, failure: str) -> str:
+    """Return the prompt the next program is written from after one did not run."""
+    return (
+        f"This program did not produce a table:\n\n```python\n{code}\n```\n\n"
+        f"What happened: {failure}\n\nWrite a program that does, under the same rules."
+    )
+
+
+def _rendered_columns(required_output_columns: list[OutputColumn]) -> str:
+    if not required_output_columns:
+        return "Any columns the request calls for."
+    return "\n".join(f"- `{column.name}` ({column.dtype})" for column in required_output_columns)
+
+
+def _rendered_tables(tables: dict[str, Data]) -> str:
+    if not tables:
+        return "None. Everything the request needs is in the instruction."
+    return "\n\n".join(_rendered_table(name, rows) for name, rows in tables.items())
+
+
+def _rendered_table(name: str, rows: Data) -> str:
+    columns = sorted({column for row in rows for column in row})
+    sample = rows[:SAMPLE_ROWS]
+    lines = [f"### `{name}` — {len(rows)} rows", "", f"Columns: {', '.join(columns) or 'none'}", ""]
+    lines.extend(f"- {row}" for row in sample)
+    return "\n".join(lines)

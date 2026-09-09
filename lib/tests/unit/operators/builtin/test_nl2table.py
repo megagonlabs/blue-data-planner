@@ -5,9 +5,9 @@ from __future__ import annotations
 import pytest
 
 from blue_data_planner.data import DataRegistry
-from blue_data_planner.operators.builtin.nl2table import read_tables
+from blue_data_planner.operators.builtin.nl2table import program_prompt, read_tables, retry_prompt
 from blue_data_planner.operators.builtin.schemas import Nl2TableParameters
-from blue_data_planner.types import RecoverableOperatorError
+from blue_data_planner.types import OutputColumn, RecoverableOperatorError
 
 STORES = "/source/tag_bench/database/retail/collection/public/entity/stores"
 
@@ -92,3 +92,38 @@ def test_an_input_index_naming_no_table_refuses_the_call(sqlite_registry: DataRe
 
     with pytest.raises(RecoverableOperatorError, match="input_index"):
         read_tables(sqlite_registry, parameters, [[{"city": "Reno"}]])
+
+
+def test_the_prompt_shows_each_table_by_name_with_its_columns_and_some_rows() -> None:
+    """A program is written against the tables as they are, not against a catalog record."""
+    tables = {"stores": [{"store_id": 1, "city": "Reno"}, {"store_id": 2, "city": "Oakland"}]}
+
+    prompt = program_prompt("count the stores", tables, [])
+
+    assert "count the stores" in prompt
+    assert "stores" in prompt
+    assert "store_id" in prompt
+    assert "Reno" in prompt
+    assert "2 rows" in prompt
+
+
+def test_the_prompt_names_the_columns_the_result_has_to_carry() -> None:
+    """The declared columns reach the program rather than being paraphrased into the instruction."""
+    prompt = program_prompt(
+        "count the stores",
+        {},
+        [OutputColumn(name="city", dtype="str"), OutputColumn(name="n", dtype="int")],
+    )
+
+    assert "city" in prompt
+    assert "str" in prompt
+    assert "n" in prompt
+    assert "int" in prompt
+
+
+def test_a_retry_prompt_carries_the_program_and_what_it_did() -> None:
+    """The next program is written against the failure rather than against the request alone."""
+    prompt = retry_prompt("result = stores[9]", "IndexError: list index out of range")
+
+    assert "result = stores[9]" in prompt
+    assert "IndexError" in prompt

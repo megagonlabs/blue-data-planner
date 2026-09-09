@@ -39,7 +39,7 @@ dev = [
 where = ["src"]
 
 [tool.setuptools.package-data]
-blue_data_planner = ["py.typed"]
+blue_data_planner = ["py.typed", "prompts/*.md"]
 
 [tool.ruff]
 line-length = 100
