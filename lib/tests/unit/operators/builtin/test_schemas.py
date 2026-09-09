@@ -150,3 +150,28 @@ def test_nl2table_takes_an_instruction_and_the_entities_to_read() -> None:
 
     assert parameters.scan_sources[0].bound_values is None
     assert empty.scan_sources == []
+
+
+def test_nl2tables_scan_source_keeps_the_input_index_its_bound_values_were_given() -> None:
+    """A non-default input_index set on one scan source's bound values survives model_validate()
+    through Nl2TableParameters and IndexedScanSource, not just through IndexedBoundValues built
+    on its own."""
+    parameters = Nl2TableParameters.model_validate(
+        {
+            "instruction": "join stores with their sales",
+            "scan_sources": [
+                {
+                    "scan_source": "/source/tag_bench/database/retail/collection/public/entity/s",
+                    "bound_values": {
+                        "input_index": 1,
+                        "input_column": "store_id",
+                        "attribute": "id",
+                    },
+                }
+            ],
+        }
+    )
+
+    bound_values = parameters.scan_sources[0].bound_values
+    assert bound_values is not None
+    assert bound_values.input_index == 1
