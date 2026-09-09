@@ -3,13 +3,13 @@
 from __future__ import annotations
 
 import re
+from string import Template
 from typing import Any
 
 from pydantic import BaseModel, ValidationError
 
 from blue_data_planner.data import DataRegistry
 from blue_data_planner.llm import Conversation, LLMClient, Turn
-from blue_data_planner.llm.templating import safe_substitute
 from blue_data_planner.operators.builtin import source_scan
 from blue_data_planner.operators.builtin.program_run import run_program
 from blue_data_planner.operators.builtin.schemas import IndexedScanSource, Nl2TableParameters
@@ -95,8 +95,7 @@ def program_prompt(
     instruction: str, tables: dict[str, Data], required_output_columns: list[OutputColumn]
 ) -> str:
     """Return the prompt one program is written from."""
-    return safe_substitute(
-        prompt_text("nl2table.md"),
+    return Template(prompt_text("nl2table.md")).substitute(
         instruction=instruction,
         output_columns=_rendered_columns(required_output_columns),
         tables=_rendered_tables(tables),

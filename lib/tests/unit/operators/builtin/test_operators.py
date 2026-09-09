@@ -74,9 +74,10 @@ def test_every_deterministic_node_kind_has_a_built_in_operator() -> None:
 
 
 def test_every_bundle_only_operator_declares_that_it_reads_no_source() -> None:
-    """Every operator but builtin.scan works on the bundle alone and says what it cannot do."""
+    """Every operator but the two that read a source works on the bundle alone and says what it
+    cannot do."""
     for operator_id, operator in the_built_in_operators().items():
-        if operator_id != "builtin.scan":
+        if operator_id not in ("builtin.scan", "builtin.nl2table"):
             assert operator.source_kinds is None
             assert operator.accepts_bound_inputs is False
         assert operator.limitations

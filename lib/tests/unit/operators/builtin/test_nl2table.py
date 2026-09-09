@@ -150,6 +150,25 @@ def test_the_prompt_names_the_columns_the_result_has_to_carry() -> None:
     assert "int" in prompt
 
 
+def test_the_prompt_renders_row_data_containing_template_syntax_literally() -> None:
+    """A cell holding template-looking text is opaque data, never evaluated as a template."""
+    tables = {"stores": [{"note": "{{ 7 * 6 }}"}]}
+
+    prompt = program_prompt("x", tables, [])
+
+    assert "{{ 7 * 6 }}" in prompt
+    assert "42" not in prompt
+
+
+def test_the_prompt_renders_a_dollar_sign_in_row_data_without_raising() -> None:
+    """A currency value or any other literal '$' in a cell is not a placeholder reference."""
+    tables = {"stores": [{"price": "$5.00"}]}
+
+    prompt = program_prompt("x", tables, [])
+
+    assert "$5.00" in prompt
+
+
 def test_a_retry_prompt_carries_the_program_and_what_it_did() -> None:
     """The next program is written against the failure rather than against the request alone."""
     prompt = retry_prompt("result = stores[9]", "IndexError: list index out of range")

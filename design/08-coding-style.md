@@ -239,7 +239,7 @@ something outside the repository.
 # Billed before the operator runs, so a call that really happened still counts when
 # the column check rejects what it returned.
 budget.spend()
-rows = operator.call(inputs, parameters)
+rows = operator.call(inputs, parameters, required_output_columns)
 
 # incorrect — restates the line below it
 # get the operators for this logical operator

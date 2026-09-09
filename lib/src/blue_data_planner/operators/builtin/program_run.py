@@ -73,12 +73,14 @@ FORBIDDEN_NAMES = frozenset(
 )
 
 # attrgetter and methodcaller do the same by-name attribute and method lookup getattr does
-# (operator.attrgetter("__class__") reaches what getattr(x, "__class__") would). Checked
-# separately from FORBIDDEN_NAMES so this narrower set never catches an unrelated, safe attribute
-# of an allowed module that happens to share a name with a forbidden builtin (re.compile, for
-# instance, which is re's own ordinary entry point, not the interpreter's compile()). Gates both
-# the AST check below and the runtime wrapper around an imported module further down.
-FORBIDDEN_ATTRIBUTES = frozenset({"attrgetter", "methodcaller"})
+# (operator.attrgetter("__class__") reaches what getattr(x, "__class__") would); get_field does
+# the same lookup through string.Formatter, dispatching on a runtime string rather than a literal
+# attribute name. Checked separately from FORBIDDEN_NAMES so this narrower set never catches an
+# unrelated, safe attribute of an allowed module that happens to share a name with a forbidden
+# builtin (re.compile, for instance, which is re's own ordinary entry point, not the interpreter's
+# compile()). Gates both the AST check below and the runtime wrapper around an imported module
+# further down.
+FORBIDDEN_ATTRIBUTES = frozenset({"attrgetter", "get_field", "methodcaller"})
 
 
 def _is_dunder_name(name: str) -> bool:

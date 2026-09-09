@@ -70,6 +70,7 @@ def test_a_program_may_use_a_class_imported_from_an_allowed_module() -> None:
         ("import operator\nresult = operator.attrgetter('__class__')([])", "attrgetter"),
         ("from operator import attrgetter as ag\nresult = ag('__class__')([])", "attrgetter"),
         ("from operator import methodcaller as mc\nresult = []", "methodcaller"),
+        ("import string\nresult = string.Formatter().get_field('x', (), {})", "get_field"),
     ],
 )
 def test_a_program_reaching_outside_its_tables_is_refused(code: str, refusal: str) -> None:

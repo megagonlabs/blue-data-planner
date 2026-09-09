@@ -26,8 +26,8 @@ $tables
   equally available, and often shorter.
 - `import` is allowed only for `math`, `statistics`, `datetime`, `decimal`, `fractions`, `re`,
   `collections`, `itertools`, `functools`, `string`, `json`, `unicodedata`, `heapq`, `bisect`,
-  and `operator`. `eval`, `exec`, `open`, `getattr`, `attrgetter`, `methodcaller`, and any dunder
-  attribute are refused.
+  and `operator`. `eval`, `exec`, `open`, `getattr`, `attrgetter`, `methodcaller`, `get_field`, and
+  any dunder attribute are refused.
 - Values are compared as they are stored. Spell a value the way the sample rows spell it.
 
 Answer with the program and nothing else.
