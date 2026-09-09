@@ -92,10 +92,10 @@ class DataPlanner:
     async def run(self, request: str) -> PlanResult: ...
 ```
 
-The exception is `LLMClient`, whose one call has an async twin, so a caller with many independent
-provider calls can run them together ([06-library.md](06-library.md#llm)). The planner is not such a
-caller: the run loop takes one ready fragment at a time, and inside a component each call is written
-against what the last one returned.
+The exception is `LLMClient`'s general provider call, `execute_api_call`, which has an async twin,
+`aexecute_api_call`, so a caller with many independent provider calls can run them together
+([06-library.md](06-library.md#llm)). The planner is not such a caller: the run loop takes one ready
+fragment at a time, and inside a component each call is written against what the last one returned.
 
 **Adapter bridge.** The MCP server's handlers are async because the SDK's are. They call the
 synchronous library directly for fast work, and through `asyncio.to_thread` for anything that runs a

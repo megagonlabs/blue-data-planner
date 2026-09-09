@@ -1168,9 +1168,10 @@ LOTUS holds its own model configuration, is not routed through `llm/`, and repor
 count, so the call is billed as part of the one operator call that contains it
 ([05-software-stack.md](05-software-stack.md#two-model-configurations-one-budget)).
 
-An async twin exists for parallel provider calls, and is the library's one departure from being
-synchronous ([08-coding-style.md](08-coding-style.md)). Prompts are written by hand and versioned in
-the repository (ADR-005).
+`LLMClient`'s general provider call, `execute_api_call`, has an async twin, `aexecute_api_call`, for
+parallel provider calls — the library's one departure from being synchronous
+([08-coding-style.md](08-coding-style.md)). Prompts are written by hand and versioned in the
+repository (ADR-005).
 
 ---
 
