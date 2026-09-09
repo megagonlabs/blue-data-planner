@@ -17,6 +17,7 @@ from blue_data_planner.types import (
     DataBundle,
     LogicalOperator,
     OperatorOutput,
+    OutputColumn,
     PhysicalOperator,
     RecoverableOperatorError,
     UnrecoverableOperatorError,
@@ -53,8 +54,12 @@ def _build_call(
     parameters: type[BaseModel],
     properties: Properties | None,
     ignores_input_bundle: bool = False,
-) -> Callable[[DataBundle, dict[str, Any]], OperatorOutput]:
-    def call(inputs: DataBundle, attributes: dict[str, Any]) -> OperatorOutput:
+) -> Callable[[DataBundle, dict[str, Any], list[OutputColumn]], OperatorOutput]:
+    def call(
+        inputs: DataBundle,
+        attributes: dict[str, Any],
+        required_output_columns: list[OutputColumn],
+    ) -> OperatorOutput:
         try:
             validated = parameters.model_validate(attributes)
         except ValidationError as error:

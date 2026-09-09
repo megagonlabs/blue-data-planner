@@ -331,7 +331,7 @@ class PhysicalOperator:
     logical_operators: frozenset[LogicalOperator]
     description: str
     parameter_schema: type[BaseModel]
-    call: Callable[[DataBundle, dict[str, Any]], OperatorOutput]
+    call: Callable[[DataBundle, dict[str, Any], list[OutputColumn]], OperatorOutput]
     source_kinds: frozenset[str] | None = None
     accepts_bound_inputs: bool = False
     limitations: str | None = None

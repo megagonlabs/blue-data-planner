@@ -42,7 +42,7 @@ def execute_physical_operator(
         ) from error
     budget.spend()
     try:
-        output = operator.call(inputs, parameters)
+        output = operator.call(inputs, parameters, required_output_columns)
     except RecoverableOperatorError as error:
         return _failed(ErrorKind.RECOVERABLE, str(error), operator.operator_id, error.report)
     except UnrecoverableOperatorError as error:

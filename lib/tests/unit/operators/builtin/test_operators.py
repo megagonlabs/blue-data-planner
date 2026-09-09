@@ -137,7 +137,7 @@ def test_an_operator_transforms_its_bundle_as_its_parameters_say(
     expected: list[Any],
 ) -> None:
     """An operator runs its transformation over the table(s) its bundle carries."""
-    output = the_built_in_operators()[operator_id].call(bundle_factory(), parameters)
+    output = the_built_in_operators()[operator_id].call(bundle_factory(), parameters, [])
 
     assert [row[column] for row in output.data[0]] == expected
     # A deterministic operation has nothing to say about how it ran.
@@ -149,7 +149,7 @@ def test_a_two_table_operator_combines_the_tables_its_bundle_carries() -> None:
     bundle: DataBundle = [[{"id": 1, "name": "Ada"}], [{"restaurant_id": 1, "visits": 3}]]
 
     output = the_built_in_operators()["builtin.join"].call(
-        bundle, {"on": [{"left_column": "id", "right_column": "restaurant_id"}]}
+        bundle, {"on": [{"left_column": "id", "right_column": "restaurant_id"}]}, []
     )
 
     assert output.data == [[{"id": 1, "name": "Ada", "restaurant_id": 1, "visits": 3}]]
@@ -171,12 +171,12 @@ def test_an_operator_refuses_a_bundle_holding_the_wrong_number_of_tables(
     )
 
     with pytest.raises(RecoverableOperatorError, match=expected_message):
-        the_built_in_operators()[operator_id].call(wrong_count, parameters)
+        the_built_in_operators()[operator_id].call(wrong_count, parameters, [])
 
 
 def test_an_operator_refuses_parameters_its_schema_does_not_take() -> None:
     """Parameters the schema rejects come back as a refusal a fragment runner can answer."""
     with pytest.raises(RecoverableOperatorError, match="parameters"):
         the_built_in_operators()["builtin.filter"].call(
-            a_bundle_of_restaurants(), {"predicate": {"column": "state"}}
+            a_bundle_of_restaurants(), {"predicate": {"column": "state"}}, []
         )

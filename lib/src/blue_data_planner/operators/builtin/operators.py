@@ -27,6 +27,7 @@ from blue_data_planner.types import (
     DataBundle,
     LogicalOperator,
     OperatorOutput,
+    OutputColumn,
     PhysicalOperator,
     RecoverableOperatorError,
 )
@@ -68,19 +69,25 @@ def builtin_operators(data_registry: DataRegistry, llm_client: LLMClient) -> lis
     ]
 
 
-def _filter(inputs: DataBundle, parameters: dict[str, Any]) -> OperatorOutput:
+def _filter(
+    inputs: DataBundle, parameters: dict[str, Any], required_output_columns: list[OutputColumn]
+) -> OperatorOutput:
     filtering = _validated(FilterParameters, parameters, "builtin.filter")
     table = _one_table(inputs, "builtin.filter")
     return OperatorOutput(data=[table_transformations.filter_rows(table, filtering.predicate)])
 
 
-def _project(inputs: DataBundle, parameters: dict[str, Any]) -> OperatorOutput:
+def _project(
+    inputs: DataBundle, parameters: dict[str, Any], required_output_columns: list[OutputColumn]
+) -> OperatorOutput:
     projection = _validated(ProjectParameters, parameters, "builtin.project")
     table = _one_table(inputs, "builtin.project")
     return OperatorOutput(data=[table_transformations.project_columns(table, projection.columns)])
 
 
-def _expand(inputs: DataBundle, parameters: dict[str, Any]) -> OperatorOutput:
+def _expand(
+    inputs: DataBundle, parameters: dict[str, Any], required_output_columns: list[OutputColumn]
+) -> OperatorOutput:
     expansion = _validated(ExpandParameters, parameters, "builtin.expand")
     table = _one_table(inputs, "builtin.expand")
     return OperatorOutput(
@@ -95,7 +102,9 @@ def _expand(inputs: DataBundle, parameters: dict[str, Any]) -> OperatorOutput:
     )
 
 
-def _aggregate(inputs: DataBundle, parameters: dict[str, Any]) -> OperatorOutput:
+def _aggregate(
+    inputs: DataBundle, parameters: dict[str, Any], required_output_columns: list[OutputColumn]
+) -> OperatorOutput:
     aggregation = _validated(AggregateParameters, parameters, "builtin.aggregate")
     table = _one_table(inputs, "builtin.aggregate")
     return OperatorOutput(
@@ -107,13 +116,17 @@ def _aggregate(inputs: DataBundle, parameters: dict[str, Any]) -> OperatorOutput
     )
 
 
-def _distinct(inputs: DataBundle, parameters: dict[str, Any]) -> OperatorOutput:
+def _distinct(
+    inputs: DataBundle, parameters: dict[str, Any], required_output_columns: list[OutputColumn]
+) -> OperatorOutput:
     distinct = _validated(DistinctParameters, parameters, "builtin.distinct")
     table = _one_table(inputs, "builtin.distinct")
     return OperatorOutput(data=[table_transformations.distinct_rows(table, distinct.columns)])
 
 
-def _sort_superlative(inputs: DataBundle, parameters: dict[str, Any]) -> OperatorOutput:
+def _sort_superlative(
+    inputs: DataBundle, parameters: dict[str, Any], required_output_columns: list[OutputColumn]
+) -> OperatorOutput:
     ordering = _validated(SortSuperlativeParameters, parameters, "builtin.sort_superlative")
     table = _one_table(inputs, "builtin.sort_superlative")
     return OperatorOutput(
@@ -121,20 +134,26 @@ def _sort_superlative(inputs: DataBundle, parameters: dict[str, Any]) -> Operato
     )
 
 
-def _join(inputs: DataBundle, parameters: dict[str, Any]) -> OperatorOutput:
+def _join(
+    inputs: DataBundle, parameters: dict[str, Any], required_output_columns: list[OutputColumn]
+) -> OperatorOutput:
     join = _validated(JoinParameters, parameters, "builtin.join")
     left, right = _two_tables(inputs, "builtin.join")
     return OperatorOutput(data=[table_transformations.join_tables(left, right, join.on, join.how)])
 
 
-def _union(inputs: DataBundle, parameters: dict[str, Any]) -> OperatorOutput:
+def _union(
+    inputs: DataBundle, parameters: dict[str, Any], required_output_columns: list[OutputColumn]
+) -> OperatorOutput:
     _validated(UnionParameters, parameters, "builtin.union")
     left, right = _two_tables(inputs, "builtin.union")
     return OperatorOutput(data=[table_transformations.union_tables(left, right)])
 
 
 def _scan_entry(data_registry: DataRegistry) -> _Entry:
-    def scan(inputs: DataBundle, parameters: dict[str, Any]) -> OperatorOutput:
+    def scan(
+        inputs: DataBundle, parameters: dict[str, Any], required_output_columns: list[OutputColumn]
+    ) -> OperatorOutput:
         return _scan(data_registry, inputs, parameters)
 
     return _Entry(
@@ -208,7 +227,7 @@ class _Entry:
     logical_operator: LogicalOperator
     description: str
     parameter_schema: type[BaseModel]
-    call: Callable[[DataBundle, dict[str, Any]], OperatorOutput]
+    call: Callable[[DataBundle, dict[str, Any], list[OutputColumn]], OperatorOutput]
     source_kinds: frozenset[str] | None = None
     accepts_bound_inputs: bool = False
     limitations: str | None = _LIMITATIONS

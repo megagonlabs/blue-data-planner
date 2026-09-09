@@ -35,7 +35,7 @@ def test_a_call_comes_back_as_the_rows_it_produced_with_the_row_count_across_eve
     assert result.output == [[{"a": 1}], [{"a": 2}, {"a": 3}]]
     assert result.row_count == 3
     assert result.operator_id == "blue.select"
-    assert recorder.calls == [([[{"a": 1}]], {"key": "a"})]
+    assert recorder.calls == [([[{"a": 1}]], {"key": "a"}, [])]
     assert budget.spent == 1
 
 
@@ -135,3 +135,17 @@ def test_a_failed_call_carries_the_report_the_operator_raised_with() -> None:
 
     assert result.status is ExecutionStatus.FAILED
     assert result.report == {"steps_run": 2}
+
+
+def test_a_callable_is_handed_the_columns_its_fragment_declares() -> None:
+    """The declared columns reach the operation as well as the check that runs after it."""
+    operator, recorder = recording_operator(
+        "blue.select",
+        frozenset({LogicalOperator.FILTER}),
+        [OperatorOutput(data=[[{"a": 1}]])],
+    )
+    columns = [OutputColumn(name="a", dtype="int")]
+
+    execute_physical_operator(operator, {"key": "a"}, [], columns, CallBudget(cap=5))
+
+    assert recorder.calls == [([], {"key": "a"}, columns)]

@@ -12,11 +12,17 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict
 
-from blue_data_planner.types import DataBundle, LogicalOperator, OperatorOutput, PhysicalOperator
+from blue_data_planner.types import (
+    DataBundle,
+    LogicalOperator,
+    OperatorOutput,
+    OutputColumn,
+    PhysicalOperator,
+)
 
 # What a test scripts for one call: the output the operator returns, or the error it raises.
 ScriptedResult = OperatorOutput | Exception
-RecordedCall = tuple[DataBundle, dict[str, Any]]
+RecordedCall = tuple[DataBundle, dict[str, Any], list[OutputColumn]]
 
 
 class NoParameters(BaseModel):
@@ -36,8 +42,13 @@ class RecordingOperator:
     results: list[ScriptedResult] = field(default_factory=list[ScriptedResult])
     calls: list[RecordedCall] = field(default_factory=list[RecordedCall])
 
-    def __call__(self, inputs: DataBundle, parameters: dict[str, Any]) -> OperatorOutput:
-        self.calls.append((inputs, parameters))
+    def __call__(
+        self,
+        inputs: DataBundle,
+        parameters: dict[str, Any],
+        required_output_columns: list[OutputColumn],
+    ) -> OperatorOutput:
+        self.calls.append((inputs, parameters, required_output_columns))
         if not self.results:
             raise AssertionError("the recording operator ran out of scripted results")
         outcome = self.results.pop(0)

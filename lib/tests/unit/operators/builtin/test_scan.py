@@ -32,7 +32,7 @@ def scanning(
     registry: DataRegistry, parameters: dict[str, Any], inputs: DataBundle | None = None
 ) -> OperatorOutput:
     """Run builtin.scan the way execution would, on the bundle a fragment would hand it."""
-    return the_scan_operator(registry).call(inputs or [], parameters)
+    return the_scan_operator(registry).call(inputs or [], parameters, [])
 
 
 def test_a_scan_returns_every_row_and_every_column_the_entity_holds(

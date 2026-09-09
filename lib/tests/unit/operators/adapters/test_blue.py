@@ -193,7 +193,7 @@ def test_parameters_the_schema_refuses_are_recoverable() -> None:
     call = _build_call("blue.select", SelectOperator(), _StrictSelectParameters, None)
 
     with pytest.raises(RecoverableOperatorError, match="blue.select"):
-        call([_ROWS], {"operand_key": "population", "operand": ">", "eps": 0.1})
+        call([_ROWS], {"operand_key": "population", "operand": ">", "eps": 0.1}, [])
 
 
 def test_parameters_the_operator_refuses_are_recoverable() -> None:
@@ -201,7 +201,7 @@ def test_parameters_the_operator_refuses_are_recoverable() -> None:
     call = _build_call("blue.select", SelectOperator(), _LooseSelectParameters, None)
 
     with pytest.raises(RecoverableOperatorError, match="blue.select"):
-        call([_ROWS], {"operand_key": "population", "operand": "~=", "operand_val": 3})
+        call([_ROWS], {"operand_key": "population", "operand": "~=", "operand_val": 3}, [])
 
 
 def test_one_input_reaches_the_operator_as_one_record_group() -> None:
@@ -209,7 +209,7 @@ def test_one_input_reaches_the_operator_as_one_record_group() -> None:
     operator = _EchoingOperator([[]])
     call = _build_call("blue.echo", operator, _NoParameters, None)
 
-    call([_ROWS], {})
+    call([_ROWS], {}, [])
 
     assert operator.seen_inputs == [_ROWS]
 
@@ -220,7 +220,7 @@ def test_two_inputs_reach_the_operator_as_two_record_groups() -> None:
     operator = _EchoingOperator([[]])
     call = _build_call("blue.echo", operator, _NoParameters, None)
 
-    call([_ROWS, right], {})
+    call([_ROWS, right], {}, [])
 
     assert operator.seen_inputs == [_ROWS, right]
 
@@ -230,7 +230,7 @@ def test_zero_inputs_reach_the_operator_as_an_empty_bundle() -> None:
     operator = _EchoingOperator([[]])
     call = _build_call("blue.echo", operator, _NoParameters, None)
 
-    call([], {})
+    call([], {}, [])
 
     assert operator.seen_inputs == []
 
@@ -240,7 +240,7 @@ def test_properties_reach_the_operator() -> None:
     operator = _EchoingOperator([[]])
     call = _build_call("blue.echo", operator, _NoParameters, {"data_registry": "sentinel"})
 
-    call([], {})
+    call([], {}, [])
 
     assert operator.seen_properties == {"data_registry": "sentinel"}
 
@@ -249,21 +249,21 @@ def test_a_single_table_result_passes_through_as_a_bundle() -> None:
     """A node passes a bundle, so a one-table result arrives as a one-table bundle."""
     call = _build_call("blue.echo", _EchoingOperator([_ROWS]), _NoParameters, None)
 
-    assert call([], {}).data == [_ROWS]
+    assert call([], {}, []).data == [_ROWS]
 
 
 def test_a_zero_row_result_is_not_a_failure() -> None:
     """An operator that matched nothing returns an empty table rather than raising."""
     call = _build_call("blue.echo", _EchoingOperator([[]]), _NoParameters, None)
 
-    assert call([], {}).data == [[]]
+    assert call([], {}, []).data == [[]]
 
 
 def test_the_callable_reshapes_nothing_the_operator_returned() -> None:
     """An empty result arrives exactly as `Operator.run` hands it over."""
     call = _build_call("blue.echo", _EchoingOperator([]), _NoParameters, None)
 
-    assert call([], {}).data == [[]]
+    assert call([], {}, []).data == [[]]
 
 
 def test_more_than_one_output_table_passes_through() -> None:
@@ -271,14 +271,14 @@ def test_more_than_one_output_table_passes_through() -> None:
     right: Data = [{"city": "Dallas", "state": "TX"}]
     call = _build_call("blue.echo", _EchoingOperator([_ROWS, right]), _NoParameters, None)
 
-    assert call([], {}).data == [_ROWS, right]
+    assert call([], {}, []).data == [_ROWS, right]
 
 
 def test_a_real_operator_runs_end_to_end() -> None:
     """SelectOperator filters real rows through the callable and returns a one-table bundle."""
     call = _build_call("blue.select", SelectOperator(), _StrictSelectParameters, None)
 
-    result = call([_ROWS], {"operand_key": "population", "operand": ">", "operand_val": 5})
+    result = call([_ROWS], {"operand_key": "population", "operand": ">", "operand_val": 5}, [])
 
     assert result.data == [[{"city": "Dallas", "population": 9}]]
 
@@ -294,7 +294,7 @@ def test_a_real_join_runs_end_to_end() -> None:
     right: Data = [{"city": "Dallas", "state": "TX"}]
     call = _build_call("blue.join", JoinOperator(), _JoinTestParameters, None)
 
-    result = call([_ROWS, right], {"join_on": [["city"], ["city"]]})
+    result = call([_ROWS, right], {"join_on": [["city"], ["city"]]}, [])
 
     assert [row["city"] for row in result.data[0]] == ["Dallas"]
 
@@ -304,7 +304,7 @@ def test_a_real_union_runs_end_to_end() -> None:
     operators = {operator.operator_id: operator for operator in _operators()}
 
     result = operators["blue.union"].call(
-        [[{"city": "Austin"}], [{"city": "Austin"}, {"city": "Dallas"}]], {}
+        [[{"city": "Austin"}], [{"city": "Austin"}, {"city": "Dallas"}]], {}, []
     )
 
     assert result.data == [[{"city": "Austin"}, {"city": "Dallas"}]]
@@ -315,7 +315,7 @@ def test_a_real_intersect_runs_end_to_end() -> None:
     operators = {operator.operator_id: operator for operator in _operators()}
 
     result = operators["blue.intersect"].call(
-        [[{"city": "Austin"}, {"city": "Dallas"}], [{"city": "Dallas"}]], {}
+        [[{"city": "Austin"}, {"city": "Dallas"}], [{"city": "Dallas"}]], {}, []
     )
 
     assert result.data == [[{"city": "Dallas"}]]
@@ -327,7 +327,7 @@ def test_the_bundle_the_caller_owns_is_not_the_one_the_operator_gets() -> None:
     call = _build_call("blue.echo", operator, _NoParameters, None)
     inputs: DataBundle = [_ROWS]
 
-    call(inputs, {})
+    call(inputs, {}, [])
 
     assert operator.seen_inputs == inputs
     assert operator.seen_inputs is not inputs
@@ -338,7 +338,7 @@ def test_a_parameter_the_runner_left_unset_does_not_reach_the_operator() -> None
     operator = _EchoingOperator([[]])
     call = _build_call("blue.echo", operator, _OptionalParameters, None)
 
-    call([_ROWS], {"named": "x"})
+    call([_ROWS], {"named": "x"}, [])
 
     assert operator.seen_attributes == {"named": "x"}
 
@@ -350,10 +350,10 @@ def test_an_operator_that_ignores_its_bundle_refuses_tables_it_would_drop() -> N
     )
 
     # An empty table binds nothing, so a fragment arriving with one still runs.
-    assert call([[]], {}).data == [[]]
+    assert call([[]], {}, []).data == [[]]
 
     with pytest.raises(NotImplementedError, match="blue.echo"):
-        call([_ROWS], {})
+        call([_ROWS], {}, [])
 
 
 def test_a_refused_parameter_is_reported_before_a_bundle_it_cannot_bind() -> None:
@@ -363,7 +363,7 @@ def test_a_refused_parameter_is_reported_before_a_bundle_it_cannot_bind() -> Non
     )
 
     with pytest.raises(RecoverableOperatorError):
-        call([_ROWS], {"not_a_parameter": 1})
+        call([_ROWS], {"not_a_parameter": 1}, [])
 
 
 _EXPECTED_OPERATORS: list[tuple[str, frozenset[LogicalOperator]]] = [
@@ -496,7 +496,7 @@ def test_nl2sql_refuses_a_fragment_whose_rows_it_would_ignore() -> None:
     }
 
     with pytest.raises(NotImplementedError, match="blue.nl2sql"):
-        operators["blue.nl2sql"].call([_ROWS], parameters)
+        operators["blue.nl2sql"].call([_ROWS], parameters, [])
 
 
 def test_each_operator_id_is_unique() -> None:
@@ -519,7 +519,7 @@ def test_a_built_operator_runs() -> None:
     operators = {operator.operator_id: operator for operator in _operators()}
 
     result = operators["blue.select"].call(
-        [_ROWS], {"operand_key": "population", "operand": ">", "operand_val": 5}
+        [_ROWS], {"operand_key": "population", "operand": ">", "operand_val": 5}, []
     )
 
     assert result.data == [[{"city": "Dallas", "population": 9}]]
@@ -575,4 +575,4 @@ def test_unknown_parameters_are_a_recoverable_failure(spec: Any) -> None:
     operators = {operator.operator_id: operator for operator in _operators()}
 
     with pytest.raises(RecoverableOperatorError):
-        operators[spec.operator_id].call([_ROWS], {"not_a_parameter": 1})
+        operators[spec.operator_id].call([_ROWS], {"not_a_parameter": 1}, [])
