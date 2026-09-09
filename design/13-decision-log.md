@@ -323,8 +323,10 @@ DataBundle = list[Data]  # what one fragment passes to the next
 ```
 
 The data an operator receives and the data it returns are both this shape, so a callable takes a
-bundle and gives one back alongside its report (ADR-020). A fragment's inputs are the tables its
-upstream fragments produced, concatenated in the order it lists them. Each adapter converts at its own edge: the LOTUS adapter builds one data frame per
+bundle and gives one back alongside its report (ADR-020). A callable is also handed the columns
+the fragment's root declares, to read or to ignore; what the result carries is checked after the
+call either way ([04](04-detailed-architecture.md#executing)). A fragment's inputs are the tables
+its upstream fragments produced, concatenated in the order it lists them. Each adapter converts at its own edge: the LOTUS adapter builds one data frame per
 table and flattens coming out.
 
 **Rationale:** A row that is a plain dict belongs to no suite. It keeps pandas out of every module
@@ -333,8 +335,13 @@ rather than a single table is what a multi-table operation needs, since a join, 
 intersect each read every table handed to them. Declaring a fragment's value to be a single table
 would make a multi-output operator unrepresentable by construction rather than by decision.
 
-**Consequences:** Conversion happens per fragment rather than once, so consecutive LOTUS fragments
-pay for a data frame they could have kept. Every reader of a fragment's
+An operation that writes its own query or program has to aim at a named set of columns, and the
+declaration is where that set is already written. Handing it to the callable puts the names in
+front of the operation that needs them, in the form the check after the call will use.
+
+**Consequences:** Most callables ignore the declared columns, since an operation doing what its
+parameters say has no use for them. Conversion happens per fragment rather than once, so
+consecutive LOTUS fragments pay for a data frame they could have kept. Every reader of a fragment's
 output indexes a table before a row, so the rows of a single-output fragment are `result.output[0]`.
 `row_count` counts rows across every table and describes no shape; nothing reports table count.
 
@@ -366,9 +373,10 @@ accept rate need measuring rather than assuming.
 ## ADR-014 — One Operator-Call Budget; Model Calls Go Unmetered
 
 **Decision:** A request carries one budget, counting calls through `execute_physical_operator`;
-reaching its cap ends the request. Every other bound the system obeys is a field of `PlanLimits`,
-set once when the planner is built: plan corrections, parameter attempts, fragment attempts, cover
-attempts, failure replans, control replans, and discovery search terms. Calls through `llm/` are not
+reaching its cap ends the request. Every bound the run loop obeys is a field of `PlanLimits`, set
+once when the planner is built: plan corrections, parameter attempts, fragment attempts, cover
+attempts, failure replans, control replans, and discovery search terms. An operator may bound work
+it repeats inside one call, and that number belongs to the operator. Calls through `llm/` are not
 separately capped.
 
 **Rationale:** A model-call cap does not scale independently of the bounds a request already
@@ -494,20 +502,26 @@ entry and to the two documents written against it
 
 **Decision:** A suite named `builtin`, written here rather than depended on, holding two kinds of
 entry. A deterministic entry holds no model call and does what the parameters the fragment runner
-wrote say. One compound entry, `builtin.nl2table`, holds a model call: it turns a fragment's
-instruction into a sequence of those same operations and runs it. Both kinds wrap one shared module
-of functions over the bundle, so no entry calls another.
+wrote say. One compound entry, `builtin.nl2table`, writes a Python program from a fragment's
+instruction and runs it, in a separate process that reaches nothing but the tables it was handed.
+Both kinds work through one shared module of functions over the bundle, and that module is what the
+program calls.
 
 Every deterministic entry declares one logical operator. `builtin.scan` declares the scan alone: it
 reads one registered source, and a reference input's values reach that source as a bind join
-([06](06-library.md#the-built-in-suite)).
-`builtin.nl2table` declares a vocabulary covering every operator kind, reads registered sources, and
-accepts bound inputs, and it is the one operator with no same-source constraint, so a fragment
-scanning two sources has a candidate. Neither entry retries inside itself.
+([06](06-library.md#the-built-in-suite)). `builtin.nl2table` declares a vocabulary covering every
+operator kind, reads registered sources, and accepts bound inputs, and it is the one operator with
+no same-source constraint, so a fragment scanning two sources has a candidate.
 
-An operation may decide how to carry out the fragment it was given. It may not decide what the
-fragment is, which source to read beyond the one the cover bound, or how many times to run. That
-rule holds for every suite rather than only this one.
+`builtin.nl2table` reads every source its fragment names before the program starts, so the program
+receives tables and holds no path to a source, a registry, or a model. It writes the program again
+when the program will not run, bounded by an attempt count of its own, and returns a recoverable
+failure once that count is spent. A deployment decides whether it is registered at all.
+
+An operation may decide how to carry out the fragment it was given, and may repeat work inside its
+own call. It may not decide what the fragment is, which source to read beyond the one the cover
+bound, or how many times the fragment runs. That rule holds for every suite rather than only this
+one.
 
 An operator reports what it did through one untyped field on its result, set whether the call
 succeeded or failed, so a callable returns that report alongside its data. The suite adds no runtime
@@ -521,11 +535,21 @@ requested. Without one, a capability gap in an outside suite is answered as `no_
 replan, a fragment that scans nothing has no engine at all, and no plan runs unless a suite is
 installed.
 
-The model call sits inside the compound entry rather than in its parameter schema, where the
-fragment runner would have written the sequence under the mechanism that already exists. The planner
-has to bind operations that absorb many nodes, plan inside themselves, and fail as a unit, so one of
-our own, with an honest declaration and a working bind join, is worth having as the case the rest is
-written against.
+The compound entry writes a program because a program reaches what a set of named operations cannot:
+a derived value, an aggregate under a condition, a column whose values have to be normalized before
+they compare. The planner has to bind operations that absorb many nodes, plan inside themselves, and
+fail as a unit, so one of our own, with an honest declaration and a working bind join, is worth
+having as the case the rest is written against.
+
+The entry repairs its program inside the call because what failed there is the program, and the
+traceback names the fix. The repairs outside rewrite the fragment's parameters, which the failure
+gives no reason to doubt, so a failure sent out comes back with the same program written a second
+time.
+
+The program reaches nothing but its tables because that is what turns the entry's declaration from a
+promise into a fact. With no path to a provider the program cannot judge meaning, so a predicate
+that needs reading text belongs to a semantic operator. With no path to a registry it cannot read a
+source the cover did not bind, and with copies of its tables it cannot change what a source holds.
 
 The rule about which decision an operation may take is what separates an operation that plans inside
 a fragment from one that takes over the run loop's work. Planning inside is what a compound operator
@@ -535,16 +559,27 @@ planner's job somewhere nothing can see it.
 Reporting is one untyped field rather than named ones because most operations cannot report at all,
 and a named field would promise what an outside suite has no way to give.
 
-**Consequences:** Every operator node kind has a candidate, so `no_operator` becomes rare and the
-failure it used to prevent moves to run time: a semantic predicate now reaches a deterministic
-operator and is refused at review, one operator call later. What keeps that from happening routinely
-is open question 43. A fragment containing no `SCAN` is hosted by an operator that owns its engine,
-and `builtin.nl2table` is one.
+**Consequences:** Where `builtin.nl2table` is registered every operator node kind has a candidate,
+so `no_operator` is rare and a node bound to the wrong operator fails at run time rather than at
+planning time: a semantic predicate reaches an operator whose program can only approximate it, and
+the approximation returns rows and reports no error, so review is what catches it, one operator
+call later. What keeps that
+from happening routinely is open question 43. A fragment containing no `SCAN` is hosted by an
+operator that owns its engine, and `builtin.nl2table` is one.
 
 The model call inside `builtin.nl2table` happens after the call is billed, unlike the parameters,
-which are checked before. A sequence the model got wrong spends an operator call where a bad
-parameter spends none. `LLMError` raised inside a callable reaches the run loop and ends the request
-as `llm_failed`.
+which are checked before. A program the model got wrong spends an operator call where a bad
+parameter spends none, however many times the entry writes it again. `LLMError` raised inside a
+callable reaches the run loop and ends the request as `llm_failed`.
+
+The report is where a run's record of the entry lives: the program that ran, the programs that did
+not and why, and what the model calls cost. Reading a run therefore means reading source text, which
+is the one place the record is not structured data.
+
+A deployment enabling the entry runs model-written code as the user who launched the planner, and
+what that code may reach beyond the tables it was given is the deployment's to bound
+([12](12-deployment-ops.md#11-what-is-deliberately-absent)). Open question 49 asks what this
+repository should require of it.
 
 `operators/` holds more than adapters, and an owned entry carries behavior to test rather than
 translation ([11-testing-strategy.md](11-testing-strategy.md)). Every adapter returns a report
@@ -679,11 +714,11 @@ Design questions first, then defects in code that exists today.
 | 33 | Does the fragment rule list still need convexity? [04-detailed-architecture.md](04-detailed-architecture.md#what-a-fragment-may-be) lists connected, convex, disjoint, and single exit as four separate properties, and `validate_physical_plan` enforces that list. For a plan that already passed `validate_logical_plan`, the other three give convexity for nothing. Every non-root node of a fragment has all its consumers inside the fragment; following consumers terminates only at the root, since a valid plan holds no node nothing reads; so every node of a fragment reaches its root, and an outside node lying between two inside nodes would close a cycle, which a DAG has none of. Both premises carry the argument, and one of them is already in question: dropping the disjointness rule, which question 6 weighs, would take the argument with it. Two ways to close it. Say in `04` which of the four the others already give, so a reader learns the list is not independent and a check for it need not be written. Or leave the four standing, on the grounds that the implication holds only as long as disjointness does. | Whether the fragment rules read as four independent constraints when three of them imply the fourth |
 | 37 | What may an adapter absorb, and what must it refuse? Every suite mismatches what a plan needs in its own way, and with no shared rule each mismatch is settled in whichever adapter hits it first. Five absorptions look like translation rather than behavior, and are the candidates for a permitted list: shaping a parameter schema an operation has none of, converting between the bundle and the suite's own shape, mapping the suite's failures onto the recoverable and unrecoverable kinds, supplying the registry or model client an operation needs to run at all, and offering fewer operations or narrower capability than the suite advertises. Four look like behavior and are the candidates for a forbidden list: declaring a capability the operation lacks, computing or patching part of a result, retrying or splitting or reordering work the run loop owns, and returning an empty result in place of a reported failure. What ADR-020 settles is the planning case alone: an operation may plan how to carry out its own fragment and may not take a decision the run loop owns, which permits one that writes a query and refuses one that decomposes the request. The rest of both lists is unsettled, and so is an operation whose declared capability contradicts its own metadata, where an adapter that binds it anyway fails partway through a run and never offering the candidate would have cost nothing. | Whether a capability gap is answered in the adapter or upstream, and which `blue-data-ops` operations an adapter offers at all |
 | 38 | Where does an operation's capability declaration come from? A `PhysicalOperator` carries `logical_operators`, `source_kinds`, `accepts_bound_inputs`, and `limitations`, and the adapter hand-writes all four. `blue-data-ops` states most of them itself, on an `OperatorCard`: closed `accepts-*`, `requires-*`, and `capability-*` tags plus a `when_to_invoke` line, written by whoever wrote the operation. Reading the card where it exists would have caught the `nl2sql` defect, since the card says `accepts-none`. Against reading it: the card is `blue-data-ops`'s own scheme and nothing else has one — LOTUS declares no capability metadata at all, and a suite this repository writes declares whatever it chooses — so deriving one suite's declarations and hand-writing every other suite's is two rules for one field. The tag vocabulary is also close to but not the same question: `capability-filter` and `LogicalOperator.FILTER` agree, while `accepts-data` says an operation reads a bundle and not whether it can read one alongside a source it scans. A third route is to keep hand-writing and have the conformance test compare against the card where a suite has one, so a disagreement fails a test rather than a run. | Whether a hand-written declaration is checked against anything, and whether the adapter conformance test reads more than `AttributeSpec` |
-| 39 | Should the `builtin` suite gain an entry that writes and runs a program from a fragment's instruction? It subsumes the deterministic operations in principle, and a model writes such a program well, so it may answer fragments a fixed vocabulary cannot reach. Against it: `limitations` stops being enforceable. A fixed vocabulary makes "no semantic predicate" structurally true, since nothing in it can express one, while a program can express one badly and still look right, so the field falls from a fact to a request. A failure also arrives as a traceback or a wrong answer rather than a refusal, the run record holds text where the rest holds structured data, and running model-written code in the planner's process needs an answer on what may name what before it is offered outside a benchmark. Both would be candidates for the same node sets, so this is answerable by measurement rather than by argument. | Whether `builtin` holds an entry that can fail in ways the others cannot |
 | 41 | Is the bundle shape chosen to match one suite's operator signature? ADR-012 fixes a list of tables on both sides of an operator call, and no document says how much conversion the Blue adapter then needs ([06-library.md](06-library.md#the-adapters)). Two things are unsettled. Whether the alignment with the Blue operations is deliberate or incidental: if it is deliberate, the shape follows one suite and every other adapter pays the conversion, and if it is not, the shape is chosen for what a plan passes and the Blue adapter converts like any other. And what a callable invokes on the suite's side, which no document names either: a dependency's method name is a fact that goes stale, and naming it in two places is how two documents came to disagree about it. | Whether ADR-012's shape rests on a dependency's signature, and whether the Blue adapter is a pass-through |
 | 42 | Does anything here emit traces or logs of its own, and if so which package? [12-deployment-ops.md](12-deployment-ops.md#7-logging) fixes the library at standard-library logging with no handler configured, so an embedding application decides the format and the destination, and nothing in [05-software-stack.md](05-software-stack.md) declares a tracing dependency. Three routes. The adapters own it: the MCP package declares an exporter, emits structured JSON logs, and opens one span per tool request, leaving the library uninstrumented. The library owns it: spans cover each planning component, each operator call, and each model call, which is the only route that can show where a run's time and money went, at the price of a tracing dependency in `lib/` and an import in code every consumer runs. Or nothing ships in the first release and the run record stays the instrument. What argues for instrumenting at all is the fragment span: it would carry the logical nodes a fragment covered and the operator that ran them, which is where the pushdown boundary was drawn, and a trace can show that where a counter cannot. Against it: `PlanResult` already carries every plan, every attempt, the counters, and one usage record per model call, so a trace would restate what the caller is handed. | Whether a deployment can see inside a run without reading the returned result, and which package pays for it |
-| 43 | How is the physical planner made to choose a more capable operator over a built-in one? Every operator node kind has a built-in candidate (ADR-020), so a node is almost never answered as `no_operator` and a wrong choice is refused at review instead, one operator call later. `description` and `limitations` are the whole of what separates two candidates in the prompt, so a deterministic operator that cannot express a semantic predicate has to say so in terms a model weighs against a description promising a general engine, and one that runs unoptimized in the planner's process has to say that too. The review rejection rate of fragments bound to a built-in entry, which the TAG-Bench harness reports, is what measures it. | Whether a floor that always has a candidate raises the cost of every request that needed the ceiling |
+| 43 | How is the physical planner made to choose a more capable operator over a built-in one? Where `builtin.nl2table` is registered every operator node kind has a built-in candidate (ADR-020), so a node is almost never answered as `no_operator` and a wrong choice is refused at review instead, one operator call later. `description` and `limitations` are the whole of what separates two candidates in the prompt, so an operator that cannot judge meaning has to say so in terms a model weighs against a description promising a general engine, and one that reads whole tables into memory to work over them has to say that too. A built-in program can approximate a semantic predicate — matching a phrase where a reader would have judged a title — and the approximation returns rows and reports no error, so nothing but review stands between it and an answer. The review rejection rate of fragments bound to a built-in entry, which the TAG-Bench harness reports, is what measures it. | Whether a floor that always has a candidate raises the cost of every request that needed the ceiling |
 | 44 | Can an operator declare that every scan in one fragment reads the same source? `source_kinds` is a set of kinds and says nothing about identity, and `scan_sources` binds each `SCAN` in a fragment separately, so nothing stops a cover from handing one operator two databases. `blue.nl2sql` needs the constraint, since one SQL query cannot span two of them, while `builtin.nl2table` deliberately lacks it and covering such a fragment is the point of it. Without a way to declare the difference the constraint lives in `limitations` as plain language, and a candidate that cannot work is offered anyway. This is question 8's family: a capability the declaration has no vocabulary for. | Whether an operator limited to one source at a time can be declared at all, or is offered candidates it has to refuse |
-| 45 | Is a bind-join cap a bound of ADR-014's kind? `PlanLimits` holds every other bound the system obeys, and a cap on the distinct values a bind join carries is shaped the same way, but it lives inside an operator's choice of realization rather than at the run loop's level. `builtin.scan` reads only `sql/sqlite`, a source with a predicate language, and implements two of the three realizations in [06](06-library.md#data): values embedded in the query text, capped at 100 distinct values, and a temporary table, capped by nothing. Past the embedded-values cap it escalates to the temporary table rather than refusing the input, so `builtin.scan` never refuses a bind join for carrying too many values; 100 is where it switches realization, not a limit it enforces. The one-call-per-value realization, and the tighter cap that would bound it, belong to an operator reading a source with no predicate language, a case nothing in the built-in suite covers. Every number here is a placeholder set low enough not to break a run rather than measured against real bind-join volumes. A `PlanLimits` field would let a deployment raise a cap past a default nobody has tested; leaving it inside the operator keeps the choice with whichever component already sees how many rows travel, which is what decides the number in the first place. | Whether a bind-join cap is configurable per deployment or fixed inside the operator, and what real volumes call for |
+| 45 | Is a bound an operator enforces inside its own call a bound of ADR-014's kind? `PlanLimits` holds every bound the run loop obeys, and two numbers sit below it instead: the distinct values a bind join carries, and the times `builtin.nl2table` writes its program again before returning a recoverable failure. Both are shaped like `PlanLimits` fields. `builtin.scan` reads only `sql/sqlite`, a source with a predicate language, and implements two of the three realizations in [06](06-library.md#data): values embedded in the query text, capped at 100 distinct values, and a temporary table, capped by nothing. Past the embedded-values cap it escalates to the temporary table rather than refusing the input, so `builtin.scan` never refuses a bind join for carrying too many values; 100 is where it switches realization, not a limit it enforces. The one-call-per-value realization, and the tighter cap that would bound it, belong to an operator reading a source with no predicate language, a case nothing in the built-in suite covers. Every number here is a placeholder set low enough not to break a run rather than measured against real volumes or real failure rates. A `PlanLimits` field would let a deployment raise a cap past a default nobody has tested; leaving each number inside its operator keeps the choice with whichever component already sees what decides it. | Whether a bound below the run loop is configurable per deployment, and what real volumes and failure rates call for |
 | 47 | Should the operator vocabulary gain a node that looks the catalog up once per input row? ADR-022 keeps a `DISCOVER` node to a bounded set of entities however many rows it was handed, so a request such as "find the press release document for each of these 500 companies" has nowhere to go: that lookup is per row, what it returns is data rather than context, and it should be billed against the operator budget and reviewed like any other data operation. An operator node would give it all three. Against adding one: none of the ten logical operators reads the catalog, so this would be the first, and what it returns — paths rather than values — is a kind of row nothing else in a plan produces. How often a request needs one is unmeasured. | Whether a per-row catalog lookup is expressible at all, and whether the logical vocabulary stays as it is |
 | 48 | Which component reads a `relation` record when a plan scans a knowledge-base source? `blue-data` records relations alongside entities and attributes, each with a name, a source, and a target, and nothing in this design reads one. A `JOIN` is the obvious consumer, since a relation says which attributes join two entities, and it could arrive as part of the run's catalog context or as part of the fragment runner's deeper reading. What stops the question being answered for tables alone is that relations are the structure a knowledge-base source carries, and how this planner reads a knowledge base is itself unsettled, so an answer shaped for two SQL tables would likely be the wrong shape for a graph. | Whether a `JOIN` is written against a declared relation or against column names a model matched up, and what a knowledge-base source contributes to a plan |
+| 49 | What isolation does a deployment running `builtin.nl2table` need? The program runs in a separate process holding copies of its tables and no path to a registry, a source, or a provider, which bounds what a wrong program can do to the data a request reads and to what a source holds. That process still runs as the user who launched the planner, so what the program may do to that user's files and network is bounded by the operating system rather than by this repository. Two routes. The library requires an isolation mechanism — a syscall filter, a mount namespace, a container — which answers it and narrows the platforms the package runs on. Or the boundary stays where it is and the installation instructions say what it covers, leaving a deployment that needs more to arrange it. | Whether a deployment can enable the entry without arranging isolation of its own |

@@ -478,7 +478,7 @@ for operator in blue_operators(operator_registry, data_registry):
     router.register(operator)
 for operator in lotus_operators():  # empty when LOTUS is not installed
     router.register(operator)
-for operator in builtin_operators(data_registry, llm_client):
+for operator in builtin_operators(data_registry, llm_client, with_nl2table=True):
     router.register(operator)
 
 [op.operator_id for op in router.operators_for(LogicalOperator.FILTER)]

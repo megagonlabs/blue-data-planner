@@ -96,6 +96,7 @@ into the constructor. `.env` files are never committed.
 | `BLUE_DATA_PLANNER_MODEL` | `openai/gpt-4o` | The litellm model string every component uses |
 | `BLUE_DATA_PLANNER_LOTUS_MODEL` | `openai/gpt-4o` | The litellm model string LOTUS configures for itself, independently of `BLUE_DATA_PLANNER_MODEL` (ADR-005) |
 | `BLUE_DATA_REGISTRY_PATH` | None, required | The serialized registry an adapter opens and plans against |
+| `BLUE_DATA_PLANNER_ENABLE_NL2TABLE` | `false` | Whether the adapter registers `builtin.nl2table`, which writes a Python program and runs it (ADR-020) |
 | `LOG_LEVEL` | `INFO` | Logging verbosity |
 
 One model string serves every component. `DataPlanner`'s constructor takes a client per component,
@@ -107,8 +108,9 @@ should be the default is open question 18.
 
 ## 5. Request limits
 
-`PlanLimits` holds every bound the system obeys, and it is set once, when the planner is built
-(ADR-014). Nothing overrides one per request. Each is reported in `PlanResult.counters` whether the
+`PlanLimits` holds every bound the run loop obeys, and it is set once, when the planner is built
+(ADR-014). Nothing overrides one per request. An operator enforcing a bound on work it repeats
+inside a single call holds that number itself, and a deployment does not set it. Each is reported in `PlanResult.counters` whether the
 run succeeded or not, under the name it carries here.
 
 | Bound | Default | Counted | Reaching it |
@@ -263,4 +265,5 @@ reporting the number.
 | A hosted operator registry | The registry and router are in-process, built by whoever assembles the planner |
 | An ingestion path | Building and populating a registry belongs to `blue-data`, and this package only reads one (ADR-003) |
 | Authentication and authorization | Belongs to the deployment. The MCP server listens on no socket, so whoever may launch the subprocess may plan |
+| Isolation for model-written code | `builtin.nl2table` runs its program in a process holding copies of its tables and no path to a source, a registry, or a provider, which is what bounds the reach of a wrong program over the data a request touches. That process runs as the user who launched the planner, so a deployment needing the operating system to bound it further arranges that itself (open question 49) |
 | Per-request limit overrides | Bounds are set when a planner is built. A deployment that needs two sets of bounds builds two planners |

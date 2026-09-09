@@ -760,14 +760,15 @@ def check_output_columns(
 operator call, invokes the operator on the bundle it was handed, and checks the result with
 `check_output_columns` against the declared columns, coercing each to its declared type. A missing
 or uncoercible column is a recoverable failure
-([10](10-data-model.md#declared-output-columns)).
+([10](10-data-model.md#declared-output-columns)). The declared columns reach the operator as well
+as the check, so an operation writing its own query or program can aim at them (ADR-012).
 
 The two orderings are deliberate. The parameter check runs before the billing, because the runner
 wrote the parameters under that same schema, so a mismatch is a bug rather than a spent call. The
 billing runs before the operator, so a call that really happened still counts when the column check
 rejects its output. An operation that writes something of its own from a model, as `builtin.nl2table`
 does, writes it on the far side of that line, so what it got wrong costs an operator call where a
-bad parameter costs none (ADR-020).
+bad parameter costs none, however many times it writes it again (ADR-020).
 
 The caller passes the fragment root's declarations and nothing else, because a fused call produces
 no intermediate tables to check the absorbed nodes against. Neither a zero-row table nor an empty
@@ -789,8 +790,8 @@ owns the Blue operators, the abstract `Operator`, and the `OperatorRegistry` tha
 LOTUS owns its own; and an adapter is the only place either dependency is imported.
 
 `builtin/` is the owned suite (ADR-020): deterministic operations covering the operator node kinds,
-and one compound operation, `builtin.nl2table`, that turns a fragment's instruction into a sequence
-of them and runs it. It reaches the router the same way an adapter's operations do, through a
+and one compound operation, `builtin.nl2table`, that writes a Python program from a fragment's
+instruction and runs it. It reaches the router the same way an adapter's operations do, through a
 function returning a list.
 
 `__init__.py` re-exports `OperatorRouter` alone, and every suite is imported from the module named
@@ -857,7 +858,7 @@ parameter model to fill (ADR-010), so registering an operator upstream does not 
 
 A logical operator no registered operation declares is answered as `no_operator`, and the node goes
 back to the logical planner. A gap in the registered suites therefore shows up as a replan rather
-than as a wrong answer, and the run record names the node that had no candidate. With `builtin`
+than as a wrong answer, and the run record names the node that had no candidate. With `builtin.nl2table`
 registered every operator node kind has a candidate, so the answer is rare and a poor choice is
 refused at review instead. What keeps the physical planner reaching for a built-in operation where a
 semantic one was needed is open question 43 in
@@ -875,7 +876,9 @@ def lotus_operators() -> list[PhysicalOperator]: ...
 
 
 def builtin_operators(
-    data_registry: DataRegistry, llm_client: LLMClient
+    data_registry: DataRegistry,
+    llm_client: LLMClient,
+    with_nl2table: bool = False,
 ) -> list[PhysicalOperator]: ...
 ```
 
@@ -899,13 +902,13 @@ imports with LOTUS absent and the router simply gains no LOTUS operators (ADR-00
 
 `builtin/` is written here rather than wrapped (ADR-020), and holds two kinds of entry over one
 shared module of transformations on the tables a bundle carries. No entry calls another: both kinds
-call those functions.
+call those functions, and so does the program `builtin.nl2table` writes.
 
 | Entry | Declares | Holds a model call |
 | --- | --- | --- |
 | A transform entry | One logical operator | No. It does what its parameters say |
 | `builtin.scan` | The scan alone | No |
-| `builtin.nl2table` | Every operator kind | Yes. It turns the fragment's instruction into a sequence of the other operations and runs it |
+| `builtin.nl2table` | Every operator kind | Yes. It writes a Python program from the fragment's instruction and runs it |
 
 A transform entry takes one logical node whole. Its parameters reach as far as its node kind does,
 so a filter combining conditions under and, or, and not arrives as one node and runs as one call.
@@ -924,21 +927,38 @@ input ([10](10-data-model.md#how-many-inputs-a-node-takes)), `builtin.scan` bind
 values into the read, which is the bind join of
 [04](04-detailed-architecture.md#what-an-operator-does-with-its-input); how a bind join reaches the
 source is `data/`'s question, taken up below. Its `source_kinds` name the kinds it reads and grow as
-more are implemented.
+more are implemented. It does not retry inside itself: a read the source refused comes back as a
+recoverable failure, and the parameter repair rewrites what asked for it.
 
 `builtin.nl2table` is the suite's black box, and the case the pushdown design is written against. It
 reads registered sources, accepts bound inputs, and is the one operator with no same-source
 constraint, so a fragment scanning two sources has a candidate. A fragment scanning none has one
-too, since an operator that owns its engine needs no source to be bound.
+too, since an operator that owns its engine needs no source to be bound. It is registered when a
+deployment asks for it.
 
-Neither entry retries inside itself. A sequence `builtin.nl2table` got wrong comes back as a
-recoverable failure, and the parameter repair rewrites it, so the four repairs stay the only place
-attempts are counted (ADR-014).
+The call has two halves. First the operator reads every source the fragment named, carrying a
+reference input's values into a read as a bind join wherever its parameters bind one, the way
+`builtin.scan` does. Then it writes a Python program from the fragment's instruction and runs that
+program over those tables together with the ones the frontier delivered.
 
-The suite's model calls go through `llm/` like every other model call the library makes, so
-`builtin.nl2table` reports its own token counts where an outside suite cannot. Those counts travel
-in the call's report rather than in `PlanResult.planner_usage`, which keeps the scope its name
-states (ADR-005).
+The program runs in a separate process, holds copies of those tables, and has no path to a source, a
+registry, or a provider. Three properties follow, and the entry's declaration rests on them. It
+cannot judge meaning, so a predicate that needs reading text belongs to a semantic operator. It
+cannot read a source the cover did not bind. It cannot change what any source holds. A program
+naming anything beyond the shared transformations and the parts of the standard library that only
+compute is refused before it runs.
+
+The two halves fail differently, and the split follows what a repair could fix. A scan target that
+is not a catalog path, a bound column an input does not carry, a source that refused the read: no
+program was at fault, so the operator returns a recoverable failure and the repairs outside rewrite
+the parameters. A program that will not parse, one that raises, one that runs too long, one that
+produces something other than a table: the failure names what to change, so the entry writes the
+program again with that failure in front of the model, up to an attempt count it holds itself.
+Spending that count returns a recoverable failure like any other.
+
+Its report carries the program that ran, each program that did not and what it did, the query behind
+each scan, and what its own model calls cost. Those counts travel there rather than in
+`PlanResult.planner_usage`, which keeps the scope its name states (ADR-005).
 
 ---
 

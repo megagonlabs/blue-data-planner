@@ -143,7 +143,7 @@ results. Whether a data frame library reaches an install at all is a dependency'
 | --- | --- | --- |
 | Blue | `blue-data-ops` | Required |
 | LOTUS | `lotus-ai` | `lotus` |
-| `builtin` | This repository | None. It is always present |
+| `builtin` | This repository | None. Its deterministic entries are always present, and `builtin.nl2table` is registered when specified (ADR-020) |
 
 LOTUS is the first outside suite integrated. It is called as an outside dependency and its source is
 never copied in (ADR-004). It sits behind an extra because its install constraints are heavier than

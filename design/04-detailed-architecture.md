@@ -357,15 +357,17 @@ query processing. The mechanism is borrowed from there.
 1. Refuses parameters the operator's schema does not accept. That is a bug rather than a spent
     call, so it is caught before the budget is touched.
 2. Bills one operator call against the budget. An exhausted budget ends the request here.
-3. Invokes the operator's callable on the bundle it was handed. A Blue operator takes that bundle as
-    it stands; a LOTUS operator converts at its own edge (ADR-012).
+3. Invokes the operator's callable on the bundle it was handed, along with the declared columns, for
+    the operation to aim at or to ignore (ADR-012). A Blue operator takes that bundle as it stands;
+    a LOTUS operator converts at its own edge.
 4. Checks every table in the result against the declared columns it was handed, matching the
     declared names and coercing each column to the type declared beside it. The type vocabulary and
     the coercion rules are in [10-data-model.md](10-data-model.md#declared-output-columns).
 
 An operation that writes something of its own from a model writes it during step 3, on the far side
-of the billing. A query or a sequence of operations the model got wrong therefore costs an operator
-call, where a parameter the runner got wrong costs none (ADR-020). The operator returns whatever it
+of the billing. A query or a program the model got wrong therefore costs an operator call, and
+costs one call however many times the operation writes it again, where a parameter the runner got
+wrong costs none (ADR-020). The operator returns whatever it
 wants recorded about the call alongside its rows, and that report travels out on the result whether
 the call succeeded or failed.
 

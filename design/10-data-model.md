@@ -295,7 +295,7 @@ class PhysicalOperator:
     logical_operators: frozenset[LogicalOperator]
     description: str
     parameter_schema: type[BaseModel]
-    call: Callable[[DataBundle, dict[str, Any]], OperatorOutput]
+    call: Callable[[DataBundle, dict[str, Any], list[OutputColumn]], OperatorOutput]
     source_kinds: frozenset[str] | None = None
     accepts_bound_inputs: bool = False
     limitations: str | None = None
@@ -307,7 +307,7 @@ class PhysicalOperator:
 | `source_kinds` | The kinds of registered source it can read, or `None` when it reads none |
 | `accepts_bound_inputs` | Whether it can take tables from other fragments alongside the source it reads. A source-access operator that cannot is limited to fragments with an empty frontier |
 | `limitations` | What it cannot do, in plain language, where its author can state it. A Text-to-SQL operator cannot express a semantic predicate, and saying so is what gives the physical planner something to weigh against a description that otherwise promises everything |
-| `description`, `parameter_schema`, `call` | What it does, the shape of its parameters, and the callable execution invokes |
+| `description`, `parameter_schema`, `call` | What it does, the shape of its parameters, and the callable execution invokes. A callable is handed the bundle, its parameters, and the columns the fragment's root declares (ADR-012) |
 
 `parameter_schema` is a Pydantic model class, hand-written per operator (ADR-010). It serves twice:
 the fragment runner passes it to the model client as a response schema, and

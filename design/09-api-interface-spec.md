@@ -84,7 +84,8 @@ for operator in blue_operators(operator_registry, data_registry):
     router.register(operator)
 for operator in lotus_operators():  # empty when LOTUS is not installed
     router.register(operator)
-for operator in builtin_operators(data_registry, llm_client):
+# with_nl2table enables the entry that writes and runs a Python program (ADR-020)
+for operator in builtin_operators(data_registry, llm_client, with_nl2table=True):
     router.register(operator)
 
 planner = build_data_planner(
