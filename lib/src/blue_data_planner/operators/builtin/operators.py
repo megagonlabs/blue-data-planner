@@ -11,6 +11,7 @@ from pydantic import BaseModel, ValidationError
 from blue_data_planner.data import DataRegistry
 from blue_data_planner.llm import LLMClient
 from blue_data_planner.operators.builtin import source_scan, table_transformations
+from blue_data_planner.operators.builtin.nl2table import nl2table_operator
 from blue_data_planner.operators.builtin.schemas import (
     AggregateParameters,
     DistinctParameters,
@@ -49,12 +50,14 @@ _SCAN_LIMITATIONS = (
 )
 
 
-def builtin_operators(data_registry: DataRegistry, llm_client: LLMClient) -> list[PhysicalOperator]:
-    """Return one physical operator per logical operator this suite implements."""
-    # llm_client is not read yet: builtin.nl2table is what calls a model, and it arrives as
-    # its own entry.
+def builtin_operators(
+    data_registry: DataRegistry,
+    llm_client: LLMClient,
+    with_nl2table: bool = False,
+) -> list[PhysicalOperator]:
+    """Return the suite's operators, with the compound entry only where it was asked for."""
     entries = (*_ENTRIES, _scan_entry(data_registry))
-    return [
+    operators = [
         PhysicalOperator(
             operator_id=entry.operator_id,
             logical_operators=frozenset({entry.logical_operator}),
@@ -67,6 +70,11 @@ def builtin_operators(data_registry: DataRegistry, llm_client: LLMClient) -> lis
         )
         for entry in entries
     ]
+    # The compound entry runs model-written code, so a deployment enables it on purpose
+    # (ADR-020). It is built here rather than as an _Entry because it declares every kind.
+    if with_nl2table:
+        operators.append(nl2table_operator(data_registry, llm_client))
+    return operators
 
 
 def _filter(

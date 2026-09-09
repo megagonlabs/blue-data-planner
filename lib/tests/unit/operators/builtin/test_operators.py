@@ -33,7 +33,11 @@ TWO_TABLE_IDS = ["builtin.join", "builtin.union"]
 
 
 def the_built_in_operators() -> dict[str, PhysicalOperator]:
-    """Return every built-in operator by id; only builtin.scan's call reads either argument."""
+    """Return every built-in operator by id.
+
+    Only builtin.scan's call reads either argument; the compound entry closes over both
+    without reading either until it runs.
+    """
     operators = builtin_operators(cast(Any, None), cast(Any, None))
     return {operator.operator_id: operator for operator in operators}
 
@@ -180,3 +184,15 @@ def test_an_operator_refuses_parameters_its_schema_does_not_take() -> None:
         the_built_in_operators()["builtin.filter"].call(
             a_bundle_of_restaurants(), {"predicate": {"column": "state"}}, []
         )
+
+
+def test_the_suite_offers_the_compound_entry_only_when_it_is_asked_for() -> None:
+    """A deployment decides whether model-written code runs at all (ADR-020)."""
+    without = {op.operator_id for op in builtin_operators(cast(Any, None), cast(Any, None))}
+    with_it = {
+        op.operator_id
+        for op in builtin_operators(cast(Any, None), cast(Any, None), with_nl2table=True)
+    }
+
+    assert "builtin.nl2table" not in without
+    assert with_it - without == {"builtin.nl2table"}

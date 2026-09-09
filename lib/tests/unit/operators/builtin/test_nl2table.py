@@ -2,14 +2,43 @@
 
 from __future__ import annotations
 
+import litellm  # the tests/stubs deterministic fake (conftest inserts the stub path)
 import pytest
 
 from blue_data_planner.data import DataRegistry
-from blue_data_planner.operators.builtin.nl2table import program_prompt, read_tables, retry_prompt
+from blue_data_planner.llm import LLMClient, LLMError
+from blue_data_planner.operators.builtin.nl2table import (
+    MAX_PROGRAMS,
+    nl2table_operator,
+    program_prompt,
+    read_tables,
+    retry_prompt,
+)
 from blue_data_planner.operators.builtin.schemas import Nl2TableParameters
 from blue_data_planner.types import OutputColumn, RecoverableOperatorError
 
 STORES = "/source/tag_bench/database/retail/collection/public/entity/stores"
+MODEL_PROPS = {"service_prefix": "openai", "openai.model": "gpt-4o"}
+
+
+@pytest.fixture(autouse=True)
+def _reset_fake() -> None:  # pyright: ignore[reportUnusedFunction] — autouse
+    litellm.calls.clear()
+    litellm.fail_next.clear()
+    litellm.replies.clear()
+
+
+def _reply(code: str) -> str:
+    import json
+
+    return json.dumps({"code": code})
+
+
+def _run(
+    registry: DataRegistry, parameters: dict[str, object], inputs: list[list[dict[str, object]]]
+):
+    operator = nl2table_operator(registry, LLMClient("test", MODEL_PROPS))
+    return operator.call(inputs, parameters, [OutputColumn(name="city", dtype="str")])
 
 
 def test_each_entity_is_read_under_the_name_its_catalog_path_ends_in(
@@ -127,3 +156,98 @@ def test_a_retry_prompt_carries_the_program_and_what_it_did() -> None:
 
     assert "result = stores[9]" in prompt
     assert "IndexError" in prompt
+
+
+def test_a_program_written_from_the_instruction_produces_the_calls_table(
+    sqlite_registry: DataRegistry,
+) -> None:
+    """One model call, one program, one table: the ordinary path end to end."""
+    litellm.replies.append(_reply("result = [{'city': row['city']} for row in stores]"))
+
+    output = _run(
+        sqlite_registry,
+        {"instruction": "list the cities", "scan_sources": [{"scan_source": STORES}]},
+        [],
+    )
+
+    assert output.data == [[{"city": "Reno"}, {"city": "Oakland"}]]
+
+
+def test_a_program_that_will_not_run_is_written_again_with_its_failure(
+    sqlite_registry: DataRegistry,
+) -> None:
+    """The second program is written against what the first one did."""
+    litellm.replies.extend([_reply("result = stores[9]"), _reply("result = [{'city': 'Reno'}]")])
+
+    output = _run(
+        sqlite_registry,
+        {"instruction": "list the cities", "scan_sources": [{"scan_source": STORES}]},
+        [],
+    )
+
+    assert output.data == [[{"city": "Reno"}]]
+    assert "IndexError" in litellm.calls[-1]["messages"][-1]["content"]
+
+
+def test_the_call_ends_recoverably_once_every_program_has_been_written(
+    sqlite_registry: DataRegistry,
+) -> None:
+    """Three programs is the bound, and the failure names the last one's undoing."""
+    litellm.replies.extend([_reply("result = stores[9]")] * MAX_PROGRAMS)
+
+    with pytest.raises(RecoverableOperatorError, match="IndexError"):
+        _run(
+            sqlite_registry,
+            {"instruction": "list the cities", "scan_sources": [{"scan_source": STORES}]},
+            [],
+        )
+
+    assert len(litellm.calls) == MAX_PROGRAMS
+
+
+def test_a_read_that_fails_ends_the_call_before_a_program_is_written(
+    sqlite_registry: DataRegistry,
+) -> None:
+    """No program was at fault, so none is written and the repairs outside get the parameters."""
+    with pytest.raises(RecoverableOperatorError):
+        _run(
+            sqlite_registry,
+            {"instruction": "x", "scan_sources": [{"scan_source": "/nonsense"}]},
+            [],
+        )
+
+    assert litellm.calls == []
+
+
+def test_a_provider_failure_is_not_answered_with_another_program(
+    sqlite_registry: DataRegistry,
+) -> None:
+    """LLMError reaches the run loop, which ends the request as llm_failed (ADR-020)."""
+    litellm.fail_next.extend([RuntimeError("provider down")] * 3)  # past the client's own retries
+
+    with pytest.raises(LLMError):
+        _run(
+            sqlite_registry,
+            {"instruction": "list the cities", "scan_sources": [{"scan_source": STORES}]},
+            [],
+        )
+
+
+def test_the_report_names_every_program_written_every_query_run_and_what_it_cost(
+    sqlite_registry: DataRegistry,
+) -> None:
+    """A finished call can be read: the programs, the scans, and the model calls."""
+    litellm.replies.extend([_reply("result = stores[9]"), _reply("result = [{'city': 'Reno'}]")])
+
+    output = _run(
+        sqlite_registry,
+        {"instruction": "list the cities", "scan_sources": [{"scan_source": STORES}]},
+        [],
+    )
+
+    assert output.report is not None
+    assert len(output.report["programs"]) == 2
+    assert output.report["programs"][0]["error"] is not None
+    assert output.report["programs"][1]["error"] is None
+    assert output.report["scans"][0]["table"] == "stores"
+    assert len(output.report["usage"]) == 2

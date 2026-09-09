@@ -5,14 +5,24 @@ from __future__ import annotations
 import re
 from typing import Any
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 
 from blue_data_planner.data import DataRegistry
+from blue_data_planner.llm import Conversation, LLMClient, Turn
 from blue_data_planner.llm.templating import safe_substitute
 from blue_data_planner.operators.builtin import source_scan
+from blue_data_planner.operators.builtin.program_run import run_program
 from blue_data_planner.operators.builtin.schemas import IndexedScanSource, Nl2TableParameters
 from blue_data_planner.prompts import prompt_text
-from blue_data_planner.types import Data, DataBundle, OutputColumn, RecoverableOperatorError
+from blue_data_planner.types import (
+    Data,
+    DataBundle,
+    LogicalOperator,
+    OperatorOutput,
+    OutputColumn,
+    PhysicalOperator,
+    RecoverableOperatorError,
+)
 
 _ENTITY_SEGMENT = re.compile(r"/entity/(?P<entity>[^/]+)$")
 
@@ -119,3 +129,83 @@ def _rendered_table(name: str, rows: Data) -> str:
     lines = [f"### `{name}` — {len(rows)} rows", "", f"Columns: {', '.join(columns) or 'none'}", ""]
     lines.extend(f"- {row}" for row in sample)
     return "\n".join(lines)
+
+
+# Three programs is the bound, set to keep a run finite rather than measured (open question 45).
+MAX_PROGRAMS = 3
+
+_DESCRIPTION = (
+    "Writes a Python program from the fragment's instruction and runs it over the rows of every "
+    "entity the fragment reads, so any group of operations is answered in one call."
+)
+
+_LIMITATIONS = (
+    "Reads a SQL source only, reads each entity whole into memory before the program runs, and "
+    "makes no model call while running, so a predicate that needs judging what text means "
+    "belongs to a semantic operator."
+)
+
+
+def nl2table_operator(data_registry: DataRegistry, llm_client: LLMClient) -> PhysicalOperator:
+    """Return the suite's compound entry, which writes a program and runs it."""
+
+    def call(
+        inputs: DataBundle,
+        parameters: dict[str, Any],
+        required_output_columns: list[OutputColumn],
+    ) -> OperatorOutput:
+        return _call(data_registry, llm_client, inputs, parameters, required_output_columns)
+
+    return PhysicalOperator(
+        operator_id="builtin.nl2table",
+        logical_operators=frozenset(
+            logical_op for logical_op in LogicalOperator if logical_op is not LogicalOperator.RETURN
+        ),
+        description=_DESCRIPTION,
+        parameter_schema=Nl2TableParameters,
+        call=call,
+        source_kinds=frozenset({"sql/sqlite"}),
+        accepts_bound_inputs=True,
+        limitations=_LIMITATIONS,
+    )
+
+
+def _call(
+    data_registry: DataRegistry,
+    llm_client: LLMClient,
+    inputs: DataBundle,
+    parameters: dict[str, Any],
+    required_output_columns: list[OutputColumn],
+) -> OperatorOutput:
+    try:
+        validated = Nl2TableParameters.model_validate(parameters)
+    except ValidationError as error:
+        raise RecoverableOperatorError(
+            f"builtin.nl2table was given parameters it cannot take: {error}"
+        ) from error
+    tables, scans = read_tables(data_registry, validated, inputs)
+    conversation = Conversation(
+        turns=[
+            Turn(
+                role="user",
+                content=program_prompt(validated.instruction, tables, required_output_columns),
+            )
+        ]
+    )
+    written: list[dict[str, Any]] = []
+    for attempt in range(MAX_PROGRAMS):
+        code = llm_client.complete_structured(conversation, WrittenProgram).code
+        run = run_program(code, tables)
+        written.append({"code": code, "error": run.error})
+        report = {"programs": written, "scans": scans, "usage": list(conversation.usage)}
+        if run.table is not None:
+            return OperatorOutput(data=[run.table], report=report)
+        if attempt + 1 < MAX_PROGRAMS:
+            conversation.turns.append(
+                Turn(role="user", content=retry_prompt(code, run.error or "no table"))
+            )
+    raise RecoverableOperatorError(
+        f"builtin.nl2table wrote {MAX_PROGRAMS} programs and none produced a table; "
+        f"the last one failed with: {written[-1]['error']}",
+        report={"programs": written, "scans": scans, "usage": list(conversation.usage)},
+    )
