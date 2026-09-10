@@ -18,8 +18,10 @@ from blue_data_planner.operators.adapters.lotus.instruction_columns import (
 )
 from blue_data_planner.operators.adapters.lotus.row_cap import DEFAULT_MAX_ROWS, check_row_cap
 from blue_data_planner.operators.adapters.lotus.schemas import (
+    SemAggParameters,
     SemExtractParameters,
     SemFilterParameters,
+    SemJoinParameters,
     SemMapParameters,
     SemTopKParameters,
 )
@@ -194,6 +196,25 @@ def _run_topk(
     return frames[0].sem_topk(parameters.instruction, K=parameters.k), []
 
 
+def _run_agg(
+    frames: list[Any], parameters: Any, required: list[OutputColumn], operator_id: str
+) -> tuple[Any, list[str]]:
+    # sem_agg keeps the columns it groups by and drops the rest, so what it creates is
+    # whatever the node declares beyond them.
+    column = one_new_column(operator_id, required, parameters.group_by, parameters.output_column)
+    summarized = frames[0].sem_agg(
+        parameters.instruction, suffix=column, group_by=parameters.group_by or None
+    )
+    return summarized, [column]
+
+
+def _run_join(
+    frames: list[Any], parameters: Any, required: list[OutputColumn], operator_id: str
+) -> tuple[Any, list[str]]:
+    joined = frames[0].sem_join(frames[1], parameters.instruction)
+    return frame_conversion.rename_join_columns(joined), []
+
+
 _ENTRIES: tuple[_Entry, ...] = (
     _Entry(
         "lotus.sem_filter",
@@ -229,5 +250,29 @@ _ENTRIES: tuple[_Entry, ...] = (
         1,
         _run_topk,
         limitations="Returns the highest rows and carries no column saying how they ranked.",
+    ),
+    _Entry(
+        "lotus.sem_agg",
+        LogicalOperator.AGGREGATE,
+        "Summarizes the rows of each group into one value a language model wrote.",
+        SemAggParameters,
+        1,
+        _run_agg,
+        limitations=(
+            "Summarizes each group into one text value and computes no sum, average, or count, "
+            "so a node asking for a number is not its to take."
+        ),
+    ),
+    _Entry(
+        "lotus.sem_join",
+        LogicalOperator.JOIN,
+        "Matches the rows of two tables on a language model's judgment of one column from each.",
+        SemJoinParameters,
+        2,
+        _run_join,
+        limitations=(
+            "Compares every pair of rows, so what it costs grows with the two tables multiplied "
+            "together. It matches on one column from each table and produces inner-join rows."
+        ),
     ),
 )

@@ -238,3 +238,81 @@ def test_the_report_carries_what_this_call_spent_and_not_what_ran_before(lotus_s
         "total_tokens": 10,
         "cost": pytest.approx(0.001),
     }
+
+
+def test_the_two_shaped_operations_are_registered_for_their_kinds() -> None:
+    """The aggregation and the join answer for the logical operators they implement."""
+    registered = {one.operator_id: one.logical_operators for one in lotus_operators(MODEL)}
+
+    assert registered["lotus.sem_agg"] == frozenset({LogicalOperator.AGGREGATE})
+    assert registered["lotus.sem_join"] == frozenset({LogicalOperator.JOIN})
+
+
+def test_an_aggregation_names_its_column_against_the_group_by(lotus_stub: Any) -> None:
+    """sem_agg keeps only the columns it groups by, so the rest of the declaration is its column."""
+    # "note" is both what the input carries and what the node declares as output: sem_agg drops
+    # the input's "note" along with every other non-grouped column and writes its summary under
+    # that same declared name. Deriving the new column against the input's columns instead of
+    # group_by would see "note" as already present and find nothing left to create.
+    lotus_stub.frames.append(pd.DataFrame([{"city": "Reno", "note": "quiet"}]))
+
+    operator("lotus.sem_agg").call(
+        [[{"city": "Reno", "note": "loud"}]],
+        {"instruction": "Summarize {note}", "group_by": ["city"]},
+        declared("city", "note"),
+    )
+
+    assert lotus_stub.calls[0]["kwargs"]["suffix"] == "note"
+    assert lotus_stub.calls[0]["kwargs"]["group_by"] == ["city"]
+
+
+def test_an_ungrouped_aggregation_asks_lotus_for_no_grouping(lotus_stub: Any) -> None:
+    """An empty group_by summarizes the whole table, which LOTUS spells as no grouping at all."""
+    lotus_stub.frames.append(pd.DataFrame([{"summary": "quiet"}]))
+
+    operator("lotus.sem_agg").call(
+        [[{"note": "quiet"}]], {"instruction": "Summarize {note}"}, declared("summary")
+    )
+
+    assert lotus_stub.calls[0]["kwargs"]["group_by"] is None
+
+
+def test_a_join_reads_both_tables_and_renames_what_they_shared(lotus_stub: Any) -> None:
+    """A column both tables carried comes back in the naming a JOIN node expects."""
+    lotus_stub.frames.append(
+        pd.DataFrame([{"city:left": "Reno", "city:right": "Reno", "sales": 10}])
+    )
+
+    result = operator("lotus.sem_join").call(
+        [[{"city": "Reno"}], [{"city": "Reno", "sales": 10}]],
+        {"instruction": "Is {city:left} the same place as {city:right}?"},
+        [],
+    )
+
+    assert result.data == [[{"city": "Reno", "city_right": "Reno", "sales": 10}]]
+
+
+def test_a_join_is_refused_when_its_two_tables_multiply_past_the_cap(lotus_stub: Any) -> None:
+    """The pairs a join compares are what it is billed for, so the cap counts the product."""
+    left = [{"city": f"c{index}"} for index in range(3)]
+    right = [{"town": f"t{index}"} for index in range(3)]
+
+    result = run(
+        operator("lotus.sem_join", max_rows=8),
+        [left, right],
+        {"instruction": "Is {city} near {town}?"},
+        [],
+    )
+
+    assert result.status.value == "failed"
+    assert lotus_stub.calls == []
+
+
+def test_a_join_over_an_empty_side_returns_no_rows(lotus_stub: Any) -> None:
+    """An inner join against nothing is empty, and no model call can change that."""
+    result = operator("lotus.sem_join").call(
+        [[{"city": "Reno"}], []], {"instruction": "Is {city} near {town}?"}, []
+    )
+
+    assert result.data == [[]]
+    assert lotus_stub.calls == []
