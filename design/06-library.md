@@ -471,7 +471,9 @@ def logical_plan_schema() -> type[BaseModel]: ...
 
 
 def cover_choice_schema(
-    candidates: list[tuple[frozenset[str], PhysicalOperator]], entity_paths: frozenset[str]
+    plan: LogicalPlan,
+    candidates: list[tuple[frozenset[str], PhysicalOperator]],
+    entity_paths: frozenset[str],
 ) -> type[BaseModel]: ...
 ```
 
@@ -480,7 +482,8 @@ Each builds the Pydantic model the model client is handed as a strict response s
 from the node schemas, so a plan naming an operation the vocabulary has no member for cannot be
 produced. `cover_choice_schema` is built for one binding decision from that decision's own
 candidates: a candidate set holding no `SCAN` has no field in which to name a source, and where a
-scan does appear the allowed values are the paths in `entity_paths`.
+scan does appear the allowed values are the paths in `entity_paths`. It reads `plan` for one thing,
+which is which of a candidate's nodes are scans.
 
 A response schema over a plan is a question about the plan's shape, which is what this module
 answers without a model. The fixed schemas a component sends every time — a review's decision, a

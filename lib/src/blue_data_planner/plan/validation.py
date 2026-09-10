@@ -20,15 +20,20 @@ def validate_logical_plan(
     """Raise unless the plan is a sound DAG with one ending and enough inputs per node."""
     _check_structure(plan)
     _check_arity(plan)
-    terminal_id = _check_ending(plan, carried_node_ids)
-    _check_reachability(plan, terminal_id, carried_node_ids)
+    _check_replan_count(plan)
+    terminal_ids = _check_ending(plan, carried_node_ids)
+    _check_reachability(plan, terminal_ids, carried_node_ids)
+    _check_answer_columns(plan)
 
 
-def validate_physical_plan(plan: LogicalPlan, physical_plan: PhysicalPlan) -> None:
-    """Raise unless every operator node is covered once by a legal fragment."""
+def validate_physical_plan(
+    plan: LogicalPlan, physical_plan: PhysicalPlan, entity_paths: frozenset[str]
+) -> None:
+    """Raise unless every operator node is covered once by a legal fragment over a known entity."""
     _check_coverage(plan, physical_plan)
     for fragment in physical_plan.fragments:
         _check_fragment_shape(plan, fragment)
+        _check_scan_sources(fragment, entity_paths)
 
 
 def _check_structure(plan: LogicalPlan) -> None:
@@ -72,7 +77,36 @@ def _check_arity(plan: LogicalPlan) -> None:
             )
 
 
-def _check_ending(plan: LogicalPlan, carried_node_ids: frozenset[str]) -> str:
+def _check_replan_count(plan: LogicalPlan) -> None:
+    replans = [node for node in plan.nodes if node.kind is ControlOperator.REPLAN]
+    if len(replans) > 1:
+        raise PlanValidationError(
+            "a plan takes at most one REPLAN node, since resolving one runs nothing and a "
+            f"second asks for the continuation the first already asked for; got {len(replans)}"
+        )
+
+
+def _check_answer_columns(plan: LogicalPlan) -> None:
+    for node in plan.nodes:
+        if node.kind is not LogicalOperator.RETURN:
+            continue
+        source = plan.node(node.input_node_ids[0])
+        declared = {column.name for column in source.required_output_columns}
+        if not declared:
+            raise PlanValidationError(
+                f"node {source.id!r} feeds the RETURN node and declares no output columns, "
+                "so nothing can check what the answer projects"
+            )
+        projected = node.attributes.get("columns", [])
+        missing = [name for name in projected if name not in declared]
+        if missing:
+            raise PlanValidationError(
+                f"the RETURN node projects {missing}, which node {source.id!r} does not "
+                f"declare; it declares {sorted(declared)}"
+            )
+
+
+def _check_ending(plan: LogicalPlan, carried_node_ids: frozenset[str]) -> set[str]:
     read_ids = _read_node_ids(plan)
     returns = [node for node in plan.nodes if node.kind is LogicalOperator.RETURN]
     terminal_controls = [
@@ -88,26 +122,27 @@ def _check_ending(plan: LogicalPlan, carried_node_ids: frozenset[str]) -> str:
                 f"output_node_id is {plan.output_node_id!r} but the RETURN node "
                 f"is {returns[0].id!r}"
             )
-        return returns[0].id
-    if not returns and len(terminal_controls) == 1:
+        return {returns[0].id}
+    if not returns and terminal_controls:
         if plan.output_node_id is not None:
             raise PlanValidationError(
                 "a plan ending in a control node has no answer yet, so output_node_id must "
                 f"be null, got {plan.output_node_id!r}"
             )
-        return terminal_controls[0].id
+        return {node.id for node in terminal_controls}
     raise PlanValidationError(
-        "a plan takes exactly one RETURN, or one terminal control node and no RETURN; got "
-        f"{len(returns)} RETURN node(s) and {len(terminal_controls)} terminal control node(s)"
+        "a plan takes exactly one RETURN, or one or more terminal control nodes and no "
+        f"RETURN; got {len(returns)} RETURN node(s) and "
+        f"{len(terminal_controls)} terminal control node(s)"
     )
 
 
 def _check_reachability(
-    plan: LogicalPlan, terminal_id: str, carried_node_ids: frozenset[str]
+    plan: LogicalPlan, terminal_ids: set[str], carried_node_ids: frozenset[str]
 ) -> None:
     read_ids = _read_node_ids(plan)
     for node in plan.nodes:
-        if node.id == terminal_id or node.id in carried_node_ids:
+        if node.id in terminal_ids or node.id in carried_node_ids:
             continue
         if node.id not in read_ids:
             raise PlanValidationError(f"nothing reads the output of node {node.id!r}")
@@ -199,3 +234,12 @@ def _check_fragment_single_exit(
                     f"fragment {fragment.id!r} is not single exit: node {node_id!r} is read "
                     f"from outside by {consumer.id!r}"
                 )
+
+
+def _check_scan_sources(fragment: PhysicalPlanFragment, entity_paths: frozenset[str]) -> None:
+    for node_id, path in fragment.scan_sources.items():
+        if path not in entity_paths:
+            raise PlanValidationError(
+                f"fragment {fragment.id!r} binds node {node_id!r} to {path!r}, which no "
+                "DISCOVER node found; a scan reads only an entity the run searched for"
+            )
