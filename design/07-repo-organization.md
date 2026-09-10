@@ -49,11 +49,13 @@ blue-data-planner/
 │   │   │   └── run.py                 # results, attempts, budgets, limits
 │   │   ├── plan/                      # functions over a plan; no model, no source, no operator
 │   │   │   ├── validation.py          # validate_logical_plan, validate_physical_plan
-│   │   │   └── fragments.py           # candidate_fragments
+│   │   │   ├── fragments.py           # candidate_fragments
+│   │   │   └── schemas.py             # the response schemas the planning stages send
 │   │   ├── execution/
 │   │   │   ├── physical_operator.py   # execute_physical_operator, the one operator call site
-│   │   │   └── output_columns.py      # check_output_columns and its coercions
-│   │   ├── operators/                 # the router, the adapters, and the owned suite
+│   │   │   ├── output_columns.py      # check_output_columns and its coercions
+│   │   │   └── return_answer.py       # project_answer, the columns a RETURN names
+│   │   ├── operators/                 # the router, one adapter per outside suite, and the owned suite
 │   │   │   ├── __init__.py            # OperatorRouter only
 │   │   │   ├── router.py              # OperatorRouter
 │   │   │   ├── adapters/              # one per outside suite
@@ -136,8 +138,8 @@ benchmark scripts hold an import the library does not allow itself.
 | `catalog_searcher.py` | The discovery step. Beside the planning components rather than one of them: it resolves a `DISCOVER` node and writes no plan |
 | `prompts/` | Prompt text, one file per component that writes prompts, read by those components and written nowhere else (ADR-005) |
 | `types/` | Every data class that crosses a module boundary, the catalog readings and `LLMUsage` included, since a type `PlanResult` names has to be nameable by everything that reads one. Its four modules split those classes by subject, and `__init__.py` re-exports them under the one name `blue_data_planner.types`. Imports nothing outside itself |
-| `plan/` | The functions over a plan that need no model, no source, and no operator: checking one, and enumerating the fragments an operator could cover. Imports only `types/` |
-| `execution/` | Beside the planning components rather than inside one, so invoking an operator needs no model |
+| `plan/` | The functions over a plan that need no model, no source, and no operator: checking one, enumerating the fragments an operator could cover, and building the response schema a planning stage sends. Imports only `types/` |
+| `execution/` | Beside the planning components rather than inside one, so invoking an operator, checking what it returned, and projecting the answer all need no model |
 | `operators/` | The router, one adapter per outside operator suite, and `builtin/`, the suite written here (ADR-020) |
 | `data/` | The only packaged module that imports `blue-data` (ADR-003) |
 | `llm/` | The only module that calls a model provider (ADR-005) |
@@ -235,7 +237,7 @@ One `LICENSE` sits at the repository root and covers everything published from i
 | An operator suite | `operators/<suite>.py`, or `operators/<suite>/` | An optional dependency extra, a lazy import, and a stub in `tests/stubs/` |
 | A way to reach the library | `platform/<interface>/`, its own package | Its own `pyproject.toml` naming a console script, `scripts/`, and `tests/` |
 | A logical operator | Nowhere. The vocabulary of ten is fixed ([10-data-model.md](10-data-model.md)) | A decision log entry arguing the exception |
-| A check or a graph function over a plan | `plan/`, if it needs no model and no source | Nothing else |
+| A check, a graph function, or a response schema over a plan | `plan/`, if it needs no model and no source | Nothing else |
 | A prompt | `prompts/`, one file per component that writes prompts | Nothing else writes prompt text (ADR-005) |
 | Anything reading `blue-data` | `data/`, and called from elsewhere | No other packaged module imports `blue-data` |
 | Anything calling a model | `llm/`, and called from elsewhere | Nothing else calls a provider |

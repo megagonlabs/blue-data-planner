@@ -31,8 +31,8 @@ rather than a copy of the code.
 | `blue_data_planner/fragment_runner.py` | `FragmentRunner` |
 | `blue_data_planner/catalog_searcher.py` | `CatalogSearcher` |
 | `blue_data_planner/types/` | Every data class that crosses a module boundary: plans, nodes, fragments, operators, results, catalog readings, model usage, limits |
-| `blue_data_planner/plan/` | `validate_logical_plan`, `validate_physical_plan`, and `candidate_fragments` |
-| `blue_data_planner/execution/` | `execute_physical_operator`, `check_output_columns` |
+| `blue_data_planner/plan/` | `validate_logical_plan`, `validate_physical_plan`, `candidate_fragments`, and the response schemas the planning stages send |
+| `blue_data_planner/execution/` | `execute_physical_operator`, `check_output_columns`, `project_answer` |
 | `blue_data_planner/operators/` | `OperatorRouter`, one adapter per outside suite (`blue_operators` over `blue-data-ops`, `lotus_operators` over LOTUS), and `builtin/`, the suite this repository owns |
 | `blue_data_planner/data/` | The `blue-data` boundary, the three catalog readings, and opening a serialized registry |
 | `blue_data_planner/llm/` | `LLMClient`, usage accounting, prompt templating, error types |
@@ -135,20 +135,26 @@ component free of provider handling. Why a provider failure ends the request wit
 than an exception is under [Errors](#errors).
 
 One pass takes what `next_ready` hands back and dispatches on it. A fragment goes to
-`FragmentRunner`, and its result is recorded whatever it says. A control node is resolved. A plan
-with nothing left ends the request as `ok`. The fragment's own `RunDecision` then says whether the
-pass continues, ends the request with the status the runner returned, replans, or goes to a repair.
+`FragmentRunner`, and its result is recorded whatever it says. A control node is resolved together
+with every other control node ready beside it, and the pass then returns to the logical planner
+once. A plan with nothing left ends the request as `ok`, and `project_answer` takes the `RETURN`
+node's columns off the result of the node it reads. The fragment's own `RunDecision` then says
+whether the pass continues, ends the request with the status the runner returned, replans, or goes
+to a repair.
 
 `next_ready` returns the next fragment whose frontier all has results, a control node whose inputs
 all have results, or `None` when the plan is finished. A union return is what lets one scheduler
 serve both, and the two are told apart by type rather than by a flag, since a control node belongs
 to no fragment.
 
-Which one comes first when both are ready is left open. Running the fragments first gives the
-logical planner more results to write the continuation against; firing the control node first can
-save operator calls on a branch the continuation turns out not to need. Neither has been measured,
-so nothing here fixes the order, and open question 7 in
-[13-decision-log.md](13-decision-log.md#open-questions) holds the trade.
+A ready fragment comes before a ready control node, so a pass runs everything it can before it
+plans again and the continuation is written against every result the pass produced. That order
+throws nothing away. A continuation adds work rather than retracting it, since a new version carries
+over every node the run has something for
+([04](04-detailed-architecture.md#writing-a-continuation)), so a fragment that ran is a fragment
+whose result the next version still holds. Half the order is not a choice either: a `DISCOVER` node
+listing inputs narrows its search terms with their rows, so it cannot resolve until the fragments
+producing them have run.
 
 Nothing here re-runs a fragment whose root already holds a result. That rule lives in `next_ready`,
 so a cover that left most fragments alone resumes on top of what already ran with no bookkeeping
@@ -171,8 +177,9 @@ than in either planner. The two replan paths count separately, because a replan 
 for and a replan a failure forced are different events with different limits, and either returns
 `replan_exhausted` once its own bound is spent.
 
-Resolving a control node searches the catalog when the node is `DISCOVER`, records what came back
-under the node's id, and returns to the logical planner against `control_replans`.
+Resolving a control node searches the catalog when the node is `DISCOVER` and records what came
+back under the node's id. Every control node ready at that moment is resolved before the run returns
+to the logical planner, and the one return spends one `control_replans`, however many nodes fired.
 
 One path leads into both planners, used for the first plan, for every continuation, and for the
 cover that follows each. The logical planner writes a plan from the request, the parent plan, the
@@ -397,8 +404,8 @@ side.
 ## `plan/`
 
 Everything that can be answered about a plan without a model, a source, or an operator call. The
-module imports only `types/`, so a check and an enumeration are testable with a plan and nothing
-else.
+module imports only `types/`, so a check, an enumeration, and a schema are testable with a plan and
+nothing else.
 
 ### Checking a plan
 
@@ -456,6 +463,29 @@ operator covering six come out of the same call.
 Enumeration is graph work and pairing a node set with an operator is a planning decision, so this
 returns node sets and the physical planner does the pairing. It reads no operator and no catalog,
 which is what lets the shape of every candidate over a given plan be asserted without a model.
+
+### Building a response schema
+
+```python
+def logical_plan_schema() -> type[BaseModel]: ...
+
+
+def cover_choice_schema(
+    candidates: list[tuple[frozenset[str], PhysicalOperator]], entity_paths: frozenset[str]
+) -> type[BaseModel]: ...
+```
+
+Each builds the Pydantic model the model client is handed as a strict response schema
+([05-software-stack.md](05-software-stack.md#structured-output)). `logical_plan_schema` is assembled
+from the node schemas, so a plan naming an operation the vocabulary has no member for cannot be
+produced. `cover_choice_schema` is built for one binding decision from that decision's own
+candidates: a candidate set holding no `SCAN` has no field in which to name a source, and where a
+scan does appear the allowed values are the paths in `entity_paths`.
+
+A response schema over a plan is a question about the plan's shape, which is what this module
+answers without a model. The fixed schemas a component sends every time — a review's decision, a
+discovery node's search terms, an operator's parameters — belong to the component or the operator
+that sends them.
 
 ---
 
@@ -754,6 +784,9 @@ def check_output_columns(
     required_output_columns: list[OutputColumn],
     operator_id: str,
 ) -> ExecutionResult: ...
+
+
+def project_answer(inputs: DataBundle, columns: list[str]) -> DataBundle: ...
 ```
 
 `execute_physical_operator` validates the parameters against the operator's schema, bills one
@@ -775,6 +808,17 @@ no intermediate tables to check the absorbed nodes against. Neither a zero-row t
 bundle is a failure. A model call an operator makes internally, as LOTUS does, happens inside this
 call and is billed as part of it rather than tracked separately; an operation able to say what that
 call cost puts the figure in its report, which travels out on the result unchanged.
+
+`project_answer` turns a finished run into its answer. It takes the result of the node `RETURN`
+reads and the column names `RETURN` carries, and returns those columns and nothing else. Which
+columns hold the answer was settled by the logical planner when it wrote the node, so nothing is
+chosen here and no model is called; the choice is applied. A column the tables do not carry raises,
+which a validated plan cannot reach: the node a `RETURN` reads has to declare its output columns,
+and the check on that operator's result already held it to them
+([10](10-data-model.md#the-logical-half)).
+
+It sits beside the operator call because both are deterministic work over a bundle of tables, and
+because the alternative is the run loop growing the only place it touches rows.
 
 Three things `execution/` does not do, and each one removes an import. It does not schedule, because
 the run loop decides what is ready and hands down one call at a time. It does not resolve an

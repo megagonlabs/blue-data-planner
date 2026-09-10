@@ -13,11 +13,10 @@ flowchart TB
     VAL -->|no| GEN
     VAL -->|"no, corrections exhausted"| FAILP["result: invalid_plan"]
     VAL -->|yes| COVER["cover the plan with fragments"]
-    COVER --> SCHED["next ready fragment,<br/>or a control node"]
+    COVER --> SCHED["next ready fragment;<br/>a control node only once<br/>no fragment is ready"]
     SCHED --> CTRL{"control node?"}
-    CTRL -->|DISCOVER| SEARCH["search the catalog"]
+    CTRL -->|yes| SEARCH["resolve every ready one,<br/>searching the catalog<br/>for each DISCOVER"]
     SEARCH --> GEN
-    CTRL -->|REPLAN| GEN
     CTRL -->|no| RUN["write parameters,<br/>execute, review"]
     RUN -->|accepted| MORE{"fragments left?"}
     MORE -->|yes| SCHED
@@ -105,12 +104,17 @@ value another node produced
 ([10-data-model.md](10-data-model.md#how-many-inputs-a-node-takes)).
 
 `RETURN` is bound to no operator because selecting named columns admits no implementation choice.
-Keeping it off the router means nothing has to register an operator for it.
+Which columns hold the answer is a choice, and the logical planner takes it when it writes the node.
+Keeping `RETURN` off the router means nothing has to register an operator for it. Once the plan has
+nothing left to run, the run loop projects the named columns off the result of the node `RETURN`
+reads, and that projection is the answer. Applying a choice already written down costs no operator
+call and no model call.
 
 Both control nodes act as barriers. A node is only ready once every input it lists has a result, so
-one placed over three parallel paths needs no scheduling code of its own. When one comes up, the
-pass ends and the logical planner writes a continuation
-([section 4](#4-returning-to-the-logical-planner)).
+one placed over three parallel paths needs no scheduling code of its own. A pass runs the fragments
+it can, then resolves every control node that is ready, and returns to the logical planner once with
+what all of them produced ([section 4](#4-returning-to-the-logical-planner)). Two searches that do
+not narrow each other therefore run in the same pass and cost one return between them.
 
 | Control node | Waits for | Gives the planner |
 | --- | --- | --- |
@@ -118,7 +122,11 @@ pass ends and the logical planner writes a continuation
 | `DISCOVER` | The same, and it may list none | The entities a registry search found, each with every attribute it holds, so a later `SCAN` can name a source and declare real column names |
 
 Only `DISCOVER` does work of its own, and none of it is an operator call
-([section 4](#resolving-a-discovery-node)).
+([section 4](#resolving-a-discovery-node)). Resolving a `REPLAN` node runs nothing: the results it
+waited for are already in the run's hands, and the node's whole content is the instruction it gives
+the planner. That is why a plan holds at most one of them. Two markers saying "stop here and write
+the rest" produce one continuation between them, so the second says nothing the first does not,
+where two `DISCOVER` nodes each carry their own instruction and spend their own search terms.
 
 ---
 
@@ -174,12 +182,18 @@ error both stay in the session, so a run that ends in `invalid_plan` shows what 
 
 Validation accepts two plan shapes: exactly one `RETURN` node, or one or more terminal control nodes
 and no `RETURN` at all. The `RETURN` arrives in a continuation. A plan carrying a control node and a
-`RETURN` after it is rejected, since the planner cannot both defer the ending and write it.
+`RETURN` after it is rejected, since the planner cannot both defer the ending and write it. Of those
+terminal control nodes at most one is a `REPLAN`, while the number of `DISCOVER` nodes is not
+bounded.
+
+A `RETURN` names columns the node it reads declares, and that node has to declare them, so
+validation always has something to check the ending against. A plan whose ending projects a column
+nothing produces is rejected before any of it runs.
 
 A pass may end on several terminal control nodes, and that is the ordinary shape for a request
-needing two or more　things found. "Find data scientist openings at Fortune 500 companies" needs a list of
-those companies and a job postings source, and neither search narrows the other, so making the
-second wait a pass for the first would buy nothing. Every node has to reach one of the terminal
+needing two or more things found. "Find data scientist openings at Fortune 500 companies" needs a
+list of those companies and a job postings source, and neither search narrows the other, so making
+the second wait a pass for the first would buy nothing. Every node has to reach one of the terminal
 control nodes; which one is not fixed.
 
 ---
@@ -230,9 +244,11 @@ shape is an open question.
 ### Choosing among candidates
 
 The physical planner works top down from the root of the plan, in the style of a Cascades optimizer.
-For each uncovered node it enumerates the candidate fragments rooted there, one per matching
-operator per subgraph, and a model picks one. If no candidate covers the node, it descends to
-smaller fragments. If nothing matches the node alone, the node has no operator.
+It walks the operator nodes in reverse dependency order, a node's consumers before the node itself,
+and for each one still uncovered it enumerates the candidate fragments rooted there, one per
+matching operator per subgraph, and a model picks one. The
+enumeration already includes the node on its own, so a node reaching this point with no candidate is
+one whose kind no registered operator declares, and that node has no operator.
 
 A model picks instead of the code taking the largest match, because the size of a fragment is the
 pushdown decision itself. A rule that always absorbs the maximum would settle in advance the
@@ -404,8 +420,9 @@ one attempt achieved does not carry into the next.
 
 ## 4. Returning to the logical planner
 
-A control node ends the pass, and so does recovery that has run out of repairs
-([section 5](#5-recovering-from-a-failure)). All three paths reach the logical planner the same way.
+Resolving the control nodes a pass reached ends the pass, and so does recovery that has run out of
+repairs ([section 5](#5-recovering-from-a-failure)). All three paths reach the logical planner the
+same way, and one return is one replan however many control nodes fired into it.
 
 | Trigger | What the planner reads |
 | --- | --- |

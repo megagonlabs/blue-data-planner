@@ -107,8 +107,8 @@ them calls a model or invokes an operator directly.
 
 | The loop | Detail |
 | --- | --- |
-| Schedules | Takes the next fragment whose frontier all has results, or a control node that is ready |
-| Dispatches on kind | A fragment goes to the fragment runner, a `DISCOVER` node to the catalog searcher, a `REPLAN` node ends the pass |
+| Schedules | Takes the next fragment whose frontier all has results, and a control node that is ready only once no fragment is |
+| Dispatches on kind | A fragment goes to the fragment runner and a `DISCOVER` node to the catalog searcher. Once every ready control node is resolved, the pass returns to the logical planner |
 | Counts attempts | Per node set, per cover, and per request, which is what tells one repair from the next |
 | Chooses the repair | Only the loop knows how many attempts each repair has left, so only the loop can pick one |
 | Installs a cover | Compares a new cover with the previous one and drops the results the change invalidated |
