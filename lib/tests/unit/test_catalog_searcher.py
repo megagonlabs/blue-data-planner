@@ -1,0 +1,87 @@
+"""What one DISCOVER node resolves to."""
+
+from __future__ import annotations
+
+from typing import Any
+
+from blue_data_planner.catalog_searcher import CatalogSearcher
+from blue_data_planner.types import (
+    AttributeRecord,
+    ControlOperator,
+    EntityMatch,
+    PipelineNode,
+)
+from tests.doubles.llm import ScriptedLLMClient
+
+POSTINGS = "/source/jobs/database/jobs/collection/public/entity/postings"
+
+
+class FakeCatalog:
+    """A catalog whose search returns a fixed match per term."""
+
+    def __init__(self, by_term: dict[str, list[EntityMatch]]) -> None:
+        self.by_term = by_term
+        self.searched: list[str] = []
+
+    def search_records(self, term: str) -> list[EntityMatch]:
+        self.searched.append(term)
+        return self.by_term.get(term, [])
+
+
+def a_match(term: str, score: float) -> EntityMatch:
+    """One entity a term found, carrying one attribute."""
+    return EntityMatch(
+        path=POSTINGS,
+        name="postings",
+        description="job postings",
+        source_kind="sql/sqlite",
+        attributes=[AttributeRecord(name="title", dtype="str", description=None)],
+        score=score,
+        search_term=term,
+    )
+
+
+def a_discover_node() -> PipelineNode:
+    """A DISCOVER node with no inputs, asking for a source of job postings."""
+    return PipelineNode(
+        id="n1",
+        kind=ControlOperator.DISCOVER,
+        input_node_ids=[],
+        attributes={"instruction": "find a source holding job postings"},
+    )
+
+
+def a_searcher(terms: list[str], catalog: Any, cap: int = 8) -> CatalogSearcher:
+    """A searcher whose one model call answers with these terms."""
+    # ScriptedLLMClient stands in for LLMClient structurally; pyright's strict nominal
+    # check does not see the two as related.
+    return CatalogSearcher(
+        ScriptedLLMClient([{"terms": terms}]),  # pyright: ignore[reportArgumentType]
+        catalog,
+        cap,
+    )
+
+
+def test_a_discovery_nodes_instruction_becomes_terms_and_each_searches_once() -> None:
+    """One model call writes the terms, and every term reaches the registry."""
+    catalog = FakeCatalog({"job postings": [a_match("job postings", 0.9)]})
+    result = a_searcher(["job postings", "vacancies"], catalog).search(a_discover_node(), [])
+    assert catalog.searched == ["job postings", "vacancies"]
+    assert result.discovery.search_terms == ["job postings", "vacancies"]
+
+
+def test_terms_past_the_cap_are_dropped_and_counted() -> None:
+    """A reader of the result can tell a complete search from a capped one."""
+    catalog = FakeCatalog({})
+    result = a_searcher(["a", "b", "c"], catalog, cap=2).search(a_discover_node(), [])
+    assert catalog.searched == ["a", "b"]
+    assert result.discovery.dropped_terms == 1
+
+
+def test_one_entity_found_by_two_terms_appears_once_keeping_its_better_score() -> None:
+    """The catalog context names each entity once, however many terms reached it."""
+    catalog = FakeCatalog(
+        {"job postings": [a_match("job postings", 0.4)], "vacancies": [a_match("vacancies", 0.9)]}
+    )
+    result = a_searcher(["job postings", "vacancies"], catalog).search(a_discover_node(), [])
+    assert [(match.path, match.score) for match in result.discovery.matches] == [(POSTINGS, 0.9)]
