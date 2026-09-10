@@ -109,10 +109,21 @@ and moving those results forward is still a copy of one map
 Within one lineage a continuation may not give an existing node id to a different node. It names an
 existing id only to read a node it carried over.
 
+A `RETURN` node's `columns` name columns the node it reads declares, and that node's
+`required_output_columns` may not be empty. Validation checks the two against each other. This is
+the one place a declaration is required rather than optional, because it is the one place nothing
+downstream would catch a mismatch: the answer is projected after the last fragment has run, so a
+column nothing produces would end an otherwise finished run.
+
 `output_node_id` is the id of the `RETURN` node, and is `None` only while a plan ends in control
 nodes and its ending has not been written yet. Validation accepts exactly two shapes: one `RETURN`
 and no terminal control node, or one or more terminal control nodes and no `RETURN` (ADR-007). A
 plan carrying both is rejected, since the planner cannot both defer the ending and write it.
+
+A plan holds at most one `REPLAN` node and any number of `DISCOVER` nodes. Resolving a `REPLAN`
+runs nothing, so a second one asks for a continuation the first already asked for, while each
+`DISCOVER` carries its own instruction and searches on its own terms
+([04](04-detailed-architecture.md#three-kinds-of-node)).
 
 Several terminal control nodes is the ordinary shape for a request needing two or more things found. "Find
 data scientist openings at Fortune 500 companies" needs a list of those companies and a job postings
@@ -193,7 +204,8 @@ coerce to the declared type. A missing column, or a value spelling no such type,
 recoverable error, so the fragment is planned again
 ([04, failures that skip recovery](04-detailed-architecture.md#failures-that-skip-recovery)).
 An empty list means no check, and a `RETURN` node carries none, since it names input columns to
-project instead of promising output.
+project instead of promising output. The node a `RETURN` reads is the one exception to the list
+being optional ([the logical half](#the-logical-half)).
 
 The declarations on absorbed nodes are checked against nothing, because a fused call produces no
 intermediate tables. They are still written and still read: the physical planner uses them to
