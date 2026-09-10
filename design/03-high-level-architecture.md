@@ -35,7 +35,7 @@ flowchart TB
 
     subgraph opsbox ["operators/"]
         ROUTER["router.py<br/>logical operator to<br/>physical operators"]
-        ADAPT["blue.py, lotus/<br/>one adapter per outside suite"]
+        ADAPT["adapters/<br/>one per outside suite"]
         BUILTIN["builtin/<br/>the suite written here"]
     end
 
@@ -188,12 +188,12 @@ suite this repository owns.
 | Path | Holds |
 | --- | --- |
 | `router.py` | `OperatorRouter`. Maps a logical operator to the physical operators that can carry it out, and resolves an operator id to the operator behind it. Lookup and nothing more: whether a particular node has an operator depends on the fragment it sits in and the source its scans are bound to, so it is asked per node by the physical planner and answered as `no_operator`. Only the router is read while planning, never the registry (ADR-009). |
-| `blue.py` | Declares the operators of a `blue-data-ops` registry as physical operators. |
-| `lotus/` | Declares LOTUS operations as physical operators. |
+| `adapters/blue.py` | Declares the operators of a `blue-data-ops` registry as physical operators. |
+| `adapters/lotus/` | Declares LOTUS operations as physical operators. |
 | `builtin/` | The suite written here (ADR-020): deterministic operations over the bundle, one per operator node kind, and `builtin.nl2table`, which writes a Python program from a fragment's instruction and runs it in a process holding copies of its tables and no path to a source, a registry, or a provider. This is what the planner falls back to when no outside suite can take a node, and what hosts a fragment that scans nothing. |
 
-`__init__.py` re-exports the router alone, and an adapter is imported from the module named for its
-suite, so importing the router loads no suite.
+`__init__.py` re-exports the router alone, and an adapter is imported from `adapters/`, under the
+name of its suite, so importing the router loads no suite.
 
 An adapter returns a list of physical operators rather than registering them into the router it sits
 beside, which leaves which suites a deployment offers with whoever assembles the planner. That is
@@ -243,7 +243,7 @@ Each rule is checkable by reading imports.
     Anything may import either.
 2. `execution/` imports only `types/`: no planning component, no `operators/`, no `llm/`. It runs one fragment
     against one operator it is handed.
-3. Nothing outside `data/` imports `blue-data`, and nothing outside `operators/lotus/`
+3. Nothing outside `data/` imports `blue-data`, and nothing outside `operators/adapters/lotus/`
     imports LOTUS. The LOTUS import sits inside a callable, never at module import time.
 4. `operators/` imports no planning component. An adapter returns physical operators; it registers none.
 5. `platform/*` imports only the public surface. No adapter reaches into a module below it.

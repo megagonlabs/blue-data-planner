@@ -795,8 +795,9 @@ instruction and runs it. It reaches the router the same way an adapter's operati
 function returning a list.
 
 `__init__.py` re-exports `OperatorRouter` alone, and every suite is imported from the module named
-for it. Importing the router therefore loads no suite, which matters because an adapter imports its
-suite at module import time.
+for it, an outside suite's from `adapters/`, which re-exports no adapter of its own. Importing the
+router therefore loads no suite, and importing one adapter loads no other. A required suite is
+loaded when its adapter module is; an optional one only when one of its operators runs (ADR-004).
 
 ### `OperatorRouter`
 
@@ -872,7 +873,7 @@ def blue_operators(
 ) -> list[PhysicalOperator]: ...
 
 
-def lotus_operators() -> list[PhysicalOperator]: ...
+def lotus_operators(model: str) -> list[PhysicalOperator]: ...
 
 
 def builtin_operators(
@@ -897,6 +898,36 @@ adapter needs is open question 41 in [13-decision-log.md](13-decision-log.md#ope
 LOTUS adapter converts at its own edge, building one data frame per table going in and flattening
 coming out, and imports LOTUS inside the callable rather than at module import time, so the package
 imports with LOTUS absent and the router simply gains no LOTUS operators (ADR-004).
+
+### The LOTUS suite
+
+Six operations reach the router, each declaring one logical operator, so a LOTUS operator covers one
+node and never a group.
+
+| Operation | Covers |
+| --- | --- |
+| `lotus.sem_filter` | `FILTER` |
+| `lotus.sem_map` | `PROJECT` |
+| `lotus.sem_extract` | `PROJECT` |
+| `lotus.sem_agg` | `AGGREGATE` |
+| `lotus.sem_topk` | `SORT_SUPERLATIVE` |
+| `lotus.sem_join` | `JOIN` |
+
+All six judge meaning with a language model and work on the tables the fragment's frontier
+delivers. None declares a source kind, `accepts_bound_inputs` reads n/a for every one, and a model
+string is all a deployment configures for the suite. That string reaches LOTUS's own configuration
+rather than `llm/`, so what these operations spend is billed as part of the operator call that
+contains it (ADR-005).
+
+Two of them declare a limitation their name would otherwise hide. `lotus.sem_agg` summarizes each
+group of rows into one text value and computes no sum, average, or count, so it answers an
+`AGGREGATE` node only where the node asks for a summary. `lotus.sem_join` compares every pair of
+rows, so what it costs grows with the product of the two tables.
+
+An instruction names the columns it reads in LOTUS's own notation, which the parameter schema states
+so that a runner writing one has it in front of the model. A column an instruction names and the
+table does not carry is refused before any model call, as a recoverable failure the parameter repair
+answers.
 
 ### The built-in suite
 

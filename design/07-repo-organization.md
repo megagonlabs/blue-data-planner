@@ -53,11 +53,12 @@ blue-data-planner/
 │   │   ├── execution/
 │   │   │   ├── physical_operator.py   # execute_physical_operator, the one operator call site
 │   │   │   └── output_columns.py      # check_output_columns and its coercions
-│   │   ├── operators/                 # the router, one adapter per outside suite, and the owned suite
+│   │   ├── operators/                 # the router, the adapters, and the owned suite
 │   │   │   ├── __init__.py            # OperatorRouter only
 │   │   │   ├── router.py              # OperatorRouter
-│   │   │   ├── blue.py                # blue_operators, over blue-data-ops
-│   │   │   ├── lotus/                 # lotus_operators
+│   │   │   ├── adapters/              # one per outside suite
+│   │   │   │   ├── blue.py            # blue_operators, over blue-data-ops
+│   │   │   │   └── lotus/             # lotus_operators, over LOTUS
 │   │   │   └── builtin/               # builtin_operators, the suite written here
 │   │   ├── data/
 │   │   │   ├── registry.py            # open_registry, the source-level reads
@@ -73,6 +74,7 @@ blue-data-planner/
 │       ├── stubs/                     # deterministic fakes for heavy optional dependencies
 │       ├── fixtures/                  # recorded inputs and cassettes
 │       ├── unit/                      # mirrors src/blue_data_planner/ and scripts/
+│       ├── lotus/                     # against an installed LOTUS; excluded from the default run
 │       └── benchmarks/
 │           └── tag_bench/             # excluded from the default pytest run
 └── platform/
@@ -164,8 +166,9 @@ reads its result writes one import.
 
 Everything else is reached through the module that owns it. The components a caller assembles by
 hand come from `operators`, `data`, and `llm`; the shapes a caller reads off a plan come from
-`types`. That split is what keeps `import blue_data_planner` from loading an operator suite: an
-adapter imports its suite at module import time, and nothing on the run path imports an adapter.
+`types`. That split is what keeps `import blue_data_planner` from loading an operator suite:
+nothing on the run path imports an adapter, and a required suite is loaded only when its adapter
+module is.
 
 [09-api-interface-spec.md](09-api-interface-spec.md) fixes the public surface and what semantic
 versioning covers.
@@ -179,13 +182,13 @@ repository (ADR-020).
 | Module | Holds |
 | --- | --- |
 | `router.py` | `OperatorRouter`, the only lookup read while planning (ADR-009) |
-| `blue.py` | `blue_operators`, over a `blue-data-ops` `OperatorRegistry` |
-| `lotus/` | `lotus_operators`, over the LOTUS package |
+| `adapters/blue.py` | `blue_operators`, over a `blue-data-ops` `OperatorRegistry` |
+| `adapters/lotus/` | `lotus_operators`, over the LOTUS package |
 | `builtin/` | `builtin_operators`: one module of transformations over the bundle, the deterministic entries wrapping them, `builtin.scan`, `builtin.nl2table`, and the isolated execution its program runs under |
 
-`builtin/` sits beside the adapters because the router reads all three the same way and a deployment
-turns any of them on or off the same way. It is a directory for the same reason `lotus/` is: more
-than one file to hold.
+`builtin/` sits beside `adapters/` because the router reads every suite the same way and a
+deployment turns any of them on or off the same way. It is a directory for the same reason
+`adapters/lotus/` is: more than one file to hold.
 
 The router sits here rather than beside the planning components because it is a lookup over
 operators and names nothing from any of them, and because an adapter can then register into it directly. It is not the
@@ -193,12 +196,14 @@ registry it sits beside: `blue-data-ops`'s `OperatorRegistry` is a versioned cat
 operator classes with ids like `select@2.0.0`, and the router answers which operators from any suite
 declare a given logical operator, with ids like `blue.select` (ADR-009).
 
-`__init__.py` re-exports `OperatorRouter` alone. An adapter is imported from the module named for
-its suite, so importing the router loads no suite.
+`__init__.py` re-exports `OperatorRouter` alone. An adapter is imported from `adapters/`, under the
+name of its suite, so importing the router loads no suite. `adapters/__init__.py` re-exports none
+of them either, so importing one adapter loads no other suite.
 
 An adapter is a directory rather than a module when the suite needs more than one file to wrap,
-which is why `lotus/` is a package and `blue.py` is not. Grouping by logical operator was rejected,
-because an operator may declare several and the router already answers that question.
+which is why `adapters/lotus/` is a package and `adapters/blue.py` is not. Grouping by logical
+operator was rejected, because an operator may declare several and the router already answers that
+question.
 
 ### What a platform package holds
 
@@ -244,9 +249,10 @@ One `LICENSE` sits at the repository root and covers everything published from i
 `plan/validation.py` is `tests/unit/plan/test_validation.py`. It mirrors `lib/scripts/` the same
 way, which is why `tests/unit/scripts/tag_bench/` exists.
 
-`doubles/`, `stubs/`, `fixtures/`, and `benchmarks/` sit beside `unit/` and mirror nothing. What
-each holds, and what a platform package's tests cover, is in
-[11-testing-strategy.md](11-testing-strategy.md#4-layout).
+`doubles/`, `stubs/`, `fixtures/`, `lotus/`, and `benchmarks/` sit beside `unit/` and mirror
+nothing. `lotus/` holds the one tier that runs against an installed operator suite, so it is run by
+name, in an environment carrying the `lotus` extra. What each directory holds, and what a platform
+package's tests cover, is in [11-testing-strategy.md](11-testing-strategy.md#4-layout).
 
 ### Where the benchmark lives
 

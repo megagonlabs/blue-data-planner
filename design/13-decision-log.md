@@ -87,22 +87,23 @@ path exclusion.
 by an adapter under `operators/` that describes each of the suite's operations as a
 `PhysicalOperator` and calls the suite as an outside dependency. No such suite's source is copied
 into this repository and none is a git submodule. Writing a suite of our own is a different act and
-is ADR-020's; what is ruled out here is holding a copy of someone else's. A suite is a pinned dependency, optional where its install is heavy, and an optional
-suite's adapter imports it inside the callable rather than at module import time.
+is ADR-020's; what is ruled out here is holding a copy of someone else's. A suite is a
+version-bounded dependency, optional where its install is heavy, and an optional suite's adapter
+imports it inside the callable rather than at module import time.
 
 **Rationale:** Copied source cannot pick up upstream fixes and quietly becomes a fork nobody
 maintains. A git submodule appears in neither an sdist nor a wheel and cannot be resolved by pip, so
 `pip install blue-data-planner[lotus]` would hand a consumer an adapter with nothing behind it,
-which contradicts the consumer install path of ADR-001. Pinning rather than floating matters because
-an adapter names each operation and its parameters. The lazy import is what makes `import
-blue_data_planner` work with the suite absent, and what keeps the default test suite runnable
-without a multi-gigabyte install.
+which contradicts the consumer install path of ADR-001. A bounded version matters because an
+adapter names each operation and its parameters, so a suite that renames one changes which
+fragments are coverable. The lazy import is what makes `import blue_data_planner` work with the
+suite absent, and what keeps the default test suite runnable without a multi-gigabyte install.
 
 **Consequences:** The repository depends on how often each suite releases and how stable its
 interface is, `blue-data-ops` included. An optional suite absent from the environment means the
 router registers none of its operators, which is a smaller catalog rather than an error. Each suite
-needs a stub under `lib/tests/stubs/`. Should a patched suite ever be needed, the pin becomes a git
-URL against a fork rather than a submodule.
+needs a stub under `lib/tests/stubs/`. Should a patched suite ever be needed, the requirement
+becomes a git URL against a fork rather than a submodule.
 
 ---
 
@@ -441,9 +442,9 @@ in front of every consumer, including one that only wanted to read a recorded pl
 
 **Consequences:** `from blue_data_planner import DataPlanner` works and
 `from blue_data_planner.operators import blue_operators` does not, since an adapter is
-`operators.blue`. Adding a name to the root is a deliberate act, and adding one that pulls in an
-adapter changes what every import from the package costs. The import rule an adapter obeys names a
-shape rather than a list of modules ([08-coding-style.md](08-coding-style.md)).
+`operators.adapters.blue`. Adding a name to the root is a deliberate act, and adding one that
+pulls in an adapter changes what every import from the package costs. The import rule an adapter
+obeys names a shape rather than a list of modules ([08-coding-style.md](08-coding-style.md)).
 
 ---
 

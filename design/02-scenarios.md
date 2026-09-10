@@ -418,14 +418,15 @@ adapter that declares each LOTUS operation as a physical operator: what it can c
 parameters it takes, and how to call it.
 
 What a declaration says decides more than which nodes an operator competes for. It decides which
-groups of nodes it competes for, because candidate fragments are built from it.
+groups of nodes it competes for, because candidate fragments are built from it. A parameter schema
+is a Pydantic model the adapter writes by hand, refusing keys the operation does not take (ADR-010).
 
 ```python
 PhysicalOperator(
     operator_id="lotus.sem_filter",
     logical_operators=frozenset({LogicalOperator.FILTER}),
     description="Keep the rows a language model judges to satisfy a predicate over named columns.",
-    parameter_schema={"instruction": {"type": "string"}},
+    parameter_schema=SemFilterParameters,
     call=_sem_filter,
 )
 
@@ -437,7 +438,7 @@ PhysicalOperator(
         LogicalOperator.SORT_SUPERLATIVE,
     }),
     description="Write and run one SQL query against a relational source.",
-    parameter_schema={"question": {"type": "string"}, "source": {"type": "string"}},
+    parameter_schema=NL2SQLParameters,
     call=_nl2sql,
     source_kinds=frozenset({"sql/sqlite", "sql/mysql", "sql/postgres"}),
     limitations=(
@@ -467,16 +468,16 @@ because both planning components build their choices from the router while they 
 
 ```python
 from blue_data_planner.operators import OperatorRouter
-from blue_data_planner.operators.blue import blue_operators
+from blue_data_planner.operators.adapters.blue import blue_operators
+from blue_data_planner.operators.adapters.lotus import lotus_operators
 from blue_data_planner.operators.builtin import builtin_operators
-from blue_data_planner.operators.lotus import lotus_operators
 from blue_data_planner.types import LogicalOperator
 
 router = OperatorRouter()
 # operator_registry is a blue-data-ops OperatorRegistry, built the way that package documents
 for operator in blue_operators(operator_registry, data_registry):
     router.register(operator)
-for operator in lotus_operators():  # empty when LOTUS is not installed
+for operator in lotus_operators("openai/gpt-4o"):  # empty when LOTUS is not installed
     router.register(operator)
 for operator in builtin_operators(data_registry, llm_client, with_nl2table=True):
     router.register(operator)
