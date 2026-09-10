@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from collections.abc import Sequence
 from typing import Any, cast
 
 from blue_data.registry.data_registry import (  # pyright: ignore[reportMissingTypeStubs]
@@ -10,10 +9,11 @@ from blue_data.registry.data_registry import (  # pyright: ignore[reportMissingT
 )
 
 from blue_data_planner.types.catalog import (
-    CatalogMatch,
+    AttributeRecord,
+    AttributeRef,
+    AttributeView,
     CatalogPreview,
-    ColumnRef,
-    ColumnView,
+    EntityMatch,
     SourceRecord,
 )
 
@@ -30,6 +30,10 @@ _NO_THRESHOLDS: dict[str, float] = {
 # blue-data scores at most page_limit * page_size candidates, truncating the rest before
 # ranking (its default page_limit is 10).
 _SEARCH_PAGE_LIMIT = 10_000
+
+# A wide entity's cost is almost all long text in a handful of attributes, so capping the
+# samples is what bounds a view; nothing else about it is capped.
+_MAX_SAMPLE_VALUES = 3
 
 
 def _properties(record: dict[str, Any]) -> dict[str, Any]:
@@ -54,17 +58,43 @@ def _description(record: dict[str, Any]) -> str | None:
     return description
 
 
-def _attribute_scope(ref: ColumnRef) -> str:
+def _entity_scope(ref: AttributeRef) -> str:
     return (
         f"/source/{ref.source}/database/{ref.database}"
         f"/collection/{ref.collection}/entity/{ref.entity}"
     )
 
 
+def _parse_entity_path(entity_path: str) -> AttributeRef:
+    """Split an entity's catalog path into its levels, with the attribute left empty."""
+    parts = entity_path.strip("/").split("/")
+    levels = parts[::2]
+    names = parts[1::2]
+    if levels != ["source", "database", "collection", "entity"] or len(names) != 4:
+        raise ValueError(f"{entity_path!r} is not an entity path")
+    return AttributeRef(
+        source=names[0],
+        database=names[1],
+        collection=names[2],
+        entity=names[3],
+        attribute="",
+    )
+
+
+def _dtype(properties: dict[str, Any], path: str) -> str | None:
+    info = properties.get("info")
+    if not isinstance(info, dict):
+        raise ValueError(f"Attribute record {path}: properties.info missing or not a mapping")
+    declared = cast("dict[str, Any]", info).get("type")
+    # A source with dynamic typing registers a column with no type at all, so an absent one
+    # is absence rather than corruption, the way an absent description is.
+    return str(declared) if declared else None
+
+
 class DataCatalog:
     """Reads the data catalog for the three planning components."""
 
-    def __init__(self, registry: DataRegistry, max_search_results: int = 10) -> None:
+    def __init__(self, registry: DataRegistry, max_search_results: int = 3) -> None:
         # The one untyped-library boundary (blue-data has no py.typed): delegate through
         # Any so unknown member types stop here, not in every caller.
         self._registry: Any = registry
@@ -80,29 +110,22 @@ class DataCatalog:
             total_sources=len(self._registry.list_records(record_type="source")),
         )
 
-    def search_records(self, term: str) -> list[CatalogMatch]:
-        """Return the catalog records one term found, ranked and capped."""
-        return [self._match(raw, term) for raw in self._search(term, self._max_search_results)]
+    def search_records(self, term: str) -> list[EntityMatch]:
+        """Return the entities one term found, each with every attribute it holds."""
+        return [
+            self._match(raw, term)
+            for raw in self._search(term, self._max_search_results, record_type="entity")
+        ]
 
-    def column_views(self, columns: Sequence[ColumnRef]) -> list[ColumnView]:
-        """Return one view per column that resolves to a catalog record."""
-        views: list[ColumnView] = []
-        for ref in columns:
-            record = self._registry.get_record(ref.attribute, "attribute", _attribute_scope(ref))
-            if record is None:
-                continue
-            views.append(self._view(ref, cast("dict[str, Any]", record)))
-        return views
+    def attribute_views(self, entity_path: str) -> list[AttributeView]:
+        """Return one view per attribute the given entity holds."""
+        entity = _parse_entity_path(entity_path)
+        return [self._view(entity, record) for record in self._attribute_records(entity_path)]
 
-    def _view(self, ref: ColumnRef, record: dict[str, Any]) -> ColumnView:
-        path = f"{_attribute_scope(ref)}/attribute/{ref.attribute}"
+    def _view(self, entity: AttributeRef, record: dict[str, Any]) -> AttributeView:
+        name = str(record["name"])
+        path = f"{_entity_scope(entity)}/attribute/{name}"
         properties = _properties(record)
-        info = properties.get("info")
-        if not isinstance(info, dict):
-            raise ValueError(f"Attribute record {path}: properties.info missing or not a mapping")
-        info = cast("dict[str, Any]", info)
-        if not info.get("type"):
-            raise ValueError(f"Attribute record {path}: properties.info has no type field")
         stats = properties.get("stats", {})
         if not isinstance(stats, dict):
             raise ValueError(
@@ -116,11 +139,18 @@ class DataCatalog:
                 f"{type(semantics).__name__}, expected a mapping"
             )
         semantics = cast("dict[str, Any]", semantics)
-        return ColumnView(
-            ref=ref,
-            dtype=str(info["type"]),
+        samples = cast("list[Any]", stats.get("sample_values", []))
+        return AttributeView(
+            ref=AttributeRef(
+                source=entity.source,
+                database=entity.database,
+                collection=entity.collection,
+                entity=entity.entity,
+                attribute=name,
+            ),
+            dtype=_dtype(properties, path),
             description=_description(record),
-            sample_values=list(cast("list[Any]", stats.get("sample_values", []))),
+            sample_values=list(samples[:_MAX_SAMPLE_VALUES]),
             distinct_count=stats.get("distinct_count"),
             null_count=stats.get("null_count"),
             min=stats.get("min"),
@@ -128,18 +158,43 @@ class DataCatalog:
             semantic_type=semantics.get("semantic_type"),
         )
 
-    def _match(self, raw: dict[str, Any], search_term: str) -> CatalogMatch:
-        scope = str(raw["scope"])
-        level = str(raw["type"])
+    def _match(self, raw: dict[str, Any], search_term: str) -> EntityMatch:
+        scope = str(raw["scope"]).rstrip("/")
         name = str(raw["name"])
-        return CatalogMatch(
-            path=f"{scope.rstrip('/')}/{level}/{name}",
-            level=level,
+        path = f"{scope}/entity/{name}"
+        entity = _parse_entity_path(path)
+        return EntityMatch(
+            path=path,
             name=name,
             description=_description(raw),
+            source_kind=self._source_kind(entity.source, path),
+            attributes=[
+                self._attribute_record(record, path) for record in self._attribute_records(path)
+            ],
             score=float(raw["_score"]),
             search_term=search_term,
         )
+
+    def _attribute_record(self, record: dict[str, Any], entity_path: str) -> AttributeRecord:
+        name = str(record["name"])
+        properties = _properties(record)
+        return AttributeRecord(
+            name=name,
+            dtype=_dtype(properties, f"{entity_path}/attribute/{name}"),
+            description=_description(record),
+        )
+
+    def _attribute_records(self, entity_path: str) -> list[dict[str, Any]]:
+        return cast(
+            "list[dict[str, Any]]",
+            self._registry.list_records(record_type="attribute", scope=entity_path),
+        )
+
+    def _source_kind(self, source: str, entity_path: str) -> str:
+        record = self._registry.get_record(source, "source", "/")
+        if record is None:
+            raise ValueError(f"Entity record {entity_path}: no source record named {source!r}")
+        return self._protocol(cast("dict[str, Any]", record))
 
     def _search(
         self, query: str, page_size: int, record_type: str | None = None
@@ -154,6 +209,14 @@ class DataCatalog:
         return cast("list[dict[str, Any]]", results)
 
     def _source_record(self, raw: dict[str, Any]) -> SourceRecord:
+        return SourceRecord(
+            path=f"/source/{raw['name']}",
+            name=str(raw["name"]),
+            kind=self._protocol(raw),
+            description=_description(raw),
+        )
+
+    def _protocol(self, raw: dict[str, Any]) -> str:
         connection = _properties(raw).get("connection", {})
         if not isinstance(connection, dict):
             raise ValueError(
@@ -164,9 +227,4 @@ class DataCatalog:
             raise ValueError(
                 f"Source record {raw.get('name')}: properties.connection has no protocol field"
             )
-        return SourceRecord(
-            path=f"/source/{raw['name']}",
-            name=str(raw["name"]),
-            kind=str(protocol),
-            description=_description(raw),
-        )
+        return str(protocol)
