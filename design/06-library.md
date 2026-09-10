@@ -917,7 +917,7 @@ def blue_operators(
 ) -> list[PhysicalOperator]: ...
 
 
-def lotus_operators(model: str) -> list[PhysicalOperator]: ...
+def lotus_operators(model: str, max_rows: int = 5000) -> list[PhysicalOperator]: ...
 
 
 def builtin_operators(
@@ -967,6 +967,14 @@ Two of them declare a limitation their name would otherwise hide. `lotus.sem_agg
 group of rows into one text value and computes no sum, average, or count, so it answers an
 `AGGREGATE` node only where the node asks for a summary. `lotus.sem_join` compares every pair of
 rows, so what it costs grows with the product of the two tables.
+
+What the suite spends grows with the rows it is handed, so it takes a row cap, 5,000 by default,
+and refuses an input above it before calling a model. `lotus.sem_join` counts the two tables
+multiplied together, which is how many comparisons it makes. The refusal is recoverable and says
+that a deterministic operator can take the node, so a fragment that arrived with too many rows is
+answered by another operator rather than by a bill. Whether a bound an operator enforces inside
+its own call belongs in `PlanLimits` is open question 45 in
+[13-decision-log.md](13-decision-log.md#open-questions).
 
 An instruction names the columns it reads in LOTUS's own notation, which the parameter schema states
 so that a runner writing one has it in front of the model. A column an instruction names and the
