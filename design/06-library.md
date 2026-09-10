@@ -755,11 +755,11 @@ question about the current plan, the current cover, and the results map, and thi
 holding all three.
 
 `install_cover` compares the new cover with the previous one fragment by fragment. A fragment whose
-node set is unchanged keeps its root's result. One that changed or is new drops the results of every
-node in it and of every executed node downstream of those, then runs again. The single-exit rule is
-what makes the drop safe: no node outside a fragment was reading those tables. Nothing is lost by
-the removal, since `attempts` still holds every attempt including the ones whose results were
-dropped.
+node set and operator are unchanged keeps its root's result. One that changed or is new drops the
+results of every node in it and of every executed node downstream of those, then runs again. The
+single-exit rule is what makes the drop safe: no node outside a fragment was reading those tables.
+Nothing is lost by the removal, since `attempts` still holds every attempt including the ones whose
+results were dropped.
 
 `install_logical_plan` adds the version, moves the pointer, and seeds its results slot with a copy
 of the parent's restricted to the carried nodes. Because the values are shared references, that is a

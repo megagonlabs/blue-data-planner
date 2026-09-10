@@ -278,18 +278,18 @@ class PhysicalPlan:
 | Instruction | One instruction to the operator covering everything the fragment absorbed, starting with a verb as a node's does: "Find data scientist job postings, with their title, company id, and location" |
 | Inputs | `input_data` lists the frontier nodes, which are the nodes outside the fragment feeding nodes inside it, in the order their tables arrive. One entry covers everything that node produced, so it may stand for more than one table; those tables share the name and keep their order |
 | Columns | `required_output_columns` is copied from the root node unless the model declares that the fusion cannot produce that list |
-| Identity | A fragment is what its node set says it is. `id` is fresh in every cover, so an attempt names its cover as well, and two covers are compared by node set, not by id |
+| Identity | A fragment is what its node set and operator say it is. `id` is fresh in every cover, so an attempt names its cover as well, and two covers are compared by node set and operator, not by id |
 
 A cover is written whole rather than patched, and what carries over from the previous cover is
 decided by comparing the two.
 
-A fragment keeps its id across covers while its node set is unchanged, so the ids say which groups
-the new cover cut differently.
+A fragment keeps its id across covers while its node set and operator stay the same, so the ids say
+which groups the new cover cut differently or rebound to a different operator.
 
-| A fragment whose node set | What happens |
+| A fragment whose node set and operator | What happens |
 | --- | --- |
-| Is unchanged from the previous cover | Keeps its id, keeps its root's result, and does not run again |
-| Changed, or is new | Drops the results of every node in it, and of every executed node downstream of those, then runs |
+| Are unchanged from the previous cover | Keeps its id, keeps its root's result, and does not run again |
+| Changed, or the fragment is new | Drops the results of every node in it, and of every executed node downstream of those, then runs |
 
 Node sets also bound the retry loop. A rejected fragment is covered again over its own node set, and
 the result either keeps that set, which spends another attempt against it, or splits it into smaller
