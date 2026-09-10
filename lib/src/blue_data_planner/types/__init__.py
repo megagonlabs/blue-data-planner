@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 from blue_data_planner.types.catalog import (
-    CatalogMatch,
+    AttributeRecord,
+    AttributeRef,
+    AttributeView,
     CatalogPreview,
-    ColumnRef,
-    ColumnView,
+    EntityMatch,
     SourceRecord,
 )
 from blue_data_planner.types.errors import (
@@ -64,19 +65,20 @@ from blue_data_planner.types.run import (
 __all__ = [
     "INPUT_ARITY",
     "BlueDataPlannerError",
+    "AttributeRecord",
+    "AttributeRef",
+    "AttributeView",
     "BudgetExhaustedError",
     "CallBudget",
-    "CatalogMatch",
     "CatalogPreview",
     "CatalogSearchResult",
     "ColumnDataType",
-    "ColumnRef",
-    "ColumnView",
     "ControlOperator",
     "Data",
     "DataBundle",
     "DataPipeline",
     "DiscoveryResult",
+    "EntityMatch",
     "ErrorInfo",
     "ErrorKind",
     "ExecutionResult",

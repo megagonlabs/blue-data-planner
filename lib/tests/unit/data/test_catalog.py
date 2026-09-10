@@ -11,7 +11,7 @@ from blue_data.registry.data_registry import (  # pyright: ignore[reportMissingT
 )
 
 from blue_data_planner.data.catalog import DataCatalog
-from blue_data_planner.types.catalog import ColumnRef
+from blue_data_planner.types.catalog import AttributeRef
 
 
 def a_registry_holding(*records: dict[str, Any]) -> DataRegistry:
@@ -106,76 +106,18 @@ def a_record(level: str, name: str, scope: str, description: str = "") -> dict[s
     }
 
 
-def a_registry_with_a_store_table() -> DataRegistry:
-    return a_registry_holding(
-        a_source("retail", description="store records"),
-        a_record("database", "shop", "/source/retail"),
-        a_record("collection", "public", "/source/retail/database/shop"),
-        a_record(
-            "entity",
-            "stores",
-            "/source/retail/database/shop/collection/public",
-            "one row per store",
-        ),
-        a_record(
-            "attribute",
-            "city",
-            "/source/retail/database/shop/collection/public/entity/stores",
-            "city the store is in",
-        ),
-    )
-
-
-def test_a_search_ranks_records_at_every_level_and_names_the_term_that_found_each() -> None:
-    """One term searches the whole catalog, and each match says which term found it."""
-    catalog = DataCatalog(a_registry_with_a_store_table())
-
-    matches = catalog.search_records("stores in a city")
-
-    assert {match.level for match in matches} == {
-        "source",
-        "database",
-        "collection",
-        "entity",
-        "attribute",
-    }
-    assert [match.search_term for match in matches] == ["stores in a city"] * len(matches)
-    assert matches == sorted(matches, key=lambda match: match.score, reverse=True)
-    assert (
-        matches[0].path
-        == "/source/retail/database/shop/collection/public/entity/stores/attribute/city"
-    )
-
-
-def test_a_source_level_match_carries_its_catalog_path() -> None:
-    """A source's scope is the registry root, so its path is /source/{name}, not //source/{name}."""
-    catalog = DataCatalog(a_registry_with_a_store_table())
-
-    matches = catalog.search_records("stores in a city")
-
-    source_match = next(match for match in matches if match.level == "source")
-    assert source_match.path == "/source/retail"
-
-
-def test_a_search_returns_no_more_matches_than_the_catalog_was_built_to_return() -> None:
-    """max_search_results is what bounds how much catalog one prompt carries."""
-    catalog = DataCatalog(a_registry_with_a_store_table(), max_search_results=2)
-
-    # The registry holds five records, so the cap is what makes this two.
-    assert len(catalog.search_records("stores in a city")) == 2
-
-
-CITY = ColumnRef(
+CITY = AttributeRef(
     source="retail",
     database="shop",
     collection="public",
     entity="stores",
     attribute="city",
 )
+STORES = "/source/retail/database/shop/collection/public/entity/stores"
 
 
 def an_attribute(
-    ref: ColumnRef,
+    ref: AttributeRef,
     dtype: str | None = "TEXT",
     description: str = "",
     stats: dict[str, Any] | None = None,
@@ -201,6 +143,112 @@ def an_attribute(
     }
 
 
+def sibling_of(city: AttributeRef, attribute: str) -> AttributeRef:
+    return AttributeRef(
+        source=city.source,
+        database=city.database,
+        collection=city.collection,
+        entity=city.entity,
+        attribute=attribute,
+    )
+
+
+def a_registry_with_a_store_table() -> DataRegistry:
+    return a_registry_holding(
+        a_source("retail", description="store records"),
+        a_record("database", "shop", "/source/retail"),
+        a_record("collection", "public", "/source/retail/database/shop"),
+        a_record(
+            "entity",
+            "stores",
+            "/source/retail/database/shop/collection/public",
+            "one row per store",
+        ),
+        an_attribute(CITY, description="city the store is in"),
+        an_attribute(sibling_of(CITY, "store_id"), dtype="INTEGER"),
+    )
+
+
+def test_a_search_returns_entities_and_nothing_at_the_levels_around_them() -> None:
+    """The search runs at the entity level, which is the unit a SCAN is bound to."""
+    catalog = DataCatalog(a_registry_with_a_store_table())
+
+    matches = catalog.search_records("stores in a city")
+
+    assert [match.path for match in matches] == [STORES]
+    assert matches[0].name == "stores"
+    assert matches[0].description == "one row per store"
+
+
+def test_a_matched_entity_carries_every_attribute_it_holds() -> None:
+    """The whole attribute list is what makes a declared column name a fact."""
+    catalog = DataCatalog(a_registry_with_a_store_table())
+
+    attributes = catalog.search_records("stores in a city")[0].attributes
+
+    assert {attribute.name: attribute.dtype for attribute in attributes} == {
+        "city": "TEXT",
+        "store_id": "INTEGER",
+    }
+    city = next(attribute for attribute in attributes if attribute.name == "city")
+    assert city.description == "city the store is in"
+
+
+def test_a_matched_entity_carries_the_kind_of_source_it_sits_in() -> None:
+    """source_kind decides which operators may run a fragment scanning this entity."""
+    catalog = DataCatalog(a_registry_with_a_store_table())
+
+    assert catalog.search_records("stores in a city")[0].source_kind == "sql/sqlite"
+
+
+def a_registry_with_two_store_tables() -> DataRegistry:
+    warehouses = AttributeRef(
+        source="retail",
+        database="shop",
+        collection="public",
+        entity="warehouses",
+        attribute="city",
+    )
+    return a_registry_holding(
+        a_source("retail", description="store records"),
+        a_record("database", "shop", "/source/retail"),
+        a_record("collection", "public", "/source/retail/database/shop"),
+        a_record(
+            "entity",
+            "stores",
+            "/source/retail/database/shop/collection/public",
+            "one row per store",
+        ),
+        a_record(
+            "entity",
+            "warehouses",
+            "/source/retail/database/shop/collection/public",
+            "one row per warehouse",
+        ),
+        an_attribute(CITY),
+        an_attribute(warehouses),
+    )
+
+
+def test_a_search_ranks_its_matches_and_names_the_term_that_found_them() -> None:
+    """A search is ranked rather than filtered, so the best match leads the list."""
+    catalog = DataCatalog(a_registry_with_two_store_tables())
+
+    matches = catalog.search_records("stores")
+
+    assert [match.name for match in matches] == ["stores", "warehouses"]
+    assert [match.search_term for match in matches] == ["stores", "stores"]
+    assert matches == sorted(matches, key=lambda match: match.score, reverse=True)
+
+
+def test_a_search_returns_no_more_matches_than_the_catalog_was_built_to_return() -> None:
+    """max_search_results is what bounds how much catalog one prompt carries."""
+    catalog = DataCatalog(a_registry_with_two_store_tables(), max_search_results=1)
+
+    # The registry holds two entities, so the cap is what makes this one.
+    assert len(catalog.search_records("stores")) == 1
+
+
 def a_registry_holding_a_profiled_city_column() -> DataRegistry:
     return a_registry_holding(
         an_attribute(
@@ -218,11 +266,11 @@ def a_registry_holding_a_profiled_city_column() -> DataRegistry:
     )
 
 
-def test_a_column_view_carries_the_catalogs_whole_column_statistics() -> None:
-    """A view is the registry's own profile of the column, not a sample of it."""
+def test_an_attribute_view_carries_the_catalogs_whole_attribute_statistics() -> None:
+    """A view is the registry's own profile of the attribute, not a sample of it."""
     catalog = DataCatalog(a_registry_holding_a_profiled_city_column())
 
-    view = catalog.column_views([CITY])[0]
+    view = catalog.attribute_views(STORES)[0]
 
     assert view.ref == CITY
     assert view.dtype == "TEXT"
@@ -233,26 +281,28 @@ def test_a_column_view_carries_the_catalogs_whole_column_statistics() -> None:
     assert view.semantic_type == "CITY"
 
 
-def test_a_column_an_operator_generated_gets_no_view() -> None:
-    """A column with no registry record is annotated by nothing, and asks for nothing."""
-    catalog = DataCatalog(a_registry_holding_a_profiled_city_column())
-    generated = ColumnRef(
-        source="retail",
-        database="shop",
-        collection="public",
-        entity="stores",
-        attribute="sentiment",
-    )
+def test_the_views_cover_every_attribute_of_the_entity_asked_for() -> None:
+    """Which attributes to name is the decision the caller has yet to take."""
+    catalog = DataCatalog(a_registry_with_a_store_table())
 
-    assert catalog.column_views([generated]) == []
-    assert len(catalog.column_views([CITY, generated])) == 1
+    views = catalog.attribute_views(STORES)
+
+    assert {view.ref.attribute for view in views} == {"city", "store_id"}
 
 
-def test_an_unenriched_column_renders_with_its_type_and_no_description() -> None:
-    """A column nobody profiled still gets a view; only the annotation is missing."""
+def test_a_view_carries_the_first_three_stored_sample_values() -> None:
+    """The sample-value cap is where a wide entity's cost is controlled."""
+    stats = {"sample_values": ["Napa", "Sonoma", "Ukiah", "Davis", "Chico"]}
+    catalog = DataCatalog(a_registry_holding(an_attribute(CITY, stats=stats)))
+
+    assert catalog.attribute_views(STORES)[0].sample_values == ["Napa", "Sonoma", "Ukiah"]
+
+
+def test_an_unprofiled_attribute_renders_with_its_type_and_nothing_else() -> None:
+    """An attribute nobody profiled still gets a view; only the annotation is missing."""
     catalog = DataCatalog(a_registry_holding(an_attribute(CITY)))
 
-    view = catalog.column_views([CITY])[0]
+    view = catalog.attribute_views(STORES)[0]
 
     assert view.dtype == "TEXT"
     assert view.description is None
@@ -266,6 +316,39 @@ def test_an_unenriched_column_renders_with_its_type_and_no_description() -> None
     assert view.semantic_type is None
 
 
+@pytest.mark.parametrize(
+    "info",
+    [pytest.param({}, id="no_type_field"), pytest.param({"type": ""}, id="empty_type")],
+)
+def test_an_attribute_whose_type_was_never_recorded_renders_with_no_type(
+    info: dict[str, Any],
+) -> None:
+    """A SQLite column can be genuinely untyped, which is absence rather than corruption."""
+    record = an_attribute(CITY)
+    record["properties"]["info"] = info
+    catalog = DataCatalog(a_registry_holding(record))
+
+    assert catalog.attribute_views(STORES)[0].dtype is None
+
+
+def test_an_entity_the_registry_holds_no_attributes_for_gets_no_views() -> None:
+    """No record at all is an attribute with no view."""
+    catalog = DataCatalog(a_registry_with_a_store_table())
+
+    assert (
+        catalog.attribute_views("/source/retail/database/shop/collection/public/entity/warehouses")
+        == []
+    )
+
+
+def test_a_path_that_does_not_name_an_entity_raises() -> None:
+    """attribute_views is a boundary, and an entity path is what it takes."""
+    catalog = DataCatalog(a_registry_with_a_store_table())
+
+    with pytest.raises(ValueError, match="is not an entity path"):
+        catalog.attribute_views("/source/retail/database/shop")
+
+
 def an_attribute_with_malformed_properties() -> dict[str, Any]:
     record = an_attribute(CITY)
     record["properties"] = "oops"
@@ -275,12 +358,6 @@ def an_attribute_with_malformed_properties() -> dict[str, Any]:
 def an_attribute_with_a_non_string_description() -> dict[str, Any]:
     record = an_attribute(CITY)
     record["description"] = 123
-    return record
-
-
-def an_attribute_with_info_missing_the_type_field() -> dict[str, Any]:
-    record = an_attribute(CITY)
-    record["properties"]["info"] = {}
     return record
 
 
@@ -302,53 +379,64 @@ def a_source_missing_a_protocol() -> dict[str, Any]:
     return record
 
 
+def a_store_table_whose_source_record_is_missing() -> list[dict[str, Any]]:
+    return [
+        a_record(
+            "entity",
+            "stores",
+            "/source/retail/database/shop/collection/public",
+            "one row per store",
+        )
+    ]
+
+
 @pytest.mark.parametrize(
-    ("record", "call_kind", "expected_message"),
+    ("records", "call_kind", "expected_message"),
     [
         pytest.param(
-            an_attribute_with_malformed_properties(),
-            "column_views",
+            [an_attribute_with_malformed_properties()],
+            "attribute_views",
             "properties is",
             id="properties_not_a_mapping",
         ),
         pytest.param(
-            an_attribute_with_a_non_string_description(),
-            "column_views",
+            [an_attribute_with_a_non_string_description()],
+            "attribute_views",
             "description is",
             id="description_not_a_string",
         ),
         pytest.param(
-            an_attribute(CITY, dtype=None),
-            "column_views",
+            [an_attribute(CITY, dtype=None)],
+            "attribute_views",
             "properties.info missing or not a mapping",
             id="info_missing_or_not_a_mapping",
         ),
         pytest.param(
-            an_attribute_with_info_missing_the_type_field(),
-            "column_views",
-            "properties.info has no type field",
-            id="info_has_no_type_field",
-        ),
-        pytest.param(
-            an_attribute(CITY, stats=cast("Any", "two rows")),
-            "column_views",
+            [an_attribute(CITY, stats=cast("Any", "two rows"))],
+            "attribute_views",
             "stats is",
             id="stats_not_a_mapping",
         ),
         pytest.param(
-            an_attribute_with_malformed_value_semantics(),
-            "column_views",
+            [an_attribute_with_malformed_value_semantics()],
+            "attribute_views",
             "value_semantics is",
             id="value_semantics_not_a_mapping",
         ),
         pytest.param(
-            a_source_with_a_malformed_connection(),
+            a_store_table_whose_source_record_is_missing(),
+            "search_records",
+            "no source record",
+            id="matched_entity_has_no_source_record",
+        ),
+        pytest.param(
+            [a_source_with_a_malformed_connection()],
             "preview",
             "properties.connection missing or not a mapping",
             id="source_connection_not_a_mapping",
         ),
         pytest.param(
-            a_source_missing_a_protocol(),
+            [a_source_missing_a_protocol()],
             "preview",
             "properties.connection has no protocol field",
             id="source_protocol_missing",
@@ -356,13 +444,15 @@ def a_source_missing_a_protocol() -> dict[str, Any]:
     ],
 )
 def test_a_malformed_record_raises(
-    record: dict[str, Any], call_kind: str, expected_message: str
+    records: list[dict[str, Any]], call_kind: str, expected_message: str
 ) -> None:
-    """A record that exists but cannot be read as a column or source is a corrupt registry."""
-    catalog = DataCatalog(a_registry_holding(record))
+    """A record that exists but cannot be read is a corrupt registry."""
+    catalog = DataCatalog(a_registry_holding(*records))
 
     with pytest.raises(ValueError, match=expected_message):
-        if call_kind == "column_views":
-            catalog.column_views([CITY])
+        if call_kind == "attribute_views":
+            catalog.attribute_views(STORES)
+        elif call_kind == "search_records":
+            catalog.search_records("stores")
         else:
             catalog.preview("anything", limit=10)

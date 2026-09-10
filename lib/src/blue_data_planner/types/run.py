@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from enum import StrEnum
 from typing import Any
 
-from blue_data_planner.types.catalog import CatalogMatch
+from blue_data_planner.types.catalog import EntityMatch
 from blue_data_planner.types.errors import BlueDataPlannerError, BudgetExhaustedError
 from blue_data_planner.types.plan import DataBundle, DataPipeline, LogicalPlan, PhysicalPlan
 
@@ -83,7 +83,7 @@ class DiscoveryResult:
     """What one DISCOVER node's catalog search found."""
 
     search_terms: list[str]
-    matches: list[CatalogMatch]
+    matches: list[EntityMatch]
     # Terms cut by the per-node cap, reported so a reader knows the search was capped.
     dropped_terms: int
 

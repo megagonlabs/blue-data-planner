@@ -882,7 +882,7 @@ A search hits an entity, and the match carries that entity together with every a
 @dataclass(frozen=True)
 class AttributeRecord:
     name: str
-    dtype: str
+    dtype: str | None
     description: str | None
 
 
@@ -939,7 +939,7 @@ cannot reach in front of the model.
 @dataclass(frozen=True)
 class AttributeView:
     ref: AttributeRef
-    dtype: str
+    dtype: str | None
     description: str | None
     sample_values: list[Any]
     distinct_count: int | None
@@ -961,9 +961,11 @@ table in full runs to hundreds of kilobytes, and almost all of it is a handful o
 long text rather than the attribute count.
 
 An attribute whose statistics were never collected still gets a view, carrying its type and whatever
-else the record holds. Absence and corruption are told apart: no record at all is an attribute with
-no view, and a record that exists but cannot be read as one — a declared type missing, or statistics
-that are not statistics — is a corrupt registry and raises
+else the record holds. A type is absent the way a description is: a source with dynamic typing
+registers a column the registry records no type for, and both readings render that as nothing rather
+than refusing the record. Absence and corruption are told apart: no record at all is an attribute
+with no view, and a record that exists but cannot be read as one — no type field where a type field
+belongs, or statistics that are not statistics — is a corrupt registry and raises
 ([06-library.md](06-library.md#errors)).
 
 ---
