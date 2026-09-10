@@ -34,6 +34,9 @@ dev = [
     "ruff",
     "pyright",
 ]
+# LOTUS narrows numpy, pandas, and the Python range, so it is an extra rather than a
+# dependency, and the tier that uses it gets an environment of its own.
+lotus = ["lotus-ai>=1.2,<2"]
 
 [tool.setuptools.packages.find]
 where = ["src"]
