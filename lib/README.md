@@ -9,9 +9,9 @@ pip install -e '.[dev]'     # + the test and lint gates
 pip install -e '.[lotus]'   # + the LOTUS operator suite
 ```
 
-The `lotus` extra narrows the environment around it: LOTUS holds numpy below 2, pandas below 3,
-and Python below 3.13, and it brings a machine-learning stack of several gigabytes. Install it in
-an environment of its own rather than beside a project that needs numpy 2.
+The `lotus` extra constrains what else can live in the environment: LOTUS holds numpy below 2,
+pandas below 3, and Python below 3.13, and it brings a machine-learning stack of several
+gigabytes. Install it in an environment of its own rather than beside a project that needs numpy 2.
 
 ## Tests
 

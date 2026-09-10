@@ -48,17 +48,20 @@ the fork's conflict declaration forbids selecting the `lotus` extra and its pair
 group together.
 
 Every later `uv run`, including `uv run pytest`, needs that same `UV_PROJECT_ENVIRONMENT` setting
-to reach `.venv-lotus`. uv reads it fresh each time rather than remembering it from the sync.
-Export it for the session, or repeat it per command:
+to reach `.venv-lotus`, and the same `--extra lotus --extra dev` selection. uv reads both fresh
+each time rather than remembering them from the sync, and re-syncs the environment to whatever the
+command names, so a plain `uv run` strips LOTUS back out of `.venv-lotus`. Export the variable for
+the session, or repeat it per command:
 
 ```bash
 export UV_PROJECT_ENVIRONMENT=.venv-lotus
-uv run pytest tests/lotus
+uv run --extra lotus --extra dev pytest tests/lotus
 ```
 
-Without it, `uv run pytest tests/lotus` runs against the default `.venv`, where LOTUS is not
-installed, and the whole tier skips itself rather than failing. A test that calls a model skips on
-its own too, unless `OPENAI_API_KEY` (or whichever key the configured model needs) is set.
+Without the variable, that command syncs `lotus` and its narrower numpy/pandas bounds into the
+default `.venv` instead of `.venv-lotus`, the opposite of what a separate environment is for. Set
+both the variable and the extras together, or neither. A test that calls a model skips on its own
+too, unless `OPENAI_API_KEY` (or whichever key the configured model needs) is set.
 
 ## Running the tests
 

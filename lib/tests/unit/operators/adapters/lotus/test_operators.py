@@ -82,9 +82,9 @@ def test_no_operator_is_offered_where_lotus_is_absent(monkeypatch: pytest.Monkey
     assert lotus_operators(MODEL) == []
 
 
-def test_building_the_suite_imports_no_lotus() -> None:
+def test_building_the_suite_imports_no_lotus(monkeypatch: pytest.MonkeyPatch) -> None:
     """The suite is described without loading a package a deployment may not have (ADR-004)."""
-    sys.modules.pop("lotus", None)
+    monkeypatch.delitem(sys.modules, "lotus", raising=False)
 
     lotus_operators(MODEL)
 
@@ -275,6 +275,20 @@ def test_an_ungrouped_aggregation_asks_lotus_for_no_grouping(lotus_stub: Any) ->
     )
 
     assert lotus_stub.calls[0]["kwargs"]["group_by"] is None
+
+
+def test_a_grouping_column_the_input_lacks_never_reaches_lotus(lotus_stub: Any) -> None:
+    """A group_by naming an absent column is a refusal a repair can read, not a bare KeyError."""
+    result = run(
+        operator("lotus.sem_agg"),
+        [[{"note": "quiet"}]],
+        {"instruction": "Summarize {note}", "group_by": ["city"]},
+        declared("city", "summary"),
+    )
+
+    assert result.status.value == "failed"
+    assert result.error is not None and result.error.kind.value == "recoverable"
+    assert lotus_stub.calls == []
 
 
 def test_a_join_reads_both_tables_and_renames_what_they_shared(lotus_stub: Any) -> None:

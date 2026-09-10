@@ -16,9 +16,11 @@ def unconfigured() -> None:
     settings._configured_model = None  # pyright: ignore[reportPrivateUsage]
 
 
-def test_lotus_is_reported_installed_without_being_imported() -> None:
+def test_lotus_is_reported_installed_without_being_imported(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """The check that decides whether to offer the suite loads no module."""
-    sys.modules.pop("lotus", None)
+    monkeypatch.delitem(sys.modules, "lotus", raising=False)
 
     assert settings.lotus_is_installed() is True
     assert "lotus" not in sys.modules

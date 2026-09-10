@@ -46,6 +46,7 @@ class _Entry:
     table_count: int
     run: _Run
     limitations: str | None = None
+    row_cap: str = "Reads at most {max_rows} rows in one call and refuses a larger input."
 
 
 def lotus_operators(model: str, max_rows: int = DEFAULT_MAX_ROWS) -> list[PhysicalOperator]:
@@ -68,7 +69,7 @@ def lotus_operators(model: str, max_rows: int = DEFAULT_MAX_ROWS) -> list[Physic
 
 
 def _limitations(entry: _Entry, max_rows: int) -> str:
-    cap = f"Reads at most {max_rows} rows in one call and refuses a larger input."
+    cap = entry.row_cap.format(max_rows=max_rows)
     return cap if entry.limitations is None else f"{entry.limitations} {cap}"
 
 
@@ -199,6 +200,16 @@ def _run_topk(
 def _run_agg(
     frames: list[Any], parameters: Any, required: list[OutputColumn], operator_id: str
 ) -> tuple[Any, list[str]]:
+    present = [str(name) for name in frames[0].columns]
+    missing = [name for name in parameters.group_by if name not in present]
+    if missing:
+        # A grouping column LOTUS cannot find reaches pandas as a bare KeyError, which the
+        # mapping around the call does not read as a refusal.
+        raise RecoverableOperatorError(
+            f"{operator_id} was given a group_by naming "
+            f"{', '.join(repr(one) for one in missing)}, which its input does not carry; it "
+            f"holds {', '.join(repr(one) for one in present)}"
+        )
     # sem_agg keeps the columns it groups by and drops the rest, so what it creates is
     # whatever the node declares beyond them.
     column = one_new_column(operator_id, required, parameters.group_by, parameters.output_column)
@@ -274,5 +285,6 @@ _ENTRIES: tuple[_Entry, ...] = (
             "Compares every pair of rows, so what it costs grows with the two tables multiplied "
             "together. It matches on one column from each table and produces inner-join rows."
         ),
+        row_cap="Refuses an input whose two tables' row counts multiply past {max_rows}.",
     ),
 )
