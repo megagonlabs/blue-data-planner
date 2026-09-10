@@ -38,6 +38,29 @@ dev = [
 # dependency, and the tier that uses it gets an environment of its own.
 lotus = ["lotus-ai>=1.2,<2"]
 
+# uv computes one resolution across every extra by default, so lotus's numpy/pandas upper
+# bounds would otherwise apply to the default install too, even though a plain `uv sync`
+# never requests the extra. Declaring lotus as conflicting forks the resolution instead,
+# leaving the default environment on whatever blue-data-ops/blue-data naturally pull in.
+# uv 0.12 requires a conflict set to name two members, and has no syntax for "conflicts with
+# no extras selected"; no-lotus is arity padding for that requirement, not a real dependency
+# group, and nothing installs it on its own. Drop it once astral-sh/uv#10154 lands a
+# "conflicts with no extras" syntax (that issue's own workaround pairs the extra against a
+# non-empty default group, not an empty inert one — this empty-group form is a simplification
+# that happens to work here, not something the issue demonstrates).
+# --all-extras and --all-groups together now request lotus and no-lotus at once, which the
+# conflict declaration forbids, so that combination errors.
+[dependency-groups]
+no-lotus = []
+
+[tool.uv]
+conflicts = [
+    [
+        { extra = "lotus" },
+        { group = "no-lotus" },
+    ],
+]
+
 [tool.setuptools.packages.find]
 where = ["src"]
 
