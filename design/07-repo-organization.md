@@ -59,7 +59,7 @@ blue-data-planner/
 │   │   │   ├── __init__.py            # OperatorRouter only
 │   │   │   ├── router.py              # OperatorRouter
 │   │   │   ├── adapters/              # one per outside suite
-│   │   │   │   ├── blue.py            # blue_operators, over blue-data-ops
+│   │   │   │   ├── blue/              # blue_operators, over blue-data-ops
 │   │   │   │   └── lotus/             # lotus_operators, over LOTUS
 │   │   │   └── builtin/               # builtin_operators, the suite written here
 │   │   ├── data/
@@ -184,13 +184,13 @@ repository (ADR-020).
 | Module | Holds |
 | --- | --- |
 | `router.py` | `OperatorRouter`, the only lookup read while planning (ADR-009) |
-| `adapters/blue.py` | `blue_operators`, over a `blue-data-ops` `OperatorRegistry` |
+| `adapters/blue/` | `blue_operators`, over a `blue-data-ops` `OperatorRegistry`: the parameter models and the operation table that binds them |
 | `adapters/lotus/` | `lotus_operators`, over the LOTUS package |
 | `builtin/` | `builtin_operators`: one module of transformations over the bundle, the deterministic entries wrapping them, `builtin.scan`, `builtin.nl2table`, and the isolated execution its program runs under |
 
 `builtin/` sits beside `adapters/` because the router reads every suite the same way and a
-deployment turns any of them on or off the same way. It is a directory for the same reason
-`adapters/lotus/` is: more than one file to hold.
+deployment turns any of them on or off the same way. It is a directory for the same reason the two
+adapters are: more than one file to hold.
 
 The router sits here rather than beside the planning components because it is a lookup over
 operators and names nothing from any of them, and because an adapter can then register into it directly. It is not the
@@ -203,9 +203,8 @@ name of its suite, so importing the router loads no suite. `adapters/__init__.py
 of them either, so importing one adapter loads no other suite.
 
 An adapter is a directory rather than a module when the suite needs more than one file to wrap,
-which is why `adapters/lotus/` is a package and `adapters/blue.py` is not. Grouping by logical
-operator was rejected, because an operator may declare several and the router already answers that
-question.
+which is why both adapters are packages. Grouping by logical operator was rejected, because an
+operator may declare several and the router already answers that question.
 
 ### What a platform package holds
 

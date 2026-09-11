@@ -951,6 +951,56 @@ LOTUS adapter converts at its own edge, building one data frame per table going 
 coming out, and imports LOTUS inside the callable rather than at module import time, so the package
 imports with LOTUS absent and the router simply gains no LOTUS operators (ADR-004).
 
+### The Blue suite
+
+Eighteen operations reach the router, in four groups.
+
+| Group | Operations | Covers |
+| --- | --- | --- |
+| Relational | `blue.select`, `blue.project`, `blue.join`, `blue.intersect`, `blue.union` | `FILTER`, `PROJECT`, `JOIN`, `UNION` |
+| Aggregate | `blue.sum`, `blue.avg`, `blue.min`, `blue.max`, `blue.argmax`, `blue.argmin` | `AGGREGATE`, `SORT_SUPERLATIVE` |
+| Semantic | `blue.semantic_filter`, `blue.semantic_project`, `blue.semantic_extract`, `blue.semantic_transform`, `blue.semantic_join` | `FILTER`, `PROJECT`, `JOIN` |
+| Query-writing | `blue.nl2llm`, `blue.nl2sql` | `SCAN`, and six more kinds for `blue.nl2sql` |
+
+Sixteen of them declare one logical operator and cover one node. Two node kinds take several
+operations each, because summing and averaging are different operations sharing a node kind rather
+than two implementations of one: an `AGGREGATE` node asking for an average has `blue.avg` as its
+candidate and `blue.sum` is not one.
+
+The first two groups cover only part of the node kinds they declare, and their `limitations` say
+which part. `blue.select` compares one key against one value, where a `FILTER` node may carry a
+conjunction of predicates, and the aggregate group works over a whole table, where an `AGGREGATE`
+or `SORT_SUPERLATIVE` node may ask for one result per group. A built-in entry declares the same
+kinds and covers more of them, so the narrower operation has to state its bound for the physical
+planner to tell the two apart (open question 43).
+
+The semantic group judges meaning with a language model, and each operation resolves the model it
+calls, so what these operations spend is billed as part of the operator call that contains it
+(ADR-005).
+
+`blue.nl2llm` declares `SCAN` and reads no registered source. It answers from the model's own world
+knowledge, which is why its rows cannot be held to a source and why it declares no source kind.
+
+`blue.nl2sql` is the suite's compound operation. It declares seven kinds, the three SQL source
+kinds, and bound inputs, so a connected group of nodes over a SQL source is a candidate for a single
+call. Two limitations narrow it. It cannot express a semantic predicate, so a filter that needs
+reading text stays outside the group. And one query reads one database, so a fragment whose scans
+name two sources is not its to take, a constraint that lives in `limitations` because the
+declaration has no vocabulary for it (open question 44).
+
+Each operation names the registry version it binds, rather than the suite naming one version for all
+eighteen. A version is where an operation's validator and its result shape are fixed, so an upstream
+release changes what an operation does here only once the adapter names the new version, and two
+operations whose versions move at different times do not have to move together.
+
+An operation declaring one logical operator is handed the tables that kind's arity names, and a
+bundle of any other length is refused before the operation runs, as a recoverable failure naming
+both counts. `blue.nl2sql` is held to no count, since the group it covers decides how many tables
+arrive.
+
+What an operation reports about its own run reaches the fragment's result, whether the call
+succeeded or failed (ADR-020). An operation that reports nothing leaves it unset.
+
 ### The LOTUS suite
 
 Six operations reach the router, each declaring one logical operator, so a LOTUS operator covers one
