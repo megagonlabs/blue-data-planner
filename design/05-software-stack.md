@@ -127,7 +127,7 @@ components, `execution/`, the plan types, or the `builtin` suite imports a data 
 | `pandas` | Inside the LOTUS adapter only, one frame built per table going in and flattened coming out | Declared by the `lotus` extra, not by the library |
 | `numpy` | Reached only through `blue-data-ops` operators | Declared by neither |
 
-The `builtin` operations work on the bundle as it stands. A data frame would be the obvious way to
+The `builtin` operators work on the bundle as it stands. A data frame would be the obvious way to
 write them and is deliberately not used: it would put a required dependency in front of every
 consumer to save a page of plain Python, and it would tie the library to the major lines the LOTUS
 extra already pins.
@@ -151,11 +151,11 @@ the rest of the stack: it narrows the Python range, holds numpy and pandas each 
 and brings a multi-gigabyte machine-learning stack with it. A consumer planning against other suites
 pays for none of that.
 
-The extra states a version range rather than floating, because the adapter describes each LOTUS
-operation by name and parameters.
+The extra states a version range, because the adapter describes each LOTUS operator by name and
+parameters.
 
 `builtin` is written here rather than depended on (ADR-020), and it declares nothing new in the
-dependency table. Its operations work on the bundle, which is plain lists and dicts, so no data
+dependency table. Its operators work on the bundle, which is plain lists and dicts, so no data
 frame library is needed; it reads sources through `data/`, which the library already depends on; and
 it calls a model through `llm/`, which it already does too. The cost of owning a suite is the tests
 its behavior needs, not an install.
@@ -206,7 +206,7 @@ injected values. `.env` files are never committed.
 
 | Variable | Read by | For |
 | --- | --- | --- |
-| `OPENAI_API_KEY` | litellm, through `llm/` | The five planner calls above, and LOTUS operations |
+| `OPENAI_API_KEY` | litellm, through `llm/` | The five planner calls above, and LOTUS operators |
 | `BLUE_DATA_PLANNER_MODEL` | The adapter, passed to `llm/` | The default litellm model string for every component that calls a model |
 | `BLUE_DATA_REGISTRY_PATH` | The adapter, passed to `data/` | The serialized registry an adapter opens and plans against |
 

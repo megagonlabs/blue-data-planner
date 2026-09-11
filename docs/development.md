@@ -28,6 +28,41 @@ uv sync --extra dev
 This creates `.venv`, clones the two dependencies at their pinned commits into the `uv` cache, and
 installs the planner package in editable mode.
 
+## Installing the `lotus` extra
+
+The `lotus` extra adds six semantic operators built on LOTUS: filtering, projection, extraction,
+aggregation, top-k, and join, each driven by a language model. It narrows numpy below 2, pandas
+below 3, and the Python range to 3.11 or 3.12. It gets its own environment, built beside the
+default one instead of replacing it:
+
+```bash
+cd lib
+UV_PROJECT_ENVIRONMENT=.venv-lotus uv sync --extra lotus --extra dev
+```
+
+`uv.lock` resolves the extra as a separate fork (`[tool.uv] conflicts` in
+[lib/pyproject.toml](../lib/pyproject.toml)), so a plain `uv sync` into the default `.venv` keeps
+whatever numpy and pandas `blue-data`/`blue-data-ops` pull in, unaffected by the extra's narrower
+bounds. One consequence: `uv sync --all-extras --all-groups` is not a valid combination, because
+the fork's conflict declaration forbids selecting the `lotus` extra and its paired placeholder
+group together.
+
+Every later `uv run`, including `uv run pytest`, needs that same `UV_PROJECT_ENVIRONMENT` setting
+to reach `.venv-lotus`, and the same `--extra lotus --extra dev` selection. uv reads both fresh
+each time rather than remembering them from the sync, and re-syncs the environment to whatever the
+command names, so a plain `uv run` strips LOTUS back out of `.venv-lotus`. Export the variable for
+the session, or repeat it per command:
+
+```bash
+export UV_PROJECT_ENVIRONMENT=.venv-lotus
+uv run --extra lotus --extra dev pytest tests/lotus
+```
+
+Without the variable, that command syncs `lotus` and its narrower numpy/pandas bounds into the
+default `.venv` instead of `.venv-lotus`, the opposite of what a separate environment is for. Set
+both the variable and the extras together, or neither. A test that calls a model skips on its own
+too, unless `OPENAI_API_KEY` (or whichever key the configured model needs) is set.
+
 ## Running the tests
 
 ```bash

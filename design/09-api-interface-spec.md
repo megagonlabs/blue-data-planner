@@ -32,15 +32,15 @@ and reads its result writes one import. Everything else is reached through the m
 | `blue_data_planner.plan` | `validate_logical_plan`, `validate_physical_plan`, `candidate_fragments` |
 | `blue_data_planner.execution` | `execute_physical_operator`, `check_output_columns` |
 | `blue_data_planner.operators` | `OperatorRouter` |
-| `blue_data_planner.operators.blue`, `.lotus`, `.builtin` | `blue_operators`, `lotus_operators`, `builtin_operators` |
+| `blue_data_planner.operators.adapters.blue`, `.adapters.lotus`, `.builtin` | `blue_operators`, `lotus_operators`, `builtin_operators` |
 | `blue_data_planner.data` | `DataCatalog`, `open_registry`, and the source-level reads |
 | `blue_data_planner.llm` | `LLMClient`, `Conversation`, `LLMUsage`, `LLMError` |
 
 Public is the package root, every module directly inside it, and the `__init__.py` of `types/`,
 `plan/`, `execution/`, `operators/`, `data/`, and `llm/`. A module nested inside one of those
 directories is not, and can be split or renamed within a minor version. The adapters are the one
-exception: `operators/__init__.py` re-exports the router alone, so an adapter is imported from the
-module named for its suite.
+exception: `operators/__init__.py` re-exports the router alone, so an adapter is imported from
+`adapters/`, under the name of its suite, and each of those modules is public where it sits.
 
 That exception is what keeps the root cheap to import. Python runs a package's `__init__.py` before
 any module inside it, so what the root names is paid by every import from this package. The run path
@@ -53,8 +53,8 @@ removing it breaks a version. `platform/*` imports these modules and no others
 ([08-coding-style.md](08-coding-style.md)). And every signature here is typed, since the package
 ships `py.typed`.
 
-A caller who wants physical operators alone reads `operators.blue` and `types`, and constructs no
-planner.
+A caller who wants physical operators alone reads `operators.adapters.blue` and `types`, and
+constructs no planner.
 
 When an adapter needs something absent from this list, the library is missing a method, and the fix
 is to add one rather than to import a private module.
@@ -71,9 +71,9 @@ from blue_data_planner import PlanLimits, build_data_planner
 from blue_data_planner.data import DataCatalog, open_registry
 from blue_data_planner.llm import LLMClient
 from blue_data_planner.operators import OperatorRouter
-from blue_data_planner.operators.blue import blue_operators
+from blue_data_planner.operators.adapters.blue import blue_operators
+from blue_data_planner.operators.adapters.lotus import lotus_operators
 from blue_data_planner.operators.builtin import builtin_operators
-from blue_data_planner.operators.lotus import lotus_operators
 
 data_registry = open_registry(Path("registry.json"))
 llm_client = LLMClient(name="planner", properties={"model": "openai/gpt-4o"})
@@ -82,7 +82,7 @@ router = OperatorRouter()
 # operator_registry is a blue-data-ops OperatorRegistry, built the way that package documents
 for operator in blue_operators(operator_registry, data_registry):
     router.register(operator)
-for operator in lotus_operators():  # empty when LOTUS is not installed
+for operator in lotus_operators("openai/gpt-4o"):  # empty when LOTUS is not installed
     router.register(operator)
 # with_nl2table enables the entry that writes and runs a Python program (ADR-020)
 for operator in builtin_operators(data_registry, llm_client, with_nl2table=True):

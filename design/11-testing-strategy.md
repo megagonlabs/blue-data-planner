@@ -94,11 +94,17 @@ expected count that equals a bound deserves one line; a returned status does not
 | --- | --- | --- | --- |
 | Library unit tests | `lib/tests/unit/` | Yes | No |
 | Adapter tests | `platform/*/tests/` | Yes, in that package | No |
+| LOTUS suite tests | `lib/tests/lotus/` | No, excluded by `testpaths` | Yes, for an operation that calls a model |
 | Benchmark suites | `lib/tests/benchmarks/` | No, excluded by `testpaths` | Yes, unless cassettes exist |
 
 Unit tests are the main tier and the one that has to stay fast and offline. The benchmark tier
 measures the system rather than checking it, and it is opt-in by path
 ([07-repo-organization.md](07-repo-organization.md#where-the-benchmark-lives)).
+
+The LOTUS tier answers what a stub cannot: whether the adapter calls the operations an installed
+LOTUS offers, with the arguments they take, and whether the tables they return convert back to
+rows. It runs in an environment carrying the `lotus` extra, which is why it is opt-in by path like
+the benchmarks. Every other tier passes with LOTUS absent (ADR-004).
 
 There is no integration tier against a live networked backend. A source that runs embedded is tested
 against a real instance instead of a double ([section 5](#5-doubles-and-stubs)); a source reached
@@ -139,12 +145,13 @@ is `tests/unit/plan/test_validation.py`. It mirrors
 
 ```text
 lib/tests/
-  conftest.py           # installs the stubs before any lazy import reaches them
+  conftest.py           # fixtures every tier shares
   doubles/              # in-memory replacements for I/O boundaries
   stubs/                # deterministic fakes for heavy optional dependencies
   fixtures/             # recorded inputs and cassettes
   unit/                 # mirrors src/blue_data_planner/ and scripts/
     types/  plan/  data/  llm/  operators/  execution/  scripts/
+  lotus/                # against an installed LOTUS; excluded from the default run
   benchmarks/
     tag_bench/          # excluded from the default run
 ```
@@ -193,8 +200,10 @@ test builds the registry it needs and reads it through `DataCatalog`.
 
 ### Stubs
 
-`stubs/` holds `litellm` and LOTUS. `conftest.py` installs each into `sys.modules` before anything
-reaches its lazy import.
+`stubs/` holds `litellm` and LOTUS, and each is installed before anything reaches its lazy import.
+The LOTUS stub registers the same data frame operations the suite does and returns scripted frames,
+so the adapter's whole path runs with LOTUS absent. A stub stands in for the tiers that run by
+default; the LOTUS tier reaches the installed package.
 
 ---
 
@@ -329,6 +338,9 @@ cd lib && uv run pytest tests/unit/test_physical_planner.py
 
 # The MCP adapter
 cd platform/mcp && uv run pytest
+
+# The LOTUS tier, in an environment carrying the lotus extra
+cd lib && uv run pytest tests/lotus
 
 # The benchmark tier, named by path because testpaths excludes it
 cd lib && uv run pytest tests/benchmarks/tag_bench

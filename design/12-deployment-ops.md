@@ -51,6 +51,9 @@ pip install -e '.[lotus]'   # + LOTUS
 pip install -e '.[dev]'     # + the test and lint gates
 ```
 
+The `lotus` extra also narrows what else the environment can hold, which
+[05-software-stack.md](05-software-stack.md#operator-suites) describes.
+
 Which Blue operators an install can bind is a `blue-data-ops` question, answered by that package's
 own extras. The `builtin` suite is behind no extra: it is written here and needs nothing installed
 (ADR-020).
@@ -94,7 +97,8 @@ into the constructor. `.env` files are never committed.
 | --- | --- | --- |
 | `OPENAI_API_KEY` | None, required | Every component that calls a model, and LOTUS operations |
 | `BLUE_DATA_PLANNER_MODEL` | `openai/gpt-4o` | The litellm model string every component uses |
-| `BLUE_DATA_PLANNER_LOTUS_MODEL` | `openai/gpt-4o` | The litellm model string LOTUS configures for itself, independently of `BLUE_DATA_PLANNER_MODEL` (ADR-005) |
+| `BLUE_DATA_PLANNER_LOTUS_MODEL` | `openai/gpt-4o` | The litellm model string an adapter passes to `lotus_operators`, which LOTUS then configures for itself, independently of `BLUE_DATA_PLANNER_MODEL` (ADR-005) |
+| `BLUE_DATA_PLANNER_LOTUS_MAX_ROWS` | `5000` | The rows a LOTUS operation accepts before refusing the call, passed to `lotus_operators` |
 | `BLUE_DATA_REGISTRY_PATH` | None, required | The serialized registry an adapter opens and plans against |
 | `BLUE_DATA_PLANNER_ENABLE_NL2TABLE` | `false` | Whether the adapter registers `builtin.nl2table`, which writes a Python program and runs it (ADR-020) |
 | `LOG_LEVEL` | `INFO` | Logging verbosity |
