@@ -69,7 +69,7 @@ class PhysicalPlanner:
         carried: list[PhysicalPlanFragment],
         parent_id: str | None,
     ) -> PhysicalPlanResult:
-        entity_paths = _entity_paths(results)
+        entity_source_kinds = _entity_source_kinds(results)
         conversation = Conversation(
             turns=[Turn(role="system", content=self._prompt(results, reason))]
         )
@@ -80,7 +80,7 @@ class PhysicalPlanner:
         for node in _reverse_dependency_order(plan):
             if node.id not in confined_to or node.id in covered:
                 continue
-            candidates = self._candidates(plan, node.id, confined_to)
+            candidates = self._candidates(plan, node.id, confined_to, entity_source_kinds)
             if not candidates:
                 return PhysicalPlanResult(
                     plan=None,
@@ -90,7 +90,7 @@ class PhysicalPlanner:
                     ),
                     usage=list(conversation.usage),
                 )
-            fragment = self._bind(plan, node, candidates, entity_paths, conversation)
+            fragment = self._bind(plan, node, candidates, entity_source_kinds, conversation)
             fragments.append(fragment)
             covered.update(fragment.logical_node_ids)
         cover = PhysicalPlan(
@@ -99,11 +99,15 @@ class PhysicalPlanner:
             logical_plan_id=plan.id,
             fragments=fragments,
         )
-        validate_physical_plan(plan, cover, entity_paths)
+        validate_physical_plan(plan, cover, frozenset(entity_source_kinds))
         return PhysicalPlanResult(plan=cover, failure_reason=None, usage=list(conversation.usage))
 
     def _candidates(
-        self, plan: LogicalPlan, root_node_id: str, confined_to: frozenset[str]
+        self,
+        plan: LogicalPlan,
+        root_node_id: str,
+        confined_to: frozenset[str],
+        entity_source_kinds: dict[str, str],
     ) -> list[Candidate]:
         kind = plan.node(root_node_id).kind
         if not isinstance(kind, LogicalOperator):
@@ -111,7 +115,9 @@ class PhysicalPlanner:
         candidates: list[Candidate] = []
         for operator in self._router.operators_for(kind):
             for node_ids in candidate_fragments(plan, root_node_id, operator.logical_operators):
-                if node_ids <= confined_to:
+                if node_ids <= confined_to and _bindable(
+                    plan, node_ids, operator, entity_source_kinds
+                ):
                     candidates.append((node_ids, operator))
         # Largest first, so the widest pushdown and the narrowest sit next to each other.
         return sorted(candidates, key=lambda pair: (-len(pair[0]), sorted(pair[0])))
@@ -121,13 +127,13 @@ class PhysicalPlanner:
         plan: LogicalPlan,
         node: PipelineNode,
         candidates: list[Candidate],
-        entity_paths: frozenset[str],
+        entity_source_kinds: dict[str, str],
         conversation: Conversation,
     ) -> PhysicalPlanFragment:
         conversation.turns.append(
             Turn(role="user", content=_render_candidates(plan, node, candidates))
         )
-        schema = cover_choice_schema(plan, candidates, entity_paths)
+        schema = cover_choice_schema(plan, candidates, entity_source_kinds)
         written = self._llm_client.complete_structured(conversation, schema)
         choice: dict[str, Any] = written.model_dump()["choice"]
         # An explicit int() resolves an otherwise ambiguous overload: list.__getitem__ has
@@ -180,13 +186,30 @@ def _reverse_dependency_order(plan: LogicalPlan) -> list[PipelineNode]:
     return [node for node in reversed(plan.nodes_in_dependency_order()) if node.is_operator_node]
 
 
-def _entity_paths(results: dict[str, NodeResult]) -> frozenset[str]:
-    return frozenset(
-        match.path
+def _entity_source_kinds(results: dict[str, NodeResult]) -> dict[str, str]:
+    return {
+        match.path: match.source_kind
         for result in results.values()
         if isinstance(result, DiscoveryResult)
         for match in result.matches
-    )
+    }
+
+
+def _bindable(
+    plan: LogicalPlan,
+    node_ids: frozenset[str],
+    operator: PhysicalOperator,
+    entity_source_kinds: dict[str, str],
+) -> bool:
+    # An operator declaring source kinds needs every scan in its fragment bound to a source
+    # of one of them (10-data-model.md, the Sources rule), so a candidate whose scans have
+    # nothing to bind to is not a candidate. An operator declaring none reads no registered
+    # source and can take any scan.
+    if not operator.source_kinds:
+        return True
+    if not any(plan.node(node_id).kind is LogicalOperator.SCAN for node_id in node_ids):
+        return True
+    return any(source_kind in operator.source_kinds for source_kind in entity_source_kinds.values())
 
 
 def _render_candidates(plan: LogicalPlan, node: PipelineNode, candidates: list[Candidate]) -> str:

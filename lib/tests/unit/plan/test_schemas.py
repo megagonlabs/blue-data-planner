@@ -18,15 +18,18 @@ from blue_data_planner.types import (
 
 POSTINGS = "/source/jobs/database/jobs/collection/public/entity/postings"
 COMPANIES = "/source/companies/database/co/collection/public/entity/fortune500"
-PATHS = frozenset({POSTINGS, COMPANIES})
+NOTES = "/source/notes/database/notes/collection/public/entity/memos"
+SOURCE_KINDS = {POSTINGS: "sql/sqlite", COMPANIES: "sql/sqlite", NOTES: "vector/chroma"}
 
 
 class NoParameters(BaseModel):
     """A parameter schema for an operator a schema test never calls."""
 
 
-def an_operator(operator_id: str) -> PhysicalOperator:
-    """One registered operator, declaring every operator kind."""
+def an_operator(
+    operator_id: str, source_kinds: frozenset[str] | None = frozenset({"sql/sqlite"})
+) -> PhysicalOperator:
+    """One registered operator, declaring every operator kind and the source kinds given."""
     return PhysicalOperator(
         operator_id=operator_id,
         logical_operators=frozenset(
@@ -35,6 +38,7 @@ def an_operator(operator_id: str) -> PhysicalOperator:
         description="Does whatever the instruction says.",
         parameter_schema=NoParameters,
         call=lambda inputs, parameters, columns: None,  # pyright: ignore[reportArgumentType]
+        source_kinds=source_kinds,
     )
 
 
@@ -137,7 +141,7 @@ def test_a_plan_the_vocabulary_admits_reads_back_with_its_nodes() -> None:
 def test_a_candidate_holding_no_scan_offers_nowhere_to_name_a_source() -> None:
     """A binding over a scanless candidate has no field an entity path could go in."""
     schema = cover_choice_schema(
-        a_two_scan_plan(), [(frozenset({"n4"}), an_operator("builtin.aggregate"))], PATHS
+        a_two_scan_plan(), [(frozenset({"n4"}), an_operator("builtin.aggregate"))], SOURCE_KINDS
     )
     with pytest.raises(ValidationError):
         schema.model_validate(a_binding(scan_source_n1=POSTINGS))
@@ -148,7 +152,7 @@ def test_a_binding_names_one_entity_path_per_scan_the_candidate_holds() -> None:
     schema = cover_choice_schema(
         a_two_scan_plan(),
         [(frozenset({"n1", "n2", "n3", "n4"}), an_operator("builtin.nl2table"))],
-        PATHS,
+        SOURCE_KINDS,
     )
     accepted = schema.model_validate(
         a_binding(scan_source_n1=POSTINGS, scan_source_n2=COMPANIES)
@@ -162,19 +166,47 @@ def test_a_path_no_discover_node_found_is_refused() -> None:
     schema = cover_choice_schema(
         a_two_scan_plan(),
         [(frozenset({"n1", "n2", "n3", "n4"}), an_operator("builtin.nl2table"))],
-        PATHS,
+        SOURCE_KINDS,
     )
     with pytest.raises(ValidationError):
         schema.model_validate(a_binding(scan_source_n1=POSTINGS, scan_source_n2="/source/invented"))
 
 
-def test_a_candidate_holding_a_scan_with_no_entity_paths_raises() -> None:
-    """No path was ever discovered for the scan, so nothing sound could constrain the field."""
-    with pytest.raises(BlueDataPlannerError, match="no entity path has been discovered"):
+def test_a_scan_source_of_a_kind_the_operator_cannot_read_is_refused() -> None:
+    """The allowed values are narrowed again to the kinds the operator's engine speaks."""
+    schema = cover_choice_schema(
+        a_two_scan_plan(),
+        [(frozenset({"n1", "n2", "n3", "n4"}), an_operator("builtin.nl2table"))],
+        SOURCE_KINDS,
+    )
+    with pytest.raises(ValidationError):
+        schema.model_validate(a_binding(scan_source_n1=POSTINGS, scan_source_n2=NOTES))
+
+
+def test_a_candidate_reading_no_registered_source_offers_nowhere_to_name_one() -> None:
+    """An operator declaring no source kinds scans what the model knows, not a source."""
+    schema = cover_choice_schema(
+        a_two_scan_plan(),
+        [
+            (
+                frozenset({"n1", "n2", "n3", "n4"}),
+                an_operator("builtin.nl2table", source_kinds=None),
+            )
+        ],
+        SOURCE_KINDS,
+    )
+    assert "scan_source_n1" not in schema.model_validate(a_binding()).model_dump()["choice"]
+    with pytest.raises(ValidationError):
+        schema.model_validate(a_binding(scan_source_n1=POSTINGS))
+
+
+def test_a_candidate_whose_scans_have_no_readable_source_raises() -> None:
+    """Nothing sound could constrain the field, and the planner drops such a candidate first."""
+    with pytest.raises(BlueDataPlannerError, match="no discovered entity has a source kind"):
         cover_choice_schema(
             a_two_scan_plan(),
             [(frozenset({"n1", "n2", "n3", "n4"}), an_operator("builtin.nl2table"))],
-            frozenset(),
+            {NOTES: "vector/chroma"},
         )
 
 
@@ -186,7 +218,7 @@ def test_a_binding_picks_one_candidate_by_its_index() -> None:
             (frozenset({"n1", "n2", "n3", "n4"}), an_operator("builtin.nl2table")),
             (frozenset({"n4"}), an_operator("builtin.aggregate")),
         ],
-        PATHS,
+        SOURCE_KINDS,
     )
     taken = schema.model_validate(a_binding(candidate_index=1)).model_dump()
     assert taken["choice"]["candidate_index"] == 1
@@ -198,4 +230,4 @@ def test_a_binding_picks_one_candidate_by_its_index() -> None:
 def test_a_binding_decision_with_no_candidate_at_all_raises() -> None:
     """A node with no candidate is the physical planner's no_operator case, not a schema."""
     with pytest.raises(BlueDataPlannerError, match="at least one candidate"):
-        cover_choice_schema(a_two_scan_plan(), [], PATHS)
+        cover_choice_schema(a_two_scan_plan(), [], SOURCE_KINDS)

@@ -9,12 +9,16 @@ from blue_data_planner.types import (
     DiscoveryResult,
     ExecutionResult,
     ExecutionStatus,
+    FragmentAttempt,
+    FragmentResult,
+    FragmentReviewDecision,
     LogicalOperator,
     LogicalPlan,
     OutputColumn,
     PhysicalPlan,
     PhysicalPlanFragment,
     PipelineNode,
+    RunDecision,
     RunStatus,
 )
 from blue_data_planner.types import (
@@ -98,6 +102,28 @@ def an_ok_result(rows: list[dict[str, object]]) -> ExecutionResult:
         output=[rows],
         operator_id="builtin.scan",
         row_count=len(rows),
+    )
+
+
+def an_accepted_fragment() -> FragmentResult:
+    """One run of f1 whose single attempt the review kept."""
+    return FragmentResult(
+        status=RunStatus.OK,
+        decision=RunDecision.CONTINUE,
+        attempts=[
+            FragmentAttempt(
+                physical_plan_id="",
+                fragment_id="f1",
+                logical_node_ids=["n1"],
+                operator_id="builtin.scan",
+                operator_attributes={},
+                result=an_ok_result([{"title": "SWE"}]),
+                assessment="looks right",
+                decision=FragmentReviewDecision.ACCEPT,
+            )
+        ],
+        failure_reason=None,
+        usage=[],
     )
 
 
@@ -236,3 +262,10 @@ def test_the_counters_a_result_reports_are_derived_from_what_the_run_holds() -> 
     assert result.counters["operator_calls"] == 2
     assert result.counters["plan_corrections"] == 0
     assert result.answer is None
+
+
+def test_a_recorded_attempt_names_the_cover_it_ran_under() -> None:
+    """A fragment id is fresh in every cover, so the cover id is what places an attempt."""
+    state = a_state()
+    state.record_fragment(an_accepted_fragment())
+    assert [attempt.physical_plan_id for attempt in state.attempts] == [state.cover.id]

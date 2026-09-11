@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from typing import Annotated, Any, Literal, Union
 
 from pydantic import BaseModel, ConfigDict, Field, create_model
@@ -95,7 +96,7 @@ def logical_plan_schema() -> type[BaseModel]:
 def cover_choice_schema(
     plan: LogicalPlan,
     candidates: list[tuple[frozenset[str], PhysicalOperator]],
-    entity_paths: frozenset[str],
+    entity_source_kinds: Mapping[str, str],
 ) -> type[BaseModel]:
     """Return the response schema one binding decision is written into."""
     if not candidates:
@@ -104,8 +105,8 @@ def cover_choice_schema(
             "physical planner's no_operator case"
         )
     variants = tuple(
-        _candidate_model(plan, index, node_ids, entity_paths)
-        for index, (node_ids, _operator) in enumerate(candidates)
+        _candidate_model(plan, index, node_ids, operator, entity_source_kinds)
+        for index, (node_ids, operator) in enumerate(candidates)
     )
     if len(variants) == 1:
         choice: Any = variants[0]
@@ -116,7 +117,11 @@ def cover_choice_schema(
 
 
 def _candidate_model(
-    plan: LogicalPlan, index: int, node_ids: frozenset[str], entity_paths: frozenset[str]
+    plan: LogicalPlan,
+    index: int,
+    node_ids: frozenset[str],
+    operator: PhysicalOperator,
+    entity_source_kinds: Mapping[str, str],
 ) -> type[BaseModel]:
     fields: dict[str, Any] = {
         "candidate_index": (_only(index), ...),
@@ -127,17 +132,29 @@ def _candidate_model(
         "input_data": (list[InputDataModel], ...),
         "required_output_columns": (list[OutputColumnModel] | None, None),
     }
-    # A SCAN node can only reach the logical plan after a DISCOVER search has found something
-    # for it, so entity_paths is empty here only if something upstream is broken. Falling back
-    # to a bare str would let the model invent a path; raise instead.
-    paths = _only(*sorted(entity_paths)) if entity_paths else None
-    for node_id in sorted(node_ids):
-        if plan.node(node_id).kind is LogicalOperator.SCAN:
-            if paths is None:
-                raise BlueDataPlannerError(
-                    f"candidate {index} holds a SCAN over node {node_id!r}, but no entity "
-                    "path has been discovered for it"
-                )
+    scan_ids = [
+        node_id for node_id in sorted(node_ids) if plan.node(node_id).kind is LogicalOperator.SCAN
+    ]
+    # An operator declaring no source kinds reads no registered source, so every scan it
+    # takes is left out of scan_sources and the schema offers nowhere to name one
+    # (10-data-model.md, the Sources rule).
+    if scan_ids and operator.source_kinds:
+        readable = sorted(
+            path
+            for path, source_kind in entity_source_kinds.items()
+            if source_kind in operator.source_kinds
+        )
+        # PhysicalPlanner drops a candidate it cannot bind before the schema is built, so
+        # an empty list here is a bug rather than a plan worth offering. Falling back to a
+        # bare str would let the model invent a path.
+        if not readable:
+            raise BlueDataPlannerError(
+                f"candidate {index} binds {operator.operator_id} to {scan_ids}, but no "
+                f"discovered entity has a source kind it reads "
+                f"({sorted(operator.source_kinds)})"
+            )
+        paths = _only(*readable)
+        for node_id in scan_ids:
             fields[f"scan_source_{node_id}"] = (paths, ...)
     return create_model(f"Candidate{index}", __base__=_Strict, **fields)
 

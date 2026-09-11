@@ -27,14 +27,19 @@ class NoParameters(BaseModel):
     """A parameter schema for an operator these tests never call."""
 
 
-def an_operator(operator_id: str, kinds: frozenset[LogicalOperator]) -> PhysicalOperator:
-    """One registered operator declaring the kinds given."""
+def an_operator(
+    operator_id: str,
+    kinds: frozenset[LogicalOperator],
+    source_kinds: frozenset[str] | None = frozenset({"sql/sqlite"}),
+) -> PhysicalOperator:
+    """One registered operator declaring the kinds given and the source kinds it reads."""
     return PhysicalOperator(
         operator_id=operator_id,
         logical_operators=kinds,
         description=f"{operator_id} does its one job.",
         parameter_schema=NoParameters,
         call=lambda inputs, parameters, columns: None,  # pyright: ignore[reportArgumentType]
+        source_kinds=source_kinds,
     )
 
 
@@ -73,6 +78,30 @@ def a_plan() -> LogicalPlan:
                 id="n4",
                 kind=LogicalOperator.RETURN,
                 input_node_ids=["n3"],
+                attributes={"columns": ["title"]},
+            ),
+        ],
+    )
+
+
+def a_scan_and_return() -> LogicalPlan:
+    """n1 SCAN -> n2 RETURN, the smallest plan one operator can cover on its own."""
+    return LogicalPlan(
+        id="p2",
+        parent_id=None,
+        output_node_id="n2",
+        nodes=[
+            PipelineNode(
+                id="n1",
+                kind=LogicalOperator.SCAN,
+                input_node_ids=[],
+                attributes={"instruction": "name the planets"},
+                required_output_columns=[OutputColumn(name="title", dtype="str")],
+            ),
+            PipelineNode(
+                id="n2",
+                kind=LogicalOperator.RETURN,
+                input_node_ids=["n1"],
                 attributes={"columns": ["title"]},
             ),
         ],
@@ -212,3 +241,26 @@ def test_a_repair_starts_a_fresh_conversation() -> None:
     assert first.plan is not None
     planner.cover(a_plan(), a_discovery(), reason="the fused call ignored the filter")
     assert len(client.conversations[1]) == 2
+
+
+def test_a_scan_an_operator_answers_from_its_own_knowledge_is_bound_to_no_source() -> None:
+    """An operator declaring no source kinds needs no discovery, and names no entity path."""
+    planner = a_planner(
+        ScriptedLLMClient([a_binding(0)]),
+        a_router(an_operator("builtin.nl2table", ALL_KINDS, source_kinds=None)),
+    )
+    result = planner.cover(a_scan_and_return(), {})
+    assert result.plan is not None
+    assert result.plan.fragments[0].scan_sources == {}
+
+
+def test_a_scan_no_discovered_source_matches_leaves_its_node_with_no_candidate() -> None:
+    """An operator reading a kind nothing was discovered for is never offered as a binding."""
+    planner = a_planner(
+        ScriptedLLMClient([]),
+        a_router(an_operator("builtin.scan", ALL_KINDS, source_kinds=frozenset({"vector/chroma"}))),
+    )
+    result = planner.cover(a_scan_and_return(), a_discovery())
+    assert result.plan is None
+    assert result.failure_reason is not None
+    assert "n1" in result.failure_reason

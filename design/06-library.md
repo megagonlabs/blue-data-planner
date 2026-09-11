@@ -118,13 +118,16 @@ cover, and assembles the result. None of those calls a model or invokes an opera
 ```python
 def run(self, request: str) -> PlanResult:
     state = RunState(request=request, budget=CallBudget(self._limits.operator_calls))
+    answer: DataBundle | None = None
     try:
         status = self._plan_and_cover(state, reason=None)
         while status is None:
             status = self._run_pass(state)
+        if status is RunStatus.OK:
+            answer = self._answer(state)
     except LLMError:
         status = RunStatus.LLM_FAILED
-    return state.to_result(status)
+    return state.to_result(status, answer)
 ```
 
 `None` means the request is not over. Every helper below returns `RunStatus | None` on that rule, so
@@ -706,6 +709,7 @@ class RunState:
     def current_results(self) -> dict[str, ExecutionResult | DiscoveryResult]: ...
 
     def next_ready(self) -> PhysicalPlanFragment | PipelineNode | None: ...
+    def ready_control_nodes(self) -> list[PipelineNode]: ...
     def inputs_for(self, fragment: PhysicalPlanFragment) -> DataBundle: ...
     def inputs_for_node(self, node: PipelineNode) -> DataBundle: ...
     def carried_node_ids(self) -> frozenset[str]: ...
@@ -715,7 +719,7 @@ class RunState:
     def record_discovery(self, node_id: str, result: DiscoveryResult) -> None: ...
     def record_rejected_plans(self, rejected: list[RejectedPlan]) -> None: ...
     def record_usage(self, usage: list[LLMUsage]) -> None: ...
-    def to_result(self, status: RunStatus) -> PlanResult: ...
+    def to_result(self, status: RunStatus, answer: DataBundle | None = None) -> PlanResult: ...
 ```
 
 The one mutable object per request. `DataPlanner` creates it, `DataPlanner` alone writes to it, and
@@ -743,7 +747,8 @@ Three methods carry the rules that would otherwise be scattered through the loop
 `next_ready` reads the current version's results slot. A fragment is ready when every node on its
 frontier has an entry there and its own root does not; a control node is ready when every node it
 lists has one. It rebuilds the runnable set on each call, so a new cover is picked up without a
-restart.
+restart. `ready_control_nodes` answers the same question for every control node at once, because
+the loop resolves all of them before it returns to the logical planner.
 
 `carried_node_ids` answers what a new logical version keeps: every node the run has something for,
 which for an operator node means belonging to a fragment whose result the run still holds, absorbed

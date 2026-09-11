@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 
 from blue_data_planner.types import (
     BlueDataPlannerError,
@@ -128,7 +128,11 @@ class RunState:
         )
         self.pipeline.physical_plans[cover.id] = cover
         self.pipeline.current_physical_plan_id = cover.id
-        if previous is None:
+        # A fresh logical plan version's first cover has nothing to diff against: whatever
+        # should carry over was already decided by install_logical_plan's seeding of the
+        # results slot from carried_node_ids(). Comparing node sets across two plan versions
+        # would compare ids that belong to unrelated graphs.
+        if previous is None or previous.logical_plan_id != cover.logical_plan_id:
             return
         # A fragment's id is fresh in every cover (10-data-model.md), so identity is not
         # what tells an unchanged fragment apart from a new one: a fragment is unchanged
@@ -151,9 +155,13 @@ class RunState:
 
     def record_fragment(self, result: FragmentResult) -> None:
         """Append this fragment's attempts, its usage, and the result its last attempt kept."""
-        self.attempts.extend(result.attempts)
+        # A fragment id is fresh in every cover, so an attempt names its cover as well
+        # (10-data-model.md, the Identity rule). FragmentRunner is handed a fragment and
+        # not the cover it came from, so the id is stamped here, where it is known.
+        stamped = [replace(attempt, physical_plan_id=self.cover.id) for attempt in result.attempts]
+        self.attempts.extend(stamped)
         self.usage.extend(result.usage)
-        kept = result.attempts[-1] if result.attempts else None
+        kept = stamped[-1] if stamped else None
         if (
             kept is not None
             and kept.result is not None

@@ -4,7 +4,16 @@ from __future__ import annotations
 
 import blue_data_planner
 
-_RUN_PATH = frozenset({"BlueDataPlannerError", "PlanLimits", "PlanResult", "RunStatus"})
+_RUN_PATH = frozenset(
+    {
+        "BlueDataPlannerError",
+        "DataPlanner",
+        "PlanLimits",
+        "PlanResult",
+        "RunStatus",
+        "build_data_planner",
+    }
+)
 
 
 def test_the_root_exports_exactly_the_run_path() -> None:

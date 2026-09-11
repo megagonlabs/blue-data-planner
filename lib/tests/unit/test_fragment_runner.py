@@ -37,14 +37,17 @@ class FakeCatalog:
         return []
 
 
-def a_fragment() -> PhysicalPlanFragment:
+POSTINGS = "/source/jobs/database/jobs/collection/public/entity/postings"
+
+
+def a_fragment(scan_sources: dict[str, str] | None = None) -> PhysicalPlanFragment:
     """One FILTER node bound to an operator, reading one input table."""
     return PhysicalPlanFragment(
         id="f1",
         logical_node_ids=["n2"],
         root_logical_node_id="n2",
         operator_id="builtin.filter",
-        scan_sources={},
+        scan_sources=scan_sources or {},
         instruction="keep the Python postings",
         input_data=[],
         required_output_columns=[OutputColumn(name="title", dtype="str")],
@@ -64,12 +67,17 @@ def an_operator(behavior: Any) -> PhysicalOperator:
 
 def a_runner(answers: list[Any], behavior: Any, attempts: int = 3) -> FragmentRunner:
     """A runner over one operator, whose model answers with these values in order."""
+    return a_runner_over(ScriptedLLMClient(answers), behavior, attempts)
+
+
+def a_runner_over(client: ScriptedLLMClient, behavior: Any, attempts: int = 3) -> FragmentRunner:
+    """A runner over one operator, driven by a client the test keeps a handle on."""
     router = OperatorRouter()
     router.register(an_operator(behavior))
     # ScriptedLLMClient and FakeCatalog stand in for LLMClient and DataCatalog
     # structurally; pyright's strict nominal check does not see them as related.
     return FragmentRunner(
-        ScriptedLLMClient(answers),  # pyright: ignore[reportArgumentType]
+        client,  # pyright: ignore[reportArgumentType]
         FakeCatalog(),  # pyright: ignore[reportArgumentType]
         router,
         attempts,
@@ -211,3 +219,15 @@ def test_a_budget_that_runs_out_mid_fragment_returns_the_attempts_already_made()
     assert result.decision is RunDecision.STOP
     assert result.status is RunStatus.BUDGET_EXHAUSTED
     assert len(result.attempts) == 1
+
+
+def test_the_prompt_names_the_entity_path_each_scan_is_bound_to() -> None:
+    """A scan operator takes that path back as a parameter, so the model has to be shown it."""
+    client = ScriptedLLMClient(
+        [{"predicate": "title is not null"}, {"decision": "accept", "assessment": "looks right"}]
+    )
+    a_runner_over(client, keeps_everything).run(
+        a_fragment(scan_sources={"n1": POSTINGS}), ROWS, CallBudget(10)
+    )
+    _role, content = client.conversations[0][0]
+    assert POSTINGS in content

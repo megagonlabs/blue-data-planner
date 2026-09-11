@@ -170,6 +170,7 @@ class FragmentRunner:
             instruction=fragment.instruction,
             operator_description=operator.description,
             operator_limitations=operator.limitations or "",
+            scan_sources=_render_scan_sources(fragment),
             attribute_views=_render_views(views),
             input_tables=_render_inputs(fragment, inputs),
         )
@@ -183,6 +184,8 @@ def _attempt(
     decision: FragmentReviewDecision,
 ) -> FragmentAttempt:
     return FragmentAttempt(
+        # A fragment arrives without the cover it was cut from, so RunState.record_fragment
+        # stamps the cover id on every attempt it takes.
         physical_plan_id="",
         fragment_id=fragment.id,
         logical_node_ids=list(fragment.logical_node_ids),
@@ -222,6 +225,14 @@ def _ended(
         attempts=attempts,
         failure_reason=failure_reason,
         usage=list(conversation.usage),
+    )
+
+
+def _render_scan_sources(fragment: PhysicalPlanFragment) -> str:
+    # An operator that reads a registered source takes its catalog path as a parameter, so
+    # the path has to be in front of the model that writes that parameter.
+    return "\n".join(
+        f"- step {node_id} reads {path}" for node_id, path in sorted(fragment.scan_sources.items())
     )
 
 
