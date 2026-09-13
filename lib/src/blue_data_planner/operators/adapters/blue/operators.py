@@ -33,6 +33,7 @@ from blue_data_planner.operators.adapters.blue.schemas import (
     SumParameters,
 )
 from blue_data_planner.types import (
+    INPUT_ARITY,
     DataBundle,
     LogicalOperator,
     OperatorOutput,
@@ -47,7 +48,7 @@ def _build_call(
     operator: Operator,
     parameters: type[BaseModel],
     properties: Properties | None,
-    ignores_input_bundle: bool = False,
+    table_count: int | None,
 ) -> Callable[[DataBundle, dict[str, Any], list[OutputColumn]], OperatorOutput]:
     def call(
         inputs: DataBundle,
@@ -60,13 +61,20 @@ def _build_call(
             raise RecoverableOperatorError(
                 f"{operator_id} was given parameters it cannot take: {error}"
             ) from error
-        # Checked after validation, so a parameter error stays the recoverable failure a
-        # fragment runner can answer rather than being masked by a placeholder.
-        if ignores_input_bundle and any(inputs):
-            raise NotImplementedError(
-                f"{operator_id} declares accepts_bound_inputs but the ported operator drops "
-                "its input bundle, so a fragment with a non-empty frontier would be answered "
-                "from its source alone"
+        # Checked after the parameters, so a parameter error stays the recoverable failure the
+        # parameter repair answers rather than being hidden behind a refusal about the bundle.
+        if table_count is not None and len(inputs) != table_count:
+            raise RecoverableOperatorError(
+                f"{operator_id} reads {table_count} table(s) and was handed {len(inputs)}"
+            )
+        if table_count is None and inputs:
+            # blue.nl2sql is the only operation this branch reaches. It writes its query from
+            # a source's schema, with no way to bind another fragment's rows into that query,
+            # so a non-empty bundle would be answered from the source alone and the bundle's
+            # rows would be silently left out. See design/13-decision-log.md, open question 51.
+            raise RecoverableOperatorError(
+                f"{operator_id} writes its query from the schema of the source it reads, so the "
+                f"{len(inputs)} table(s) this fragment carries would not reach the query"
             )
         # A fragment and operator.run speak the same bundle, so nothing is converted here.
         # The list is copied because an operator may write into the bundle it is handed
@@ -99,7 +107,6 @@ class Operation:
     source_kinds: frozenset[str] | None = None
     accepts_bound_inputs: bool = False
     limitations: str | None = None
-    ignores_input_bundle: bool = False
 
 
 # AGGREGATE and SORT_SUPERLATIVE take several operators each, because summing and
@@ -243,15 +250,21 @@ OPERATIONS: tuple[Operation, ...] = (
         needs_data_registry=True,
         source_kinds=frozenset({"sql/sqlite", "sql/mysql", "sql/postgres"}),
         accepts_bound_inputs=True,
-        # True to what the operation is for; the port drops its bundle, which is what
-        # ignores_input_bundle says and what the raise reports.
-        ignores_input_bundle=True,
         limitations=(
             "Cannot express a semantic predicate, and cannot bind tables from other fragments "
             "into the query it writes."
         ),
     ),
 )
+
+
+def _table_count(operation: Operation) -> int | None:
+    """Return the tables an operation is handed, or None where the group it covers decides."""
+    # A compound operation covers a group of nodes, and how many tables that group is handed
+    # depends on the cut, so only a single-node operation has a count to hold it to.
+    if len(operation.logical_operators) != 1:
+        return None
+    return INPUT_ARITY[next(iter(operation.logical_operators))]
 
 
 def blue_operators(
@@ -277,7 +290,7 @@ def blue_operators(
                     operator,
                     operation.parameters,
                     properties,
-                    operation.ignores_input_bundle,
+                    _table_count(operation),
                 ),
                 source_kinds=operation.source_kinds,
                 accepts_bound_inputs=operation.accepts_bound_inputs,
