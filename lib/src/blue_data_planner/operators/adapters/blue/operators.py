@@ -91,7 +91,9 @@ class Operation:
 
     operator_id: str
     logical_operators: frozenset[LogicalOperator]
-    operator_name: str
+    # The version is where an operation's validator and its result shape are fixed, so each row
+    # names one rather than the suite naming one for all eighteen.
+    registry_operator_id: str
     parameters: type[BaseModel]
     needs_data_registry: bool = False
     source_kinds: frozenset[str] | None = None
@@ -99,9 +101,6 @@ class Operation:
     limitations: str | None = None
     ignores_input_bundle: bool = False
 
-
-# The registry pins a class by its `name` attribute, so an id reads select@2.0.0.
-_OPERATOR_VERSION = "2.0.0"
 
 # AGGREGATE and SORT_SUPERLATIVE take several operators each, because summing and
 # averaging are different operations sharing a node kind rather than two
@@ -116,58 +115,62 @@ OPERATIONS: tuple[Operation, ...] = (
     Operation(
         "blue.select",
         frozenset({LogicalOperator.FILTER}),
-        "select",
+        "select@2.0.0",
         SelectParameters,
         limitations=(
             "One comparison against one key. A conjunction of predicates needs one node per "
             "comparison."
         ),
     ),
-    Operation("blue.project", frozenset({LogicalOperator.PROJECT}), "project", ProjectParameters),
-    Operation("blue.join", frozenset({LogicalOperator.JOIN}), "join", JoinParameters),
+    Operation(
+        "blue.project", frozenset({LogicalOperator.PROJECT}), "project@3.0.0", ProjectParameters
+    ),
+    Operation("blue.join", frozenset({LogicalOperator.JOIN}), "join@3.0.0", JoinParameters),
     Operation(
         "blue.intersect",
         frozenset({LogicalOperator.JOIN}),
-        "intersect",
+        "intersect@3.0.0",
         MatchOptionParameters,
         limitations=(
             "Matches whole tuples, so it joins only where both tables share their column names "
             "and their values."
         ),
     ),
-    Operation("blue.union", frozenset({LogicalOperator.UNION}), "union", MatchOptionParameters),
+    Operation(
+        "blue.union", frozenset({LogicalOperator.UNION}), "union@2.0.0", MatchOptionParameters
+    ),
     Operation(
         "blue.sum",
         frozenset({LogicalOperator.AGGREGATE}),
-        "sum",
+        "sum@2.0.0",
         SumParameters,
         limitations="Aggregates the whole table; it does not group by a column.",
     ),
     Operation(
         "blue.avg",
         frozenset({LogicalOperator.AGGREGATE}),
-        "avg",
+        "avg@3.0.0",
         AvgParameters,
         limitations="Aggregates the whole table; it does not group by a column.",
     ),
     Operation(
         "blue.min",
         frozenset({LogicalOperator.AGGREGATE}),
-        "min",
+        "min@3.0.0",
         MinParameters,
         limitations="Aggregates the whole table; it does not group by a column.",
     ),
     Operation(
         "blue.max",
         frozenset({LogicalOperator.AGGREGATE}),
-        "max",
+        "max@3.0.0",
         MaxParameters,
         limitations="Aggregates the whole table; it does not group by a column.",
     ),
     Operation(
         "blue.argmax",
         frozenset({LogicalOperator.SORT_SUPERLATIVE}),
-        "argmax",
+        "argmax@2.0.0",
         ArgmaxParameters,
         limitations=(
             "Returns the one extreme record over the whole table; it does not group by a column."
@@ -176,7 +179,7 @@ OPERATIONS: tuple[Operation, ...] = (
     Operation(
         "blue.argmin",
         frozenset({LogicalOperator.SORT_SUPERLATIVE}),
-        "argmin",
+        "argmin@2.0.0",
         ArgminParameters,
         limitations=(
             "Returns the one extreme record over the whole table; it does not group by a column."
@@ -185,37 +188,37 @@ OPERATIONS: tuple[Operation, ...] = (
     Operation(
         "blue.semantic_filter",
         frozenset({LogicalOperator.FILTER}),
-        "semantic_filter",
+        "semantic_filter@3.0.0",
         SemanticFilterParameters,
     ),
     Operation(
         "blue.semantic_project",
         frozenset({LogicalOperator.PROJECT}),
-        "semantic_project",
+        "semantic_project@3.0.0",
         SemanticProjectParameters,
     ),
     Operation(
         "blue.semantic_extract",
         frozenset({LogicalOperator.PROJECT}),
-        "semantic_extract",
+        "semantic_extract@3.0.0",
         SemanticExtractParameters,
     ),
     Operation(
         "blue.semantic_transform",
         frozenset({LogicalOperator.PROJECT}),
-        "semantic_transform",
+        "semantic_transform@3.0.0",
         SemanticTransformParameters,
     ),
     Operation(
         "blue.semantic_join",
         frozenset({LogicalOperator.JOIN}),
-        "semantic_join",
+        "semantic_join@3.0.0",
         SemanticJoinParameters,
     ),
     Operation(
         "blue.nl2llm",
         frozenset({LogicalOperator.SCAN}),
-        "nl2llm",
+        "nl2llm@3.0.0",
         NL2LLMParameters,
         limitations=(
             "Answers from the model's own world knowledge, so it reads no registered source and "
@@ -235,7 +238,7 @@ OPERATIONS: tuple[Operation, ...] = (
                 LogicalOperator.SORT_SUPERLATIVE,
             }
         ),
-        "nl2sql",
+        "nl2sql@3.0.0",
         NL2SQLParameters,
         needs_data_registry=True,
         source_kinds=frozenset({"sql/sqlite", "sql/mysql", "sql/postgres"}),
@@ -259,7 +262,7 @@ def blue_operators(
     # planner/, which would make operators/ depend on the component that routes them.
     operators: list[PhysicalOperator] = []
     for operation in OPERATIONS:
-        operator = registry.resolve(f"{operation.operator_name}@{_OPERATOR_VERSION}")
+        operator = registry.resolve(operation.registry_operator_id)
         properties: Properties | None = (
             {"data_registry": data_registry} if operation.needs_data_registry else None
         )
