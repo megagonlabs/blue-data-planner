@@ -146,9 +146,9 @@ class EntityToExtract(BaseModel):
     description: str | None = Field(
         default=None, description="What to extract; omit to let the operator write one"
     )
-    extract_on_fields: list[str] = Field(
-        default_factory=list[str],
-        description="Fields to read; empty reads every field in the record",
+    extract_on_fields: list[str] | None = Field(
+        default=None,
+        description="Fields to read; leave unset to read every field in the record",
     )
     type: str | None = Field(default=None, description="Expected type of the extracted value")
 
@@ -171,10 +171,8 @@ class TransformField(BaseModel):
 
     model_config = _STRICT
 
+    description: str = Field(description="What the column should hold, in plain language")
     source_fields: list[str] = Field(description="Input fields this column is computed from")
-    description: str | None = Field(
-        default=None, description="What the column should hold, in plain language"
-    )
     type: str | None = Field(default=None, description="Expected type of the column's values")
     transformation_type: Literal[
         "field_mapping_without_value_change", "field_mapping_with_value_change"
