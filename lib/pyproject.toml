@@ -11,7 +11,7 @@ requires-python = ">=3.11"
 # blue-data-ops is pinned exactly: the adapter binds plans against what each operator
 # declares, so a floating version would change which fragments are coverable between runs.
 dependencies = [
-    "blue-data-ops==2.3.0",
+    "blue-data-ops==2.10.0",
     "blue-data>=0.1.0",
     "pydantic>=2",
     "jsonpath-ng",
@@ -23,7 +23,7 @@ dependencies = [
 [tool.uv.sources]
 # Installing blue-data and blue-data-ops from GitHub for developing.
 # TODO: replace this with a package index when we release the blue-data-planner library.
-blue-data-ops = { git = "ssh://git@github.com/megagon-internal/blue-data-ops.git", subdirectory = "lib", rev = "c0830feac8b223093b5619288a09a91425aaa76d" }
+blue-data-ops = { git = "ssh://git@github.com/megagon-internal/blue-data-ops.git", subdirectory = "lib", rev = "a161d9eaf8511fab3820b50a6dd00cba235ec8a8" }
 blue-data = { git = "ssh://git@github.com/megagon-internal/blue-data.git", subdirectory = "lib", rev = "f39abf96a84a3ed9677006b6363b7b9f4510a88a" }
 
 [project.optional-dependencies]
