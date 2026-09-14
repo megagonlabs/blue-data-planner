@@ -21,6 +21,7 @@ def validate_logical_plan(
     _check_structure(plan)
     _check_arity(plan)
     _check_replan_count(plan)
+    _check_controls_are_terminal(plan)
     terminal_ids = _check_ending(plan, carried_node_ids)
     _check_reachability(plan, terminal_ids, carried_node_ids)
     _check_answer_columns(plan)
@@ -86,6 +87,17 @@ def _check_replan_count(plan: LogicalPlan) -> None:
         )
 
 
+def _check_controls_are_terminal(plan: LogicalPlan) -> None:
+    control_ids = {node.id for node in plan.nodes if isinstance(node.kind, ControlOperator)}
+    for node in plan.nodes:
+        for input_id in node.input_node_ids:
+            if input_id in control_ids:
+                raise PlanValidationError(
+                    f"node {node.id!r} reads control node {input_id!r}, which produces no rows; "
+                    "a control node ends the pass and what it produces reaches the next plan"
+                )
+
+
 def _check_answer_columns(plan: LogicalPlan) -> None:
     for node in plan.nodes:
         if node.kind is not LogicalOperator.RETURN:
@@ -107,14 +119,14 @@ def _check_answer_columns(plan: LogicalPlan) -> None:
 
 
 def _check_ending(plan: LogicalPlan, carried_node_ids: frozenset[str]) -> set[str]:
-    read_ids = _read_node_ids(plan)
     returns = [node for node in plan.nodes if node.kind is LogicalOperator.RETURN]
+    # Every control node this version wrote is terminal, since _check_controls_are_terminal
+    # has already turned down a plan where anything reads one. A carried one fired in an
+    # earlier version, so it ends nothing here.
     terminal_controls = [
         node
         for node in plan.nodes
-        if isinstance(node.kind, ControlOperator)
-        and node.id not in read_ids
-        and node.id not in carried_node_ids
+        if isinstance(node.kind, ControlOperator) and node.id not in carried_node_ids
     ]
     if len(returns) == 1 and not terminal_controls:
         if plan.output_node_id != returns[0].id:

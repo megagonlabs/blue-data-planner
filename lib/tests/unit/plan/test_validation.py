@@ -190,6 +190,17 @@ def test_a_sound_plan_passes(plan: LogicalPlan) -> None:
             ),
             "JOIN",
         ),
+        (
+            a_plan(
+                [
+                    a_node("n1", ControlOperator.DISCOVER, []),
+                    a_node("n2", LogicalOperator.SCAN, ["n1"]),
+                    a_node("n3", LogicalOperator.RETURN, ["n2"]),
+                ],
+                output_node_id="n3",
+            ),
+            "produces no rows",
+        ),
     ],
     ids=[
         "repeated-node-id",
@@ -201,6 +212,7 @@ def test_a_sound_plan_passes(plan: LogicalPlan) -> None:
         "output-node-id-naming-the-wrong-node",
         "a-node-nobody-reads",
         "a-join-given-one-input",
+        "a-node-reading-a-control-node",
     ],
 )
 def test_an_unsound_plan_is_rejected_and_the_error_names_what_was_wrong(
@@ -224,6 +236,21 @@ def test_a_carried_node_is_exempt_from_the_shape_and_reachability_checks() -> No
     )
 
     validate_logical_plan(plan, carried_node_ids=frozenset({"n2"}))
+
+
+def test_a_continuation_reading_a_carried_discover_node_is_rejected() -> None:
+    """Carrying a resolved search over exempts it from the ending, not from being unreadable."""
+    plan = a_plan(
+        [
+            a_node("n1", ControlOperator.DISCOVER, []),
+            a_node("n2", LogicalOperator.SCAN, ["n1"]),
+            a_node("n3", LogicalOperator.RETURN, ["n2"]),
+        ],
+        output_node_id="n3",
+    )
+
+    with pytest.raises(PlanValidationError, match="produces no rows"):
+        validate_logical_plan(plan, carried_node_ids=frozenset({"n1"}))
 
 
 def test_a_legal_cover_passes() -> None:

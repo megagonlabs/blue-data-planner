@@ -35,6 +35,9 @@ Two endings are allowed and no others:
 
 Every node has to be read by another node, except the terminal ones.
 
+A control node is always terminal. Nothing names its id as an input: a control node produces no
+rows, and what it produces goes to the next plan.
+
 A `RETURN` names columns the node it reads declares, and that node has to declare them.
 
 ## When to stop at a control node
@@ -67,8 +70,8 @@ Each entity below carries every attribute it holds. Declare column names from th
 {% if carried_nodes %}
 ## What already ran
 
-These nodes stay in the plan. Name their ids to read what they produced; do not write them
-again.
+These nodes stay in the plan. Name the id of one holding rows to read those rows; do not write
+any of them again. A `DISCOVER` node has already searched, and what it found is above.
 
 {{ carried_nodes }}
 {% endif %}
