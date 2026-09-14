@@ -83,12 +83,14 @@ def _build_call(
         # exclude_none because the operators branch on a key's presence: semantic_extract
         # reads entity.get("description", <generated>) and semantic_transform tests
         # "type" in meta_info. A field dumped as None is present to both.
-        output, _, meta = operator.run(
+        output, reported, meta = operator.run(
             list(inputs), validated.model_dump(exclude_none=True), properties
         )
         failures.raise_for_errors(meta, operator_id)
-        # The Blue operators say nothing about how they ran, so the report stays unset.
-        return OperatorOutput(data=output)
+        # ExecMeta.traces stays out: the base class attaches timings and shapes to every call,
+        # which is instrumentation rather than something the operation chose to say, and open
+        # question 42 is where instrumentation is decided.
+        return OperatorOutput(data=output, report=reported or None)
 
     return call
 
