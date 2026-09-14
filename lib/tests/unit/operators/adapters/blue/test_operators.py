@@ -16,11 +16,24 @@ from blue_data_planner.types import (
     RecoverableOperatorError,
 )
 from tests.doubles.blue_operations import (
+    OPERATION_NAMES,
     ScriptedOperation,
     a_registry_answering_every_operation,
     scripted_operation,
 )
 from tests.unit.operators.adapters.blue.test_schemas import A_CALL_THE_MODEL_ACCEPTS
+
+
+def test_the_table_offers_the_eighteen_operations_the_suite_is_made_of() -> None:
+    """A row dropped from the table leaves a node kind one candidate short, and quietly."""
+    assert len(OPERATIONS) == 18
+
+
+def test_the_scripted_registry_names_the_same_operations_the_table_does() -> None:
+    """The two lists are written apart, and a name in only one leaves a test scripting nothing."""
+    assert OPERATION_NAMES == tuple(
+        operation.registry_operator_id.partition("@")[0] for operation in OPERATIONS
+    )
 
 
 def test_every_operation_resolves_the_registry_id_it_names() -> None:
@@ -51,6 +64,17 @@ def a_suite(*scripted: ScriptedOperation) -> dict[str, PhysicalOperator]:
     registry = a_registry_answering_every_operation(*scripted)
     built = blue_operators(registry, DataRegistry(name="test", rebuild=True))
     return {one.operator_id: one for one in built}
+
+
+def test_parameters_an_operation_cannot_take_are_refused_before_the_bundle_is_counted() -> None:
+    """The parameter repair answers a parameter error, so it is the failure a bad call reports."""
+    scripted = scripted_operation("select")
+    one = a_suite(scripted)["blue.select"]
+
+    with pytest.raises(RecoverableOperatorError, match="parameters it cannot take"):
+        one.call([[{"city": "Austin"}], [{"city": "Dallas"}]], {"operand_key": "city"}, [])
+
+    assert scripted.seen_inputs is None
 
 
 def test_a_bundle_of_the_wrong_length_is_refused_before_the_operation_runs() -> None:
@@ -90,6 +114,27 @@ def test_the_compound_operation_runs_on_a_fragment_that_brought_no_rows() -> Non
     one = a_suite(scripted)["blue.nl2sql"]
 
     assert one.call([], A_CALL_THE_MODEL_ACCEPTS["blue.nl2sql"], []).data == [[{"drivers": 20}]]
+
+
+def test_a_call_the_operation_reported_a_failure_for_leaves_another_operator_to_try() -> None:
+    """A failed call is a fragment failure the run loop answers, not an exception past it."""
+    scripted = scripted_operation("select", failure="population is not a key of these rows")
+    one = a_suite(scripted)["blue.select"]
+
+    with pytest.raises(RecoverableOperatorError, match="blue.select failed at EXECUTE"):
+        one.call([[{"city": "Austin"}]], A_CALL_THE_MODEL_ACCEPTS["blue.select"], [])
+
+
+def test_the_compound_operation_is_handed_the_data_registry_it_reads_a_source_through() -> None:
+    """It writes its query from a source's schema, which it has no way to read without one."""
+    scripted = scripted_operation("nl2sql")
+    data_registry = DataRegistry(name="test", rebuild=True)
+    built = blue_operators(a_registry_answering_every_operation(scripted), data_registry)
+    one = {each.operator_id: each for each in built}["blue.nl2sql"]
+
+    one.call([], A_CALL_THE_MODEL_ACCEPTS["blue.nl2sql"], [])
+
+    assert scripted.seen_properties == {"data_registry": data_registry}
 
 
 def test_what_an_operation_reported_about_its_run_reaches_the_result() -> None:

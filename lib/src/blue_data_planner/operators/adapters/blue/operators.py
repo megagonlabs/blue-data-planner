@@ -86,7 +86,7 @@ def _build_call(
         output, reported, meta = operator.run(
             list(inputs), validated.model_dump(exclude_none=True), properties
         )
-        failures.raise_for_errors(meta, operator_id)
+        failures.raise_for_errors(meta, operator_id, reported or None)
         # ExecMeta.traces stays out: the base class attaches timings and shapes to every call,
         # which is instrumentation rather than something the operation chose to say, and open
         # question 42 is where instrumentation is decided.

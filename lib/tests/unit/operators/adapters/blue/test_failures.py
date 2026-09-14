@@ -98,3 +98,21 @@ def test_the_first_error_decides_when_a_call_reported_several() -> None:
 
     with pytest.raises(RecoverableOperatorError):
         raise_for_errors(meta, "blue.select")
+
+
+@pytest.mark.parametrize(
+    ("code", "expected"),
+    [
+        (ErrorCode.INVALID_INPUT, RecoverableOperatorError),
+        (ErrorCode.OPERATOR_TIMEOUT, UnrecoverableOperatorError),
+    ],
+)
+def test_what_a_failed_call_reported_travels_with_the_failure(
+    code: ErrorCode,
+    expected: type[RecoverableOperatorError] | type[UnrecoverableOperatorError],
+) -> None:
+    """An operation that failed partway through is the one with the most to say about its run."""
+    with pytest.raises(expected) as caught:
+        raise_for_errors(a_call_that_failed(code), "blue.select", {"rows_read": 3})
+
+    assert caught.value.report == {"rows_read": 3}

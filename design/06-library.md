@@ -962,7 +962,7 @@ Eighteen operations reach the router, in four groups.
 | Semantic | `blue.semantic_filter`, `blue.semantic_project`, `blue.semantic_extract`, `blue.semantic_transform`, `blue.semantic_join` | `FILTER`, `PROJECT`, `JOIN` |
 | Query-writing | `blue.nl2llm`, `blue.nl2sql` | `SCAN`, and six more kinds for `blue.nl2sql` |
 
-Sixteen of them declare one logical operator and cover one node. Two node kinds take several
+Seventeen of them declare one logical operator and cover one node. Two node kinds take several
 operations each, because summing and averaging are different operations sharing a node kind rather
 than two implementations of one: an `AGGREGATE` node asking for an average has `blue.avg` as its
 candidate and `blue.sum` is not one.
