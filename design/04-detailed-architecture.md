@@ -652,6 +652,13 @@ state, such as a plan object that is not a plan or a required configuration valu
 provider that fails after its retries is neither, so it ends the request with `llm_failed` and the
 run returns every plan and attempt it had already accumulated.
 
+A programming error still raises where it is found, so the message names what broke rather than a
+budget the run went on to exhaust. The run loop is where it stops: it ends the request as
+`planner_failed`, carrying the message and everything built so far, so no exception reaches whoever
+called the library. `failure_reason` holds it, and holds the equivalent for every other
+failure status: the reason no repair answered, the operator failure that ended the run, the
+objection the last rejected plan drew.
+
 | Status | Meaning |
 | --- | --- |
 | `ok` | The `RETURN` node produced rows. `answer` holds them |
@@ -661,6 +668,7 @@ run returns every plan and attempt it had already accumulated.
 | `budget_exhausted` | The operator call budget ran out |
 | `operator_failed` | An unrecoverable operator failure ended the run |
 | `llm_failed` | The model provider failed after the client's retries |
+| `planner_failed` | A planner defect ended the run. `failure_reason` carries what broke |
 
 The result always carries every state the plan passed through, logical and physical, together with
 every fragment attempt and every rejected plan. A failed run is therefore as inspectable as a

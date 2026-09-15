@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 from blue_data_planner.data_planner import DataPlanner
 from blue_data_planner.llm import LLMError
 from blue_data_planner.types import (
@@ -20,6 +22,7 @@ from blue_data_planner.types import (
     PhysicalPlanResult,
     PipelineNode,
     PlanLimits,
+    PlanValidationError,
     RunDecision,
     RunStatus,
 )
@@ -260,6 +263,30 @@ def test_a_replan_limit_ends_the_request_as_replan_exhausted() -> None:
         PlanLimits(fragment_attempts=0, cover_attempts=0, failure_replans=0),
     ).run("list the job titles")
     assert result.status is RunStatus.REPLAN_EXHAUSTED
+    assert result.failure_reason == "the predicate matched nothing"
+
+
+def test_a_defect_in_a_component_ends_the_request_instead_of_raising_at_the_caller() -> None:
+    """Every repairable failure is a status by the time it reaches here, so a raise is a bug."""
+
+    class PhysicalPlannerWithADefect(FakePhysicalPlanner):
+        def cover(
+            self, plan: LogicalPlan, results: dict[str, Any], reason: str | None = None
+        ) -> PhysicalPlanResult:
+            raise PlanValidationError("fragment 'f1' reads ['n9'], the nodes feeding it are []")
+
+    result = a_planner(
+        FakeLogicalPlanner([ok(a_scan_and_ending("p1"))]),
+        PhysicalPlannerWithADefect([]),
+        FakeFragmentRunner([]),
+        FakeCatalogSearcher(),
+    ).run("list the job titles")
+
+    assert result.status is RunStatus.PLANNER_FAILED
+    assert result.failure_reason is not None
+    assert "n9" in result.failure_reason
+    # The plan the run had written before the defect is still readable.
+    assert "p1" in result.pipeline.logical_plans
 
 
 def test_the_planning_only_operation_stops_after_the_first_cover() -> None:

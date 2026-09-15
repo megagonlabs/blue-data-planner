@@ -276,7 +276,7 @@ class PhysicalPlan:
 | Shape | Each fragment is connected, convex, and single exit: only the root may have consumers outside it ([04, what a fragment may be](04-detailed-architecture.md#what-a-fragment-may-be)) |
 | Sources | `scan_sources` names a catalog path for each `SCAN` in the fragment. A `SCAN` left out of it reads no registered source, which is what a scan of the model's world knowledge looks like. An operator declaring `source_kinds` needs every scan bound to a source of one of those kinds, and an operator declaring none needs every scan left out. A fragment containing no `SCAN` is bound to an operator that owns its engine (ADR-020) |
 | Instruction | One instruction to the operator covering everything the fragment absorbed, starting with a verb as a node's does: "Find data scientist job postings, with their title, company id, and location" |
-| Inputs | `input_data` lists the frontier nodes, which are the nodes outside the fragment feeding nodes inside it, in the order their tables arrive. One entry covers everything that node produced, so it may stand for more than one table; those tables share the name and keep their order |
+| Inputs | `input_data` lists the frontier nodes, which are the nodes outside the fragment feeding nodes inside it, in the order the fragment's nodes read them. The list is the plan's to decide, and only each entry's name and description are written during physical planning. One entry covers everything that node produced, so it may stand for more than one table; those tables share the name and keep their order |
 | Columns | `required_output_columns` is copied from the root node unless the model declares that the fusion cannot produce that list |
 | Identity | A fragment is what its node set and operator say it is. `id` is fresh in every cover, so an attempt names its cover as well, and two covers are compared by node set and operator, not by id |
 
@@ -499,6 +499,7 @@ builds one data frame per table going in and flattens coming out.
 class PlanResult:
     status: RunStatus
     answer: DataBundle | None
+    failure_reason: str | None
     pipeline: DataPipeline
     results: dict[str, dict[str, ExecutionResult | DiscoveryResult]]
     attempts: list[FragmentAttempt]
@@ -508,7 +509,11 @@ class PlanResult:
 ```
 
 `answer` is `None` rather than `[]` unless `status` is `ok`, so a caller who ignores the status
-cannot mistake a failed run for an empty answer (ADR-015). That covers the planning-only operation
+cannot mistake a failed run for an empty answer (ADR-015). `failure_reason` runs the other way: every
+failure status carries one, holding why the run ended in the words of whatever ended it — the reason
+no repair answered, the operator failure that stopped the run, the objection the last rejected plan
+drew, the defect the run loop caught. `ok` never carries one, and `planned` carries one only when no
+cover could be written. That covers the planning-only operation
 too: it returns the same object with status `planned`, holding the logical plan and the cover
 written for it and nothing run
 ([03-high-level-architecture.md](03-high-level-architecture.md#dataplanner)).
@@ -777,7 +782,7 @@ number any one of them spent rather than a total, since that is the number their
 | --- | --- |
 | `LogicalOperator` | `SCAN`, `FILTER`, `PROJECT`, `EXPAND`, `AGGREGATE`, `DISTINCT`, `SORT_SUPERLATIVE`, `JOIN`, `UNION`, `RETURN` |
 | `ControlOperator` | `REPLAN`, `DISCOVER` |
-| `RunStatus` | `ok`, `planned`, `invalid_plan`, `replan_exhausted`, `budget_exhausted`, `operator_failed`, `llm_failed` |
+| `RunStatus` | `ok`, `planned`, `invalid_plan`, `replan_exhausted`, `budget_exhausted`, `operator_failed`, `llm_failed`, `planner_failed` |
 | `ExecutionStatus` | `ok`, `failed` |
 | `ErrorKind` | `recoverable`, `unrecoverable`, `no_operator` |
 | `FragmentReviewDecision` | `accept`, `reject`, `replan` |

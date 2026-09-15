@@ -182,8 +182,9 @@ Returned whichever way a request ends, and fixed in
 
 | Field | Type | Holds |
 | --- | --- | --- |
-| `status` | `RunStatus` | `ok`, `planned`, `invalid_plan`, `replan_exhausted`, `budget_exhausted`, `operator_failed`, `llm_failed` |
+| `status` | `RunStatus` | `ok`, `planned`, `invalid_plan`, `replan_exhausted`, `budget_exhausted`, `operator_failed`, `llm_failed`, `planner_failed` |
 | `answer` | `DataBundle \| None` | The `RETURN` node's rows. `None` unless `status` is `ok` |
+| `failure_reason` | `str \| None` | Why the run ended as it did. `None` when `status` is `ok` |
 | `pipeline` | `DataPipeline` | Every logical plan and every cover the request produced, with the current pair named |
 | `results` | `dict[str, dict[str, ExecutionResult \| DiscoveryResult]]` | Keyed by logical plan id, then node id |
 | `attempts` | `list[FragmentAttempt]` | Every fragment run in run order, rejected ones included |
@@ -192,7 +193,9 @@ Returned whichever way a request ends, and fixed in
 | `planner_usage` | `list[LLMUsage]` | One record per model call through `llm/`, in call order |
 
 `answer` is `None` rather than `[]` on any status other than `ok`, so a caller who ignores the
-status cannot mistake a failed run for an empty answer (ADR-015).
+status cannot mistake a failed run for an empty answer (ADR-015). `failure_reason` is the mirror of
+that rule: every failure status carries one, in the words of whatever ended the run. `ok` never
+carries one, and `planned` carries one only when no cover could be written.
 
 No field reports a node's outcome on its own. Whether a node succeeded is whether the current plan's
 slot in `results` holds an entry for it, and which operator ran it is that entry's `operator_id`
@@ -210,6 +213,7 @@ does raise, in the order a caller meets it:
 | Exception | Raised when | Reaches a caller |
 | --- | --- | --- |
 | `PlanValidationError` | A generated plan fails a structural check | Only from a direct `validate_logical_plan` or `validate_physical_plan` call. `LogicalPlanner` catches it and regenerates |
+| Any other `BlueDataPlannerError` | A defect in the planner, raised where it is found | Only from a direct call to the component that raised it |
 | `RecoverableOperatorError` | An operator refuses its input in a way a different operator might not | Only from a direct `execute_physical_operator` call |
 | `UnrecoverableOperatorError` | An operator fails for a reason no other operator would avoid | The same |
 | `BudgetExhaustedError` | The operator call budget reaches its cap | Only from a direct `execute_physical_operator` call. `FragmentRunner` catches it and returns `budget_exhausted` with the attempts already made |
@@ -219,8 +223,9 @@ does raise, in the order a caller meets it:
 Every exception this library defines is in `types/errors.py` and inherits `BlueDataPlannerError`,
 which is there too. It inherits nothing from `blue-data-ops`, so an operator suite's own exceptions stay distinguishable
 from a planner's. A caller using
-`DataPlanner` sees the last row and nothing above it, because each of the others is caught by the
-component that expects it.
+`DataPlanner` sees the last row and nothing above it. Each of the others is caught by the component
+that expects it, and one a component did not expect is caught by the run loop, which ends the
+request as `planner_failed` with the message in `failure_reason`.
 
 ---
 

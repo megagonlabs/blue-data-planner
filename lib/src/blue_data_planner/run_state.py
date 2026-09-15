@@ -50,6 +50,7 @@ class RunState:
     usage: list[LLMUsage] = field(default_factory=list[LLMUsage])
     fragment_attempts: dict[frozenset[str], int] = field(default_factory=dict[frozenset[str], int])
     cover_attempts: int = 0
+    failure_reason: str | None = None
     failure_replans: int = 0
     control_replans: int = 0
 
@@ -187,6 +188,7 @@ class RunState:
         return PlanResult(
             status=status,
             answer=answer if status is RunStatus.OK else None,
+            failure_reason=None if status is RunStatus.OK else self.failure_reason,
             pipeline=self.pipeline,
             results=self.results,
             attempts=self.attempts,

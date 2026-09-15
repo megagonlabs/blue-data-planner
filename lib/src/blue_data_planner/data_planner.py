@@ -12,6 +12,7 @@ from blue_data_planner.operators import OperatorRouter
 from blue_data_planner.physical_planner import PhysicalPlanner
 from blue_data_planner.run_state import RunState
 from blue_data_planner.types import (
+    BlueDataPlannerError,
     CallBudget,
     ControlOperator,
     DataBundle,
@@ -51,9 +52,17 @@ class DataPlanner:
                 status = self._run_pass(state)
             if status is RunStatus.OK:
                 answer = self._answer(state)
-        except LLMError:
+        except LLMError as error:
             # The one try in the library, so no component handles a provider failure.
             status = RunStatus.LLM_FAILED
+            state.failure_reason = str(error)
+        except BlueDataPlannerError as error:
+            # A defect rather than an outcome a repair could answer: every recoverable
+            # failure is already a status by the time it reaches here. The run ends, keeping
+            # what it built and what broke, rather than throwing at whoever called the
+            # library.
+            status = RunStatus.PLANNER_FAILED
+            state.failure_reason = str(error)
         return state.to_result(status, answer)
 
     def plan(self, request: str) -> PlanResult:
@@ -61,8 +70,12 @@ class DataPlanner:
         state = RunState(request=request, budget=CallBudget(self._limits.operator_calls))
         try:
             status = self._plan_and_cover(state, reason=None, retry_uncoverable_plan=False)
-        except LLMError:
+        except LLMError as error:
+            state.failure_reason = str(error)
             return state.to_result(RunStatus.LLM_FAILED)
+        except BlueDataPlannerError as error:
+            state.failure_reason = str(error)
+            return state.to_result(RunStatus.PLANNER_FAILED)
         return state.to_result(status if status is not None else RunStatus.PLANNED)
 
     def _run_pass(self, state: RunState) -> RunStatus | None:
@@ -79,6 +92,7 @@ class DataPlanner:
         if result.decision is RunDecision.CONTINUE:
             return None
         if result.decision is RunDecision.STOP:
+            state.failure_reason = result.failure_reason
             return result.status
         if result.decision is RunDecision.REPLAN:
             return self._replan(state, result.failure_reason)
@@ -113,6 +127,7 @@ class DataPlanner:
 
     def _replan(self, state: RunState, reason: str | None) -> RunStatus | None:
         if state.failure_replans >= self._limits.failure_replans:
+            state.failure_reason = reason
             return RunStatus.REPLAN_EXHAUSTED
         state.failure_replans += 1
         return self._plan_and_cover(state, reason)
@@ -127,6 +142,7 @@ class DataPlanner:
             state.record_usage(found.usage)
             state.record_discovery(node.id, found.discovery)
         if state.control_replans >= self._limits.control_replans:
+            state.failure_reason = "\n".join(reasons)
             return RunStatus.REPLAN_EXHAUSTED
         state.control_replans += 1
         return self._plan_and_cover(state, "\n".join(reasons))
@@ -147,6 +163,7 @@ class DataPlanner:
         state.record_rejected_plans(written.rejected)
         state.record_usage(written.usage)
         if written.plan is None:
+            state.failure_reason = written.rejected[-1].error if written.rejected else None
             return written.status
         state.install_logical_plan(written.plan)
         cover = self._physical_planner.cover(written.plan, state.current_results, reason)
@@ -155,6 +172,7 @@ class DataPlanner:
             if not retry_uncoverable_plan:
                 # plan writes one logical plan and attempts one cover, then stops, whatever
                 # that attempt came back with.
+                state.failure_reason = cover.failure_reason
                 return RunStatus.PLANNED
             # A plan no operator can cover goes straight back to the logical planner, with
             # no operator call spent.

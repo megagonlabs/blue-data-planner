@@ -36,6 +36,7 @@ class RunStatus(StrEnum):
     BUDGET_EXHAUSTED = "budget_exhausted"
     OPERATOR_FAILED = "operator_failed"
     LLM_FAILED = "llm_failed"
+    PLANNER_FAILED = "planner_failed"
 
 
 class FragmentReviewDecision(StrEnum):
@@ -171,6 +172,9 @@ class PlanResult:
     # None rather than [] unless status is ok, so a caller who ignores the status cannot
     # mistake a failed run for an empty answer.
     answer: DataBundle | None
+    # Why the run ended as it did, in the words of whatever ended it. Every failure status
+    # carries one; ok never does, and planned does only when no cover could be written.
+    failure_reason: str | None
     pipeline: DataPipeline
     results: dict[str, dict[str, ExecutionResult | DiscoveryResult]]
     attempts: list[FragmentAttempt]

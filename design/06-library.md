@@ -108,7 +108,8 @@ back as it stands, with no search run, since resolving one would start the secon
 
 `planned` is a `RunStatus` member alongside `ok` and the failure statuses. One result type serves
 both operations, and the rule that `answer` is `None` unless the status is `ok` survives unchanged.
-`plan` can also return `invalid_plan` and `llm_failed`, which are the two failures it can reach.
+`plan` can also return `invalid_plan`, `llm_failed`, and `planner_failed`, which are the three
+failures it can reach.
 
 ### The run loop
 
@@ -125,8 +126,12 @@ def run(self, request: str) -> PlanResult:
             status = self._run_pass(state)
         if status is RunStatus.OK:
             answer = self._answer(state)
-    except LLMError:
+    except LLMError as error:
         status = RunStatus.LLM_FAILED
+        state.failure_reason = str(error)
+    except BlueDataPlannerError as error:
+        status = RunStatus.PLANNER_FAILED
+        state.failure_reason = str(error)
     return state.to_result(status, answer)
 ```
 
@@ -378,9 +383,13 @@ structure serves every adapter (ADR-015).
 
 `RunStatus` has one member per way a request can end, and
 [09-api-interface-spec.md](09-api-interface-spec.md#errors) lists them against what each means to a
-caller. `planned` is what `plan` returns, and `llm_failed` is what a provider that fails after retries
-returns. Neither is reachable from a component: `LogicalPlanResult` and `FragmentResult` carry a
-`RunStatus` too, and both belong to the run loop.
+caller. `planned` is what `plan` returns, `llm_failed` is what a provider that fails after retries
+returns, and `planner_failed` is what a planner defect comes back as. None of the three is reachable
+from a component: `LogicalPlanResult` and `FragmentResult` carry a `RunStatus` too, and both belong
+to the run loop.
+
+`failure_reason` says why a run ended as it did, in the words of whatever ended it. Every failure
+status carries one; `ok` never does, and `planned` does only when no cover could be written.
 
 The four per-component result types never leave the process. `DataPlanner` reads each one, records what
 it holds on the run state, and moves on.
