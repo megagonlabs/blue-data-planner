@@ -7,6 +7,7 @@ import pytest
 from blue_data_planner.plan import validate_logical_plan, validate_physical_plan
 from blue_data_planner.types import (
     ControlOperator,
+    InputData,
     LogicalOperator,
     LogicalPlan,
     OutputColumn,
@@ -53,7 +54,9 @@ def a_scan_filter_return_plan() -> LogicalPlan:
     )
 
 
-def a_fragment(fragment_id: str, node_ids: list[str], root: str) -> PhysicalPlanFragment:
+def a_fragment(
+    fragment_id: str, node_ids: list[str], root: str, inputs: list[str] | None = None
+) -> PhysicalPlanFragment:
     """One fragment over the node ids given, rooted at the last one that runs."""
     return PhysicalPlanFragment(
         id=fragment_id,
@@ -62,7 +65,10 @@ def a_fragment(fragment_id: str, node_ids: list[str], root: str) -> PhysicalPlan
         operator_id="blue.nl2sql",
         scan_sources={},
         instruction="run it",
-        input_data=[],
+        input_data=[
+            InputData(logical_node_id=node_id, name=node_id, description="rows")
+            for node_id in inputs or []
+        ],
         required_output_columns=[OutputColumn(name="title", dtype="str")],
     )
 
@@ -291,6 +297,14 @@ def test_an_illegal_cover_is_rejected_and_the_error_names_what_was_wrong(
 ) -> None:
     """A broken cover fails loudly here rather than as a run that stops making progress."""
     with pytest.raises(PlanValidationError, match=expected_message):
+        validate_physical_plan(a_scan_filter_return_plan(), cover, frozenset())
+
+
+def test_a_fragment_reading_a_node_that_does_not_feed_it_is_rejected() -> None:
+    """A fragment reads its frontier, which is what the run is guaranteed to hold rows for."""
+    cover = a_cover([a_fragment("f1", ["n2"], "n2", inputs=["n9"]), a_fragment("f2", ["n1"], "n1")])
+
+    with pytest.raises(PlanValidationError, match="the nodes feeding it are"):
         validate_physical_plan(a_scan_filter_return_plan(), cover, frozenset())
 
 

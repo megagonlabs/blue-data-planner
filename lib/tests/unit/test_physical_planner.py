@@ -269,7 +269,7 @@ def test_a_scan_an_operator_answers_from_its_own_knowledge_is_bound_to_no_source
 
 
 def test_a_scan_no_discovered_source_matches_leaves_its_node_with_no_candidate() -> None:
-    """An operator reading a kind nothing was discovered for is never offered as a binding."""
+    """The reason names both kinds, so the logical planner can search for a different one."""
     planner = a_planner(
         ScriptedLLMClient([]),
         a_router(an_operator("builtin.scan", ALL_KINDS, source_kinds=frozenset({"vector/chroma"}))),
@@ -278,6 +278,8 @@ def test_a_scan_no_discovered_source_matches_leaves_its_node_with_no_candidate()
     assert result.plan is None
     assert result.failure_reason is not None
     assert "n1" in result.failure_reason
+    assert "vector/chroma" in result.failure_reason
+    assert "sql/sqlite" in result.failure_reason
 
 
 def test_a_fragments_inputs_are_the_nodes_feeding_it_and_not_a_model_choice() -> None:

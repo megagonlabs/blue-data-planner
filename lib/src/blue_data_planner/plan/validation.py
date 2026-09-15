@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from blue_data_planner.plan.fragments import fragment_frontier
 from blue_data_planner.types import (
     INPUT_ARITY,
     BlueDataPlannerError,
@@ -34,6 +35,7 @@ def validate_physical_plan(
     _check_coverage(plan, physical_plan)
     for fragment in physical_plan.fragments:
         _check_fragment_shape(plan, fragment)
+        _check_input_data(plan, fragment)
         _check_scan_sources(fragment, entity_paths)
 
 
@@ -246,6 +248,17 @@ def _check_fragment_single_exit(
                     f"fragment {fragment.id!r} is not single exit: node {node_id!r} is read "
                     f"from outside by {consumer.id!r}"
                 )
+
+
+def _check_input_data(plan: LogicalPlan, fragment: PhysicalPlanFragment) -> None:
+    listed = [entry.logical_node_id for entry in fragment.input_data]
+    frontier = fragment_frontier(plan, frozenset(fragment.logical_node_ids))
+    if listed != frontier:
+        raise PlanValidationError(
+            f"fragment {fragment.id!r} reads {listed}, but the nodes feeding it are "
+            f"{frontier}; a fragment takes one input per frontier node, in the order "
+            "its nodes read them"
+        )
 
 
 def _check_scan_sources(fragment: PhysicalPlanFragment, entity_paths: frozenset[str]) -> None:

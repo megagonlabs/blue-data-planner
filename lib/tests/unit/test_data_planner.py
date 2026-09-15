@@ -231,6 +231,25 @@ def test_a_rejected_fragment_reaches_the_repairs_in_order_narrowest_first() -> N
     assert result.counters["cover_attempts"] == 1
 
 
+def test_a_plan_no_operator_can_cover_is_replanned_with_the_reason_in_hand() -> None:
+    """Nothing ran, so the repair is a fresh plan written against why the cover failed."""
+    logical = FakeLogicalPlanner([ok(a_scan_and_ending("p1")), ok(a_scan_and_ending("p2"))])
+    uncoverable = PhysicalPlanResult(
+        plan=None,
+        failure_reason="node 'n1' scans a source of a kind no operator reads",
+        usage=[],
+    )
+    result = a_planner(
+        logical,
+        FakePhysicalPlanner([uncoverable, covered(a_cover("c1", "p2"))]),
+        FakeFragmentRunner([an_accepted_fragment()]),
+        FakeCatalogSearcher(),
+    ).run("list the job titles")
+
+    assert result.status is RunStatus.OK
+    assert logical.reasons == [None, uncoverable.failure_reason]
+
+
 def test_a_replan_limit_ends_the_request_as_replan_exhausted() -> None:
     """Each replan path counts separately and either ends the run on its own bound."""
     result = a_planner(

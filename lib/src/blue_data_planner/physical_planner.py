@@ -89,10 +89,7 @@ class PhysicalPlanner:
             if not candidates:
                 return PhysicalPlanResult(
                     plan=None,
-                    failure_reason=(
-                        f"no operator can run node {node.id!r} of kind {node.kind.value}, "
-                        "alone or in any fragment containing it"
-                    ),
+                    failure_reason=self._no_candidate_reason(node, entity_source_kinds),
                     usage=list(conversation.usage),
                 )
             fragment = self._bind(plan, node, candidates, entity_source_kinds, conversation)
@@ -170,6 +167,28 @@ class PhysicalPlanner:
                 if declared
                 else list(node.required_output_columns)
             ),
+        )
+
+    def _no_candidate_reason(self, node: PipelineNode, entity_source_kinds: dict[str, str]) -> str:
+        operators = (
+            self._router.operators_for(node.kind) if isinstance(node.kind, LogicalOperator) else []
+        )
+        if not operators:
+            return (
+                f"no operator can run node {node.id!r} of kind {node.kind.value}, "
+                "alone or in any fragment containing it"
+            )
+        # An operator declaring the kind is dropped only by the source-kind filter, and that
+        # filter drops a candidate only when it holds a SCAN. So the kind is not what left
+        # this node uncovered, the discovered sources are, and saying which kinds were wanted
+        # is what lets the logical planner search for a different one.
+        readable = sorted(
+            {kind for operator in operators for kind in operator.source_kinds or frozenset[str]()}
+        )
+        return (
+            f"node {node.id!r} scans a source of a kind no operator reads: the operators for "
+            f"{node.kind.value} read {readable}, and discovery found "
+            f"{sorted(set(entity_source_kinds.values()))}"
         )
 
     def _prompt(self, results: dict[str, NodeResult], reason: str | None) -> str:
