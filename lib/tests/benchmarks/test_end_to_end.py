@@ -1,14 +1,11 @@
 """One real request, planned twice through a DISCOVER node and answered.
 
-Excluded from testpaths, so it runs only when named. It replays a cassette by default and
-reaches a provider only when recording one:
+Excluded from testpaths, so it runs only when named, and it calls a real provider:
 
-    uv run pytest tests/benchmarks/test_end_to_end.py --record-mode=once
+    uv run pytest tests/benchmarks/test_end_to_end.py
 """
 
 from __future__ import annotations
-
-import pytest
 
 from blue_data_planner import RunStatus, build_data_planner
 from blue_data_planner.data import DataCatalog, DataRegistry
@@ -17,7 +14,6 @@ from blue_data_planner.operators import OperatorRouter
 from blue_data_planner.operators.builtin import builtin_operators
 
 
-@pytest.mark.vcr
 def test_a_request_over_a_registered_source_plans_twice_and_answers(
     sqlite_registry: DataRegistry,
 ) -> None:

@@ -24,7 +24,7 @@ rewrites an internal step, it is describing how the code works rather than what 
 have to be rewritten every time the step changes for a reason nobody disagrees with.
 
 A test is not a checklist of branches. Coverage is a report, not a target
-([section 11](#11-coverage)).
+([section 10](#10-coverage)).
 
 ### The names are the description
 
@@ -95,11 +95,13 @@ expected count that equals a bound deserves one line; a returned status does not
 | Library unit tests | `lib/tests/unit/` | Yes | No |
 | Adapter tests | `platform/*/tests/` | Yes, in that package | No |
 | LOTUS suite tests | `lib/tests/lotus/` | No, excluded by `testpaths` | Yes, for an operation that calls a model |
-| Benchmark suites | `lib/tests/benchmarks/` | No, excluded by `testpaths` | Yes, unless cassettes exist |
+| Benchmark suites | `lib/tests/benchmarks/` | No, excluded by `testpaths` | Yes |
 
-Unit tests are the main tier and the one that has to stay fast and offline. The benchmark tier
-measures the system rather than checking it, and it is opt-in by path
-([07-repo-organization.md](07-repo-organization.md#where-the-benchmark-lives)).
+Unit tests are the main tier and the one that has to stay fast and offline, so a component that
+writes prompts is tested against a scripted model client ([section 5](#5-doubles-and-stubs)). The
+benchmark tier measures the system rather than checking it, and it is opt-in by path
+([07-repo-organization.md](07-repo-organization.md#where-the-benchmark-lives)). A tier needing a
+model calls a real provider, which is part of why it is opt-in.
 
 The LOTUS tier answers what a stub cannot: whether the adapter calls the operations an installed
 LOTUS offers, with the arguments they take, and whether the tables they return convert back to
@@ -109,7 +111,7 @@ the benchmarks. Every other tier passes with LOTUS absent (ADR-004).
 There is no integration tier against a live networked backend. A source that runs embedded is tested
 against a real instance instead of a double ([section 5](#5-doubles-and-stubs)); a source reached
 over a network is not, since covering it needs a running instance and a tier allowed to be slow. That
-is a real gap and it is named as one in [section 10](#10-what-is-not-covered).
+is a real gap and it is named as one in [section 9](#9-what-is-not-covered).
 
 ---
 
@@ -119,7 +121,6 @@ is a real gap and it is named as one in [section 10](#10-what-is-not-covered).
 | --- | --- | --- |
 | `pytest` | Test runner | `dev` extra, every package |
 | `pytest-asyncio` | Async tests, `asyncio_mode = "auto"` | `dev` extra |
-| `pytest-recording` | Records and replays provider responses | `lib/` `dev` extra |
 | `pytest-cov` | Coverage, reported per run | `dev` extra |
 | `ruff` | Lint and import order, line length 100 | `dev` extra |
 | `pyright` | Types, strict mode | `dev` extra |
@@ -148,7 +149,7 @@ lib/tests/
   conftest.py           # fixtures every tier shares
   doubles/              # in-memory replacements for I/O boundaries
   stubs/                # deterministic fakes for heavy optional dependencies
-  fixtures/             # recorded inputs and cassettes
+  fixtures/             # recorded inputs
   unit/                 # mirrors src/blue_data_planner/ and scripts/
     types/  plan/  data/  llm/  operators/  execution/  scripts/
   lotus/                # against an installed LOTUS; excluded from the default run
@@ -207,27 +208,7 @@ default; the LOTUS tier reaches the installed package.
 
 ---
 
-## 6. Recorded model responses
-
-Cassettes cover behavior that depends on what a real model returns, which the scripted client cannot
-show. Prompt shaping is exactly that: whether a prompt carrying a column's coded values gets
-`PRIJEM` back rather than `credit` is a question about a model, not about this code.
-
-| Question | Tested with |
-| --- | --- |
-| Does the code do the right thing given a response? | The scripted client |
-| Does a real model return a usable response to this prompt? | A cassette |
-
-Cassettes live in `lib/tests/fixtures/` and are committed. They cover the four components that write
-prompts — the logical planner, the physical planner, the fragment runner's parameters and review,
-and the catalog searcher — with a few requests each rather than one per prompt variation. A prompt
-that changes materially means re-recording, by deleting the cassette and running with
-`--record-mode=once`. A missing cassette fails the test rather than reaching the network, which is
-what keeps the default run offline.
-
----
-
-## 7. What each component's tests have to show
+## 6. What each component's tests have to show
 
 One line per component, at the level of what that component promises a caller. This is not a
 checklist: a row is one sentence, and the tests under it are the few that make the sentence true.
@@ -255,7 +236,7 @@ can check ([04-detailed-architecture.md](04-detailed-architecture.md#5-recoverin
 
 ---
 
-## 8. Adapter tests
+## 7. Adapter tests
 
 A platform package tests translation and nothing else: argument parsing, response shape, error
 mapping, exit codes. Planning and execution are the library's tests, not repeated here.
@@ -274,7 +255,7 @@ for a whole session, and it is the one place in the repository where async meets
 
 ---
 
-## 9. Benchmark suites
+## 8. Benchmark suites
 
 `lib/tests/benchmarks/tag_bench/` measures the system against TAG-Bench, with a target of 60%
 accuracy end to end. It is excluded from the default run by `testpaths` and runs only when named by
@@ -299,7 +280,7 @@ reasoning about the code.
 
 ---
 
-## 10. What is not covered
+## 9. What is not covered
 
 Naming a gap is more useful than implying it is covered.
 
@@ -307,14 +288,14 @@ Naming a gap is more useful than implying it is covered.
 | --- | --- |
 | A live networked backend | A source that runs embedded is tested against a real instance instead ([section 5](#5-doubles-and-stubs)); one reached over a network needs a running instance and a tier allowed to be slow |
 | The import rules | The six rules in [08-coding-style.md](08-coding-style.md) are checked in review. A test that parses imports would assert a rule rather than a behavior, which is what section 1 rules out |
-| Prompt quality | A cassette shows that one prompt got one response. Whether a prompt is good is what the benchmark measures |
+| Prompt quality | Whether a prompt draws a usable answer out of a real model is what the benchmark measures, against gold answers ([section 8](#8-benchmark-suites)). A model changes under a fixed prompt, so an assertion written against one answer would say nothing about the next |
 | LOTUS itself, and the Blue operators | Each adapter is tested; a suite is a dependency and tests its own behavior |
 | Concurrency | The library is synchronous and runs one fragment at a time. A caller running several requests at once is running several threads, which is the caller's concern |
 | Cost | Model spend is reported per call in `PlanResult.planner_usage` and asserted nowhere, since a threshold would fail on a price change rather than on a regression |
 
 ---
 
-## 11. Coverage
+## 10. Coverage
 
 Coverage is measured and reported, and no minimum is enforced. `lib/pyproject.toml` sets
 `addopts = "--cov=src --cov-report=term-missing"`, so every run prints it.
@@ -322,12 +303,12 @@ Coverage is measured and reported, and no minimum is enforced. `lib/pyproject.to
 A threshold would be the wrong instrument, and a harmful one here. Chasing a percentage is the
 fastest way to produce the tests section 1 rules out: one per branch, named after a step, asserting
 that the code did what the code does. What the number would be chasing is already named in
-[section 7](#7-what-each-components-tests-have-to-show), and a module can reach any percentage
+[section 6](#6-what-each-components-tests-have-to-show), and a module can reach any percentage
 without demonstrating a single line of it.
 
 ---
 
-## 12. Running the tests
+## 11. Running the tests
 
 ```bash
 # Library unit tests: fast, offline, no API key
@@ -342,9 +323,6 @@ cd platform/mcp && uv run pytest
 # The LOTUS tier, in an environment carrying the lotus extra
 cd lib && uv run pytest tests/lotus
 
-# The benchmark tier, named by path because testpaths excludes it
+# The benchmark tier, named by path because testpaths excludes it, against a real provider
 cd lib && uv run pytest tests/benchmarks/tag_bench
-
-# Re-record cassettes after a prompt changes materially
-cd lib && uv run pytest tests/unit --record-mode=once
 ```

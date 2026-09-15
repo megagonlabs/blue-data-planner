@@ -31,7 +31,6 @@ dev = [
     # diskcache backs the optional llm.cache path; without it three cache tests fail.
     "diskcache",
     "pytest",
-    "pytest-recording",
     "ruff",
     "pyright",
 ]

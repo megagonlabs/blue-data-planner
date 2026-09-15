@@ -218,9 +218,9 @@ of the four repairs, and the caps on plan corrections and discovery search terms
 
 ## Quality check
 
-The gates are `pytest` with `pytest-asyncio`, `pytest-recording`, and `pytest-cov`, then `ruff`,
-then `pyright`. How each is configured is in [08-coding-style.md](08-coding-style.md), and what each
-test tier covers is in [11-testing-strategy.md](11-testing-strategy.md).
+The gates are `pytest` with `pytest-asyncio` and `pytest-cov`, then `ruff`, then `pyright`. How
+each is configured is in [08-coding-style.md](08-coding-style.md), and what each test tier covers
+is in [11-testing-strategy.md](11-testing-strategy.md).
 
 ---
 
@@ -260,7 +260,7 @@ has the files and which script writes each one.
 | `click` | `platform/cli/` | Required | CLI command routing |
 | `rich` | `platform/cli/` | Required | CLI output formatting |
 | `python-dotenv` | `platform/*` | Required | Loads `.env` at adapter startup |
-| `pytest`, `pytest-asyncio`, `pytest-recording`, `pytest-cov` | All | `dev` extra | Test tiers |
+| `pytest`, `pytest-asyncio`, `pytest-cov` | All | `dev` extra | Test tiers |
 | `ruff`, `pyright` | All | `dev` extra | Lint and type gates |
 | `build`, `twine` | All | `dev` extra | Packaging and publishing |
 

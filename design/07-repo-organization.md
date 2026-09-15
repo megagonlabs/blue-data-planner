@@ -74,7 +74,7 @@ blue-data-planner/
 │       ├── conftest.py
 │       ├── doubles/                   # in-memory replacements for I/O boundaries
 │       ├── stubs/                     # deterministic fakes for heavy optional dependencies
-│       ├── fixtures/                  # recorded inputs and cassettes
+│       ├── fixtures/                  # recorded inputs
 │       ├── unit/                      # mirrors src/blue_data_planner/ and scripts/
 │       ├── lotus/                     # against an installed LOTUS; excluded from the default run
 │       └── benchmarks/

@@ -154,7 +154,7 @@ eight registry searches.
 
 The TAG-Bench harness reports operator calls per request, model calls per component, how often a plan
 schedules a replan, and how often each repair fires
-([11-testing-strategy.md](11-testing-strategy.md#9-benchmark-suites)), and these numbers are meant
+([11-testing-strategy.md](11-testing-strategy.md#8-benchmark-suites)), and these numbers are meant
 to be replaced by what it shows. Open question 2 holds the one that most needs the measurement.
 
 ---

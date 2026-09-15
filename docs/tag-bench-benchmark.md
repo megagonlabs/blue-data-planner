@@ -2,7 +2,7 @@
 
 TAG-Bench is a set of natural-language questions over five BIRD SQLite databases, each paired with
 a gold answer. It measures the planner's answer accuracy end to end, against a target of 60%
-([design/11-testing-strategy.md](../design/11-testing-strategy.md#9-benchmark-suites)). The planner
+([design/11-testing-strategy.md](../design/11-testing-strategy.md#8-benchmark-suites)). The planner
 is tested against it running LOTUS operators, since LOTUS is established and TAG-Bench is designed
 to be solvable with it.
 
@@ -76,6 +76,6 @@ meant to measure.
 Not yet implemented. Once the harness lands, this section will cover invoking it and reading its
 report. For the shape it is expected to take, see
 [design/07-repo-organization.md](../design/07-repo-organization.md#where-the-benchmark-lives) and
-[design/11-testing-strategy.md](../design/11-testing-strategy.md#9-benchmark-suites): the harness
+[design/11-testing-strategy.md](../design/11-testing-strategy.md#8-benchmark-suites): the harness
 lives at `lib/tests/benchmarks/tag_bench/`, is excluded from the default `pytest` run, and is run by
 naming its path directly.
