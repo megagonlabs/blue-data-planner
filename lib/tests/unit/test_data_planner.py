@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import Any
+
+import pytest
 
 from blue_data_planner.data_planner import DataPlanner
 from blue_data_planner.llm import LLMError
@@ -78,6 +81,36 @@ def two_discovery_nodes(plan_id: str) -> LogicalPlan:
                 attributes={"instruction": "find the companies"},
             ),
         ],
+    )
+
+
+def a_scan_reaching_no_return(plan_id: str) -> LogicalPlan:
+    """n1 SCAN with nothing projecting it, and no output node named."""
+    return LogicalPlan(
+        id=plan_id,
+        parent_id=None,
+        output_node_id=None,
+        nodes=[_a_scan_node()],
+    )
+
+
+def a_scan_named_as_the_output(plan_id: str) -> LogicalPlan:
+    """n1 SCAN named as the output node, where a RETURN node belongs."""
+    return LogicalPlan(
+        id=plan_id,
+        parent_id=None,
+        output_node_id="n1",
+        nodes=[_a_scan_node()],
+    )
+
+
+def _a_scan_node() -> PipelineNode:
+    return PipelineNode(
+        id="n1",
+        kind=LogicalOperator.SCAN,
+        input_node_ids=[],
+        attributes={"instruction": "read the postings"},
+        required_output_columns=[OutputColumn(name="title", dtype="str")],
     )
 
 
@@ -194,6 +227,27 @@ def test_a_plan_that_runs_clean_ends_ok_with_the_columns_the_return_names() -> N
     ).run("list the job titles")
     assert result.status is RunStatus.OK
     assert result.answer == [[{"title": "SWE"}]]
+
+
+@pytest.mark.parametrize(
+    "plan",
+    [a_scan_reaching_no_return, a_scan_named_as_the_output],
+    ids=["no output node", "output node is not a RETURN"],
+)
+def test_a_run_with_nothing_left_to_run_and_no_answer_to_project_ends_as_planner_failed(
+    plan: Callable[[str], LogicalPlan],
+) -> None:
+    """A finished run whose plan names no RETURN has no answer, so ok would misreport it."""
+    result = a_planner(
+        FakeLogicalPlanner([ok(plan("p1"))]),
+        FakePhysicalPlanner([covered(a_cover("c1", "p1"))]),
+        FakeFragmentRunner([an_accepted_fragment()]),
+        FakeCatalogSearcher(),
+    ).run("list the job titles")
+
+    assert result.status is RunStatus.PLANNER_FAILED
+    assert result.answer is None
+    assert result.failure_reason is not None
 
 
 def test_every_control_node_ready_at_once_is_resolved_before_the_run_plans_again() -> None:

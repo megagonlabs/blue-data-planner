@@ -180,13 +180,23 @@ class DataPlanner:
         state.install_cover(cover.plan)
         return None
 
-    def _answer(self, state: RunState) -> DataBundle | None:
+    def _answer(self, state: RunState) -> DataBundle:
+        """Project the answer the ending names, raising unless the run really produced one."""
+        # A run that reaches here has nothing left to run, so the plan it ends on has to be
+        # one that answers. Returning None instead would hand a caller status ok with no
+        # answer, which is the one thing PlanResult.answer promises cannot happen.
         output_node_id = state.logical_plan.output_node_id
         if output_node_id is None:
-            return None
+            raise BlueDataPlannerError(
+                f"plan {state.logical_plan.id!r} has nothing left to run but names no output "
+                "node, so the run ended on a plan that answers nothing"
+            )
         ending = state.logical_plan.node(output_node_id)
         if ending.kind is not LogicalOperator.RETURN:
-            return None
+            raise BlueDataPlannerError(
+                f"plan {state.logical_plan.id!r} names node {output_node_id!r} as its output, "
+                f"but it is of kind {ending.kind.value} where RETURN was expected"
+            )
         columns = [str(name) for name in ending.attributes.get("columns", [])]
         return project_answer(state.inputs_for_node(ending), columns)
 
