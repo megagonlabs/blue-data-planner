@@ -8,7 +8,12 @@ from typing import Any
 from blue_data_planner.llm import Conversation, LLMClient, Turn
 from blue_data_planner.llm.templating import safe_substitute
 from blue_data_planner.operators import OperatorRouter
-from blue_data_planner.plan import candidate_fragments, cover_choice_schema, validate_physical_plan
+from blue_data_planner.plan import (
+    candidate_fragments,
+    cover_choice_schema,
+    fragment_frontier,
+    validate_physical_plan,
+)
 from blue_data_planner.prompts import prompt_text
 from blue_data_planner.types import (
     DiscoveryResult,
@@ -154,11 +159,11 @@ class PhysicalPlanner:
             instruction=choice["instruction"],
             input_data=[
                 InputData(
-                    logical_node_id=entry["logical_node_id"],
-                    name=entry["name"],
-                    description=entry["description"],
+                    logical_node_id=frontier_id,
+                    name=choice[f"input_name_{frontier_id}"],
+                    description=choice[f"input_description_{frontier_id}"],
                 )
-                for entry in choice["input_data"]
+                for frontier_id in fragment_frontier(plan, node_ids)
             ],
             required_output_columns=(
                 [OutputColumn(name=c["name"], dtype=c["dtype"]) for c in declared]

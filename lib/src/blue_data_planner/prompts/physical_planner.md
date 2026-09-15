@@ -11,8 +11,9 @@ the operator that could run it. Pick one, and write:
 - One instruction covering the whole fragment, phrased as an instruction to that operator.
   A fragment absorbing four nodes has no single instruction to borrow, so say what the
   fragment is to do rather than stringing together what it absorbed.
-- A name and a description for each input the fragment receives from outside it. The
-  operator cannot tell a scan target from an auxiliary table without them.
+- A name and a description for each input the fragment receives from outside it, one pair
+  per input, each named for the node that produces it. The operator cannot tell a scan
+  target from an auxiliary table without them.
 - An entity path for each `SCAN` the candidate holds, chosen from the entities below.
 
 Leave `required_output_columns` unset unless the fusion cannot produce what the root node

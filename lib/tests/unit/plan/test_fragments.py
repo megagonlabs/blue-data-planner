@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from blue_data_planner.plan import candidate_fragments
+from blue_data_planner.plan import candidate_fragments, fragment_frontier
 from blue_data_planner.types import ControlOperator, LogicalOperator, LogicalPlan, PipelineNode
 
 ALL_OPERATOR_KINDS = frozenset(
@@ -52,6 +52,21 @@ def a_plan_whose_filter_two_nodes_read() -> LogicalPlan:
     )
 
 
+def a_join_reading_its_inputs_out_of_order() -> LogicalPlan:
+    """n1 and n2 SCAN, joined at n3 whose inputs read n2 first, ended at n4."""
+    return LogicalPlan(
+        id="p3",
+        parent_id=None,
+        output_node_id="n4",
+        nodes=[
+            a_node("n1", LogicalOperator.SCAN, []),
+            a_node("n2", LogicalOperator.SCAN, []),
+            a_node("n3", LogicalOperator.JOIN, ["n2", "n1"]),
+            a_node("n4", LogicalOperator.RETURN, ["n3"]),
+        ],
+    )
+
+
 def test_the_root_alone_is_a_candidate_when_an_operator_declares_its_kind() -> None:
     """An atomic operator matching the root is offered exactly the one-node set."""
     assert candidate_fragments(a_chain(), "n3", frozenset({LogicalOperator.AGGREGATE})) == [
@@ -95,3 +110,21 @@ def test_the_same_plan_enumerated_twice_returns_the_same_list_in_the_same_order(
     assert candidate_fragments(plan, "n5", ALL_OPERATOR_KINDS) == candidate_fragments(
         plan, "n5", ALL_OPERATOR_KINDS
     )
+
+
+def test_the_frontier_is_every_node_outside_the_set_that_feeds_it() -> None:
+    """A fragment reads the nodes feeding it from outside, and a closed set reads nothing."""
+    assert fragment_frontier(a_chain(), frozenset({"n2", "n3"})) == ["n1"]
+    assert fragment_frontier(a_chain(), frozenset({"n1", "n2", "n3"})) == []
+    assert fragment_frontier(a_plan_whose_filter_two_nodes_read(), frozenset({"n5"})) == [
+        "n3",
+        "n4",
+    ]
+
+
+def test_the_frontier_follows_each_nodes_own_input_order() -> None:
+    """An operator takes its two tables positionally, so a sorted frontier would swap them."""
+    assert fragment_frontier(a_join_reading_its_inputs_out_of_order(), frozenset({"n3"})) == [
+        "n2",
+        "n1",
+    ]

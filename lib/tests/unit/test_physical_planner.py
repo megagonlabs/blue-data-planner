@@ -129,14 +129,16 @@ def a_discovery() -> dict[str, Any]:
     }
 
 
-def a_binding(index: int, **extra: Any) -> dict[str, Any]:
-    """One binding decision's payload."""
+def a_binding(index: int, inputs: tuple[str, ...] = (), **extra: Any) -> dict[str, Any]:
+    """One binding decision's payload, naming each node on the chosen candidate's frontier."""
     payload: dict[str, Any] = {
         "candidate_index": index,
         "instruction": "do the whole thing",
-        "input_data": [],
         "required_output_columns": None,
     }
+    for node_id in inputs:
+        payload[f"input_name_{node_id}"] = f"the {node_id} table"
+        payload[f"input_description_{node_id}"] = f"the rows {node_id} produced"
     payload.update(extra)
     return {"choice": payload}
 
@@ -171,7 +173,13 @@ def test_a_node_no_operator_can_run_ends_the_cover_with_the_reason_naming_it() -
 
 def test_a_cover_taking_one_node_at_a_time_sends_one_turn_per_node() -> None:
     """Three atomic bindings are three turns of one conversation and three fragments."""
-    client = ScriptedLLMClient([a_binding(0), a_binding(0), a_binding(0, scan_source_n1=POSTINGS)])
+    client = ScriptedLLMClient(
+        [
+            a_binding(0, inputs=("n2",)),
+            a_binding(0, inputs=("n1",)),
+            a_binding(0, scan_source_n1=POSTINGS),
+        ]
+    )
     planner = a_planner(
         client,
         a_router(
@@ -197,7 +205,13 @@ def test_a_fragment_repair_rebinds_one_node_set_and_leaves_the_rest_of_the_cover
         an_operator("builtin.aggregate", frozenset({LogicalOperator.AGGREGATE})),
     )
     first = a_planner(
-        ScriptedLLMClient([a_binding(0), a_binding(0), a_binding(0, scan_source_n1=POSTINGS)]),
+        ScriptedLLMClient(
+            [
+                a_binding(0, inputs=("n2",)),
+                a_binding(0, inputs=("n1",)),
+                a_binding(0, scan_source_n1=POSTINGS),
+            ]
+        ),
         a_router(*atomics),
     ).cover(a_plan(), a_discovery())
     assert first.plan is not None
@@ -205,7 +219,7 @@ def test_a_fragment_repair_rebinds_one_node_set_and_leaves_the_rest_of_the_cover
 
     # The router now offers a second operator for AGGREGATE, so the repair has somewhere to go.
     repaired = a_planner(
-        ScriptedLLMClient([a_binding(1)]),
+        ScriptedLLMClient([a_binding(1, inputs=("n2",))]),
         a_router(*atomics, an_operator("builtin.nl2table", ALL_KINDS)),
     ).recover_fragment(
         a_plan(), first.plan, failed, a_discovery(), "the aggregation returned one row too many"
@@ -264,3 +278,28 @@ def test_a_scan_no_discovered_source_matches_leaves_its_node_with_no_candidate()
     assert result.plan is None
     assert result.failure_reason is not None
     assert "n1" in result.failure_reason
+
+
+def test_a_fragments_inputs_are_the_nodes_feeding_it_and_not_a_model_choice() -> None:
+    """The plan decides which nodes a fragment reads, and the model only names them."""
+    planner = a_planner(
+        ScriptedLLMClient(
+            [
+                a_binding(0, inputs=("n2",)),
+                a_binding(0, inputs=("n1",)),
+                a_binding(0, scan_source_n1=POSTINGS),
+            ]
+        ),
+        a_router(
+            an_operator("builtin.scan", frozenset({LogicalOperator.SCAN})),
+            an_operator("builtin.filter", frozenset({LogicalOperator.FILTER})),
+            an_operator("builtin.aggregate", frozenset({LogicalOperator.AGGREGATE})),
+        ),
+    )
+    result = planner.cover(a_plan(), a_discovery())
+    assert result.plan is not None
+    reads = {
+        fragment.logical_node_ids[0]: [entry.logical_node_id for entry in fragment.input_data]
+        for fragment in result.plan.fragments
+    }
+    assert reads == {"n1": [], "n2": ["n1"], "n3": ["n2"]}

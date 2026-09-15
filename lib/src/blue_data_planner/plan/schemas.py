@@ -7,6 +7,7 @@ from typing import Annotated, Any, Literal, Union
 
 from pydantic import BaseModel, ConfigDict, Field, create_model
 
+from blue_data_planner.plan.fragments import fragment_frontier
 from blue_data_planner.types import (
     BlueDataPlannerError,
     ColumnDataType,
@@ -27,14 +28,6 @@ class OutputColumnModel(_Strict):
 
     name: str
     dtype: ColumnDataType
-
-
-class InputDataModel(_Strict):
-    """One frontier node's output, named and described for the operator that reads it."""
-
-    logical_node_id: str
-    name: str
-    description: str
 
 
 class OperatorNodeModel(_Strict):
@@ -129,9 +122,20 @@ def _candidate_model(
             str,
             Field(description="What this fragment is to do, as one instruction to the operator."),
         ),
-        "input_data": (list[InputDataModel], ...),
         "required_output_columns": (list[OutputColumnModel] | None, None),
     }
+    # The fragment's inputs are the nodes outside it that feed it, which the plan already
+    # decides. Only the naming is the model's, so it gets one field per input rather than a
+    # list it could write a node id into that the run holds no rows for.
+    for frontier_id in fragment_frontier(plan, node_ids):
+        fields[f"input_name_{frontier_id}"] = (
+            str,
+            Field(description=f"A short name for the table node {frontier_id} produced."),
+        )
+        fields[f"input_description_{frontier_id}"] = (
+            str,
+            Field(description=f"What the rows node {frontier_id} produced hold."),
+        )
     scan_ids = [
         node_id for node_id in sorted(node_ids) if plan.node(node_id).kind is LogicalOperator.SCAN
     ]

@@ -69,14 +69,16 @@ def a_two_scan_plan() -> LogicalPlan:
     )
 
 
-def a_binding(**overrides: Any) -> dict[str, Any]:
+def a_binding(inputs: tuple[str, ...] = (), **overrides: Any) -> dict[str, Any]:
     """One binding decision's payload, before the fields a candidate's scans add."""
     payload: dict[str, Any] = {
         "candidate_index": 0,
         "instruction": "count the postings per title",
-        "input_data": [],
         "required_output_columns": None,
     }
+    for node_id in inputs:
+        payload[f"input_name_{node_id}"] = f"the {node_id} table"
+        payload[f"input_description_{node_id}"] = f"the rows {node_id} produced"
     payload.update(overrides)
     return {"choice": payload}
 
@@ -144,7 +146,7 @@ def test_a_candidate_holding_no_scan_offers_nowhere_to_name_a_source() -> None:
         a_two_scan_plan(), [(frozenset({"n4"}), an_operator("builtin.aggregate"))], SOURCE_KINDS
     )
     with pytest.raises(ValidationError):
-        schema.model_validate(a_binding(scan_source_n1=POSTINGS))
+        schema.model_validate(a_binding(inputs=("n3",), scan_source_n1=POSTINGS))
 
 
 def test_a_binding_names_one_entity_path_per_scan_the_candidate_holds() -> None:
@@ -220,14 +222,25 @@ def test_a_binding_picks_one_candidate_by_its_index() -> None:
         ],
         SOURCE_KINDS,
     )
-    taken = schema.model_validate(a_binding(candidate_index=1)).model_dump()
+    taken = schema.model_validate(a_binding(candidate_index=1, inputs=("n3",))).model_dump()
     assert taken["choice"]["candidate_index"] == 1
     # Variant 1 is the scanless one, so naming a source under it is not representable.
     with pytest.raises(ValidationError):
-        schema.model_validate(a_binding(candidate_index=1, scan_source_n1=POSTINGS))
+        schema.model_validate(a_binding(candidate_index=1, inputs=("n3",), scan_source_n1=POSTINGS))
 
 
 def test_a_binding_decision_with_no_candidate_at_all_raises() -> None:
     """A node with no candidate is the physical planner's no_operator case, not a schema."""
     with pytest.raises(BlueDataPlannerError, match="at least one candidate"):
         cover_choice_schema(a_two_scan_plan(), [], SOURCE_KINDS)
+
+
+def test_a_binding_names_one_input_per_node_on_the_candidates_frontier() -> None:
+    """The nodes feeding a fragment are the plan's to decide, so the model only names them."""
+    schema = cover_choice_schema(
+        a_two_scan_plan(), [(frozenset({"n4"}), an_operator("builtin.aggregate"))], SOURCE_KINDS
+    )
+    accepted = schema.model_validate(a_binding(inputs=("n3",))).model_dump()
+    assert accepted["choice"]["input_name_n3"] == "the n3 table"
+    with pytest.raises(ValidationError):
+        schema.model_validate(a_binding(inputs=("n3", "n1")))

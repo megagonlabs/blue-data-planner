@@ -33,6 +33,21 @@ def candidate_fragments(
     return sorted(found, key=lambda node_ids: (-len(node_ids), sorted(node_ids)))
 
 
+def fragment_frontier(plan: LogicalPlan, node_ids: frozenset[str]) -> list[str]:
+    """Return the nodes outside this set that feed it, in the order their tables arrive."""
+    # Each node's own input order is kept rather than sorted, because an operator reading
+    # two tables takes them positionally: a JOIN handed its inputs the other way round
+    # joins the other way round.
+    frontier: list[str] = []
+    for node in plan.nodes_in_dependency_order():
+        if node.id not in node_ids:
+            continue
+        for input_id in node.input_node_ids:
+            if input_id not in node_ids and input_id not in frontier:
+                frontier.append(input_id)
+    return frontier
+
+
 def _admissible(
     plan: LogicalPlan,
     node_id: str,
