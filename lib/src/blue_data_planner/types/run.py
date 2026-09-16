@@ -27,9 +27,11 @@ class ErrorKind(StrEnum):
 
 
 class RunStatus(StrEnum):
-    """How one request ended, whether it produced an answer or not."""
+    """How one fragment or one request ended, whether it produced an answer or not."""
 
     OK = "ok"
+    NEEDS_REPAIR = "needs_repair"
+    NEEDS_REPLAN = "needs_replan"
     PLANNED = "planned"
     INVALID_PLAN = "invalid_plan"
     REPLAN_EXHAUSTED = "replan_exhausted"
@@ -45,15 +47,6 @@ class FragmentReviewDecision(StrEnum):
     ACCEPT = "accept"
     REJECT = "reject"
     REPLAN = "replan"
-
-
-class RunDecision(StrEnum):
-    """What the run loop does next after one fragment."""
-
-    CONTINUE = "continue"
-    ESCALATE = "escalate"
-    REPLAN = "replan"
-    STOP = "stop"
 
 
 @dataclass(frozen=True)
@@ -147,7 +140,6 @@ class FragmentResult:
     """What one fragment's run came to, and what the run loop does next."""
 
     status: RunStatus
-    decision: RunDecision
     attempts: list[FragmentAttempt]  # rejected ones included, in order
     failure_reason: str | None
     usage: list[LLMUsage]

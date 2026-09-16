@@ -26,7 +26,6 @@ from blue_data_planner.types import (
     PipelineNode,
     PlanLimits,
     PlanValidationError,
-    RunDecision,
     RunStatus,
 )
 from tests.doubles.components import (
@@ -150,7 +149,6 @@ def an_accepted_fragment() -> FragmentResult:
     )
     return FragmentResult(
         status=RunStatus.OK,
-        decision=RunDecision.CONTINUE,
         attempts=[
             FragmentAttempt(
                 physical_plan_id="",
@@ -171,8 +169,7 @@ def an_accepted_fragment() -> FragmentResult:
 def an_escalating_fragment() -> FragmentResult:
     """One fragment whose parameter attempts ran out."""
     return FragmentResult(
-        status=RunStatus.OK,
-        decision=RunDecision.ESCALATE,
+        status=RunStatus.NEEDS_REPAIR,
         attempts=[
             FragmentAttempt(
                 physical_plan_id="",

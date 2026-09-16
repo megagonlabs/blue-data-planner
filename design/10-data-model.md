@@ -625,7 +625,6 @@ class PhysicalPlanResult:
 @dataclass(frozen=True)
 class FragmentResult:
     status: RunStatus
-    decision: RunDecision
     attempts: list[FragmentAttempt]  # rejected ones included, in order
     failure_reason: str | None
     usage: list[LLMUsage]
@@ -661,22 +660,23 @@ until one is accepted or `parameter_attempts` runs out
 therefore produce several attempts, and returning only one would lose the rejected ones that
 `PlanResult.attempts` promises to carry.
 
-`FragmentResult.status` says which ending a `stop` means, and is `ok` unless `decision` is `stop`.
-The runner never returns `invalid_plan` or `replan_exhausted`, which belong to the logical planner
-and to the replan allowance, neither of which it can see.
+`FragmentResult.status` says which of five endings the fragment reached, and `ok` means the result
+was accepted. The runner never returns `invalid_plan` or `replan_exhausted`, which belong to the
+logical planner and to the replan allowance, neither of which it can see.
 
-| Ending | `status` | `decision` |
-| --- | --- | --- |
-| The result was accepted | `ok` | `continue` |
-| The runner used its parameter attempts without an accepted result | `ok` | `escalate` |
-| The review said no arrangement of operators will do this | `ok` | `replan` |
-| An operator failed unrecoverably | `operator_failed` | `stop` |
-| The operator call budget reached its cap | `budget_exhausted` | `stop` |
+| Ending | `status` |
+| --- | --- |
+| The result was accepted | `ok` |
+| The runner used its parameter attempts without an accepted result | `needs_repair` |
+| The review said no arrangement of operators will do this | `needs_replan` |
+| An operator failed unrecoverably | `operator_failed` |
+| The operator call budget reached its cap | `budget_exhausted` |
 
-`escalate` sends the failure on to the fragment repair, and `replan` sends it straight to the
-replan. Which repair an `escalate` reaches is the run loop's decision, since only the loop knows how
-many attempts each one has left
-([04, recovering from a failure](04-detailed-architecture.md#5-recovering-from-a-failure)).
+`needs_repair` sends the failure on to the fragment repair, and `needs_replan` sends it straight to
+the replan. Which repair a `needs_repair` reaches is the run loop's decision, since only the loop
+knows how many attempts each one has left
+([04, recovering from a failure](04-detailed-architecture.md#5-recovering-from-a-failure)). The two
+remaining statuses end the run, and each is the status the caller's `PlanResult` carries.
 
 Each component returns what it did instead of writing it down as it goes, so one that raises cannot
 leave a half-written record behind, and the session has one writer.
@@ -782,11 +782,10 @@ number any one of them spent rather than a total, since that is the number their
 | --- | --- |
 | `LogicalOperator` | `SCAN`, `FILTER`, `PROJECT`, `EXPAND`, `AGGREGATE`, `DISTINCT`, `SORT_SUPERLATIVE`, `JOIN`, `UNION`, `RETURN` |
 | `ControlOperator` | `REPLAN`, `DISCOVER` |
-| `RunStatus` | `ok`, `planned`, `invalid_plan`, `replan_exhausted`, `budget_exhausted`, `operator_failed`, `llm_failed`, `planner_failed` |
+| `RunStatus` | `ok`, `needs_repair`, `needs_replan`, `planned`, `invalid_plan`, `replan_exhausted`, `budget_exhausted`, `operator_failed`, `llm_failed`, `planner_failed` |
 | `ExecutionStatus` | `ok`, `failed` |
 | `ErrorKind` | `recoverable`, `unrecoverable`, `no_operator` |
 | `FragmentReviewDecision` | `accept`, `reject`, `replan` |
-| `RunDecision` | `continue`, `escalate`, `replan`, `stop` |
 
 `SORT_SUPERLATIVE` is one logical operator covering both ordering and cutting, since a superlative
 is an ordering with a limit.

@@ -25,7 +25,6 @@ from blue_data_planner.types import (
     FragmentReviewDecision,
     PhysicalOperator,
     PhysicalPlanFragment,
-    RunDecision,
     RunStatus,
 )
 
@@ -72,7 +71,6 @@ class FragmentRunner:
             # returned rather than lost with the exception.
             return _ended(
                 RunStatus.BUDGET_EXHAUSTED,
-                RunDecision.STOP,
                 attempts,
                 "the operator call budget ran out",
                 conversation,
@@ -104,7 +102,6 @@ class FragmentRunner:
                 )
                 return _ended(
                     RunStatus.OPERATOR_FAILED,
-                    RunDecision.STOP,
                     attempts,
                     result.error.message,
                     conversation,
@@ -128,11 +125,9 @@ class FragmentRunner:
                 _attempt(fragment, parameters, result, review.assessment, review.decision)
             )
             if review.decision is FragmentReviewDecision.ACCEPT:
-                return _ended(RunStatus.OK, RunDecision.CONTINUE, attempts, None, conversation)
+                return _ended(RunStatus.OK, attempts, None, conversation)
             if review.decision is FragmentReviewDecision.REPLAN:
-                return _ended(
-                    RunStatus.OK, RunDecision.REPLAN, attempts, review.assessment, conversation
-                )
+                return _ended(RunStatus.NEEDS_REPLAN, attempts, review.assessment, conversation)
             conversation.turns.append(
                 Turn(
                     role="user",
@@ -143,8 +138,7 @@ class FragmentRunner:
                 )
             )
         return _ended(
-            RunStatus.OK,
-            RunDecision.ESCALATE,
+            RunStatus.NEEDS_REPAIR,
             attempts,
             _escalation_reason(attempts),
             conversation,
@@ -214,14 +208,12 @@ def _escalation_reason(attempts: list[FragmentAttempt]) -> str:
 
 def _ended(
     status: RunStatus,
-    decision: RunDecision,
     attempts: list[FragmentAttempt],
     failure_reason: str | None,
     conversation: Conversation,
 ) -> FragmentResult:
     return FragmentResult(
         status=status,
-        decision=decision,
         attempts=attempts,
         failure_reason=failure_reason,
         usage=list(conversation.usage),

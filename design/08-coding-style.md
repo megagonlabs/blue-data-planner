@@ -125,7 +125,7 @@ Each one settles a case where two plausible names were in use at once.
 | --- | --- |
 | A data type is called a type. Everything else that could be called one is a kind | `ColumnDataType` and the field `dtype` describe the type of a value. A node kind, a source kind, and an `ErrorKind` are kinds |
 | An id says which graph it names | `logical_node_ids`, `root_logical_node_id`, `InputData.logical_node_id`. A physical plan is full of logical node ids, so an unqualified `node_id` in it reads as its own |
-| Two decisions with different scopes get two names | `FragmentReviewDecision` is what one review returned; `RunDecision` is what the run loop does next |
+| One review's decision and one fragment's ending get two names | `FragmentReviewDecision` is what a single review turn returned; `FragmentResult.status` is how the whole fragment ended, and the run loop reads only the second |
 | A result type is called a result | `LogicalPlanResult`, `PhysicalPlanResult`, `FragmentResult`, `ExecutionResult`, `PlanResult` |
 | A catalog record's column is an attribute; a table moving between fragments has columns | `AttributeRef`, `AttributeView`, `attribute_views`, and `EntityMatch.attributes` read the registry, which is `blue-data`'s own vocabulary. `required_output_columns`, `OutputColumn`, and `ColumnDataType` describe a table a fragment passes on, whatever kind of source produced it |
 

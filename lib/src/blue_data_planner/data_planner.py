@@ -20,7 +20,6 @@ from blue_data_planner.types import (
     PhysicalPlanFragment,
     PlanLimits,
     PlanResult,
-    RunDecision,
     RunStatus,
 )
 
@@ -89,14 +88,16 @@ class DataPlanner:
     def _run_fragment(self, state: RunState, fragment: PhysicalPlanFragment) -> RunStatus | None:
         result = self._fragment_runner.run(fragment, state.inputs_for(fragment), state.budget)
         state.record_fragment(result)
-        if result.decision is RunDecision.CONTINUE:
+        if result.status is RunStatus.OK:
             return None
-        if result.decision is RunDecision.STOP:
-            state.failure_reason = result.failure_reason
-            return result.status
-        if result.decision is RunDecision.REPLAN:
+        if result.status is RunStatus.NEEDS_REPLAN:
             return self._replan(state, result.failure_reason)
-        return self._repair(state, fragment, result.failure_reason or "the fragment was rejected")
+        if result.status is RunStatus.NEEDS_REPAIR:
+            return self._repair(
+                state, fragment, result.failure_reason or "the fragment was rejected"
+            )
+        state.failure_reason = result.failure_reason
+        return result.status
 
     def _repair(
         self, state: RunState, fragment: PhysicalPlanFragment, reason: str

@@ -17,7 +17,6 @@ from blue_data_planner.types import (
     PhysicalOperator,
     PhysicalPlanFragment,
     RecoverableOperatorError,
-    RunDecision,
     RunStatus,
     UnrecoverableOperatorError,
 )
@@ -112,7 +111,6 @@ def test_an_accepted_result_ends_the_fragment_with_the_run_continuing() -> None:
         keeps_everything,
     )
     result = runner.run(a_fragment(), ROWS, CallBudget(10))
-    assert result.decision is RunDecision.CONTINUE
     assert result.status is RunStatus.OK
     assert len(result.attempts) == 1
 
@@ -129,7 +127,7 @@ def test_a_rejected_result_is_answered_by_writing_the_parameters_again() -> None
         keeps_everything,
     )
     result = runner.run(a_fragment(), ROWS, CallBudget(10))
-    assert result.decision is RunDecision.CONTINUE
+    assert result.status is RunStatus.OK
     assert len(result.attempts) == 2
 
 
@@ -146,7 +144,7 @@ def test_running_out_of_parameter_attempts_escalates() -> None:
         attempts=2,
     )
     result = runner.run(a_fragment(), ROWS, CallBudget(10))
-    assert result.decision is RunDecision.ESCALATE
+    assert result.status is RunStatus.NEEDS_REPAIR
     assert len(result.attempts) == 2
 
 
@@ -160,7 +158,7 @@ def test_a_review_asking_for_a_replan_comes_back_with_its_assessment() -> None:
         keeps_everything,
     )
     result = runner.run(a_fragment(), ROWS, CallBudget(10))
-    assert result.decision is RunDecision.REPLAN
+    assert result.status is RunStatus.NEEDS_REPLAN
     assert result.failure_reason == "the plan asks for data nobody registered"
 
 
@@ -185,7 +183,7 @@ def test_a_recoverable_operator_failure_is_answered_by_writing_the_parameters_ag
         fails_once,
     )
     result = runner.run(a_fragment(), ROWS, CallBudget(10))
-    assert result.decision is RunDecision.CONTINUE
+    assert result.status is RunStatus.OK
     assert len(result.attempts) == 2
 
 
@@ -193,7 +191,7 @@ def test_an_escalation_after_a_trailing_operator_failure_reports_the_operators_e
     """The last attempt has no review assessment; its error message is what a repair reads."""
     runner = a_runner([{"predicate": "a"}], raises_recoverably, attempts=1)
     result = runner.run(a_fragment(), ROWS, CallBudget(10))
-    assert result.decision is RunDecision.ESCALATE
+    assert result.status is RunStatus.NEEDS_REPAIR
     assert result.failure_reason == "the predicate names no column the table carries"
 
 
@@ -201,7 +199,6 @@ def test_an_unrecoverable_operator_failure_stops_the_run_without_a_review_turn()
     """No other operator would avoid the same failure, so there is nothing to review."""
     runner = a_runner([{"predicate": "a"}], raises_unrecoverably)
     result = runner.run(a_fragment(), ROWS, CallBudget(10))
-    assert result.decision is RunDecision.STOP
     assert result.status is RunStatus.OPERATOR_FAILED
 
 
@@ -216,7 +213,6 @@ def test_a_budget_that_runs_out_mid_fragment_returns_the_attempts_already_made()
         keeps_everything,
     )
     result = runner.run(a_fragment(), ROWS, CallBudget(1))
-    assert result.decision is RunDecision.STOP
     assert result.status is RunStatus.BUDGET_EXHAUSTED
     assert len(result.attempts) == 1
 

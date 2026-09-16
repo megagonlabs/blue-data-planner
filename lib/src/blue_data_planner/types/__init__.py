@@ -58,7 +58,6 @@ from blue_data_planner.types.run import (
     PlanLimits,
     PlanResult,
     RejectedPlan,
-    RunDecision,
     RunStatus,
 )
 
@@ -106,7 +105,6 @@ __all__ = [
     "Record",
     "RecoverableOperatorError",
     "RejectedPlan",
-    "RunDecision",
     "RunStatus",
     "SourceQueryError",
     "SourceRecord",

@@ -18,7 +18,6 @@ from blue_data_planner.types import (
     PhysicalPlan,
     PhysicalPlanFragment,
     PipelineNode,
-    RunDecision,
     RunStatus,
 )
 from blue_data_planner.types import (
@@ -109,7 +108,6 @@ def an_accepted_fragment() -> FragmentResult:
     """One run of f1 whose single attempt the review kept."""
     return FragmentResult(
         status=RunStatus.OK,
-        decision=RunDecision.CONTINUE,
         attempts=[
             FragmentAttempt(
                 physical_plan_id="",

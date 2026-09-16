@@ -146,9 +146,8 @@ One pass takes what `next_ready` hands back and dispatches on it. A fragment goe
 `FragmentRunner`, and its result is recorded whatever it says. A control node is resolved together
 with every other control node ready beside it, and the pass then returns to the logical planner
 once. A plan with nothing left ends the request as `ok`, and `project_answer` takes the `RETURN`
-node's columns off the result of the node it reads. The fragment's own `RunDecision` then says
-whether the pass continues, ends the request with the status the runner returned, replans, or goes
-to a repair.
+node's columns off the result of the node it reads. The fragment's own status then says whether the
+pass continues, ends the request with that status, replans, or goes to a repair.
 
 `next_ready` returns the next fragment whose frontier all has results, a control node whose inputs
 all have results, or `None` when the plan is finished. A union return is what lets one scheduler
@@ -381,12 +380,14 @@ enums that travel in them are fixed in
 statuses rather than exceptions, so a failed run is as inspectable as a successful one and one
 structure serves every adapter (ADR-015).
 
-`RunStatus` has one member per way a request can end, and
-[09-api-interface-spec.md](09-api-interface-spec.md#errors) lists them against what each means to a
-caller. `planned` is what `plan` returns, `llm_failed` is what a provider that fails after retries
-returns, and `planner_failed` is what a planner defect comes back as. None of the three is reachable
-from a component: `LogicalPlanResult` and `FragmentResult` carry a `RunStatus` too, and both belong
-to the run loop.
+`RunStatus` has one member per way a request can end and one per way a fragment can end short of
+an answer, and [09-api-interface-spec.md](09-api-interface-spec.md#errors) lists the request endings
+against what each means to a caller. Each producer writes its own subset. `planned` is what `plan`
+returns, `llm_failed` is what a provider that fails after retries returns, and `planner_failed` is
+what a planner defect comes back as; none of the three is reachable from a component.
+`needs_repair` and `needs_replan` run the other way: `FragmentRunner` is the only writer, the run
+loop the only reader, and a `PlanResult` never carries either, because both name work the loop still
+has left to do.
 
 `failure_reason` says why a run ended as it did, in the words of whatever ended it. Every failure
 status carries one; `ok` never does, and `planned` does only when no cover could be written.
@@ -653,11 +654,11 @@ It resolves the fragment's operator id through the router, describes the input t
 attribute views of the entities it scans, writes the operator's parameters against its
 `parameter_schema`, calls `execute_physical_operator`, and reviews what came back.
 
-A review that accepts ends the loop with `decision=continue`. One that rejects spends an attempt and
-the parameters are written again; one that asks for a replan returns `decision=replan` with its
-assessment as the failure reason; running out of attempts returns `decision=escalate`. An
-unrecoverable operator failure returns `decision=stop` with `status=operator_failed` and no review
-turn at all, since no other operator would avoid the same failure.
+A review that accepts ends the loop with `status=ok`. One that rejects spends an attempt and the
+parameters are written again; one that asks for a replan returns `status=needs_replan` with its
+assessment as the failure reason; running out of attempts returns `status=needs_repair`. An
+unrecoverable operator failure returns `status=operator_failed` and no review turn at all, since no
+other operator would avoid the same failure.
 
 Writing the parameters and reviewing the result are turns in one conversation, so the review sees
 what was written and why. Every attempt runs against the same `inputs`, read once by the caller, so
