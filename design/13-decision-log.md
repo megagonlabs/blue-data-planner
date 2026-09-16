@@ -125,11 +125,11 @@ against, and end-to-end accuracy scores a whole run rather than one component's 
 
 **Consequences:** Two model configurations exist and are set independently, which is a place they
 can drift apart. Accounting follows the split: a call through `llm/` is recorded in
-`PlanResult.planner_usage` with its tokens, while a model call a suite makes internally is invisible
+the run's conversations with its tokens, while a model call a suite makes internally is invisible
 there and bills as part of the one operator call containing it (ADR-014). Planner spend is exact;
 operator spend is a call count. The `builtin` suite is not an outside suite and calls through this
 module like everything else here, so it can say what its own calls cost; that figure travels in the
-operator call's report rather than in `planner_usage`, which keeps the scope its name states
+operator call's report rather than beside the planner's own calls, which keeps that scope clear
 (ADR-020).
 
 ---
@@ -374,9 +374,13 @@ accept rate need measuring rather than assuming.
 ## ADR-014 — One Operator-Call Budget; Model Calls Go Unmetered
 
 **Decision:** A request carries one budget, counting calls through `execute_physical_operator`;
-reaching its cap ends the request. Every bound the run loop obeys is a field of `PlanLimits`, set
-once when the planner is built: plan corrections, parameter attempts, fragment attempts, cover
-attempts, failure replans, control replans, and discovery search terms. An operator may bound work
+reaching its cap ends the request. Every bound the run loop obeys is a field of `RunLimits`, set
+once when the planner is built: plan corrections, parameter repairs, fragment repairs, cover
+repairs, failure replans, and control replans. `RunCounters` counts one request against them,
+carries the `RunLimits` it counted against, and is what a result reports. A number whose only effect
+on reaching it is to drop work rather than to redirect a request is not a bound of this kind, which
+is where the cap on one `DISCOVER` node's search terms sits: `CatalogSearcher` holds it, as
+`LogicalPlanner` holds the size of the catalog preview. An operator may bound work
 it repeats inside one call, and that number belongs to the operator. Calls through `llm/` are not
 separately capped.
 
@@ -386,11 +390,11 @@ number would restate them under a different name. The operator call is what scal
 single semantic operator can touch a source of any size regardless of how few model calls it took to
 reach it — so it is the one call worth billing against a request-level cap.
 
-**Consequences:** A caller bounds spending through operator calls and replans alone.
-`PlanResult.planner_usage` records one entry per model call, so model cost is visible after the fact
-even though nothing stops it mid-run: a badly set `parameter_attempts` or `plan_corrections` can run
+**Consequences:** A caller bounds spending through operator calls and replans alone. The
+conversations a run holds record one usage entry per model call, so model cost is visible after the fact
+even though nothing stops it mid-run: a badly set `parameter_repairs` or `plan_corrections` can run
 up a bill without ever tripping `operator_calls`. With no cost model, the operator call budget is
-the only thing standing between a badly ordered plan and an unbounded bill, so its default matters
+the only thing standing between a badly ordered plan and an unbounded bill, so its value matters
 more than it otherwise would.
 
 ---
@@ -424,7 +428,7 @@ per query and scores that query as an error.
 ## ADR-017 — The Package Root Exports the Run Path
 
 **Decision:** `blue_data_planner/__init__.py` holds `__version__` and the run path: `DataPlanner`,
-`build_data_planner`, `PlanResult`, `PlanLimits`, `RunStatus`, and `BlueDataPlannerError`. Public is
+`build_data_planner`, `PlanResult`, `RunLimits`, `RunStatus`, and `BlueDataPlannerError`. Public is
 the root, every module directly inside it, and the `__init__.py` of `types/`, `plan/`, `execution/`,
 `operators/`, `data/`, and `llm/`. An operator adapter is the one exception: `operators/__init__.py`
 re-exports the router alone, so an adapter is imported from the module named for its suite.
@@ -699,6 +703,50 @@ repair would write a second table rather than remove the first.
 
 ---
 
+## ADR-024 — A Result Is Reused by Signature
+
+**Decision:** Every node that produces a result has a signature covering what decides that result,
+the signatures of the work feeding it included. A run files results by signature, and installing a
+cover or a plan version compares nothing and removes nothing: a fragment reads a result when it asks
+for work already done, and runs when it does not.
+
+**Rationale:** Reuse is a question about the work, and a node id does not name the work. Two plan
+versions may use one id for different nodes, and a repair that cuts a node set again may leave the
+same id over a different set. Deciding reuse by comparing two covers means writing down what counts
+as a change, which is a rule that can be incomplete without anything failing loudly: a fragment
+matching on node set and operator but carrying a different instruction would keep a result the new
+instruction would not have produced. Folding the inputs' signatures into a node's own replaces the
+separate walk that invalidated everything downstream of a change.
+
+**Consequences:** Results accumulate and are never deleted; an entry no later cover asks for is
+unreachable rather than removed. What a signature covers is read off the fragment rather than listed,
+so a field added later is covered without anyone remembering to add it, and the cost of getting that
+wrong is a stale result rather than an error. A signature is derived, so it is the one value in the
+data model that is not assigned.
+
+---
+
+## ADR-025 — One Conversation per Component, Continued Through Repairs
+
+**Decision:** Each component talks to the model in a conversation the run owns: one per request for
+the logical planner, one per logical plan for the physical planner, one per fragment for the fragment
+runner, and one per `DISCOVER` node for the catalog searcher. A repair continues the conversation it
+repairs. Fixed instructions open a conversation and everything varying by request or by turn is
+asked in a later turn, and no turn already written is rewritten.
+
+**Rationale:** A model asked to fix something does better answering what it wrote than being told
+about it from outside, and a conversation that only grows keeps its unchanged prefix cacheable, which
+is most of what a repair costs. Putting the request and the run's state into the opening instructions
+instead would change the prefix on every pass and give up both.
+
+**Consequences:** The conversations are where a run's discarded work is read, so no second record of
+rejected plans or rejected parameters is kept beside them, and no component reports what its own
+calls cost. Conversations grow with the repairs a request makes, which the repair bounds already
+limit. A binding decision names its candidate by operator and node set rather than by a position in
+a list, because the list differs from turn to turn.
+
+---
+
 ## Open Questions
 
 Design questions first, then defects in code that exists today.
@@ -718,7 +766,7 @@ Design questions first, then defects in code that exists today.
 | 42 | Does anything here emit traces or logs of its own, and if so which package? [12-deployment-ops.md](12-deployment-ops.md#7-logging) fixes the library at standard-library logging with no handler configured, so an embedding application decides the format and the destination, and nothing in [05-software-stack.md](05-software-stack.md) declares a tracing dependency. Three routes. The adapters own it: the MCP package declares an exporter, emits structured JSON logs, and opens one span per tool request, leaving the library uninstrumented. The library owns it: spans cover each planning component, each operator call, and each model call, which is the only route that can show where a run's time and money went, at the price of a tracing dependency in `lib/` and an import in code every consumer runs. Or nothing ships in the first release and the run record stays the instrument. What argues for instrumenting at all is the fragment span: it would carry the logical nodes a fragment covered and the operator that ran them, which is where the pushdown boundary was drawn, and a trace can show that where a counter cannot. Against it: `PlanResult` already carries every plan, every attempt, the counters, and one usage record per model call, so a trace would restate what the caller is handed. | Whether a deployment can see inside a run without reading the returned result, and which package pays for it |
 | 43 | How is the physical planner made to choose a more capable operator over a built-in one? Where `builtin.nl2table` is registered every operator node kind has a built-in candidate (ADR-020), so a node is almost never answered as `no_operator` and a wrong choice is refused at review instead, one operator call later. `description` and `limitations` are the whole of what separates two candidates in the prompt, so an operator that cannot judge meaning has to say so in terms a model weighs against a description promising a general engine, and one that reads whole tables into memory to work over them has to say that too. A built-in program can approximate a semantic predicate — matching a phrase where a reader would have judged a title — and the approximation returns rows and reports no error, so nothing but review stands between it and an answer. The review rejection rate of fragments bound to a built-in entry, which the TAG-Bench harness reports, is what measures it. | Whether a floor that always has a candidate raises the cost of every request that needed the ceiling |
 | 44 | Can an operator declare that every scan in one fragment reads the same source? `source_kinds` is a set of kinds and says nothing about identity, and `scan_sources` binds each `SCAN` in a fragment separately, so nothing stops a cover from handing one operator two databases. `blue.nl2sql` needs the constraint, since one SQL query cannot span two of them, while `builtin.nl2table` deliberately lacks it and covering such a fragment is the point of it. Without a way to declare the difference the constraint lives in `limitations` as plain language, and a candidate that cannot work is offered anyway. This is question 8's family: a capability the declaration has no vocabulary for. | Whether an operator limited to one source at a time can be declared at all, or is offered candidates it has to refuse |
-| 45 | Is a bound an operator enforces inside its own call a bound of ADR-014's kind? `PlanLimits` holds every bound the run loop obeys, and three numbers sit below it instead: the distinct values a bind join carries, the times `builtin.nl2table` writes its program again before returning a recoverable failure, and the rows a LOTUS operation accepts before refusing the call. All three are shaped like `PlanLimits` fields, and they do not agree with each other about who sets them: the LOTUS cap is an argument to `lotus_operators`, so a deployment chooses it where it builds the suite, while the other two are fixed in the operator that enforces them. `builtin.scan` reads only `sql/sqlite`, a source with a predicate language, and implements two of the three realizations in [06](06-library.md#data): values embedded in the query text, capped at 100 distinct values, and a temporary table, capped by nothing. Past the embedded-values cap it escalates to the temporary table rather than refusing the input, so `builtin.scan` never refuses a bind join for carrying too many values; 100 is where it switches realization, not a limit it enforces. The one-call-per-value realization, and the tighter cap that would bound it, belong to an operator reading a source with no predicate language, a case nothing in the built-in suite covers. Every number here is a placeholder set low enough not to break a run rather than measured against real volumes or real failure rates. A `PlanLimits` field would let a deployment raise a cap past a default nobody has tested; leaving each number inside its operator keeps the choice with whichever component already sees what decides it. | Whether a bound below the run loop is configurable per deployment, and what real volumes and failure rates call for |
+| 45 | Is a bound an operator enforces inside its own call a bound of ADR-014's kind? `RunLimits` holds every bound the run loop obeys, and three numbers sit below it instead: the distinct values a bind join carries, the times `builtin.nl2table` writes its program again before returning a recoverable failure, and the rows a LOTUS operation accepts before refusing the call. All three are shaped like `RunLimits` fields, and they do not agree with each other about who sets them: the LOTUS cap is an argument to `lotus_operators`, so a deployment chooses it where it builds the suite, while the other two are fixed in the operator that enforces them. `builtin.scan` reads only `sql/sqlite`, a source with a predicate language, and implements two of the three realizations in [06](06-library.md#data): values embedded in the query text, capped at 100 distinct values, and a temporary table, capped by nothing. Past the embedded-values cap it escalates to the temporary table rather than refusing the input, so `builtin.scan` never refuses a bind join for carrying too many values; 100 is where it switches realization, not a limit it enforces. The one-call-per-value realization, and the tighter cap that would bound it, belong to an operator reading a source with no predicate language, a case nothing in the built-in suite covers. Every number here is a placeholder set low enough not to break a run rather than measured against real volumes or real failure rates. A `RunLimits` field would let a deployment raise a cap past a default nobody has tested; leaving each number inside its operator keeps the choice with whichever component already sees what decides it. | Whether a bound below the run loop is configurable per deployment, and what real volumes and failure rates call for |
 | 47 | Should the operator vocabulary gain a node that looks the catalog up once per input row? ADR-022 keeps a `DISCOVER` node to a bounded set of entities however many rows it was handed, so a request such as "find the press release document for each of these 500 companies" has nowhere to go: that lookup is per row, what it returns is data rather than context, and it should be billed against the operator budget and reviewed like any other data operation. An operator node would give it all three. Against adding one: none of the ten logical operators reads the catalog, so this would be the first, and what it returns — paths rather than values — is a kind of row nothing else in a plan produces. How often a request needs one is unmeasured. | Whether a per-row catalog lookup is expressible at all, and whether the logical vocabulary stays as it is |
 | 48 | Which component reads a `relation` record when a plan scans a knowledge-base source? `blue-data` records relations alongside entities and attributes, each with a name, a source, and a target, and nothing in this design reads one. A `JOIN` is the obvious consumer, since a relation says which attributes join two entities, and it could arrive as part of the run's catalog context or as part of the fragment runner's deeper reading. What stops the question being answered for tables alone is that relations are the structure a knowledge-base source carries, and how this planner reads a knowledge base is itself unsettled, so an answer shaped for two SQL tables would likely be the wrong shape for a graph. | Whether a `JOIN` is written against a declared relation or against column names a model matched up, and what a knowledge-base source contributes to a plan |
 | 49 | What isolation does a deployment running `builtin.nl2table` need? The program runs in a separate process holding copies of its tables and no path to a registry, a source, or a provider, which bounds what a wrong program can do to the data a request reads and to what a source holds. That process still runs as the user who launched the planner, so what the program may do to that user's files and network is bounded by the operating system rather than by this repository. Two routes. The library requires an isolation mechanism — a syscall filter, a mount namespace, a container — which answers it and narrows the platforms the package runs on. Or the boundary stays where it is and the installation instructions say what it covers, leaving a deployment that needs more to arrange it. | Whether a deployment can enable the entry without arranging isolation of its own |

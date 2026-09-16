@@ -23,7 +23,7 @@ rather than a copy of the code.
 
 | Module | Holds |
 | --- | --- |
-| `blue_data_planner/__init__.py` | The run path in one import: `DataPlanner`, `build_data_planner`, `PlanResult`, `PlanLimits`, `RunStatus`, `BlueDataPlannerError`, and `__version__` |
+| `blue_data_planner/__init__.py` | The run path in one import: `DataPlanner`, `build_data_planner`, `PlanResult`, `RunLimits`, `RunStatus`, `BlueDataPlannerError`, and `__version__` |
 | `blue_data_planner/data_planner.py` | `DataPlanner`, `build_data_planner` |
 | `blue_data_planner/run_state.py` | `RunState` |
 | `blue_data_planner/logical_planner.py` | `LogicalPlanner` |
@@ -31,7 +31,7 @@ rather than a copy of the code.
 | `blue_data_planner/fragment_runner.py` | `FragmentRunner` |
 | `blue_data_planner/catalog_searcher.py` | `CatalogSearcher` |
 | `blue_data_planner/types/` | Every data class that crosses a module boundary: plans, nodes, fragments, operators, results, catalog readings, model usage, limits |
-| `blue_data_planner/plan/` | `validate_logical_plan`, `validate_physical_plan`, `candidate_fragments`, and the response schemas the planning stages send |
+| `blue_data_planner/plan/` | `validate_logical_plan`, `validate_physical_plan`, `candidate_fragments`, `signatures`, and the response schemas the planning stages send |
 | `blue_data_planner/execution/` | `execute_physical_operator`, `check_output_columns`, `project_answer` |
 | `blue_data_planner/operators/` | `OperatorRouter`, one adapter per outside suite (`blue_operators` over `blue-data-ops`, `lotus_operators` over LOTUS), and `builtin/`, the suite this repository owns |
 | `blue_data_planner/data/` | The `blue-data` boundary, the three catalog readings, and opening a serialized registry |
@@ -49,7 +49,7 @@ class DataPlanner:
         physical_planner: PhysicalPlanner,
         fragment_runner: FragmentRunner,
         catalog_searcher: CatalogSearcher,
-        limits: PlanLimits,
+        limits: RunLimits,
     ) -> None: ...
 
     def run(self, request: str) -> PlanResult: ...
@@ -61,7 +61,7 @@ def build_data_planner(
     router: OperatorRouter,
     catalog: DataCatalog,
     llm_client: LLMClient,
-    limits: PlanLimits | None = None,
+    limits: RunLimits | None = None,
 ) -> DataPlanner: ...
 ```
 
@@ -71,9 +71,9 @@ owns is the loop.
 
 | Component | Built with | Because |
 | --- | --- | --- |
-| `LogicalPlanner` | `llm_client`, `catalog`, `max_plan_corrections` | Writes plans, reads a catalog preview ranked against the request, and rewrites a plan validation turned down |
+| `LogicalPlanner` | `llm_client`, `catalog` | Writes plans, reads a catalog preview ranked against the request, and rewrites a plan validation turned down |
 | `PhysicalPlanner` | `llm_client`, `router` | Enumerates candidates from what operators declare, and binds each scan to an entity discovery found. It is the one component built without a catalog, since every entity it can bind to arrives in `results` |
-| `FragmentRunner` | `llm_client`, `catalog`, `router`, `max_parameter_attempts` | Resolves a fragment's operator id, reads the attribute views of the entities it scans, writes parameters, reviews the result, and writes them again when the review rejects one |
+| `FragmentRunner` | `llm_client`, `catalog`, `router` | Resolves a fragment's operator id, reads the attribute views of the entities it scans, writes parameters, reviews the result, and writes them again when the review rejects one |
 | `CatalogSearcher` | `llm_client`, `catalog`, `max_search_terms` | Turns an instruction into search terms and searches the registry for entities |
 | `DataPlanner` | The four above, and `limits` | Creates the run state, schedules, chooses repairs, and assembles the result |
 
@@ -82,10 +82,13 @@ the run loop be tested against four fakes and no provider. Everything a caller i
 through a constructor; nothing is constructed in place, and nothing reads the environment.
 
 Limits are fixed when the planner is built, so `run` and `plan` take a request and nothing else.
-Three of the eight bounds are enforced inside a component's own loop rather than by the run loop,
-and each of those components is built with the one number it obeys, so its constructor says which
-bound that is. `build_data_planner` takes one `PlanLimits` and distributes those three, which is why
-assembling by hand is the only path that sets a bound in more than one place.
+`DataPlanner` is the only object holding `RunLimits`. It builds one `RunCounters` per request, and
+every component that obeys a bound is handed that object and reads the bound off it, so a bound is
+set in one place and read where it is enforced.
+
+A number in a component's constructor is therefore a number that is not a bound on a run.
+`CatalogSearcher`'s cap on one `DISCOVER` node's search terms is the only one, which is what the
+signature says about it.
 
 `build_data_planner` is the default wiring, and the only thing an adapter needs. Without it the CLI,
 the MCP server, and a future REST API would each repeat the same assembly, and wiring is not
@@ -113,30 +116,23 @@ failures it can reach.
 
 ### The run loop
 
-The loop schedules, dispatches on what came up, counts attempts, chooses the repair, installs a
-cover, and assembles the result. None of those calls a model or invokes an operator directly.
+The loop schedules, dispatches on what came up, installs a cover, and assembles the result. None of
+those calls a model or invokes an operator directly.
 
 ```python
 def run(self, request: str) -> PlanResult:
-    state = RunState(request=request, budget=CallBudget(self._limits.operator_calls))
-    answer: DataBundle | None = None
+    state = RunState(request=request, counters=RunCounters(self._limits))
     try:
-        status = self._plan_and_cover(state, reason=None)
-        while status is None:
-            status = self._run_pass(state)
-        if status is RunStatus.OK:
-            answer = self._answer(state)
+        status, failure_reason, answer = self._run_plans(state)
     except LLMError as error:
-        status = RunStatus.LLM_FAILED
-        state.failure_reason = str(error)
+        status, failure_reason, answer = RunStatus.LLM_FAILED, str(error), None
     except BlueDataPlannerError as error:
-        status = RunStatus.PLANNER_FAILED
-        state.failure_reason = str(error)
-    return state.to_result(status, answer)
+        status, failure_reason, answer = RunStatus.PLANNER_FAILED, str(error), None
+    return state.to_result(status, failure_reason, answer)
 ```
 
-`None` means the request is not over. Every helper below returns `RunStatus | None` on that rule, so
-the loop reads as one condition rather than a set of flags.
+An ending carries the reason that produced it. Nothing writes a failure reason to the run state on
+the way past, so the run state holds no field that only the last line reads.
 
 The one `try` in the library sits here rather than inside a component, which is what keeps every
 component free of provider handling. Why a provider failure ends the request with a status rather
@@ -169,20 +165,29 @@ outside the run state.
 
 ### Choosing a repair
 
-A rejected fragment goes to the narrowest repair with attempts left
-([04, section 5](04-detailed-architecture.md#5-recovering-from-a-failure)). The parameter repair
-never appears here, because `FragmentRunner` has already spent its attempts by the time it returns
-anything other than `continue`.
+The four repairs are four nested loops
+([04, section 5](04-detailed-architecture.md#5-recovering-from-a-failure)). Each loop owns one bound,
+and hands the failure to the loop outside it once that bound is spent.
 
-The order is fixed. While `fragment_attempts` has an attempt left for this node set, the physical
-planner covers that set again; then, while `cover_attempts` has one, it covers the whole plan again;
-then the run replans. Each step spends its attempt before asking, and a planner that comes back with
-no plan sends the run to the replan rather than ending it.
+| Loop | Repeats | Bounded by |
+| --- | --- | --- |
+| Parameter | Writing one fragment's parameters | `parameter_repairs`, inside `FragmentRunner` |
+| Fragment | Cutting one root node's fragment again | `fragment_repairs` |
+| Cover | Covering one logical plan again | `cover_repairs` |
+| Replan | Writing a logical plan | `failure_replans` and `control_replans` |
 
-Only the loop knows how many attempts each repair has left, which is why the choice sits here rather
-than in either planner. The two replan paths count separately, because a replan a control node asked
-for and a replan a failure forced are different events with different limits, and either returns
-`replan_exhausted` once its own bound is spent.
+The nesting is what bounds each repair at its own scope without a count that outlives it. A new
+logical plan enters the cover loop fresh, and a new cover enters the fragment loop fresh, because the
+count is a loop variable and the loop is new. Only the two replan counts last a whole request, which
+is why those are the two the run state holds.
+
+The fragment loop follows a root node rather than a node set. Cutting a set again may split it into
+smaller ones, and the root is the node that survives every cut.
+
+The two replan paths count separately, because a replan a control node asked for and a replan a
+failure forced are different events with different limits, and either ends the request with
+`replan_exhausted` once its own bound is spent. A planner that comes back with no plan sends the run
+outward rather than ending it.
 
 Resolving a control node searches the catalog when the node is `DISCOVER` and records what came
 back under the node's id. Every control node ready at that moment is resolved before the run returns
@@ -338,42 +343,55 @@ outside itself, so a type it uses cannot live below it, and `ExecutionResult` an
 
 ```python
 @dataclass(frozen=True)
-class PlanLimits:
+class RunLimits:
     ...   # one field per bound in the table below
 
 
-class CallBudget:
-    def __init__(self, cap: int) -> None: ...
+@dataclass
+class RunCounters:
+    limits: RunLimits
+    ...   # one field per bound that lasts a whole request
 
-    def spend(self, amount: int = 1) -> None: ...  # raises BudgetExhaustedError at the cap
-
-    @property
-    def spent(self) -> int: ...
+    def spend_operator_call(self) -> None: ...   # raises BudgetExhaustedError at the cap
+    def spend_failure_replan(self) -> bool: ...  # False when the cap leaves no room
+    def spend_control_replan(self) -> bool: ...
 ```
 
-Every bound the system obeys is a field of `PlanLimits`, and it is set once, when the planner is
+Every bound the system obeys is a field of `RunLimits`, and it is set once, when the planner is
 built. Nothing overrides one per request, so a planner configured for a benchmark run and a planner
 configured for an interactive session are two objects rather than one object called two ways.
 
-Four of the eight are counted by the run loop and one by the call budget. The other three bound a
-loop inside a component, and `build_data_planner` hands each of those components its own number.
+`RunCounters` counts against those bounds for one request, and it carries the `RunLimits` it counts
+against, so a result shows each spend beside the bound it was spent against. Only `operator_calls`
+stops the run by raising, because it is billed where no caller is positioned to read a return value.
 
 | Bound | Enforced by |
 | --- | --- |
-| `operator_calls` | `CallBudget`, billed in `execute_physical_operator` |
-| `fragment_attempts`, `cover_attempts`, `failure_replans`, `control_replans` | The run loop |
+| `operator_calls` | `RunCounters`, billed in `execute_physical_operator` |
+| `failure_replans`, `control_replans` | `RunCounters`, read by the run loop |
+| `fragment_repairs`, `cover_repairs` | The run loop's nested repair loops |
 | `plan_corrections` | `LogicalPlanner`, rewriting a plan validation turned down |
-| `parameter_attempts` | `FragmentRunner`, writing parameters again after a rejected review |
-| `search_terms` | `CatalogSearcher`, capping what one `DISCOVER` node expands into |
+| `parameter_repairs` | `FragmentRunner`, writing parameters again after a rejected review |
 
-Default values are in [12-deployment-ops.md](12-deployment-ops.md).
+Three of the seven last a whole request and are the fields of `RunCounters`. The other four reset
+inside one: `plan_corrections` and `parameter_repairs` bound a loop inside a component, and
+`fragment_repairs` and `cover_repairs` are loop variables of the run loop. A bound that resets has
+no single number to report, so the result carries what lasted. Every one of them is read off the
+`RunCounters` a call was handed, whether or not that call spends anything against it.
+
+How many search terms one `DISCOVER` node expands into is not a bound here. Reaching it drops the
+extra terms and changes nothing else, so it shapes one component's work rather than a request's, the
+way the size of the catalog preview does. `CatalogSearcher` holds it.
+
+The values in force are the defaults on `RunLimits`, and
+[12-deployment-ops.md](12-deployment-ops.md#5-request-limits) covers how a deployment sets them.
 
 Model calls are not budgeted (ADR-014): how many a request makes already falls out of the bounds
-above, and `PlanResult.planner_usage` records one entry per call so the spend stays readable.
+above, and `PlanResult.conversations` holds one usage record per call so the spend stays readable.
 
 ### What a caller receives
 
-`PlanResult`, `FragmentAttempt`, `ExecutionResult`, `DiscoveryResult`, `RejectedPlan`, and the four
+`PlanResult`, `RunCounters`, `RunConversations`, `ExecutionResult`, `DiscoveryResult`, and the four
 enums that travel in them are fixed in
 [10, what a run produces](10-data-model.md#3-what-a-run-produces). Every request returns a
 `PlanResult` whether it worked or not: exhaustion, operator failure, and provider failure are
@@ -392,25 +410,21 @@ has left to do.
 `failure_reason` says why a run ended as it did, in the words of whatever ended it. Every failure
 status carries one; `ok` never does, and `planned` does only when no cover could be written.
 
-The four per-component result types never leave the process. `DataPlanner` reads each one, records what
-it holds on the run state, and moves on.
+The three per-component result types never leave the process. `DataPlanner` reads each one, records
+what it holds on the run state, and moves on.
 
-They are `LogicalPlanResult`, `PhysicalPlanResult`, `FragmentResult`, and `CatalogSearchResult`, and
+They are `LogicalPlanResult`, `PhysicalPlanResult`, and `FragmentResult`, and
 [10, what each component returns](10-data-model.md#what-each-component-returns) fixes their fields.
+`CatalogSearcher` returns a `DiscoveryResult` and nothing beside it.
 
 Each component returns what it did instead of writing it down as it goes, so one that raises cannot
-leave a half-written record behind and the run state keeps one writer. Model usage follows the same
-rule: every component reports what its own calls cost, and `DataPlanner` appends each list to the
-run in the order they ran.
+leave a half-written record behind and the run state keeps one writer.
 
-`CatalogSearchResult` exists because `DiscoveryResult` goes into the run's results map and reaches
-the caller inside `PlanResult.results`. Usage carried there would be counted twice, so the search
-returns a pair: what it found, and what finding it cost.
-
-One thing is accumulated rather than returned. `CallBudget` is billed inside
-`execute_physical_operator`, and it has to keep its count when a fragment raises, so it travels as
-an argument. `FragmentRunner` catches `BudgetExhaustedError` for the same reason, from the other
-side.
+Two things accumulate rather than being returned, and both for the same reason: a count that a raised
+exception must not take with it. `RunCounters` is billed inside `execute_physical_operator`, so it
+travels as an argument, and `FragmentRunner` catches `BudgetExhaustedError` from the other side.
+Model usage lands on the conversation the component was handed, which the run state owns, so what a
+run spent survives a component that raised partway through.
 
 ---
 
@@ -459,6 +473,13 @@ cover does not fail loudly on its own: a fragment whose non-root node is read fr
 that reader waiting for a table nobody produces, which shows up as a run that stops making progress
 rather than as an error.
 
+Failing it therefore ends the request rather than starting a repair. Everything a model can get
+wrong is refused before this point, by the response schema and by the candidate enumeration, so a
+cover that reaches the check and fails it is a defect in the planner. `PlanValidationError` reaches
+the run loop, which ends the request as `planner_failed` carrying what broke. The logical planner
+regenerates on its own validation error because a plan is what a model wrote; a cover is what this
+library assembled.
+
 ### Enumerating candidate fragments
 
 ```python
@@ -476,6 +497,25 @@ operator covering six come out of the same call.
 Enumeration is graph work and pairing a node set with an operator is a planning decision, so this
 returns node sets and the physical planner does the pairing. It reads no operator and no catalog,
 which is what lets the shape of every candidate over a given plan be asserted without a model.
+
+### Signing the work
+
+```python
+def signatures(plan: LogicalPlan, cover: PhysicalPlan) -> dict[str, str]: ...
+```
+
+One signature per node that produces a result, which is every fragment root and every control node. A
+signature covers everything that decides what that node produces, and that includes the signatures of
+the work feeding it. Two runs of the same work share a signature, and any change that would change
+the output changes it, a change upstream included.
+
+That is what lets the run state key results by signature, and install a new cover or a new plan
+version without comparing it to the last one
+([10, reusing a result](10-data-model.md#reusing-a-result)).
+
+A fragment's inputs are other fragments, so signing is a question about a plan and a cover together
+rather than a field either one carries. What a signature covers is read off the fragment rather than
+listed, so a field added later is covered without anyone remembering to add it.
 
 ### Building a response schema
 
@@ -513,13 +553,13 @@ The three planning components, the discovery step, and the state the run loop wr
 
 ```python
 class LogicalPlanner:
-    def __init__(
-        self, llm_client: LLMClient, catalog: DataCatalog, max_plan_corrections: int
-    ) -> None: ...
+    def __init__(self, llm_client: LLMClient, catalog: DataCatalog) -> None: ...
 
     def generate(
         self,
         request: str,
+        conversation: Conversation,
+        counters: RunCounters,
         parent: LogicalPlan | None = None,
         carried_node_ids: frozenset[str] = frozenset(),
         results: dict[str, ExecutionResult | DiscoveryResult] | None = None,
@@ -548,12 +588,17 @@ the control node that ended the pass. It stays at the level the planner works in
 not be done rather than which operator failed to do it, because naming an operator would invite the
 planner to work around an implementation it does not choose.
 
+One conversation serves a whole request, and the run state hands the same one back on every pass. A
+continuation is a turn on top of the plans already written rather than a fresh exchange that
+describes them, so the planner answers what it wrote before and the unchanged turns stay cached
+([04, one conversation per component](04-detailed-architecture.md#one-conversation-per-component)).
+
 Two things happen inside `generate` rather than above it. The response schema is assembled from the
 node schemas, so a plan naming an invented operation cannot be produced by a provider that enforces
 one, and is refused when it is read where a provider does not
 ([05](05-software-stack.md#structured-output)). A plan that fails validation goes back to the same
-conversation with the error appended, up to `max_plan_corrections`, and every rejected plan comes
-back in `rejected` with the error that rejected it.
+conversation with the error appended, up to `counters.limits.plan_corrections`, and the plans validation turned
+down stay in the conversation for the passes that follow.
 
 The prompt asks for a complete plan from `SCAN` through `RETURN` whenever the planner has enough to
 write one, because `nl2sql` can only absorb a scan and its filters if those nodes exist by the time
@@ -574,6 +619,7 @@ class PhysicalPlanner:
     def cover(
         self,
         plan: LogicalPlan,
+        conversation: Conversation,
         results: dict[str, ExecutionResult | DiscoveryResult],
         reason: str | None = None,
     ) -> PhysicalPlanResult: ...
@@ -581,6 +627,7 @@ class PhysicalPlanner:
     def recover_fragment(
         self,
         plan: LogicalPlan,
+        conversation: Conversation,
         previous: PhysicalPlan,
         node_ids: frozenset[str],
         results: dict[str, ExecutionResult | DiscoveryResult],
@@ -607,13 +654,18 @@ fragment repair can reach, and `previous` holds only the entity already chosen
 
 Inside, the planner works top down from the root of the plan. For each uncovered node it asks
 `candidate_fragments` for the node sets each operator the router offers could cover, pairs each set
-with that operator, and a model picks one. One covering operation is one conversation, with the
-run's catalog context in the system message and one turn per binding decision, and a repair starts
-a fresh one ([04, choosing among candidates](04-detailed-architecture.md#choosing-among-candidates)).
+with that operator, and a model picks one. One binding decision is one turn
+([04, choosing among candidates](04-detailed-architecture.md#choosing-among-candidates)).
+
+One logical plan is one conversation. Every cover of that plan, the first and each repair, continues
+it, so a rebinding answers the bindings that already failed. A new logical plan starts a new
+conversation, because the node ids in the turns already there name a different graph.
 
 The response schema is built from that call's own candidates, so a candidate set with no `SCAN` has
 no field in which to name a source, and where a scan does appear the entity paths in `results` are
-the allowed values. The planner searches nothing itself: a path reaches it because a `DISCOVER` node
+the allowed values. A candidate is named by its operator and its node set rather than by a position
+in the list it arrived in, so a choice still says what it chose when a later turn offers a different
+list. The planner searches nothing itself: a path reaches it because a `DISCOVER` node
 found it. `plan` is `None` exactly when some node has no candidate at all, alone or in any fragment
 containing it, and `failure_reason` then says which node and why.
 
@@ -626,19 +678,19 @@ class FragmentRunner:
         llm_client: LLMClient,
         catalog: DataCatalog,
         router: OperatorRouter,
-        max_parameter_attempts: int,
     ) -> None: ...
 
     def run(
         self,
         fragment: PhysicalPlanFragment,
+        conversation: Conversation,
         inputs: DataBundle,
-        budget: CallBudget,
+        counters: RunCounters,
     ) -> FragmentResult: ...
 ```
 
-`run` takes the rows for one fragment rather than the plan they came from, and the budget rather
-than the object holding it. Everything it works on arrives per call, so it holds nothing about a
+`run` takes the rows for one fragment rather than the plan they came from, and the counters rather
+than the object holding them. Everything it works on arrives per call, so it holds nothing about a
 request between calls and a test builds a fragment, some rows, a catalog double, and a counter.
 
 The fragment carries the reading it needs. `scan_sources` names an entity path per `SCAN`, and one
@@ -648,7 +700,8 @@ would put entities this fragment cannot reach in front of the model, and the dee
 ones it can reach is what writing parameters needs
 ([10, what the fragment runner reads](10-data-model.md#what-the-fragment-runner-reads)).
 
-For one fragment it loops until a result is accepted or the parameter attempts run out.
+For one fragment it loops until a result is accepted or `counters.limits.parameter_repairs` runs
+out.
 
 It resolves the fragment's operator id through the router, describes the input tables and the
 attribute views of the entities it scans, writes the operator's parameters against its
@@ -661,13 +714,14 @@ unrecoverable operator failure returns `status=operator_failed` and no review tu
 other operator would avoid the same failure.
 
 Writing the parameters and reviewing the result are turns in one conversation, so the review sees
-what was written and why. Every attempt runs against the same `inputs`, read once by the caller, so
-a reduction one attempt achieved cannot compound into the next.
+what was written and why, and a rejected review is answered on top of what it rejected. One fragment
+is one conversation: a repair that binds the work to a different operator asks for parameters against
+a different schema, so it starts a new one. Every attempt runs against the same `inputs`, read once
+by the caller, so a reduction one attempt achieved cannot compound into the next.
 
-`run` catches `BudgetExhaustedError` for one reason: a budget that runs out mid-fragment would
-otherwise take with it every attempt already made, and those attempts and their usage are the record
-of what the runner was doing when the request ended. Catching it is what lets them be returned as
-`decision=stop` with `status=budget_exhausted`.
+`run` catches `BudgetExhaustedError` so that a budget running out mid-fragment ends the request as
+`budget_exhausted` rather than as a planner defect. What the runner was doing when the budget ran out
+is already in the conversation, which the run state holds.
 
 The absorbed nodes' instructions are what make a fused call checkable. A single call asked to scan,
 filter, and join returns one table and no evidence of the steps inside it, so the review asks
@@ -679,17 +733,22 @@ result](04-detailed-architecture.md#reviewing-the-result)).
 ```python
 class CatalogSearcher:
     def __init__(
-        self, llm_client: LLMClient, catalog: DataCatalog, max_search_terms: int
+        self, llm_client: LLMClient, catalog: DataCatalog, max_search_terms: int = ...
     ) -> None: ...
 
     def search(
-        self, node: PipelineNode, inputs: DataBundle
-    ) -> CatalogSearchResult: ...
+        self, node: PipelineNode, conversation: Conversation, inputs: DataBundle
+    ) -> DiscoveryResult: ...
 ```
 
 Resolves a `DISCOVER` node. A model turns the node's instruction and the rows its inputs produced
 into concrete search terms, capped at `max_search_terms`, and each term goes to
-`DataCatalog.search_records`. The `DiscoveryResult` holds the terms, the `EntityMatch` values they
+`DataCatalog.search_records`.
+
+`max_search_terms` carries a default and is not a `RunLimits` field, so `build_data_planner` passes
+nothing for it. Reaching it drops the extra terms and changes nothing else about how the request
+proceeds, which makes it a number shaping this component's work rather than a bound on a run, like
+the size of the catalog preview `LogicalPlanner` reads. The `DiscoveryResult` holds the terms, the `EntityMatch` values they
 found, and how many terms the cap dropped. It is kept under the node's id in the run's results map,
 and together with the other resolved nodes' entries it is the run's catalog context: the logical
 planner reads it to write the continuation, the physical planner to bind a scan.
@@ -709,56 +768,55 @@ for](04-detailed-architecture.md#what-a-discovery-nodes-inputs-are-for)).
 ```python
 @dataclass
 class RunState:
-    ...
-
-    @property
-    def logical_plan(self) -> LogicalPlan: ...
-    @property
-    def cover(self) -> PhysicalPlan: ...
-    @property
-    def current_results(self) -> dict[str, ExecutionResult | DiscoveryResult]: ...
+    request: str
+    counters: RunCounters
+    conversations: RunConversations
+    pipeline: DataPipeline
+    results: dict[str, ExecutionResult | DiscoveryResult]   # keyed by signature
 
     def next_ready(self) -> PhysicalPlanFragment | PipelineNode | None: ...
     def ready_control_nodes(self) -> list[PipelineNode]: ...
+    def result_for(self, node_id: str) -> ExecutionResult | DiscoveryResult | None: ...
     def inputs_for(self, fragment: PhysicalPlanFragment) -> DataBundle: ...
     def inputs_for_node(self, node: PipelineNode) -> DataBundle: ...
     def carried_node_ids(self) -> frozenset[str]: ...
     def install_logical_plan(self, plan: LogicalPlan) -> None: ...
     def install_cover(self, cover: PhysicalPlan) -> None: ...
-    def record_fragment(self, result: FragmentResult) -> None: ...
-    def record_discovery(self, node_id: str, result: DiscoveryResult) -> None: ...
-    def record_rejected_plans(self, rejected: list[RejectedPlan]) -> None: ...
-    def record_usage(self, usage: list[LLMUsage]) -> None: ...
-    def to_result(self, status: RunStatus, answer: DataBundle | None = None) -> PlanResult: ...
+    def record_fragment(self, fragment: PhysicalPlanFragment, result: FragmentResult) -> None: ...
+    def record_discovery(self, node: PipelineNode, result: DiscoveryResult) -> None: ...
+    def to_result(
+        self, status: RunStatus, failure_reason: str | None, answer: DataBundle | None = None
+    ) -> PlanResult: ...
 ```
 
-The one mutable object per request. `DataPlanner` creates it, `DataPlanner` alone writes to it, and
-`to_result` freezes it into the `PlanResult` a caller receives. No component holds it: each takes what
-it reads and returns what it produced, which is what keeps the four components carrying nothing
-about a request between calls. It holds no `PlanLimits`, because the bounds belong to the planner
-rather than to one run of it; the loop reads them off itself.
+The one mutable object per request. `DataPlanner` creates it and `to_result` freezes it into the
+`PlanResult` a caller receives. No component holds it: each takes what it reads, writes its turns to
+the conversation it was handed, and returns what it produced, which is what keeps the four components
+carrying nothing about a request between calls. The bounds reach a run through `RunCounters`, which
+carries the `RunLimits` the planner was built with, so nothing is configured per request.
 
-The four counters here are the ones the loop reads to choose a repair. `fragment_attempts` is keyed
-by node set because that is the unit the fragment repair is bounded against, and covering a set
-again either keeps it, spending another attempt, or splits it into smaller sets that each start
-their own count. Splitting strictly shrinks a set, so the repair ends at single nodes.
+Five fields cover a request. Four hold what the run is working on, and `results` holds what it has
+produced, keyed by the signature of the work that produced it rather than by a node id
+([10, reusing a result](10-data-model.md#reusing-a-result)). The current plan and the current cover
+are read off `pipeline`, which already names both, so nothing here forwards to them.
 
-`record_fragment` takes the whole `FragmentResult`, so it appends that fragment's attempts and its
-model usage together. The logical and physical planners return usage beside their result, so the
-loop appends it with `record_usage`, and `CatalogSearchResult` is split the same way.
-
-Everything else `PlanResult.counters` reports is derived in `to_result` rather than tracked twice:
-`operator_calls` from `budget.spent`, `plan_corrections` from the length of `rejected_plans`,
-`parameter_attempts` from the most any one fragment spent in `attempts`, and `search_terms` from the
-discovery entries in `results`. One number, one place it comes from.
+Keying by signature is what makes installation trivial. `install_cover` adds the cover and moves the
+pointer, and `install_logical_plan` does the same for a plan version. Neither compares anything and
+neither deletes anything, because a fragment whose work changed has a different signature and finds
+nothing to reuse, while one whose work is unchanged finds its result whatever cover or plan version
+it now sits in. A fragment fed by changed work is covered by the same rule, since its inputs'
+signatures are part of its own.
 
 Three methods carry the rules that would otherwise be scattered through the loop.
 
-`next_ready` reads the current version's results slot. A fragment is ready when every node on its
-frontier has an entry there and its own root does not; a control node is ready when every node it
+`next_ready` asks the current cover for signatures. A fragment is ready when every node on its
+frontier has a result and its own signature does not; a control node is ready when every node it
 lists has one. It rebuilds the runnable set on each call, so a new cover is picked up without a
 restart. `ready_control_nodes` answers the same question for every control node at once, because
 the loop resolves all of them before it returns to the logical planner.
+
+`result_for` is the one lookup by node id: it reads the current cover for the node's signature, then
+the results map for that signature. Everything that reads a node's output goes through it.
 
 `carried_node_ids` answers what a new logical version keeps: every node the run has something for,
 which for an operator node means belonging to a fragment whose result the run still holds, absorbed
@@ -768,17 +826,6 @@ removes the need for a separate set of handled nodes
 ([10](10-data-model.md#the-logical-half)). It is a method rather than a field because it is a
 question about the current plan, the current cover, and the results map, and this is the only object
 holding all three.
-
-`install_cover` compares the new cover with the previous one fragment by fragment. A fragment whose
-node set and operator are unchanged keeps its root's result. One that changed or is new drops the
-results of every node in it and of every executed node downstream of those, then runs again. The
-single-exit rule is what makes the drop safe: no node outside a fragment was reading those tables.
-Nothing is lost by the removal, since `attempts` still holds every attempt including the ones whose
-results were dropped.
-
-`install_logical_plan` adds the version, moves the pointer, and seeds its results slot with a copy
-of the parent's restricted to the carried nodes. Because the values are shared references, that is a
-map copy rather than a data copy.
 
 ---
 
@@ -793,7 +840,7 @@ def execute_physical_operator(
     parameters: dict[str, Any],
     inputs: DataBundle,
     required_output_columns: list[OutputColumn],
-    budget: CallBudget,
+    counters: RunCounters,
 ) -> ExecutionResult: ...
 
 
@@ -1041,7 +1088,7 @@ and refuses an input above it before calling a model. `lotus.sem_join` counts th
 multiplied together, which is how many comparisons it makes. The refusal is recoverable and says
 that a deterministic operator can take the node, so a fragment that arrived with too many rows is
 answered by another operator rather than by a bill. Whether a bound an operator enforces inside
-its own call belongs in `PlanLimits` is open question 45 in
+its own call belongs in `RunLimits` is open question 45 in
 [13-decision-log.md](13-decision-log.md#open-questions).
 
 An instruction names the columns it reads in LOTUS's own notation, which the parameter schema states
@@ -1109,7 +1156,7 @@ Spending that count returns a recoverable failure like any other.
 
 Its report carries the program that ran, each program that did not and what it did, the query behind
 each scan, and what its own model calls cost. Those counts travel there rather than in
-`PlanResult.planner_usage`, which keeps the scope its name states (ADR-005).
+`PlanResult.conversations`, which holds what the planner itself spent (ADR-005).
 
 ---
 
@@ -1304,17 +1351,20 @@ class Conversation:
 def complete_structured(self, conversation: Conversation, response_model: type[M]) -> M: ...
 ```
 
-The conversation is what makes two of the design's patterns work: the logical planner appends a
-validation error and asks again, and the fragment runner reviews a result in the exchange that wrote
-its parameters.
+The conversation is what makes error recovery work at all three stages: the logical planner appends a
+validation error and asks again, the physical planner rebinds on top of the binding that failed, and
+the fragment runner reviews a result in the exchange that wrote its parameters.
 
-It also carries the usage, which is what lets a component report what its calls cost without an
-out-parameter: the component reads `conversation.usage` when it builds its result. One making
-several exchanges concatenates them. There is no accumulator class, since a total is a `sum()` over
-the list.
+A conversation belongs to the run rather than to the component that writes into it. `RunState` holds
+them, hands the right one to each call, and a component appends turns to what it was given
+([04, one conversation per component](04-detailed-architecture.md#one-conversation-per-component)).
 
-`PlanResult.planner_usage` therefore covers calls through this module and nothing else, and the name
-says so. A model call an operator makes internally, as a LOTUS operator does, is invisible here:
+It also carries the usage, one entry per call made on it. A run's spend is therefore the usage across
+the conversations the run state holds, with no component reporting it separately and no accumulator
+class, since a total is a `sum()` over the list.
+
+`PlanResult.conversations` therefore covers calls through this module and nothing else. A model call
+an operator makes internally, as a LOTUS operator does, is invisible here:
 LOTUS holds its own model configuration, is not routed through `llm/`, and reports no per-call token
 count, so the call is billed as part of the one operator call that contains it
 ([05-software-stack.md](05-software-stack.md#two-model-configurations-one-budget)).
@@ -1338,7 +1388,7 @@ dedicated type, and a run that exhausts an allowance returns a status.
 | `UnrecoverableOperatorError` | An operator fails for a reason no other operator would avoid | `execute_physical_operator`, which returns an unrecoverable failure |
 | `SourceQueryError` | A source refuses the query a read ran against it | The operator that read the source, which raises a recoverable failure |
 | `SourceUnreachableError` | The registry cannot resolve a source to a connectable object | The operator that read the source, which raises an unrecoverable failure |
-| `BudgetExhaustedError` | The operator call budget reaches its cap | `FragmentRunner`, which returns `budget_exhausted` with the attempts already made |
+| `BudgetExhaustedError` | The operator call budget reaches its cap | `FragmentRunner`, which returns `budget_exhausted` |
 | `LLMError` | The provider fails after retries | `DataPlanner`, which ends the request with `llm_failed` |
 | `ValueError`, `TypeError`, and a suite's own validation errors | Malformed state or a missing required value | Nothing. These are bugs and they propagate |
 

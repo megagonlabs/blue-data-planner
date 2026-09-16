@@ -23,7 +23,7 @@ and reads its result writes one import. Everything else is reached through the m
 
 | Import | Holds |
 | --- | --- |
-| `blue_data_planner` | `DataPlanner`, `build_data_planner`, `PlanResult`, `PlanLimits`, `RunStatus`, `BlueDataPlannerError`, `__version__` |
+| `blue_data_planner` | `DataPlanner`, `build_data_planner`, `PlanResult`, `RunLimits`, `RunStatus`, `BlueDataPlannerError`, `__version__` |
 | `blue_data_planner.data_planner` | `DataPlanner`, `build_data_planner` |
 | `blue_data_planner.logical_planner`, `.physical_planner`, `.fragment_runner` | The three planning components, one module each |
 | `blue_data_planner.catalog_searcher` | `CatalogSearcher` |
@@ -67,7 +67,7 @@ passes them in.
 ```python
 from pathlib import Path
 
-from blue_data_planner import PlanLimits, build_data_planner
+from blue_data_planner import RunLimits, build_data_planner
 from blue_data_planner.data import DataCatalog, open_registry
 from blue_data_planner.llm import LLMClient
 from blue_data_planner.operators import OperatorRouter
@@ -92,7 +92,7 @@ planner = build_data_planner(
     router=router,
     catalog=DataCatalog(data_registry),
     llm_client=llm_client,
-    limits=PlanLimits(...),
+    limits=RunLimits(...),
 )
 ```
 
@@ -103,9 +103,8 @@ itself passes that one in place of this call. It reaches a suite adapter unchang
 that reads data takes a registry of its own (ADR-004).
 
 `build_data_planner` is the default wiring, and what every adapter calls. It constructs the three
-planning components and the discovery step, and hands each one that enforces a bound of its own the
-number it obeys. A caller who wants a different model per component, or a fake component in a test,
-builds them and calls the constructor:
+planning components and the discovery step, and hands `DataPlanner` the limits. A caller who wants a
+different model per component, or a fake component in a test, builds them and calls the constructor:
 
 ```python
 from blue_data_planner import DataPlanner
@@ -115,22 +114,18 @@ from blue_data_planner.logical_planner import LogicalPlanner
 from blue_data_planner.physical_planner import PhysicalPlanner
 
 planner = DataPlanner(
-    logical_planner=LogicalPlanner(
-        llm_client=big_model, catalog=catalog, max_plan_corrections=5
-    ),
+    logical_planner=LogicalPlanner(llm_client=big_model, catalog=catalog),
     physical_planner=PhysicalPlanner(llm_client=small_model, router=router),
-    fragment_runner=FragmentRunner(
-        llm_client=small_model, catalog=catalog, router=router, max_parameter_attempts=3
-    ),
-    catalog_searcher=CatalogSearcher(
-        llm_client=small_model, catalog=catalog, max_search_terms=8
-    ),
+    fragment_runner=FragmentRunner(llm_client=small_model, catalog=catalog, router=router),
+    catalog_searcher=CatalogSearcher(llm_client=small_model, catalog=catalog),
     limits=limits,
 )
 ```
 
-Hand assembly is the one path that sets a bound in two places, since three of the eight are passed
-to a component as well as being fields of `PlanLimits`.
+A bound is set once, here. `DataPlanner` is the only object holding `RunLimits`, and a component that
+obeys a bound reads it off the `RunCounters` it is handed per call. A number a component's
+constructor does take is a number that is not a bound on a run, which is why `CatalogSearcher` can
+be given one for the search terms a `DISCOVER` node expands into.
 
 ### `DataPlanner`
 
@@ -157,20 +152,22 @@ with no search run, since resolving one would start the second pass.
 
 ### Bounds on a run
 
-Every bound is a field of `PlanLimits`. Four are counted by the run loop and one by the operator-call budget; the other three bound a loop
-inside one component, and `build_data_planner` hands each component its own number. Defaults
-are in [12-deployment-ops.md](12-deployment-ops.md).
+Every bound is a field of `RunLimits`, held by `DataPlanner` and read off the `RunCounters` it builds
+for each request. Three are counted across a whole request and reported in `RunCounters`; the other
+four reset inside one. How many search terms one `DISCOVER` node expands into is not among them:
+reaching that number drops the extra terms and changes nothing else, so `CatalogSearcher` holds it.
+How a deployment sets a bound is in
+[12-deployment-ops.md](12-deployment-ops.md#5-request-limits).
 
 | Bound | Counted | Enforced by | Reaching it |
 | --- | --- | --- | --- |
-| `operator_calls` | Per request | `CallBudget`, billed in `execute_physical_operator` | `budget_exhausted` |
+| `operator_calls` | Per request | `RunCounters`, billed in `execute_physical_operator` | `budget_exhausted` |
 | `plan_corrections` | Per plan | `LogicalPlanner`, rewriting a plan validation turned down | `invalid_plan` |
-| `parameter_attempts` | Per fragment | `FragmentRunner`, writing parameters again after a rejected review | The fragment repair |
-| `fragment_attempts` | Per node set | The run loop | The cover repair |
-| `cover_attempts` | Per request | The run loop | The replan |
-| `failure_replans` | Per request | The run loop | `replan_exhausted` |
-| `control_replans` | Per request | The run loop | `replan_exhausted` |
-| `search_terms` | Per `DISCOVER` node | `CatalogSearcher` | Terms beyond the cap are dropped |
+| `parameter_repairs` | Per fragment | `FragmentRunner`, writing parameters again after a rejected review | The fragment repair |
+| `fragment_repairs` | Per root node | The run loop's fragment repair loop | The cover repair |
+| `cover_repairs` | Per logical plan | The run loop's cover repair loop | The replan |
+| `failure_replans` | Per request | `RunCounters`, read by the run loop | `replan_exhausted` |
+| `control_replans` | Per request | `RunCounters`, read by the run loop | `replan_exhausted` |
 
 The four recovery bounds are one repair each, tried narrowest first
 ([04-detailed-architecture.md](04-detailed-architecture.md#5-recovering-from-a-failure)).
@@ -186,24 +183,24 @@ Returned whichever way a request ends, and fixed in
 | `answer` | `DataBundle \| None` | The `RETURN` node's rows. `None` unless `status` is `ok` |
 | `failure_reason` | `str \| None` | Why the run ended as it did. `None` when `status` is `ok` |
 | `pipeline` | `DataPipeline` | Every logical plan and every cover the request produced, with the current pair named |
-| `results` | `dict[str, dict[str, ExecutionResult \| DiscoveryResult]]` | Keyed by logical plan id, then node id |
-| `attempts` | `list[FragmentAttempt]` | Every fragment run in run order, rejected ones included |
-| `rejected_plans` | `list[RejectedPlan]` | Every logical plan validation turned down, each with its error |
-| `counters` | `dict[str, int]` | One entry per `PlanLimits` field, holding what was spent |
-| `planner_usage` | `list[LLMUsage]` | One record per model call through `llm/`, in call order |
+| `results` | `dict[str, ExecutionResult \| DiscoveryResult]` | Keyed by the signature of the work that produced each one |
+| `counters` | `RunCounters` | What the run spent against the four bounds counted per request, and those bounds |
+| `conversations` | `RunConversations` | Every exchange with the model, by the component that had it |
 
 `answer` is `None` rather than `[]` on any status other than `ok`, so a caller who ignores the
 status cannot mistake a failed run for an empty answer (ADR-015). `failure_reason` is the mirror of
 that rule: every failure status carries one, in the words of whatever ended the run. `ok` never
 carries one, and `planned` carries one only when no cover could be written.
 
-No field reports a node's outcome on its own. Whether a node succeeded is whether the current plan's
-slot in `results` holds an entry for it, and which operator ran it is that entry's `operator_id`
+No field reports a node's outcome on its own. Whether a node succeeded is whether `results` holds the
+signature the current cover gives it, and which operator ran it is that fragment's `operator_id`
 ([10](10-data-model.md#3-what-a-run-produces)).
 
-`planner_usage` covers calls through `llm/` and nothing else. A model call an operator makes
-internally, as a LOTUS operator does, is billed as part of the one operator call that contains it.
-Planner spend is exact; operator spend is a call count.
+`conversations` is where a run's rejected work is read: a plan validation turned down, a binding the
+physical planner replaced, parameters a review rejected. It also carries what the calls cost, for
+calls through `llm/` and nothing else. A model call an operator makes internally, as a LOTUS operator
+does, is billed as part of the one operator call that contains it. Planner spend is exact; operator
+spend is a call count.
 
 ### Exceptions
 
@@ -216,7 +213,7 @@ does raise, in the order a caller meets it:
 | Any other `BlueDataPlannerError` | A defect in the planner, raised where it is found | Only from a direct call to the component that raised it |
 | `RecoverableOperatorError` | An operator refuses its input in a way a different operator might not | Only from a direct `execute_physical_operator` call |
 | `UnrecoverableOperatorError` | An operator fails for a reason no other operator would avoid | The same |
-| `BudgetExhaustedError` | The operator call budget reaches its cap | Only from a direct `execute_physical_operator` call. `FragmentRunner` catches it and returns `budget_exhausted` with the attempts already made |
+| `BudgetExhaustedError` | The operator call budget reaches its cap | Only from a direct `execute_physical_operator` call. `FragmentRunner` catches it and returns `budget_exhausted` |
 | `LLMError` | The provider fails after retries | Only from a direct `LLMClient` call. `DataPlanner` catches it and ends the request as `llm_failed` |
 | `ValueError`, `TypeError`, and a suite's own validation errors | Malformed state, a missing configuration value, an unknown node or operator id | Always. These are bugs and they propagate |
 
@@ -245,28 +242,27 @@ blue-data-planner ask "Which Bay Area data scientist postings are at healthcare 
 | `REQUEST` | positional, required | | The question, in plain language |
 | `--explain` | flag | off | Call `plan` instead of `run`: print the plan and the cover, and stop |
 | `--json` | flag | off | Print the whole `PlanResult` as JSON instead of a table |
-| `--show-attempts` | flag | off | Include rejected fragment attempts in the printed output |
+| `--show-conversations` | flag | off | Include the exchanges with the model in the printed output |
 | `--model` | string | from the environment | The litellm model string every component uses |
 | `--registry` | string | from the environment | Which `blue-data` registry to read |
 | `--quiet` | flag | off | Suppress the per-fragment progress lines |
 
-Each of the eight bounds has a flag, named `--max-` plus its `PlanLimits` field name. The prefix is
-what says the number is a cap, which the field name alone does not: `PlanLimits` drops it because
+Each of the seven bounds has a flag, named `--max-` plus its `RunLimits` field name. The prefix is
+what says the number is a cap, which the field name alone does not: `RunLimits` drops it because
 the type name already says limits, and a command line has no such container.
 
 | Flag | Sets |
 | --- | --- |
 | `--max-operator-calls` | `operator_calls` |
 | `--max-plan-corrections` | `plan_corrections` |
-| `--max-parameter-attempts` | `parameter_attempts` |
-| `--max-fragment-attempts` | `fragment_attempts` |
-| `--max-cover-attempts` | `cover_attempts` |
+| `--max-parameter-repairs` | `parameter_repairs` |
+| `--max-fragment-repairs` | `fragment_repairs` |
+| `--max-cover-repairs` | `cover_repairs` |
 | `--max-failure-replans` | `failure_replans` |
 | `--max-control-replans` | `control_replans` |
-| `--max-search-terms` | `search_terms` |
 
 A flag left off takes the deployment's default. The CLI builds one planner per invocation, so the
-flags reach `PlanLimits` before the planner exists and no bound is set twice.
+flags reach `RunLimits` before the planner exists and no bound is set twice.
 
 ### Output
 
@@ -331,25 +327,20 @@ run may spend is a deployment decision rather than something an agent has a basi
     "physical_plans": {"d19f5b3c": {"...": {}}, "a6e02f77": {"...": {}}}
   },
   "results": {
-    "8c4a71d0": {
-      "n1": {"matches": 4},
-      "n3": {"status": "ok", "row_count": 48}
-    }
+    "a3f1c208": {"matches": 4},
+    "7b40de91": {"status": "ok", "row_count": 48}
   },
-  "attempts": 7,
-  "rejected_plans": 0,
-  "counters": {"operator_calls": 7, "plan_corrections": 0, "parameter_attempts": 2,
-               "fragment_attempts": 1, "cover_attempts": 0, "failure_replans": 0,
-               "control_replans": 1, "search_terms": 2},
-  "planner_usage": {"calls": 11, "cost": 0.42}
+  "counters": {"operator_calls": 7, "failure_replans": 0,
+               "control_replans": 1},
+  "conversations": {"calls": 11, "cost": 0.42}
 }
 ```
 
-Four shapes differ from the library's on purpose, and each is a count where the library carries a
-list ([10, shapes that leave the process](10-data-model.md#5-shapes-that-leave-the-process)):
-`attempts`, `rejected_plans`, a `DISCOVER` node's matches, and `planner_usage`. An agent reasons
-about the outcome, and the full records would bloat every response. The library and the CLI carry
-all four in full.
+Three shapes differ from the library's on purpose, and each is a count where the library carries the
+full record ([10, shapes that leave the process](10-data-model.md#5-shapes-that-leave-the-process)):
+`conversations`, a `DISCOVER` node's matches, and the bounds inside `counters`. An agent reasons
+about the outcome, and a full transcript would bloat every response. The library and the CLI carry
+them in full.
 
 A run that did not finish returns the same object with its status, `answer` null, and the counters
 showing what ran out. That is a successful tool call reporting a failed run, not a tool error.

@@ -185,11 +185,11 @@ Three doubles serve the planner.
 | --- | --- | --- |
 | A scripted model client | `LLMClient` | Hand a component an exact sequence of plans, covers, parameters, and reviews |
 | A recording physical operator | A `PhysicalOperator`'s callable | Assert what execution passed a fragment, and return a chosen result or failure |
-| A fake per injected component | `LogicalPlanner`, `PhysicalPlanner`, `FragmentRunner`, `CatalogSearcher` | Drive the run loop's scheduling, repair choice, and cover installation from returned results alone, with no model and no operator |
+| A fake per injected component | `LogicalPlanner`, `PhysicalPlanner`, `FragmentRunner`, `CatalogSearcher` | Drive the run loop's scheduling, its repair loops, and cover installation from returned results alone, with no model and no operator |
 
 The scripted client is what makes planner tests deterministic and what keeps them at the level
 section 1 asks for. A test of the parameter repair scripts a review that rejects and then one that
-accepts, and asserts that both attempts came back in the result. No provider is involved, no prompt
+accepts, and asserts that the accepted result is the one the run kept and that both turns are in the fragment's conversation. No provider is involved, no prompt
 is under test, and nothing in the test names a step the runner takes in between.
 
 Two boundaries are not doubled. A source that runs embedded is tested against a real instance
@@ -243,9 +243,9 @@ mapping, exit codes. Planning and execution are the library's tests, not repeate
 
 | Adapter | Tested for |
 | --- | --- |
-| MCP | Each tool's argument schema; the response shape, including `attempts` as a count and `planner_usage` collapsed to calls and cost; a run that did not finish returning success with a status in the payload; an unknown tool and a malformed argument returning `isError` |
+| MCP | Each tool's argument schema; the response shape, including `conversations` collapsed to calls and cost; a run that did not finish returning success with a status in the payload; an unknown tool and a malformed argument returning `isError` |
 | MCP threading | A tool that runs a plan goes through `asyncio.to_thread` rather than blocking the event loop |
-| CLI | Argument and option parsing through Click's `CliRunner`, including the `--max-` flags reaching `PlanLimits`; progress on standard error and the answer on standard output; each of the four exit codes |
+| CLI | Argument and option parsing through Click's `CliRunner`, including the `--max-` flags reaching `RunLimits`; progress on standard error and the answer on standard output; each of the four exit codes |
 
 Adapter tests import doubles from `lib/tests/` rather than defining their own, so one scripted model
 client serves every package.
@@ -269,7 +269,7 @@ design still needs measured.
 | Reported | Answers |
 | --- | --- |
 | Accuracy against the gold answers | Whether the system meets the 60% target |
-| Operator calls per request, and model calls per component | Whether the defaults in [12-deployment-ops.md](12-deployment-ops.md) are near the truth |
+| Operator calls per request, and model calls per component | Whether `RunLimits`'s defaults are near the truth ([12-deployment-ops.md](12-deployment-ops.md#5-request-limits)) |
 | How often a plan schedules a replan | Open question 2: whether planning is two-pass in practice |
 | How large a fragment the physical planner draws, and how often each repair fires | Whether the pushdown boundary lands where the design expects, and which repair is doing the work |
 | The review's accept rate | Whether the review talks itself into bad results, which ADR-013 flags as the risk worth watching |
@@ -291,7 +291,7 @@ Naming a gap is more useful than implying it is covered.
 | Prompt quality | Whether a prompt draws a usable answer out of a real model is what the benchmark measures, against gold answers ([section 8](#8-benchmark-suites)). A model changes under a fixed prompt, so an assertion written against one answer would say nothing about the next |
 | LOTUS itself, and the Blue operators | Each adapter is tested; a suite is a dependency and tests its own behavior |
 | Concurrency | The library is synchronous and runs one fragment at a time. A caller running several requests at once is running several threads, which is the caller's concern |
-| Cost | Model spend is reported per call in `PlanResult.planner_usage` and asserted nowhere, since a threshold would fail on a price change rather than on a regression |
+| Cost | Model spend is reported per call in `PlanResult.conversations` and asserted nowhere, since a threshold would fail on a price change rather than on a regression |
 
 ---
 

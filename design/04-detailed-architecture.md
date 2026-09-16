@@ -128,6 +128,29 @@ the planner. That is why a plan holds at most one of them. Two markers saying "s
 the rest" produce one continuation between them, so the second says nothing the first does not,
 where two `DISCOVER` nodes each carry their own instruction and spend their own search terms.
 
+### One conversation per component
+
+Every stage talks to a model in an exchange the run owns, and every repair continues the exchange it
+is repairing. A model asked to fix something answers what it wrote rather than being told about it
+from the outside, and the turns that have not changed stay cached.
+
+| Component | One conversation per | Continues on |
+| --- | --- | --- |
+| Logical planner | Request | A validation error, a resolved `DISCOVER`, a replan |
+| Physical planner | Logical plan | A fragment repair, a cover repair |
+| Fragment runner | Fragment | A failed call, a rejected review |
+| Catalog searcher | `DISCOVER` node | Nothing. One exchange, one answer |
+
+Each conversation is cut where continuing it would stop helping. A new logical plan renames the graph
+the physical planner's turns describe, and a fragment rebound to a different operator needs
+parameters in a different shape, so both start fresh.
+
+Two rules hold across all four. Fixed instructions are what a component says to open a conversation,
+and everything that varies by request or by turn is asked rather than declared, so the opening is
+identical across runs and caches as a prefix. Nothing already written is rewritten: a later turn is
+added, never merged into an earlier one, because a rewritten turn invalidates the cache from that
+point on and contradicts what the model has already answered.
+
 ---
 
 ## 1. Logical planning
@@ -255,18 +278,24 @@ pushdown decision itself. A rule that always absorbs the maximum would settle in
 question the planner is there to answer. Greedy maximal matching stays available as a model-free
 baseline.
 
-One covering operation is one conversation, and each binding decision is a turn in it. The run's
-catalog context sits in the system message, so it is sent once rather than once per node, and the
-model deciding a binding knows what it bound a moment earlier. A repair starts a fresh conversation
-instead of continuing the old one: a cover is written whole and never patched into an older one, so
-the reasoning that produced a superseded cut should not sit in front of the model as though it still
-applied. What happened is carried in the new system message as structured facts — for each node with
-a result, the fragment and operator that produced it and the output's row count and column names,
-and on a repair the failed fragment's node set, the operator bound to it, why it failed, and which
-operators have already been tried on that node set. Row counts are there because absorbing a node
-that already ran throws its result away and pays for the work again, and how much that costs is how
-many rows are discarded ([the cover repair](#the-cover-repair)). Rows themselves stay out: the
-physical planner chooses boundaries and operators, and values are the fragment runner's reading.
+Each binding decision is a turn, and one logical plan is one conversation
+([one conversation per component](#one-conversation-per-component)). The model deciding a binding
+knows what it bound a moment earlier, and a repair continues the same exchange, so a rebinding
+answers the binding that failed rather than being told about it. A new logical plan starts a new
+conversation, because the node ids already in the turns name a different graph.
+
+The run's catalog context opens the conversation, so it is sent once rather than once per node. What
+happened since is carried as structured facts: for each node with a result, the fragment and operator
+that produced it and the output's row count and column names, and on a repair the failed fragment's
+node set, why it failed, and which operators have already been tried on it. Row counts are there
+because absorbing a node that already ran throws its result away and pays for the work again, and how
+much that costs is how many rows are discarded ([the cover repair](#the-cover-repair)). Rows
+themselves stay out: the physical planner chooses boundaries and operators, and values are the
+fragment runner's reading.
+
+A candidate is named by its operator and its node set rather than by a position in the list it
+arrived in. The list differs from turn to turn, so a position means something different in each one,
+while an operator over a node set reads the same wherever it appears.
 
 Along with the fragment and its operator, the model writes three things.
 
@@ -300,16 +329,21 @@ deterministic, and the model's discretion is confined to an exception path.
 
 A cover is written for the plan as it stands and is never patched into an older one. Each one is a
 new object, kept alongside the covers it replaced, and a fragment in it may absorb nodes that
-already ran. A result the run is holding is therefore a cache: it can be dropped and produced again.
+already ran. A result the run is holding is therefore a cache: it can be left unread and produced
+again.
 
-Installing a cover compares it with the previous one, fragment by fragment.
+Installing a cover compares it with nothing. Every result the run holds is filed under the signature
+of the work that produced it, and a fragment finds a result exactly when it asks for work already
+done ([10, reusing a result](10-data-model.md#reusing-a-result)).
 
-| A fragment whose node set | What happens |
+| A fragment asking for | What happens |
 | --- | --- |
-| Is unchanged | Keeps its root's result and does not run again |
-| Changed, or is new | Drops the results of every node in it, and of every executed node downstream of those, then runs |
+| Work already done | Reads that result and does not run |
+| Anything else | Runs, and files its result under its own signature |
 
-[Section 5](#5-recovering-from-a-failure) is where that matters.
+A fragment fed by work that changed falls in the second row without a separate rule, because its
+inputs' signatures are part of its own. [Section 5](#5-recovering-from-a-failure) is where that
+matters.
 
 ---
 
@@ -546,18 +580,24 @@ run out of attempts.
 
 | Repair | What it rewrites | By | Bounded by |
 | --- | --- | --- | --- |
-| Parameter | The parameters, against the same fragment and operator | `FragmentRunner` | `parameter_attempts`, per fragment |
-| Fragment | The operator, or the way this node set is cut into fragments | `PhysicalPlanner` | `fragment_attempts`, per node set |
-| Cover | The whole cover, against the same logical plan | `PhysicalPlanner` | `cover_attempts`, per request |
+| Parameter | The parameters, against the same fragment and operator | `FragmentRunner` | `parameter_repairs`, per fragment |
+| Fragment | The operator, or the way this node set is cut into fragments | `PhysicalPlanner` | `fragment_repairs`, per root node |
+| Cover | The whole cover, against the same logical plan | `PhysicalPlanner` | `cover_repairs`, per logical plan |
 | Replan | The logical plan | `LogicalPlanner` | `failure_replans`, per request |
 
 Each repair discards strictly more work than the one before it, and costs strictly more to redo.
 Starting with the narrowest keeps a wrong parameter from being answered with a new plan.
 
-The order is also readable after the fact. Two consecutive attempts at the same fragment with the
-same operator and different parameters are a parameter repair; a different operator over the same
-node set is a fragment repair; a fragment whose node set grew is a cover repair. What actually fixed
-a run can be counted without instrumenting anything further.
+The four are four nested loops, each bounded at the scope its row names. A bound that names a scope
+narrower than the request is spent inside one loop and starts again when that loop does, so a new
+logical plan gets its own covers and a new cover its own cuts. Only the replan allowance lasts a
+whole request.
+
+The order is also readable after the fact, from the covers a run kept. A second cover binding a
+different operator to the same node set is a fragment repair; one whose fragments grew is a cover
+repair; a second logical plan is a replan. A parameter repair changes no plan and reads from the
+fragment's own exchange. What actually fixed a run can be counted without instrumenting anything
+further.
 
 ### The parameter repair
 
@@ -577,9 +617,9 @@ cover that picked the wrong one. The last of those is why this repair reads the 
 context and not only the cover it is replacing: the cover holds the one entity already chosen, and
 the alternatives are in the context.
 
-Attempts are counted against the node set. Covering it again either keeps the set, which spends
-another attempt against it, or produces smaller sets, each of which starts its own count. Splitting
-strictly shrinks a set, so this repair ends at single nodes.
+Attempts are counted against the root node rather than the node set, because cutting a set again may
+split it and the root is what survives every cut. Splitting strictly shrinks a set, so this repair
+ends at single nodes.
 
 ### The cover repair
 
@@ -592,12 +632,12 @@ three steps needed to happen inside one query. The fragment repair cannot reach 
 may only rearrange the projection's own node set. The cover repair covers the plan again and may put
 all three into one Text-to-SQL fragment.
 
-Absorbing a node that already ran drops its result, and the results of every executed node
-downstream of it, since those saw a value the new fragment is about to produce again. Everything the
-new cover leaves alone keeps its result and does not run again. The work inside a changed fragment
-is paid for twice, which is the cost the model weighs against what the wider fragment buys. The
-single-exit rule is what makes the drop safe: no node outside the fragment was reading those
-tables.
+Absorbing a node that already ran leaves that node's result unread, and the results of every executed
+node downstream of it too, since those saw a value the new fragment is about to produce again.
+Everything the new cover leaves alone asks for the same work and reads the same result. The work
+inside a changed fragment is paid for twice, which is the cost the model weighs against what the
+wider fragment buys. The single-exit rule is what makes that safe: no node outside the fragment was
+reading those tables.
 
 Needing this repair does not require the logical plan to be wrong. A plan can be right while the way
 it was cut up is wrong, and repairing the cut should not require rewriting the plan.
@@ -618,24 +658,30 @@ decides whether these repairs apply at all.
 | --- | --- | --- |
 | Recoverable | Bad parameters, a missing or uncoercible required column, an operator raising on input it cannot handle | Start with the parameter repair |
 | Unrecoverable | The failure has nothing to do with any of the four repairs: a source is unreachable, credentials are rejected, the process is out of memory | End the request. Retrying would fail the same way |
-| No operator | No operator matches a node, alone or in any fragment containing it | Go straight to the replan. No operator call is spent |
 
-With the built-in suite registered, every operator node kind has a candidate, so `no_operator` is
+A third case ends a request without any of this, because nothing ran. When no operator matches a
+node, alone or in any fragment containing it, physical planning writes no cover: the result carries
+no plan and a reason naming the node, and the run goes straight to the replan with no operator call
+spent. It is not a failure kind, since a failure kind describes a call that was made.
+
+With the built-in suite registered, every operator node kind has a candidate, so this case is
 reserved for a scan the suite cannot read: one bound to a source kind outside its declarations, or
-one of the model's world knowledge, which is bound to no source at all. Everything else that used to
-end here now fails at review instead, one operator call later (ADR-020).
+one of the model's world knowledge, which is bound to no source at all. Everything else reaches an
+operator, and a wrong choice is caught at review one operator call later (ADR-020).
 
 ---
 
 ## Budgets and limits
 
-Eight limits bound a request. Each is fixed when the planner is built, counted at the scope its row
-below gives, and reported in the result whether the run succeeded or not. ADR-014 covers which of them is budgeted
-and why, and [06-library.md](06-library.md#budgets-and-limits) says which component enforces each.
+Seven limits bound a request. Each is fixed when the planner is built and counted at the scope its
+row below gives. ADR-014 covers which of them is budgeted and why, and
+[06-library.md](06-library.md#budgets-and-limits) says which component enforces each.
 
-What each one counts and what happens when it is reached are in
-[12-deployment-ops.md](12-deployment-ops.md#5-request-limits), beside the defaults.
-`PlanResult.counters` reports one number per limit, under the limit's own name.
+What each one counts, where it starts again, and what happens when it is reached are in
+[12-deployment-ops.md](12-deployment-ops.md#5-request-limits).
+`PlanResult.counters` reports the four that are counted across a whole request, each beside the bound
+it was counted against. The other four reset inside one, so no single number describes what a run
+spent against them.
 
 Calls through `llm/` are not budgeted. A plan correction spends one and no operator call, since the
 rejected plan never runs, and so does every physical planning decision. The parameter repair is the
@@ -650,7 +696,7 @@ Every request returns a result, whether it worked or not. Exhaustion, operator f
 failure are statuses, not exceptions. Exceptions are reserved for programming errors and malformed
 state, such as a plan object that is not a plan or a required configuration value that is missing. A
 provider that fails after its retries is neither, so it ends the request with `llm_failed` and the
-run returns every plan and attempt it had already accumulated.
+run returns every plan it had already written and every exchange that wrote them.
 
 A programming error still raises where it is found, so the message names what broke rather than a
 budget the run went on to exhaust. The run loop is where it stops: it ends the request as
@@ -671,6 +717,7 @@ objection the last rejected plan drew.
 | `planner_failed` | A planner defect ended the run. `failure_reason` carries what broke |
 
 The result always carries every state the plan passed through, logical and physical, together with
-every fragment attempt and every rejected plan. A failed run is therefore as inspectable as a
-successful one, and one structure serves both adapters. Those covers record where each pushdown
+every exchange that produced them, which is where a rejected plan and a rejected set of parameters
+are found. A failed run is therefore as inspectable as a successful one, and one structure serves
+both adapters. Those covers record where each pushdown
 boundary was drawn, so that decision can be measured without rerunning anything.

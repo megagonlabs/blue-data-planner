@@ -252,13 +252,13 @@ Data Scientist, Clinical  Meridian Bio   Palo Alto, CA
 ```
 
 The second cover is written for the whole plan, not patched into the first, and installing it
-compares the two fragment by fragment. `n6` is in a fragment whose node set did not change, so its
-140 rows are kept and `tablesuite.document_fetch` does not run again. The group that changed drops
-what it had, and runs.
+asks for the same work under `n6` as the last one did, so its 140 rows are read again and
+`tablesuite.document_fetch` does not run. The group that changed asks for work nothing has done, and
+runs.
 
 The scan of `postings` is paid for twice, which is what the wider fragment cost when it failed. That
-is the trade physical planning weighs, and both attempts are in the record, so where the boundary was drawn
-and what happened to it can be read afterwards without running anything again.
+is the trade physical planning weighs, and both covers are in the record, so where the boundary was
+drawn and what happened to it can be read afterwards without running anything again.
 
 ### Reading a plan without running it
 
@@ -333,19 +333,16 @@ produced.
       "...": {}
     }
   },
-  "attempts": 7,
-  "rejected_plans": 0,
-  "counters": {"operator_calls": 7, "plan_corrections": 0, "parameter_attempts": 2,
-               "fragment_attempts": 1, "cover_attempts": 0, "failure_replans": 0,
-               "control_replans": 1, "search_terms": 4},
-  "planner_usage": {"calls": 11, "cost": 0.42}
+  "counters": {"operator_calls": 7, "failure_replans": 0,
+               "control_replans": 1},
+  "conversations": {"calls": 11, "cost": 0.42}
 }
 ```
 
-The MCP response collapses what an agent reasons about into counts. `attempts` is a number rather
-than seven full records, and the discovery node reports how many records matched rather than listing
-them, because the full record would bloat every response. The library and the CLI carry both in
-full.
+The MCP response collapses what an agent reasons about into counts. The exchanges with the model are
+a call count and a cost rather than eleven transcripts, and the discovery node reports how many
+records matched rather than listing them, because the full record would bloat every response. The
+library and the CLI carry both in full.
 
 The agent does not have to know that the run discovered a source, ended a pass, and took a pushdown
 boundary back, since the tool call still reads as one request and one answer. The record is there if
@@ -374,8 +371,8 @@ result.answer                       # the final rows
 result.pipeline.logical_plans       # both versions: the one ending at the DISCOVER nodes, and
                                     # the complete one
 result.pipeline.physical_plans      # both covers: the one that fused three nodes, and its replacement
-result.results["8c4a71d0"]["n1"]    # one search: its terms, and the entities and attributes found
-result.attempts                     # every fragment run, in run order, rejected ones included
+result.results[signature_of("n1")]  # one search: its terms, and the entities and attributes found
+result.conversations                # every exchange with the model, by the component that had it
 ```
 
 Three questions have three different answers, and each is in a different place.
@@ -384,11 +381,11 @@ Three questions have three different answers, and each is in a different place.
 | --- | --- |
 | What did the request ask for | `pipeline.logical_plans`, the version `current_logical_plan_id` names |
 | How much was pushed into one call | The `logical_node_ids` of each fragment, in every cover in `pipeline.physical_plans` |
-| What actually ran, and what was rejected | `attempts`, each with its node set, its operator, its parameters, and the review's assessment |
+| What actually ran, and what was rejected | `conversations.fragment_runner`, one exchange per fragment, holding the parameters written and the review's assessment |
 
-A developer investigating a run that returned postings for data engineers reads `attempts` and finds
-the first two: one fragment covering `n3`, `n4`, and `n5`, run by `tablesuite.nl2sql`, with an
-assessment naming titles that do not answer `n5`. The plan was right and the cut was wrong, which
+A developer investigating a run that returned postings for data engineers reads the exchange for the
+fragment covering `n3`, `n4`, and `n5`, run by `tablesuite.nl2sql`, and finds a review naming titles
+that do not answer `n5`. The plan was right and the cut was wrong, which
 points at the physical planner's prompt rather than at the logical planner.
 
 The planner takes a request and nothing else. A plan is what a request produced, not something a

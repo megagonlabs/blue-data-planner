@@ -112,50 +112,63 @@ should be the default is open question 18.
 
 ## 5. Request limits
 
-`PlanLimits` holds every bound the run loop obeys, and it is set once, when the planner is built
+`RunLimits` holds every bound the run loop obeys, and it is set once, when the planner is built
 (ADR-014). Nothing overrides one per request. An operator enforcing a bound on work it repeats
-inside a single call holds that number itself, and a deployment does not set it. Each is reported in `PlanResult.counters` whether the
-run succeeded or not, under the name it carries here.
+inside a single call holds that number itself, and a deployment does not set it. The values in force
+are the defaults on `RunLimits`, which is where a deployment reads them.
 
-| Bound | Default | Counted | Reaching it |
+Where a bound is counted decides whether a result can report it. Three are counted across a whole
+request and are the fields of `RunCounters`. The other four are spent inside a loop and start again
+when that loop does, so no one number says what a request spent against them.
+
+| Bound | Counted over | Starts again | Reaching it |
 | --- | --- | --- | --- |
-| `operator_calls` | 30 | Per request | `budget_exhausted` |
-| `plan_corrections` | 5 | Per plan | `invalid_plan` |
-| `parameter_attempts` | 3 | Per fragment | The run moves on to the fragment repair |
-| `fragment_attempts` | 2 | Per node set | The run moves on to the cover repair |
-| `cover_attempts` | 2 | Per request | The run moves on to the replan |
-| `failure_replans` | 2 | Per request | `replan_exhausted` |
-| `control_replans` | 2 | Per request | `replan_exhausted` |
-| `search_terms` | 8 | Per `DISCOVER` node | The remaining terms are dropped and the count is reported |
+| `operator_calls` | The whole request | Never | `budget_exhausted` |
+| `failure_replans` | The whole request | Never | `replan_exhausted` |
+| `control_replans` | The whole request | Never | `replan_exhausted` |
+| `cover_repairs` | One logical plan | At every new logical plan | The run moves on to the replan |
+| `fragment_repairs` | One root node under one cover | At every root node the run repairs | The run moves on to the cover repair |
+| `parameter_repairs` | One fragment run | At every fragment run | The run moves on to the fragment repair |
+| `plan_corrections` | One plan being written | At every call to the logical planner | `invalid_plan` |
 
-### How the eight compose
+Every recovery bound counts tries after the first, so a bound of two means one try and two repairs,
+and every loop spends it the same way. `plan_corrections`, `parameter_repairs`, `fragment_repairs`,
+`cover_repairs`, `failure_replans`, and `control_replans` are all named for what repeats rather than
+for the total, which is what keeps one convention readable from the names. `operator_calls` is a
+total rather than a repeat count and stands outside the rule.
+
+How many search terms one `DISCOVER` node expands into is not here. Reaching that number changes
+nothing about how a request proceeds: the extra terms are dropped and the search runs. It shapes what
+one component does rather than bounding a run, which puts it with the size of the catalog preview,
+as a number `CatalogSearcher` holds ([06-library.md](06-library.md#catalogsearcher)).
+
+### How the seven compose
 
 The four recovery bounds decide *which* repair a rejected fragment gets, not how much a request may
 spend in total
 ([04-detailed-architecture.md](04-detailed-architecture.md#5-recovering-from-a-failure)). Multiplied
-out they permit far more work than any request should do: two cuts of one node set, inside two
-covers, inside two logical plans, each cut writing parameters three times.
+out they permit far more work than any request should do: several cuts at one root node, inside
+several covers, inside several logical plans, each cut writing parameters several times over.
 
-`operator_calls` is the only ceiling on the total, which is why ADR-014 says its default matters
-more than it otherwise would. A four-fragment plan that runs cleanly spends four calls. One rejected
-fragment adds up to three parameter attempts and then up to two further cuts, so reaching 30 takes a
-run in which most fragments failed and the repairs kept finding something else to try. A request
-stopped by `operator_calls` rather than by a recovery bound is a request that was not converging.
+`operator_calls` is the only ceiling on the total, which is why ADR-014 says its value matters more
+than it otherwise would. A plan that runs cleanly spends one call per fragment. A rejected fragment
+adds its parameter repairs and then its further cuts, so exhausting the budget takes a run in which
+most fragments failed and the repairs kept finding something else to try. A request stopped by
+`operator_calls` rather than by a recovery bound is a request that was not converging.
 
 Model calls are not budgeted (ADR-014). Every one of them happens inside a loop one of these bounds
 already limits, so a separate cap would restate them under another name.
 
-### Where these numbers come from
+### Where the values come from
 
-None of the eight is a measured value. Three are deliberately conservative: `fragment_attempts` and
-`cover_attempts` allow one alternative each, on the reasoning that a second cut that also fails is
-better answered by a new plan than by a third cut, and `search_terms` caps one `DISCOVER` node at
-eight registry searches.
+None of the seven is measured. The recovery bounds are deliberately conservative, on the reasoning
+that a second cut that also fails is better answered by a new plan than by a third cut, and the rest
+are set low enough to stop a run that is not converging without stopping one that is.
 
 The TAG-Bench harness reports operator calls per request, model calls per component, how often a plan
 schedules a replan, and how often each repair fires
-([11-testing-strategy.md](11-testing-strategy.md#8-benchmark-suites)), and these numbers are meant
-to be replaced by what it shows. Open question 2 holds the one that most needs the measurement.
+([11-testing-strategy.md](11-testing-strategy.md#8-benchmark-suites)), and the values are meant to be
+replaced by what it shows. Open question 2 holds the one that most needs the measurement.
 
 ---
 
@@ -199,10 +212,10 @@ diagnosing one means reading the returned structure rather than reconstructing i
 | --- | --- |
 | What did the planner decide to do? | `result.pipeline.logical_plans` |
 | How much was pushed into each operator? | Each cover in `result.pipeline.physical_plans` |
-| Which operator ran a node, and what did it return? | `result.results`, under the current plan id |
-| Why was a fragment rejected? | `result.attempts`, each with its assessment and decision |
+| Which operator ran a node, and what did it return? | `result.results`, under the signature the current cover gives it |
+| Why was a fragment rejected? | `result.conversations.fragment_runner`, where the review said so |
 | Where did the request stop? | `result.status` and `result.counters` |
-| What did planning cost? | `result.planner_usage` |
+| What did planning cost? | `result.conversations`, which carries one usage record per call |
 
 Raw row values are never written to a log. They appear in the result, which is returned to the
 caller rather than emitted.

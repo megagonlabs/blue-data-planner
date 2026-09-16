@@ -283,7 +283,7 @@ whose status says why, carrying every plan version, every fragment attempt, and 
 | Outcome | Form |
 | --- | --- |
 | Bad parameters, a missing required column, an operator refusing input another operator might accept | A recoverable `ExecutionResult`, so a different operator can be tried |
-| Out of parameter attempts, fragment attempts, covers, replans, or operator calls; an unreachable source; a provider failing after retries | A `PlanResult` with a status |
+| Out of parameter repairs, fragment repairs, covers, replans, or operator calls; an unreachable source; a provider failing after retries | A `PlanResult` with a status |
 | A plan object that is not a plan, a missing required configuration value, an unknown node id or operator id | An exception |
 
 `answer` is `None` rather than an empty list when a run did not finish, so a caller that ignores the
@@ -336,6 +336,8 @@ Break a long function into smaller ones. Keep structures flat unless an extra la
 readability. Use dataclasses where they help, and prefer a frozen one for anything a caller reads
 off a result. A plan is frozen once written; what changes is which plan the run points at.
 
-Keep intermediate state inspectable. Plans, per-fragment inputs and outputs, parameter attempts,
-review decisions, and failure reasons are structured data, never formatted text. A value that only
-exists as a rendered string cannot be checked, stored, or replayed.
+Keep intermediate state inspectable. Plans, per-fragment inputs and outputs, counters, and failure
+reasons are structured data, never formatted text. A value that only exists as a rendered string
+cannot be checked, stored, or replayed. What a run tried and discarded is the exception, and it is
+text because it is the exchange with the model itself: the parameters a review rejected are in the
+conversation that wrote them, along with what the review said.

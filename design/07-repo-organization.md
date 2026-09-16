@@ -46,7 +46,7 @@ blue-data-planner/
 │   │   │   ├── errors.py              # BlueDataPlannerError and everything inheriting it
 │   │   │   ├── plan.py                # rows, the logical vocabulary, the two plan halves
 │   │   │   ├── catalog.py             # the three catalog readings
-│   │   │   └── run.py                 # results, attempts, budgets, limits
+│   │   │   └── run.py                 # results, counters, conversations, limits
 │   │   ├── plan/                      # functions over a plan; no model, no source, no operator
 │   │   │   ├── validation.py          # validate_logical_plan, validate_physical_plan
 │   │   │   ├── fragments.py           # candidate_fragments
@@ -163,7 +163,7 @@ names the same things `DataPlanner` does and belongs in the same file (ADR-002).
 ### What the root exports
 
 `__init__.py` holds `__version__` and the run path: `DataPlanner`, `build_data_planner`,
-`PlanResult`, `PlanLimits`, `RunStatus`, and `BlueDataPlannerError`. A caller who runs a planner and
+`PlanResult`, `RunLimits`, `RunStatus`, and `BlueDataPlannerError`. A caller who runs a planner and
 reads its result writes one import.
 
 Everything else is reached through the module that owns it. The components a caller assembles by

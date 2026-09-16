@@ -18,12 +18,12 @@ Four kinds of shape appear, in the order a request produces them.
 | --- | --- | --- | --- |
 | A plan: logical nodes, then the fragments covering them | The logical and physical planners | One request, unless a caller keeps it | Yes, as JSON |
 | Rows moving between fragments | Operator calls | One request | No |
-| A run's record: attempts, model usage, counters | The run loop | One request, unless a caller keeps it | Yes, as JSON |
+| A run's record: results, conversations, counters | The run loop | One request, unless a caller keeps it | Yes, as JSON |
 | Catalog readings from `blue-data` | `data/` | One planning or execution call | No |
 
 One sentence links them. A request becomes a logical plan; a physical plan cuts that plan into
-fragments and binds each one to an operator; running a fragment produces rows and one attempt
-record; the plan, the rows, and every attempt end up in the `PlanResult` the caller receives.
+fragments and binds each one to an operator; running a fragment produces rows; the plan, the rows,
+and every exchange that produced them end up in the `PlanResult` the caller receives.
 
 The vocabulary follows [04-detailed-architecture.md](04-detailed-architecture.md). A logical
 operator is a node kind such as `FILTER`. A physical operator is one implementation such as
@@ -106,8 +106,15 @@ The carried set is therefore a superset of the keys of the run's result map for 
 and moving those results forward is still a copy of one map
 ([section 3](#what-a-run-holds-while-it-runs)).
 
+A control node is terminal. Nothing reads one, because what it produces is catalog records or a
+reason to plan again rather than rows, and the next plan is what reads that. Validation turns down a
+plan where any node lists a control node among its inputs, which is what keeps every input a node
+reads a table the run can hand it.
+
 Within one lineage a continuation may not give an existing node id to a different node. It names an
-existing id only to read a node it carried over.
+existing id only to read a node it carried over, and validation turns down a continuation that
+writes one. Absorbing such a node instead would attach a carried node's name to work nobody
+planned.
 
 A `RETURN` node's `columns` name columns the node it reads declares, and that node's
 `required_output_columns` may not be empty. Validation checks the two against each other. This is
@@ -159,8 +166,8 @@ A node's `kind` decides which keys its `attributes` carries. Nothing else is acc
 The instruction is one sentence in plain language telling whatever runs the node what to do, so it
 starts with a verb: `load job postings`, `find the postings whose title is a data scientist role`,
 `find a source holding one profile per company`. It carries no operator parameters (ADR-008).
-Working those out belongs to the fragment runner, and they land in
-`FragmentAttempt.operator_attributes` shaped by the chosen operator's `parameter_schema`.
+Working those out belongs to the fragment runner, and what it writes is shaped by the chosen
+operator's `parameter_schema`.
 
 ### How many inputs a node takes
 
@@ -278,23 +285,21 @@ class PhysicalPlan:
 | Instruction | One instruction to the operator covering everything the fragment absorbed, starting with a verb as a node's does: "Find data scientist job postings, with their title, company id, and location" |
 | Inputs | `input_data` lists the frontier nodes, which are the nodes outside the fragment feeding nodes inside it, in the order the fragment's nodes read them. The list is the plan's to decide, and only each entry's name and description are written during physical planning. One entry covers everything that node produced, so it may stand for more than one table; those tables share the name and keep their order |
 | Columns | `required_output_columns` is copied from the root node unless the model declares that the fusion cannot produce that list |
-| Identity | A fragment is what its node set and operator say it is. `id` is fresh in every cover, so an attempt names its cover as well, and two covers are compared by node set and operator, not by id |
+| Identity | `id` names one fragment inside one cover and is fresh in every cover. What the fragment is for is its signature, which covers everything deciding what it produces, so that is what says whether two covers ask for the same work |
 
 A cover is written whole rather than patched, and what carries over from the previous cover is
-decided by comparing the two.
+decided by each fragment's signature rather than by comparing the two covers
+([reusing a result](#reusing-a-result)).
 
-A fragment keeps its id across covers while its node set and operator stay the same, so the ids say
-which groups the new cover cut differently or rebound to a different operator.
-
-| A fragment whose node set and operator | What happens |
+| A fragment asking for | What happens |
 | --- | --- |
-| Are unchanged from the previous cover | Keeps its id, keeps its root's result, and does not run again |
-| Changed, or the fragment is new | Drops the results of every node in it, and of every executed node downstream of those, then runs |
+| Work the run has a result for | Reads that result and does not run |
+| Anything else | Runs, and files its result under its own signature |
 
-Node sets also bound the retry loop. A rejected fragment is covered again over its own node set, and
-the result either keeps that set, which spends another attempt against it, or splits it into smaller
-sets, each of which starts its own attempt count. Splitting strictly shrinks a set, so the process
-ends at single nodes.
+The repair loop follows the root node rather than the node set. A rejected fragment is covered again
+over its own node set, and the result either keeps that set or splits it into smaller ones. Splitting
+strictly shrinks a set, so the process ends at single nodes, and the root is the one node every cut
+leaves in place.
 
 ### A physical operator
 
@@ -334,15 +339,17 @@ declares that two scans in one fragment have to read the same source (question 4
 
 ### Identifiers
 
-Five id formats travel in this data, and they are not interchangeable. Node ids and fragment ids are
+Six formats travel in this data, and they are not interchangeable. Node ids and fragment ids are
 scoped to one plan and stay short. Plan ids are UUIDs, because a physical plan names the logical
 plan it covers by id, and because a plan can be serialized, stored, and read back beside plans from
-other runs.
+other runs. A signature is the one value derived rather than assigned: it names what a node does, so
+the same work in two covers gets the same value and an id never does.
 
 | Id | Format | Example | Resolved by |
 | --- | --- | --- | --- |
 | Node id | `n` followed by an integer, unique within a plan | `n6` | `LogicalPlan.node`, which raises on an unknown id |
 | Fragment id | `f` followed by an integer, fresh in every cover | `f2` | `PhysicalPlan.fragment` |
+| Signature | A hash of the work one node does | `a3f1...` | `signatures`, over a plan and a cover |
 | Plan id | A UUID, on a logical plan and on a physical plan | `9f1c...` | `DataPipeline.logical_plans` and `.physical_plans` |
 | Operator id | Suite name, a dot, then the operation | `blue.nl2sql`, `lotus.sem_filter` | `OperatorRouter`, while the physical plan is written |
 | Registry operator id | The operator's `name`, `@`, then a version | `select@2.0.0` | `blue-data-ops`'s `OperatorRegistry.resolve` |
@@ -501,11 +508,9 @@ class PlanResult:
     answer: DataBundle | None
     failure_reason: str | None
     pipeline: DataPipeline
-    results: dict[str, dict[str, ExecutionResult | DiscoveryResult]]
-    attempts: list[FragmentAttempt]
-    rejected_plans: list[RejectedPlan]
-    counters: dict[str, int]
-    planner_usage: list[LLMUsage]
+    results: dict[str, ExecutionResult | DiscoveryResult]   # keyed by signature
+    counters: RunCounters
+    conversations: RunConversations
 ```
 
 `answer` is `None` rather than `[]` unless `status` is `ok`, so a caller who ignores the status
@@ -523,34 +528,27 @@ only how the request ran but every arrangement that was tried on the way. `paren
 order, and `current_logical_plan_id` and `current_physical_plan_id` name the pair that produced the
 answer.
 
-`attempts` holds every fragment run, in run order, rejected ones included. Each one records the node
-set it covered and the operator that ran it, so the list is also the record of where each pushdown
-boundary was drawn and what happened to it. The boundary decision can therefore be reviewed without
-running anything again.
+`conversations` holds what the planner said to the model and what came back, one exchange per
+component. Everything a run tried and did not keep is there: a plan validation turned down and the
+objection that turned it down, a binding the physical planner replaced, the parameters a review
+rejected and what it said about them. A run that failed is readable from the same field as a run that
+worked, and no second record of the same events is kept beside it.
 
-`rejected_plans` holds every logical plan validation turned down, across the first generation and
-every replan, each with the error that turned it down. It is empty on a run whose plans all passed.
-It is what makes an `invalid_plan` run readable: the counter says how many corrections were spent,
-and this says what was wrong each time.
+`counters` holds what the run spent against the bounds it obeyed, and carries those bounds with it.
 
 Four questions a reader asks, and where the answer is.
 
 | Question | Read |
 | --- | --- |
-| Did node `n3` succeed | Whether the current plan's slot in `results` holds an entry for `n3` |
-| Which operator ran it | That entry's `operator_id`, or the attempt that produced it |
+| Did node `n3` succeed | Whether `results` holds the signature the current cover gives `n3` |
+| Which operator ran it | The `operator_id` of the fragment `n3` roots, in the current cover |
 | How much was pushed down | The `logical_node_ids` of each fragment, in every cover in `pipeline.physical_plans` |
-| What did discovery find | The same slot, under the `DISCOVER` node's id |
+| What did discovery find | The `DiscoveryResult` under the `DISCOVER` node's signature |
 
 ### What a run holds while it runs
 
-`results` maps a logical plan id to a map from node id to what that node produced. `RunState` owns
-it during a run, `DataPlanner` is the only writer, and `to_result` hands it to the caller unchanged.
-
-The outer key is the logical plan version. Two versions may use the same node id for different
-nodes, and two independent plans certainly will, so scoping by version is what keeps a node id
-enough of an inner key. When a new version carries nodes over, its slot starts as a copy of its
-parent's, which costs a map copy because the values are shared references.
+`results` maps a signature to what the work under that signature produced. `RunState` owns it during
+a run and `to_result` hands it to the caller unchanged.
 
 | Node | Entry |
 | --- | --- |
@@ -559,106 +557,85 @@ parent's, which costs a map copy because the values are shared references.
 | `DISCOVER` | The `DiscoveryResult` the catalog search produced |
 | `REPLAN`, `RETURN` | None. The answer belongs to `PlanResult.answer` |
 
-Scheduling reads the current version's slot. A fragment is ready when every node on its frontier has
-an entry there, and a fragment's input is those entries' outputs. A fragment whose root already has
-an entry has already run and is skipped.
+### Reusing a result
 
-Entries are removed as well as added. Installing a new cover compares it with the previous one and
-drops the entries of every node whose fragment changed, along with the entries of every executed
-node downstream of those
+A signature covers everything that decides what one node produces, the signatures of the work feeding
+it included, so two pieces of identical work share one and any change that would change the output
+changes it ([06, signing the work](06-library.md#signing-the-work)).
+
+Keying results by signature is what settles reuse without a comparison. A new cover reuses a result
+exactly when it asks for the same work again, and a fragment whose operator, instruction, sources, or
+upstream changed finds nothing and runs. The same rule carries results across logical plan versions,
+so a continuation that keeps a node keeps what that node produced, and one that rewrites the work
+does not.
+
+A node id is not the key, because it answers a different question. Two plan versions may use one id
+for different nodes, and a repair that cuts a node set again may leave the same id covering a
+different set. An id names a position in a graph; a signature names the work.
+
+Scheduling reads the current cover's signatures. A fragment is ready when every node on its frontier
+has a result, and a fragment's input is those results' outputs. A fragment whose own signature is
+already in the map has run and is skipped.
+
+Nothing is removed. An entry a later cover has no use for stays in the map and is never read again,
+because no signature in that cover matches it
 ([04, a cover is written whole](04-detailed-architecture.md#a-cover-is-written-whole)).
 
-Three atomic fragments running `SCAN`, `FILTER`, and `PROJECT` leave three entries. If the next
-cover fuses all three into one Text-to-SQL fragment, all three entries go, and the fused call
-records one entry under the `PROJECT` node. The scan's rows are produced inside the SQL query and
-never materialize again, so the old entry has to go instead of being kept under a second key:
-nothing may read a table the current cover no longer produces. The single-exit rule is what makes
-the removal safe, since no node outside the fragment was reading those tables.
-
-Nothing is lost by the removal. `attempts` still holds every attempt, including the ones whose
-results were dropped.
+Three atomic fragments running `SCAN`, `FILTER`, and `PROJECT` leave three entries. If the next cover
+fuses all three into one Text-to-SQL fragment, that fragment carries a signature none of the three
+had, so it runs and records a fourth entry. The scan's rows are produced inside the SQL query and
+never materialize again, and the three older entries are unreachable because nothing in the new cover
+asks for them. Reading a table the current cover no longer produces is impossible rather than
+forbidden.
 
 Where a result came from is not stored beside it. `ExecutionResult.operator_id` names the operator,
-and the attempt that produced it is the last entry in `attempts` covering that node, so the two
-never disagree.
-
-### One attempt at one fragment
-
-```python
-@dataclass(frozen=True)
-class FragmentAttempt:
-    physical_plan_id: str
-    fragment_id: str
-    logical_node_ids: list[str]
-    operator_id: str
-    operator_attributes: dict[str, Any]
-    result: ExecutionResult | None
-    assessment: str | None
-    decision: FragmentReviewDecision
-```
-
-A node set accepted on its second operator carries both tries. `result` is `None` when the operator
-raised before returning anything, and `assessment` is the review's reasoning in plain language.
+and the fragment whose signature holds that result names the node set and the cover, so the two never
+disagree.
 
 ### What each component returns
 
-Four result types never leave the process. `DataPlanner` reads each one, records what it holds on
-the run state, and moves on. `RejectedPlan`, last below, is not one of them: it is the shape
-`LogicalPlanResult.rejected` holds, and it reaches the caller inside `PlanResult.rejected_plans`.
+Three result types never leave the process. `DataPlanner` reads each one, records what it holds on
+the run state, and moves on. `CatalogSearcher` returns a `DiscoveryResult`, which does leave, since
+it is what the run holds under a `DISCOVER` node's signature.
 
 ```python
 @dataclass(frozen=True)
 class LogicalPlanResult:
     status: RunStatus  # ok, or invalid_plan when the corrections ran out
     plan: LogicalPlan | None
-    rejected: list[RejectedPlan]
-    usage: list[LLMUsage]
+    failure_reason: str | None
 
 
 @dataclass(frozen=True)
 class PhysicalPlanResult:
     plan: PhysicalPlan | None  # None exactly when a node has no operator
     failure_reason: str | None
-    usage: list[LLMUsage]
 
 
 @dataclass(frozen=True)
 class FragmentResult:
     status: RunStatus
-    attempts: list[FragmentAttempt]  # rejected ones included, in order
+    result: ExecutionResult | None  # what the review accepted
     failure_reason: str | None
-    usage: list[LLMUsage]
-
-
-@dataclass(frozen=True)
-class CatalogSearchResult:
-    discovery: DiscoveryResult
-    usage: list[LLMUsage]
-
-
-@dataclass(frozen=True)
-class RejectedPlan:
-    plan: LogicalPlan
-    error: str
 ```
 
-Every component reports what its own model calls cost, and `DataPlanner` appends each list to
-`PlanResult.planner_usage` in the order they ran. `CatalogSearchResult` is a pair rather than
-a field on `DiscoveryResult` because a `DiscoveryResult` goes into the run's results map and reaches
-the caller inside `PlanResult.results`, where usage would be counted a second time.
+No component reports what its own model calls cost. Each writes its turns to the conversation it was
+handed, that conversation carries the usage of every call made on it, and the run state owns the
+conversations ([06, `llm/`](06-library.md#llm)).
 
-`LogicalPlanResult.plan` is `None` exactly when `status` is `invalid_plan`, and `rejected` holds
-every plan validation turned down, in the order they were written. A plan accepted on the first try
-comes back with an empty `rejected`. A rejected plan never enters `DataPipeline`, since nothing
-covered it and no version continues it, but it carries an id and a `parent_id` of its own, so a
-reader can still tell which version a failed correction was written against.
+The same rule covers what a component tried and discarded. A plan validation turned down, a binding
+the physical planner replaced, parameters a review rejected: each is a turn in the conversation that
+produced it. A result type carries the outcome, and the conversation carries the road to it.
 
-`FragmentResult.attempts` holds every attempt the call made, because the parameter repair is a loop
-inside the runner: it writes the operator's parameters again, in the conversation it already holds,
-until one is accepted or `parameter_attempts` runs out
-([04, the parameter repair](04-detailed-architecture.md#the-parameter-repair)). A single call can
-therefore produce several attempts, and returning only one would lose the rejected ones that
-`PlanResult.attempts` promises to carry.
+`LogicalPlanResult.plan` is `None` exactly when `status` is `invalid_plan`, and `failure_reason` then
+holds the objection the last correction drew. A plan validation turned down never enters
+`DataPipeline`, since nothing covered it and no version continues it.
+
+`FragmentResult.result` holds what the review accepted and is `None` on every other ending. The
+parameter repair is a loop inside the runner: it writes the operator's parameters again, in the
+conversation it already holds, until one is accepted or `parameter_repairs` runs out
+([04, the parameter repair](04-detailed-architecture.md#the-parameter-repair)). One call therefore
+makes several attempts, and what each of them wrote is in that conversation.
 
 `FragmentResult.status` says which of five endings the fragment reached, and `ok` means the result
 was accepted. The runner never returns `invalid_plan` or `replan_exhausted`, which belong to the
@@ -667,19 +644,19 @@ logical planner and to the replan allowance, neither of which it can see.
 | Ending | `status` |
 | --- | --- |
 | The result was accepted | `ok` |
-| The runner used its parameter attempts without an accepted result | `needs_repair` |
+| The runner used its parameter repairs without an accepted result | `needs_repair` |
 | The review said no arrangement of operators will do this | `needs_replan` |
 | An operator failed unrecoverably | `operator_failed` |
 | The operator call budget reached its cap | `budget_exhausted` |
 
-`needs_repair` sends the failure on to the fragment repair, and `needs_replan` sends it straight to
-the replan. Which repair a `needs_repair` reaches is the run loop's decision, since only the loop
-knows how many attempts each one has left
-([04, recovering from a failure](04-detailed-architecture.md#5-recovering-from-a-failure)). The two
-remaining statuses end the run, and each is the status the caller's `PlanResult` carries.
+`needs_repair` goes to the fragment repair, and `needs_replan` goes straight to the replan. A
+`needs_repair` the fragment loop cannot answer moves outward to the next loop, which is how the
+repairs are ordered ([04, recovering from a
+failure](04-detailed-architecture.md#5-recovering-from-a-failure)). The two remaining statuses end
+the run, and each is the status the caller's `PlanResult` carries.
 
 Each component returns what it did instead of writing it down as it goes, so one that raises cannot
-leave a half-written record behind, and the session has one writer.
+leave a half-written record behind, and plans and results have one writer.
 
 ### One operator call and its outcome
 
@@ -725,6 +702,11 @@ entry holds rows. The entries of every resolved `DISCOVER` node, taken together,
 catalog context: the logical planner reads them when it writes the continuation, and the physical
 planner reads them when it binds a scan to a source.
 
+`dropped_terms` is what a run holds for a reader rather than for itself. Nothing branches on it, and
+a search runs the terms it kept whatever the number is. It reaches a library caller inside
+`PlanResult.results`, where it is the one sign that a node wanted more searches than
+`CatalogSearcher` allows it.
+
 ### One model call
 
 ```python
@@ -737,44 +719,72 @@ class LLMUsage:
     latency_seconds: float
 ```
 
-`PlanResult.planner_usage` holds one record per model call in call order. There is no accumulator: a
-total is a `sum()` over the list. Prompt and completion tokens are reported per call and never
-summed together, since the two are priced differently and a total of them answers nothing.
+One record per model call, held by the conversation the call was made on, in call order. There is no
+accumulator: a total is a `sum()` over the list. Prompt and completion tokens are reported per call
+and never summed together, since the two are priced differently and a total of them answers nothing.
 
-The name says the scope. These are the calls the three planning components and the catalog searcher made
-through `llm/`, and nothing else. A model call an operator makes internally, as a LOTUS operator
-does, is billed as part of the one operator call that contains it and never appears here, because
-such an operator reports no per-call token count
+The conversations fix the scope. These are the calls the three planning components and the catalog
+searcher made through `llm/`, and nothing else. A model call an operator makes internally, as a LOTUS
+operator does, is billed as part of the one operator call that contains it and never appears here,
+because such an operator reports no per-call token count
 ([05-software-stack.md](05-software-stack.md#two-model-configurations-one-budget)). What a run spent
 on planning is exact; what it spent inside operators is the call count in `counters`.
 
+### Conversations
+
+```python
+@dataclass
+class RunConversations:
+    logical_planner: Conversation
+    physical_planner: dict[str, Conversation]    # keyed by logical plan id
+    fragment_runner: dict[str, Conversation]     # keyed by fragment id
+    catalog_searcher: dict[str, Conversation]    # keyed by the DISCOVER node's signature
+```
+
+One exchange per component, cut at the scope over which continuing one helps. The logical planner
+keeps one for a whole request, because every continuation answers the plans already written. The
+physical planner keeps one per logical plan, because a repair rebinds work the same plan described
+and a new plan's node ids name a different graph. The fragment runner keeps one per fragment, because
+the parameters it writes are shaped by that fragment's operator. A catalog search is a single
+exchange with nothing to continue, and its key is the signature its `DiscoveryResult` sits under in
+`results`, so the search and what it found are read with the same value.
+
+Cutting a conversation anywhere else would either put a model's earlier answers in front of a
+question they no longer describe, or throw away the errors it has already been told about.
+
 ### Counters
 
-`counters` holds what the run spent, keyed by the name of the limit that bounds it: one entry per
-`PlanLimits` field, and `PlanLimits` holds every bound the system obeys. Every key appears whether
-or not it was spent, so a caller reads a number instead of checking for a key. The bounds themselves
-are fixed when the planner is built, not per request, so nothing in a result reports them
-([06-library.md](06-library.md#budgets-and-limits)).
+```python
+@dataclass
+class RunCounters:
+    limits: RunLimits
+    operator_calls: int
+    failure_replans: int
+    control_replans: int
+```
+
+Three counts, one per bound that lasts a whole request, each named after the bound it counts against.
+`RunCounters` carries the `RunLimits` it was counted against, so a reader has the spend and the cap
+side by side without knowing how the planner was built.
+
+The other four bounds reset inside a request: `plan_corrections` and `parameter_repairs` bound a
+loop inside a component, and `fragment_repairs` and `cover_repairs` bound one inside the run loop
+([04, recovering from a failure](04-detailed-architecture.md#5-recovering-from-a-failure)). A bound
+that resets has no one number to report.
 
 ```json
 {
   "operator_calls": 7,
-  "plan_corrections": 1,
-  "parameter_attempts": 3,
-  "fragment_attempts": 2,
-  "cover_attempts": 1,
   "failure_replans": 0,
-  "control_replans": 1,
-  "search_terms": 12
+  "control_replans": 1
 }
 ```
 
-The four recovery counters are one repair each
-([04, recovering from a failure](04-detailed-architecture.md#5-recovering-from-a-failure)). The two
-bounded per fragment or per node set, `parameter_attempts` and `fragment_attempts`, hold the highest
-number any one of them spent rather than a total, since that is the number their bound applies to.
-`search_terms` counts every term every `DISCOVER` node expanded into. The bounds themselves are in
-[12-deployment-ops.md](12-deployment-ops.md).
+How many registry searches a run made is not a counter. Every term is in the `search_terms` of the
+`DiscoveryResult` each `DISCOVER` node produced, and counting them is a reader's question rather than
+a bound the run obeyed.
+
+The bounds themselves are in [12-deployment-ops.md](12-deployment-ops.md).
 
 ### Stored values
 
@@ -784,7 +794,7 @@ number any one of them spent rather than a total, since that is the number their
 | `ControlOperator` | `REPLAN`, `DISCOVER` |
 | `RunStatus` | `ok`, `needs_repair`, `needs_replan`, `planned`, `invalid_plan`, `replan_exhausted`, `budget_exhausted`, `operator_failed`, `llm_failed`, `planner_failed` |
 | `ExecutionStatus` | `ok`, `failed` |
-| `ErrorKind` | `recoverable`, `unrecoverable`, `no_operator` |
+| `ErrorKind` | `recoverable`, `unrecoverable` |
 | `FragmentReviewDecision` | `accept`, `reject`, `replan` |
 
 `SORT_SUPERLATIVE` is one logical operator covering both ordering and cutting, since a superlative
@@ -981,15 +991,14 @@ that changes them.
 
 | Shape | Library | MCP response |
 | --- | --- | --- |
-| `attempts` | Every attempt, with its parameters, assessment, and decision | A count |
-| `rejected_plans` | Every turned-down plan with its error | A count |
+| `conversations` | Every turn of every exchange | A count of calls and what they cost |
 | A `DISCOVER` node's entry in `results` | Every term and every match | A count of matches |
-| `planner_usage` | One `LLMUsage` per call | `{"calls": int, "cost": float}` |
+| `counters` | The counts and the bounds they were counted against | The counts |
 | Everything else, `pipeline` included | As above | The same, as JSON |
 
-These differences exist because an agent reasons about the outcome, and a rejected attempt's full
-record would bloat every response ([09](09-api-interface-spec.md#planning-tools)). The library and
-the CLI carry both in full.
+These differences exist because an agent reasons about the outcome, and a full transcript of every
+exchange would bloat every response ([09](09-api-interface-spec.md#planning-tools)). The library and
+the CLI carry them in full.
 
 A run that did not finish returns the same object with its status, `answer` null, and its counters,
 in every interface. There is no separate error shape.
