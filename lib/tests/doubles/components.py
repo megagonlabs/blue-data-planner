@@ -42,16 +42,10 @@ class FakeLogicalPlanner:
 
 
 class FakePhysicalPlanner:
-    """Answers each cover and each repair with the next scripted PhysicalPlanResult."""
+    """Answers each cover with the next scripted PhysicalPlanResult."""
 
-    def __init__(
-        self,
-        covers: list[PhysicalPlanResult],
-        repairs: list[PhysicalPlanResult] | None = None,
-    ) -> None:
+    def __init__(self, covers: list[PhysicalPlanResult]) -> None:
         self.covers = list(covers)
-        self.repairs = list(repairs or [])
-        self.repaired_node_sets: list[frozenset[str]] = []
         self.covered_plan_ids: list[str] = []
 
     def cover(
@@ -65,19 +59,6 @@ class FakePhysicalPlanner:
         if not self.covers:
             raise AssertionError("the fake physical planner ran out of covers")
         return self.covers.pop(0)
-
-    def recover_fragment(
-        self,
-        plan: LogicalPlan,
-        previous: PhysicalPlan,
-        node_ids: frozenset[str],
-        results: dict[str, Any],
-        reason: str,
-    ) -> PhysicalPlanResult:
-        self.repaired_node_sets.append(node_ids)
-        if not self.repairs:
-            raise AssertionError("the fake physical planner ran out of repairs")
-        return self.repairs.pop(0)
 
 
 class FakeFragmentRunner:

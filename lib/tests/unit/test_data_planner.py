@@ -263,30 +263,38 @@ def test_every_control_node_ready_at_once_is_resolved_before_the_run_plans_again
     assert result.status is RunStatus.OK
 
 
-def test_a_rejected_fragment_reaches_the_repairs_in_order_narrowest_first() -> None:
-    """The fragment repair runs while its node set has an attempt, then the cover repair."""
-    physical = FakePhysicalPlanner(
-        covers=[covered(a_cover("c1", "p1")), covered(a_cover("c3", "p1"))],
-        repairs=[covered(a_cover("c2", "p1")), covered(a_cover("c2b", "p1"))],
+def a_planner_whose_every_repair_is_refused() -> tuple[
+    DataPlanner, FakePhysicalPlanner, FakeLogicalPlanner
+]:
+    """A fragment always rejected, so the run spends every cover repair before the plan gives up."""
+    logical = FakeLogicalPlanner(
+        [
+            ok(a_scan_and_ending("p1")),
+            LogicalPlanResult(status=RunStatus.INVALID_PLAN, plan=None, rejected=[], usage=[]),
+        ]
     )
-    result = a_planner(
-        FakeLogicalPlanner([ok(a_scan_and_ending("p1")), ok(a_scan_and_ending("p2"))]),
-        physical,
-        FakeFragmentRunner(
-            [
-                an_escalating_fragment(),
-                an_escalating_fragment(),
-                an_escalating_fragment(),
-                an_accepted_fragment(),
-            ]
-        ),
-        FakeCatalogSearcher(),
-        RunLimits(fragment_repairs=2, cover_repairs=1, failure_replans=1),
-    ).run("list the job titles")
-    assert physical.repaired_node_sets == [frozenset({"n1"}), frozenset({"n1"})]
-    # The cover repair runs once the fragment repairs are spent: a second cover of p1.
-    assert physical.covered_plan_ids == ["p1", "p1"]
-    assert result.status is RunStatus.OK
+    physical = FakePhysicalPlanner(
+        [
+            covered(a_cover("c1", "p1")),
+            covered(a_cover("c2", "p1")),
+            covered(a_cover("c3", "p1")),
+        ]
+    )
+    runner = FakeFragmentRunner(
+        [an_escalating_fragment(), an_escalating_fragment(), an_escalating_fragment()]
+    )
+    return a_planner(logical, physical, runner, FakeCatalogSearcher()), physical, logical
+
+
+def test_a_rejected_fragment_reaches_the_repairs_in_order_narrowest_first() -> None:
+    """Three repairs remain: the parameters inside the runner, the cover, then the plan."""
+    planner, physical, logical = a_planner_whose_every_repair_is_refused()
+
+    result = planner.run("a request")
+
+    assert len(physical.covered_plan_ids) == 3  # one cover plus cover_repairs=2
+    assert len(logical.reasons) == 2
+    assert result.status is RunStatus.INVALID_PLAN
 
 
 def test_a_plan_no_operator_can_cover_is_replanned_with_the_reason_in_hand() -> None:
@@ -315,7 +323,7 @@ def test_a_replan_limit_ends_the_request_as_replan_exhausted() -> None:
         FakePhysicalPlanner([covered(a_cover("c1", "p1"))]),
         FakeFragmentRunner([an_escalating_fragment()]),
         FakeCatalogSearcher(),
-        RunLimits(fragment_repairs=0, cover_repairs=0, failure_replans=0),
+        RunLimits(cover_repairs=0, failure_replans=0),
     ).run("list the job titles")
     assert result.status is RunStatus.REPLAN_EXHAUSTED
     assert result.failure_reason == "the predicate matched nothing"

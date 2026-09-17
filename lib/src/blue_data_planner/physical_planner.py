@@ -51,25 +51,7 @@ class PhysicalPlanner:
         reason: str | None = None,
     ) -> PhysicalPlanResult:
         """Write a whole cover for this plan, which is both the first cover and the repair."""
-        return self._walk(
-            plan, previous, results, reason, _coverable(plan), carried=[], parent_id=None
-        )
-
-    def recover_fragment(
-        self,
-        plan: LogicalPlan,
-        previous: PhysicalPlan,
-        node_ids: frozenset[str],
-        results: dict[str, NodeResult],
-        reason: str,
-    ) -> PhysicalPlanResult:
-        """Cut one node set again, carrying every other fragment across unchanged."""
-        carried = [
-            fragment
-            for fragment in previous.fragments
-            if not (set(fragment.logical_node_ids) & node_ids)
-        ]
-        return self._walk(plan, previous, results, reason, node_ids, carried, parent_id=previous.id)
+        return self._walk(plan, previous, results, reason)
 
     def _walk(
         self,
@@ -77,18 +59,14 @@ class PhysicalPlanner:
         previous: PhysicalPlan | None,
         results: dict[str, NodeResult],
         reason: str | None,
-        confined_to: frozenset[str],
-        carried: list[PhysicalPlanFragment],
-        parent_id: str | None,
     ) -> PhysicalPlanResult:
+        confined_to = _coverable(plan)
         entity_source_kinds = _entity_source_kinds(results)
         conversation = Conversation(
             turns=[Turn(role="system", content=self._prompt(results, reason))]
         )
-        fragments = list(carried)
-        covered: set[str] = {
-            node_id for fragment in carried for node_id in fragment.logical_node_ids
-        }
+        fragments: list[PhysicalPlanFragment] = []
+        covered: set[str] = set()
         for node in _reverse_dependency_order(plan):
             if node.id not in confined_to or node.id in covered:
                 continue
@@ -113,7 +91,7 @@ class PhysicalPlanner:
             covered.update(fragment.logical_node_ids)
         cover = PhysicalPlan(
             id=str(uuid.uuid4()),
-            parent_id=parent_id,
+            parent_id=previous.id if previous is not None else None,
             logical_plan_id=plan.id,
             fragments=fragments,
         )

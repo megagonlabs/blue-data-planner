@@ -186,8 +186,6 @@ class RunLimits:
     plan_corrections: int = 5
     # How many times one fragment may write its parameters again before the next repair.
     parameter_repairs: int = 3
-    # How many different cuts one root node's fragment may get before the cover repair.
-    fragment_repairs: int = 2
     # How many times one logical plan may be covered again before the run replans.
     cover_repairs: int = 2
     # How many times an operator failure may trigger a replan before the run gives up.

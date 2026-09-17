@@ -197,8 +197,8 @@ def _attempt(
 def _escalation_reason(attempts: list[FragmentAttempt]) -> str:
     # The last attempt has no assessment when it ended in a recoverable operator failure
     # rather than a review; its error message is the only account of what went wrong, and
-    # Task 6 passes this straight into recover_fragment's non-optional reason, so it must
-    # never come back None.
+    # DataPlanner._repair passes this straight into PhysicalPlanner.cover's non-optional
+    # reason, so it must never come back None.
     if not attempts:
         return "no attempt produced a result"
     last = attempts[-1]

@@ -214,69 +214,6 @@ def test_a_cover_taking_one_node_at_a_time_sends_one_turn_per_node() -> None:
     ]
 
 
-def test_a_fragment_repair_rebinds_one_node_set_and_leaves_the_rest_of_the_cover_intact() -> None:
-    """Only the failed set is cut again, so every other fragment carries across untouched."""
-    atomics = (
-        an_operator("builtin.scan", frozenset({LogicalOperator.SCAN})),
-        an_operator("builtin.filter", frozenset({LogicalOperator.FILTER})),
-        an_operator("builtin.aggregate", frozenset({LogicalOperator.AGGREGATE})),
-    )
-    first = a_planner(
-        ScriptedLLMClient(
-            [
-                a_binding("n3:builtin.aggregate:[n3]", inputs=("n2",)),
-                a_binding("n2:builtin.filter:[n2]", inputs=("n1",)),
-                a_binding("n1:builtin.scan:[n1]", scan_source_n1=POSTINGS),
-            ]
-        ),
-        a_router(*atomics),
-    ).cover(a_plan(), None, a_discovery())
-    assert first.plan is not None
-    failed = frozenset({"n3"})
-
-    # The router now offers a second operator for AGGREGATE, so the repair has somewhere to go.
-    repaired = a_planner(
-        ScriptedLLMClient([a_binding("n3:builtin.nl2table:[n3]", inputs=("n2",))]),
-        a_router(*atomics, an_operator("builtin.nl2table", ALL_KINDS)),
-    ).recover_fragment(
-        a_plan(), first.plan, failed, a_discovery(), "the aggregation returned one row too many"
-    )
-
-    assert repaired.plan is not None
-    assert sorted(sorted(f.logical_node_ids) for f in repaired.plan.fragments) == [
-        ["n1"],
-        ["n2"],
-        ["n3"],
-    ]
-    rebound = next(f for f in repaired.plan.fragments if f.logical_node_ids == ["n3"])
-    assert rebound.operator_id != "builtin.aggregate"
-
-
-def test_a_repair_starts_a_fresh_conversation() -> None:
-    """A superseded cut should not sit in front of the model as though it still applied."""
-    # The widest candidate over this plan and router absorbs the SCAN node too, so, as in
-    # test_a_plan_one_operator_can_absorb_comes_back_as_one_fragment above, each binding must
-    # name a scan source or the scripted answer fails the response schema before the code
-    # under test runs at all.
-    #
-    # One planner and one client are reused across both calls, so the second conversation is
-    # genuinely a second use of the same client: if a future change accidentally carried the
-    # first call's turns into the second, conversations[1] would come back longer than 2 and
-    # this test would fail. Two separate clients, as in an earlier version of this test, could
-    # never observe that: each would start empty regardless of what the implementation did.
-    client = ScriptedLLMClient(
-        [
-            a_binding("n3:builtin.nl2table:[n1,n2,n3]", scan_source_n1=POSTINGS),
-            a_binding("n3:builtin.nl2table:[n1,n2,n3]", scan_source_n1=POSTINGS),
-        ]
-    )
-    planner = a_planner(client, a_router(an_operator("builtin.nl2table", ALL_KINDS)))
-    first = planner.cover(a_plan(), None, a_discovery())
-    assert first.plan is not None
-    planner.cover(a_plan(), None, a_discovery(), reason="the fused call ignored the filter")
-    assert len(client.conversations[1]) == 2
-
-
 def test_a_scan_an_operator_answers_from_its_own_knowledge_is_bound_to_no_source() -> None:
     """An operator declaring no source kinds needs no discovery, and names no entity path."""
     planner = a_planner(

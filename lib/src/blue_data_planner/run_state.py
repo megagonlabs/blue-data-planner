@@ -45,11 +45,9 @@ class RunState:
     # Derived from the current plan and the current cover, and rewritten with every cover.
     _signatures: dict[str, str] = field(default_factory=dict[str, str], repr=False)
     # Repair-loop bookkeeping the run loop reads and writes across passes. RunCounters already
-    # bounds the replan counts (spend_failure_replan, spend_control_replan); a fragment repair
-    # and a cover repair have no counterpart there yet, so they stay here for now. Task 10
-    # revisits how a failure reason travels; until then it is written here and read back into
-    # to_result.
-    fragment_attempts: dict[frozenset[str], int] = field(default_factory=dict[frozenset[str], int])
+    # bounds the replan counts (spend_failure_replan, spend_control_replan); a cover repair has
+    # no counterpart there yet, so it stays here for now. Task 10 revisits how a failure reason
+    # travels; until then it is written here and read back into to_result.
     cover_attempts: int = 0
     failure_reason: str | None = None
 

@@ -95,43 +95,24 @@ class DataPlanner:
         if result.status is RunStatus.NEEDS_REPLAN:
             return self._replan(state, result.failure_reason)
         if result.status is RunStatus.NEEDS_REPAIR:
-            return self._repair(
-                state, fragment, result.failure_reason or "the fragment was rejected"
-            )
+            return self._repair(state, result.failure_reason or "the fragment was rejected")
         state.failure_reason = result.failure_reason
         return result.status
 
-    def _repair(
-        self, state: RunState, fragment: PhysicalPlanFragment, reason: str
-    ) -> RunStatus | None:
-        node_ids = frozenset(fragment.logical_node_ids)
-        spent = state.fragment_attempts.get(node_ids, 0)
-        if spent < self._limits.fragment_repairs:
-            state.fragment_attempts[node_ids] = spent + 1
-            written = self._physical_planner.recover_fragment(
-                state.pipeline.logical_plan,
-                state.pipeline.cover,
-                node_ids,
-                self._results_by_node_id(state),
-                reason,
-            )
-            if written.plan is not None:
-                state.install_cover(written.plan)
-                return None
+    def _repair(self, state: RunState, reason: str) -> RunStatus | None:
+        if state.cover_attempts >= self._limits.cover_repairs:
+            return self._replan(state, reason)
+        state.cover_attempts += 1
+        written = self._physical_planner.cover(
+            state.pipeline.logical_plan,
+            state.pipeline.cover,
+            self._results_by_node_id(state),
+            reason,
+        )
+        if written.plan is None:
             return self._replan(state, written.failure_reason)
-        if state.cover_attempts < self._limits.cover_repairs:
-            state.cover_attempts += 1
-            written = self._physical_planner.cover(
-                state.pipeline.logical_plan,
-                state.pipeline.physical_plans.get(state.pipeline.current_physical_plan_id or ""),
-                self._results_by_node_id(state),
-                reason,
-            )
-            if written.plan is not None:
-                state.install_cover(written.plan)
-                return None
-            return self._replan(state, written.failure_reason)
-        return self._replan(state, reason)
+        state.install_cover(written.plan)
+        return None
 
     def _replan(self, state: RunState, reason: str | None) -> RunStatus | None:
         if not state.counters.spend_failure_replan():
