@@ -4,15 +4,15 @@ import asyncio
 import json
 import threading
 import time
-from dataclasses import dataclass, field
-from typing import Any, Literal, TypeVar, cast
+from dataclasses import dataclass
+from typing import Any, TypeVar, cast
 
 from pydantic import BaseModel, ValidationError
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
 
 from blue_data_planner.llm.errors import LLMError
 from blue_data_planner.llm.templating import api_properties, build_message, extract_output
-from blue_data_planner.types import LLMUsage
+from blue_data_planner.types import Conversation, LLMUsage, Turn
 
 M = TypeVar("M", bound=BaseModel)
 
@@ -70,22 +70,6 @@ def _safe_int(value: Any) -> int:
         return int(value or 0)
     except Exception:
         return 0
-
-
-@dataclass(frozen=True)
-class Turn:
-    """One message in an exchange with a provider."""
-
-    role: Literal["system", "user", "assistant"]
-    content: str
-
-
-@dataclass
-class Conversation:
-    """The turns of one exchange, and what every call made on it cost."""
-
-    turns: list[Turn] = field(default_factory=list["Turn"])
-    usage: list[LLMUsage] = field(default_factory=list["LLMUsage"])
 
 
 class LLMClient:

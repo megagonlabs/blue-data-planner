@@ -17,6 +17,7 @@ from blue_data_planner.types import (
     PhysicalPlan,
     PhysicalPlanFragment,
     PipelineNode,
+    RunConversations,
     RunCounters,
     RunResult,
     RunStatus,
@@ -40,6 +41,7 @@ class RunState:
 
     request: str
     counters: RunCounters
+    conversations: RunConversations = field(default_factory=RunConversations)
     pipeline: DataPipeline = field(default_factory=_empty_pipeline)
     results: dict[str, NodeResult] = field(default_factory=dict[str, "NodeResult"])
     # Derived from the current plan and the current cover, and rewritten with every cover.

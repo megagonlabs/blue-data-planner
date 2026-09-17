@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import StrEnum
-from typing import Any
+from typing import Any, Literal
 
 from blue_data_planner.types.catalog import EntityMatch
 from blue_data_planner.types.errors import BudgetExhaustedError
@@ -91,6 +91,56 @@ class LLMUsage:
     completion_tokens: int
     cost: float
     latency_seconds: float
+
+
+@dataclass(frozen=True)
+class Turn:
+    """One message in an exchange with a provider."""
+
+    role: Literal["system", "user", "assistant"]
+    content: str
+
+
+@dataclass
+class Conversation:
+    """The turns of one exchange, and what every call made on it cost."""
+
+    turns: list[Turn] = field(default_factory=list["Turn"])
+    usage: list[LLMUsage] = field(default_factory=list["LLMUsage"])
+
+
+@dataclass
+class RunConversations:
+    """Every exchange the planner had with the model, by the component that had it."""
+
+    logical_planner: Conversation = field(default_factory=Conversation)
+    # Keyed by logical plan id: a new plan renames the graph the turns already describe.
+    physical_planner: dict[str, Conversation] = field(default_factory=dict[str, "Conversation"])
+    # Keyed by fragment id: a repair binding another operator asks for another parameter shape.
+    fragment_runner: dict[str, Conversation] = field(default_factory=dict[str, "Conversation"])
+    # Keyed by the DISCOVER node's signature, which is what its DiscoveryResult sits under.
+    catalog_searcher: dict[str, Conversation] = field(default_factory=dict[str, "Conversation"])
+
+    @property
+    def usage(self) -> list[LLMUsage]:
+        """Every model call the planner made, in the order the conversations hold them."""
+        collected = list(self.logical_planner.usage)
+        for held in (self.physical_planner, self.fragment_runner, self.catalog_searcher):
+            for conversation in held.values():
+                collected.extend(conversation.usage)
+        return collected
+
+    def for_physical_planner(self, logical_plan_id: str) -> Conversation:
+        """Return this logical plan's cover exchange, opening one the first time."""
+        return self.physical_planner.setdefault(logical_plan_id, Conversation())
+
+    def for_fragment_runner(self, fragment_id: str) -> Conversation:
+        """Return this fragment's exchange, opening one the first time."""
+        return self.fragment_runner.setdefault(fragment_id, Conversation())
+
+    def for_catalog_searcher(self, signature: str) -> Conversation:
+        """Return this discovery's exchange, opening one the first time."""
+        return self.catalog_searcher.setdefault(signature, Conversation())
 
 
 @dataclass(frozen=True)

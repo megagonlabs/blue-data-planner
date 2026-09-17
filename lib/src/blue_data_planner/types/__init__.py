@@ -43,6 +43,7 @@ from blue_data_planner.types.plan import (
 )
 from blue_data_planner.types.run import (
     CatalogSearchResult,
+    Conversation,
     DiscoveryResult,
     ErrorInfo,
     ErrorKind,
@@ -55,10 +56,12 @@ from blue_data_planner.types.run import (
     LogicalPlanResult,
     PhysicalPlanResult,
     RejectedPlan,
+    RunConversations,
     RunCounters,
     RunLimits,
     RunResult,
     RunStatus,
+    Turn,
 )
 
 __all__ = [
@@ -72,6 +75,7 @@ __all__ = [
     "CatalogSearchResult",
     "ColumnDataType",
     "ControlOperator",
+    "Conversation",
     "Data",
     "DataBundle",
     "DataPipeline",
@@ -102,6 +106,7 @@ __all__ = [
     "Record",
     "RecoverableOperatorError",
     "RejectedPlan",
+    "RunConversations",
     "RunCounters",
     "RunLimits",
     "RunResult",
@@ -109,6 +114,7 @@ __all__ = [
     "SourceQueryError",
     "SourceRecord",
     "SourceUnreachableError",
+    "Turn",
     "UnknownFragmentError",
     "UnknownNodeError",
     "UnrecoverableOperatorError",
