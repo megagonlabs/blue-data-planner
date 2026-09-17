@@ -10,6 +10,7 @@ from blue_data_planner.operators import OperatorRouter
 from blue_data_planner.physical_planner import PhysicalPlanner
 from blue_data_planner.types import (
     AttributeRecord,
+    Conversation,
     DiscoveryResult,
     EntityMatch,
     ExecutionResult,
@@ -171,7 +172,7 @@ def test_a_plan_one_operator_can_absorb_comes_back_as_one_fragment() -> None:
         [a_binding("n3:builtin.nl2table:[n1,n2,n3]", scan_source_n1=POSTINGS)]
     )
     planner = a_planner(client, a_router(an_operator("builtin.nl2table", ALL_KINDS)))
-    result = planner.cover(a_plan(), None, a_discovery())
+    result = planner.cover(a_plan(), Conversation(), None, a_discovery())
     assert result.plan is not None
     assert [sorted(f.logical_node_ids) for f in result.plan.fragments] == [["n1", "n2", "n3"]]
 
@@ -182,7 +183,7 @@ def test_a_node_no_operator_can_run_ends_the_cover_with_the_reason_naming_it() -
         ScriptedLLMClient([]),
         a_router(an_operator("builtin.filter", frozenset({LogicalOperator.FILTER}))),
     )
-    result = planner.cover(a_plan(), None, a_discovery())
+    result = planner.cover(a_plan(), Conversation(), None, a_discovery())
     assert result.plan is None
     assert result.failure_reason is not None
     assert "n3" in result.failure_reason
@@ -205,7 +206,7 @@ def test_a_cover_taking_one_node_at_a_time_sends_one_turn_per_node() -> None:
             an_operator("builtin.aggregate", frozenset({LogicalOperator.AGGREGATE})),
         ),
     )
-    result = planner.cover(a_plan(), None, a_discovery())
+    result = planner.cover(a_plan(), Conversation(), None, a_discovery())
     assert result.plan is not None
     assert sorted(sorted(f.logical_node_ids) for f in result.plan.fragments) == [
         ["n1"],
@@ -220,7 +221,7 @@ def test_a_scan_an_operator_answers_from_its_own_knowledge_is_bound_to_no_source
         ScriptedLLMClient([a_binding("n1:builtin.nl2table:[n1]")]),
         a_router(an_operator("builtin.nl2table", ALL_KINDS, source_kinds=None)),
     )
-    result = planner.cover(a_scan_and_return(), None, {})
+    result = planner.cover(a_scan_and_return(), Conversation(), None, {})
     assert result.plan is not None
     assert result.plan.fragments[0].scan_sources == {}
 
@@ -231,7 +232,7 @@ def test_a_scan_no_discovered_source_matches_leaves_its_node_with_no_candidate()
         ScriptedLLMClient([]),
         a_router(an_operator("builtin.scan", ALL_KINDS, source_kinds=frozenset({"vector/chroma"}))),
     )
-    result = planner.cover(a_scan_and_return(), None, a_discovery())
+    result = planner.cover(a_scan_and_return(), Conversation(), None, a_discovery())
     assert result.plan is None
     assert result.failure_reason is not None
     assert "n1" in result.failure_reason
@@ -255,7 +256,7 @@ def test_a_fragments_inputs_are_the_nodes_feeding_it_and_not_a_model_choice() ->
             an_operator("builtin.aggregate", frozenset({LogicalOperator.AGGREGATE})),
         ),
     )
-    result = planner.cover(a_plan(), None, a_discovery())
+    result = planner.cover(a_plan(), Conversation(), None, a_discovery())
     assert result.plan is not None
     reads = {
         fragment.logical_node_ids[0]: [entry.logical_node_id for entry in fragment.input_data]
@@ -275,9 +276,9 @@ def test_a_node_whose_fragment_produced_a_result_can_reuse_it_unchanged() -> Non
     planner = a_planner(client, a_router(an_operator("op.one", frozenset({LogicalOperator.SCAN}))))
     plan = a_scan_and_return()
 
-    first = planner.cover(plan, None, a_discovery())
+    first = planner.cover(plan, Conversation(), None, a_discovery())
     assert first.plan is not None
-    again = planner.cover(plan, first.plan, a_discovery_holding_n1(), "try again")
+    again = planner.cover(plan, Conversation(), first.plan, a_discovery_holding_n1(), "try again")
 
     assert again.plan is not None
     assert again.plan.fragments[0] == first.plan.fragments[0]
@@ -294,9 +295,43 @@ def test_a_node_with_no_result_is_offered_no_way_to_reuse_its_fragment() -> None
     planner = a_planner(client, a_router(an_operator("op.one", frozenset({LogicalOperator.SCAN}))))
     plan = a_scan_and_return()
 
-    first = planner.cover(plan, None, a_discovery())
+    first = planner.cover(plan, Conversation(), None, a_discovery())
     assert first.plan is not None
-    again = planner.cover(plan, first.plan, a_discovery(), "it returned nothing")
+    again = planner.cover(plan, Conversation(), first.plan, a_discovery(), "it returned nothing")
 
     assert again.plan is not None
     assert again.plan.fragments[0].id != first.plan.fragments[0].id
+
+
+def test_a_repair_answers_the_binding_it_is_replacing_in_the_same_conversation() -> None:
+    """One logical plan is one conversation, so a rebinding is a turn on top of what failed."""
+    client = ScriptedLLMClient(
+        [
+            a_binding("n1:op.one:[n1]", scan_source_n1=POSTINGS),
+            a_binding("n1:op.one:[n1]", scan_source_n1=POSTINGS),
+        ]
+    )
+    planner = a_planner(client, a_router(an_operator("op.one", frozenset({LogicalOperator.SCAN}))))
+    conversation = Conversation()
+    plan = a_scan_and_return()
+
+    first = planner.cover(plan, conversation, None, a_discovery())
+    assert first.plan is not None
+    planner.cover(plan, conversation, first.plan, a_discovery(), "it returned nothing")
+
+    assert sum(1 for turn in conversation.turns if turn.role == "system") == 1
+    assert "it returned nothing" in conversation.turns[-2].content
+
+
+def test_the_opening_instructions_carry_nothing_that_varies_by_plan() -> None:
+    """An identical opening is what makes the prefix cache across runs and across plans."""
+    first, second = Conversation(), Conversation()
+    router = a_router(an_operator("op.one", frozenset({LogicalOperator.SCAN})))
+    a_planner(
+        ScriptedLLMClient([a_binding("n1:op.one:[n1]", scan_source_n1=POSTINGS)]), router
+    ).cover(a_scan_and_return(), first, None, a_discovery())
+    a_planner(ScriptedLLMClient([a_binding("n1:op.one:[n1]")]), router).cover(
+        a_scan_and_return(), second, None, {}
+    )
+
+    assert first.turns[0].content == second.turns[0].content

@@ -18,22 +18,3 @@ the operator that could run it. Pick one, and write:
 
 Leave `required_output_columns` unset unless the fusion cannot produce what the root node
 declares. Setting it is an exception, not the default.
-
-## The entities the searches found
-
-{{ catalog_context }}
-
-{% if node_results %}
-## What has already run
-
-A candidate marked `reuse` keeps what ran and costs nothing. Absorbing a node that already ran
-throws its result away and pays for the work again; the row counts say how much.
-
-{{ node_results }}
-{% endif %}
-
-{% if reason %}
-## Why the last attempt failed
-
-{{ reason }}
-{% endif %}

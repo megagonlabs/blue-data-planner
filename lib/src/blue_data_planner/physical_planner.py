@@ -46,25 +46,36 @@ class PhysicalPlanner:
     def cover(
         self,
         plan: LogicalPlan,
+        conversation: Conversation,
         previous: PhysicalPlan | None,
         results: dict[str, NodeResult],
         reason: str | None = None,
     ) -> PhysicalPlanResult:
-        """Write a whole cover for this plan, which is both the first cover and the repair."""
-        return self._walk(plan, previous, results, reason)
+        """Write a whole cover for this plan, appending to the conversation this cover continues."""
+        return self._walk(plan, conversation, previous, results, reason)
 
     def _walk(
         self,
         plan: LogicalPlan,
+        conversation: Conversation,
         previous: PhysicalPlan | None,
         results: dict[str, NodeResult],
         reason: str | None,
     ) -> PhysicalPlanResult:
         confined_to = _coverable(plan)
         entity_source_kinds = _entity_source_kinds(results)
-        conversation = Conversation(
-            turns=[Turn(role="system", content=self._prompt(results, reason))]
-        )
+        opening = not conversation.turns
+        if opening:
+            conversation.turns.append(
+                Turn(role="system", content=prompt_text("physical_planner.md"))
+            )
+        # What changed since the last call rides on this call's first candidate turn, so no two
+        # user turns ever sit next to each other.
+        preamble = {
+            "catalog_context": _render_context(results) if opening else "",
+            "node_results": _render_results(results) if opening else "",
+            "reason": reason or "",
+        }
         fragments: list[PhysicalPlanFragment] = []
         covered: set[str] = set()
         for node in _reverse_dependency_order(plan):
@@ -75,7 +86,6 @@ class PhysicalPlanner:
                 return PhysicalPlanResult(
                     plan=None,
                     failure_reason=self._no_candidate_reason(node, entity_source_kinds),
-                    usage=list(conversation.usage),
                 )
             # A node id reaches results only because a fragment rooted there already produced
             # something, so no signature knowledge is needed here to offer it back.
@@ -85,8 +95,17 @@ class PhysicalPlanner:
                 else None
             )
             fragment = self._bind(
-                plan, node, candidates, reusable, results, entity_source_kinds, conversation
+                plan,
+                node,
+                candidates,
+                reusable,
+                results,
+                entity_source_kinds,
+                conversation,
+                preamble,
             )
+            # The preamble rides on the first candidate turn of this call only.
+            preamble = {"catalog_context": "", "node_results": "", "reason": ""}
             fragments.append(fragment)
             covered.update(fragment.logical_node_ids)
         cover = PhysicalPlan(
@@ -96,7 +115,7 @@ class PhysicalPlanner:
             fragments=fragments,
         )
         validate_physical_plan(plan, cover, frozenset(entity_source_kinds))
-        return PhysicalPlanResult(plan=cover, failure_reason=None, usage=list(conversation.usage))
+        return PhysicalPlanResult(plan=cover, failure_reason=None)
 
     def _candidates(
         self,
@@ -127,11 +146,16 @@ class PhysicalPlanner:
         results: dict[str, NodeResult],
         entity_source_kinds: dict[str, str],
         conversation: Conversation,
+        preamble: dict[str, str],
     ) -> PhysicalPlanFragment:
         conversation.turns.append(
             Turn(
                 role="user",
-                content=_render_candidates(plan, node, candidates, reusable, results),
+                content=safe_substitute(
+                    prompt_text("physical_planner_turn.md"),
+                    candidates=_render_candidates(plan, node, candidates, reusable, results),
+                    **preamble,
+                ),
             )
         )
         schema = cover_choice_schema(plan, node.id, candidates, reusable, entity_source_kinds)
@@ -200,14 +224,6 @@ class PhysicalPlanner:
             f"node {node.id!r} scans a source of a kind no operator reads: the operators for "
             f"{node.kind.value} read {readable}, and discovery found "
             f"{sorted(set(entity_source_kinds.values()))}"
-        )
-
-    def _prompt(self, results: dict[str, NodeResult], reason: str | None) -> str:
-        return safe_substitute(
-            prompt_text("physical_planner.md"),
-            catalog_context=_render_context(results),
-            node_results=_render_results(results),
-            reason=reason or "",
         )
 
 

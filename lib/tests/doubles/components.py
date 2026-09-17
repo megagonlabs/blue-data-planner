@@ -51,15 +51,18 @@ class FakePhysicalPlanner:
     def __init__(self, covers: list[PhysicalPlanResult]) -> None:
         self.covers = list(covers)
         self.covered_plan_ids: list[str] = []
+        self.conversations: list[Conversation] = []
 
     def cover(
         self,
         plan: LogicalPlan,
+        conversation: Conversation,
         previous: PhysicalPlan | None,
         results: dict[str, Any],
         reason: str | None = None,
     ) -> PhysicalPlanResult:
         self.covered_plan_ids.append(plan.id)
+        self.conversations.append(conversation)
         if not self.covers:
             raise AssertionError("the fake physical planner ran out of covers")
         return self.covers.pop(0)

@@ -173,7 +173,6 @@ class PhysicalPlanResult:
 
     plan: PhysicalPlan | None  # None exactly when a node has no operator
     failure_reason: str | None
-    usage: list[LLMUsage]
 
 
 @dataclass(frozen=True)

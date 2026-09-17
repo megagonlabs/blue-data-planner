@@ -105,6 +105,7 @@ class DataPlanner:
         state.cover_attempts += 1
         written = self._physical_planner.cover(
             state.pipeline.logical_plan,
+            state.conversations.for_physical_planner(state.pipeline.logical_plan.id),
             state.pipeline.cover,
             self._results_by_node_id(state),
             reason,
@@ -159,6 +160,7 @@ class DataPlanner:
         state.install_logical_plan(written.plan)
         cover = self._physical_planner.cover(
             written.plan,
+            state.conversations.for_physical_planner(written.plan.id),
             state.pipeline.physical_plans.get(state.pipeline.current_physical_plan_id or ""),
             held,
             reason,

@@ -11,6 +11,7 @@ from blue_data_planner.data_planner import DataPlanner
 from blue_data_planner.llm import LLMError
 from blue_data_planner.types import (
     ControlOperator,
+    Conversation,
     ExecutionResult,
     ExecutionStatus,
     FragmentAttempt,
@@ -219,7 +220,7 @@ def invalid_plan(failure_reason: str = "the plan was turned down") -> LogicalPla
 
 
 def covered(cover: PhysicalPlan) -> PhysicalPlanResult:
-    return PhysicalPlanResult(plan=cover, failure_reason=None, usage=[])
+    return PhysicalPlanResult(plan=cover, failure_reason=None)
 
 
 def test_a_plan_that_runs_clean_ends_ok_with_the_columns_the_return_names() -> None:
@@ -304,7 +305,6 @@ def test_a_plan_no_operator_can_cover_is_replanned_with_the_reason_in_hand() -> 
     uncoverable = PhysicalPlanResult(
         plan=None,
         failure_reason="node 'n1' scans a source of a kind no operator reads",
-        usage=[],
     )
     result = a_planner(
         logical,
@@ -337,6 +337,7 @@ def test_a_defect_in_a_component_ends_the_request_instead_of_raising_at_the_call
         def cover(
             self,
             plan: LogicalPlan,
+            conversation: Conversation,
             previous: PhysicalPlan | None,
             results: dict[str, Any],
             reason: str | None = None,
@@ -374,7 +375,7 @@ def test_the_planning_only_operation_stops_after_the_first_cover() -> None:
 def test_the_planning_only_operation_stops_even_when_nothing_covers_the_plan() -> None:
     """An uncoverable plan is not a failure plan reaches; it stops with what it wrote."""
     physical = FakePhysicalPlanner(
-        [PhysicalPlanResult(plan=None, failure_reason="no operator can run n1", usage=[])]
+        [PhysicalPlanResult(plan=None, failure_reason="no operator can run n1")]
     )
     result = a_planner(
         FakeLogicalPlanner([ok(a_scan_and_ending("p1")), ok(a_scan_and_ending("p2"))]),
