@@ -23,8 +23,6 @@ flowchart TB
     MORE -->|no| ANS["result: ok<br/>rows from the RETURN node"]
     RUN -->|rejected| REPAIR{"narrowest repair<br/>with attempts left"}
     REPAIR -->|"the parameters"| RUN
-    REPAIR -->|"this node set"| RECOVER["cover that node set again"]
-    RECOVER --> SCHED
     REPAIR -->|"the whole cover"| COVER
     REPAIR -->|"the logical plan"| GEN
     REPAIR -->|none| FAILG["result: replan_exhausted"]
@@ -137,7 +135,7 @@ from the outside, and the turns that have not changed stay cached.
 | Component | One conversation per | Continues on |
 | --- | --- | --- |
 | Logical planner | Request | A validation error, a resolved `DISCOVER`, a replan |
-| Physical planner | Logical plan | A fragment repair, a cover repair |
+| Physical planner | Logical plan | A cover repair |
 | Fragment runner | Fragment | A failed call, a rejected review |
 | Catalog searcher | `DISCOVER` node | Nothing. One exchange, one answer |
 
@@ -273,6 +271,14 @@ matching operator per subgraph, and a model picks one. The
 enumeration already includes the node on its own, so a node reaching this point with no candidate is
 one whose kind no registered operator declares, and that node has no operator.
 
+A node the run already holds a result for gains one more candidate: reusing the fragment that
+produced it. It is offered wherever the cover being replaced holds a fragment rooted at that node
+and the run holds that fragment's result, and choosing it carries the fragment across unchanged,
+down to the exchange that wrote its parameters. Reusing finished work is therefore something the
+model decides, in the same turn and against the same alternatives as everything else, rather than
+something the code infers by comparing two covers ([a cover is written
+whole](#a-cover-is-written-whole)).
+
 A model picks instead of the code taking the largest match, because the size of a fragment is the
 pushdown decision itself. A rule that always absorbs the maximum would settle in advance the
 question the planner is there to answer. Greedy maximal matching stays available as a model-free
@@ -344,6 +350,12 @@ done ([10, reusing a result](10-data-model.md#reusing-a-result)).
 A fragment fed by work that changed falls in the second row without a separate rule, because its
 inputs' signatures are part of its own. [Section 5](#5-recovering-from-a-failure) is where that
 matters.
+
+Two things decide together whether work happens again, and they answer different questions. The
+model says what should happen at each node, keeping a finished fragment or replacing it
+([choosing among candidates](#choosing-among-candidates)); the signature says whether what it kept
+still stands. So a model that keeps a fragment whose inputs have since changed revives nothing: the
+kept fragment signs differently for having different work above it, finds no result, and runs.
 
 ---
 
@@ -574,30 +586,33 @@ and belongs to no fragment, so it is dropped and cannot fire again.
 
 ## 5. Recovering from a failure
 
-An operator call can fail, and a result that runs can still be wrong. Recovery has four repairs,
+An operator call can fail, and a result that runs can still be wrong. Recovery has three repairs,
 ordered by how much work each one throws away. A repair is only tried once the one before it has
 run out of attempts.
 
 | Repair | What it rewrites | By | Bounded by |
 | --- | --- | --- | --- |
 | Parameter | The parameters, against the same fragment and operator | `FragmentRunner` | `parameter_repairs`, per fragment |
-| Fragment | The operator, or the way this node set is cut into fragments | `PhysicalPlanner` | `fragment_repairs`, per root node |
 | Cover | The whole cover, against the same logical plan | `PhysicalPlanner` | `cover_repairs`, per logical plan |
 | Replan | The logical plan | `LogicalPlanner` | `failure_replans`, per request |
 
 Each repair discards strictly more work than the one before it, and costs strictly more to redo.
 Starting with the narrowest keeps a wrong parameter from being answered with a new plan.
 
-The four are four nested loops, each bounded at the scope its row names. A bound that names a scope
-narrower than the request is spent inside one loop and starts again when that loop does, so a new
-logical plan gets its own covers and a new cover its own cuts. Only the replan allowance lasts a
-whole request.
+What a repair discards is what it changes, not what it covers. A cover repair decides every binding
+again, and the model keeps a finished fragment by choosing to
+([choosing among candidates](#choosing-among-candidates)), so covering the whole plan again and
+running the whole plan again are different things. One repair therefore sits between the parameters
+and a new plan, and it has the whole plan in view, which is what the widest of its fixes needs.
 
-The order is also readable after the fact, from the covers a run kept. A second cover binding a
-different operator to the same node set is a fragment repair; one whose fragments grew is a cover
-repair; a second logical plan is a replan. A parameter repair changes no plan and reads from the
-fragment's own exchange. What actually fixed a run can be counted without instrumenting anything
-further.
+The three are three nested loops, each bounded at the scope its row names. A bound that names a
+scope narrower than the request is spent inside one loop and starts again when that loop does, so a
+new logical plan gets its own covers. Only the replan allowance lasts a whole request.
+
+The order is also readable after the fact, from the covers a run kept. A second cover over the same
+logical plan is a cover repair, and what changed between the two is what it repaired; a second
+logical plan is a replan. A parameter repair changes no plan and reads from the fragment's own
+exchange. What actually fixed a run can be counted without instrumenting anything further.
 
 ### The parameter repair
 
@@ -607,37 +622,32 @@ parameters has to name columns and spell values the way the data spells them, an
 is both frequent and cheap to fix, since neither the operator choice nor the fragment boundary was
 wrong.
 
-### The fragment repair
-
-The physical planner covers the failed fragment's node set again, with the failure reason in
-context. It may bind a different operator to the same set, cut the set into smaller fragments, which
-is the fix for a fragment that absorbed more than its operator could carry out, or bind a `SCAN` in
-it to a different entity, which is the fix for a search that returned several plausible ones and a
-cover that picked the wrong one. The last of those is why this repair reads the run's catalog
-context and not only the cover it is replacing: the cover holds the one entity already chosen, and
-the alternatives are in the context.
-
-Attempts are counted against the root node rather than the node set, because cutting a set again may
-split it and the root is what survives every cut. Splitting strictly shrinks a set, so this repair
-ends at single nodes.
-
 ### The cover repair
 
-The physical planner covers the whole logical plan again, with the failure reason in context, and
-may absorb nodes that already ran.
+The physical planner covers the whole logical plan again, with the failure reason in context. Every
+binding is decided afresh, and every fragment that already produced a result is on offer to be kept,
+so what the repair changes is what the model chooses to change.
 
-This is the repair that can grow a fragment, and it is the only one that can. Suppose `SCAN`,
-`FILTER`, and `PROJECT` were each covered alone, ran, and the projection came back wrong because the
-three steps needed to happen inside one query. The fragment repair cannot reach that fix, since it
-may only rearrange the projection's own node set. The cover repair covers the plan again and may put
-all three into one Text-to-SQL fragment.
+Four fixes are reachable, and between them they are everything short of a new plan.
 
-Absorbing a node that already ran leaves that node's result unread, and the results of every executed
-node downstream of it too, since those saw a value the new fragment is about to produce again.
-Everything the new cover leaves alone asks for the same work and reads the same result. The work
-inside a changed fragment is paid for twice, which is the cost the model weighs against what the
-wider fragment buys. The single-exit rule is what makes that safe: no node outside the fragment was
-reading those tables.
+| Fix | Answers |
+| --- | --- |
+| Bind a different operator to the failed node set | An operator that cannot express what the node asks for |
+| Cut that set into smaller fragments | A fragment that absorbed more than its operator could carry out |
+| Bind a `SCAN` in it to a different entity | A search that returned several plausible ones and a cover that picked the wrong one |
+| Grow a fragment, absorbing nodes that already ran | Steps that needed to happen inside one call |
+
+The third is why the repair reads the run's catalog context and not only the cover it is replacing:
+the cover holds the one entity already chosen, and the alternatives are in the context. The fourth
+is the one that costs. Absorbing a node that already ran leaves that node's result unread, and the
+results of every executed node downstream of it too, since those saw a value the new fragment is
+about to produce again. That work is paid for twice, which is what the model weighs against what
+the wider fragment buys, and the row counts in front of it say how much. The single-exit rule is
+what makes it safe: no node outside the fragment was reading those tables.
+
+Suppose `SCAN`, `FILTER`, and `PROJECT` were each covered alone, ran, and the projection came back
+wrong because the three steps needed to happen inside one query. The repair covers the plan again
+and puts all three into one Text-to-SQL fragment.
 
 Needing this repair does not require the logical plan to be wrong. A plan can be right while the way
 it was cut up is wrong, and repairing the cut should not require rewriting the plan.
@@ -657,7 +667,7 @@ decides whether these repairs apply at all.
 | Kind | Means | Response |
 | --- | --- | --- |
 | Recoverable | Bad parameters, a missing or uncoercible required column, an operator raising on input it cannot handle | Start with the parameter repair |
-| Unrecoverable | The failure has nothing to do with any of the four repairs: a source is unreachable, credentials are rejected, the process is out of memory | End the request. Retrying would fail the same way |
+| Unrecoverable | The failure has nothing to do with any of the three repairs: a source is unreachable, credentials are rejected, the process is out of memory | End the request. Retrying would fail the same way |
 
 A third case ends a request without any of this, because nothing ran. When no operator matches a
 node, alone or in any fragment containing it, physical planning writes no cover: the result carries
@@ -673,15 +683,15 @@ operator, and a wrong choice is caught at review one operator call later (ADR-02
 
 ## Budgets and limits
 
-Seven limits bound a request. Each is fixed when the planner is built and counted at the scope its
+Six limits bound a request. Each is fixed when the planner is built and counted at the scope its
 row below gives. ADR-014 covers which of them is budgeted and why, and
 [06-library.md](06-library.md#budgets-and-limits) says which component enforces each.
 
 What each one counts, where it starts again, and what happens when it is reached are in
 [12-deployment-ops.md](12-deployment-ops.md#5-request-limits).
-`PlanResult.counters` reports the four that are counted across a whole request, each beside the bound
-it was counted against. The other four reset inside one, so no single number describes what a run
-spent against them.
+`RunResult.counters` reports the three that are counted across a whole request, each beside the
+bound it was counted against. The other three reset inside one, so no single number describes what
+a run spent against them.
 
 Calls through `llm/` are not budgeted. A plan correction spends one and no operator call, since the
 rejected plan never runs, and so does every physical planning decision. The parameter repair is the

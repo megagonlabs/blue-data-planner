@@ -118,7 +118,7 @@ inside a single call holds that number itself, and a deployment does not set it.
 are the defaults on `RunLimits`, which is where a deployment reads them.
 
 Where a bound is counted decides whether a result can report it. Three are counted across a whole
-request and are the fields of `RunCounters`. The other four are spent inside a loop and start again
+request and are the fields of `RunCounters`. The other three are spent inside a loop and start again
 when that loop does, so no one number says what a request spent against them.
 
 | Bound | Counted over | Starts again | Reaching it |
@@ -127,43 +127,43 @@ when that loop does, so no one number says what a request spent against them.
 | `failure_replans` | The whole request | Never | `replan_exhausted` |
 | `control_replans` | The whole request | Never | `replan_exhausted` |
 | `cover_repairs` | One logical plan | At every new logical plan | The run moves on to the replan |
-| `fragment_repairs` | One root node under one cover | At every root node the run repairs | The run moves on to the cover repair |
-| `parameter_repairs` | One fragment run | At every fragment run | The run moves on to the fragment repair |
+| `parameter_repairs` | One fragment run | At every fragment run | The run moves on to the cover repair |
 | `plan_corrections` | One plan being written | At every call to the logical planner | `invalid_plan` |
 
 Every recovery bound counts tries after the first, so a bound of two means one try and two repairs,
-and every loop spends it the same way. `plan_corrections`, `parameter_repairs`, `fragment_repairs`,
-`cover_repairs`, `failure_replans`, and `control_replans` are all named for what repeats rather than
-for the total, which is what keeps one convention readable from the names. `operator_calls` is a
-total rather than a repeat count and stands outside the rule.
+and every loop spends it the same way. `plan_corrections`, `parameter_repairs`, `cover_repairs`,
+`failure_replans`, and `control_replans` are all named for what repeats rather than for the total,
+which is what keeps one convention readable from the names. `operator_calls` is a total rather than
+a repeat count and stands outside the rule.
 
 How many search terms one `DISCOVER` node expands into is not here. Reaching that number changes
 nothing about how a request proceeds: the extra terms are dropped and the search runs. It shapes what
 one component does rather than bounding a run, which puts it with the size of the catalog preview,
 as a number `CatalogSearcher` holds ([06-library.md](06-library.md#catalogsearcher)).
 
-### How the seven compose
+### How the six compose
 
-The four recovery bounds decide *which* repair a rejected fragment gets, not how much a request may
+The three recovery bounds decide *which* repair a rejected fragment gets, not how much a request may
 spend in total
 ([04-detailed-architecture.md](04-detailed-architecture.md#5-recovering-from-a-failure)). Multiplied
-out they permit far more work than any request should do: several cuts at one root node, inside
-several covers, inside several logical plans, each cut writing parameters several times over.
+out they permit far more work than any request should do: several covers of one logical plan, inside
+several logical plans, each fragment of each cover writing parameters several times over.
 
 `operator_calls` is the only ceiling on the total, which is why ADR-014 says its value matters more
-than it otherwise would. A plan that runs cleanly spends one call per fragment. A rejected fragment
-adds its parameter repairs and then its further cuts, so exhausting the budget takes a run in which
-most fragments failed and the repairs kept finding something else to try. A request stopped by
-`operator_calls` rather than by a recovery bound is a request that was not converging.
+than it otherwise would. A plan that runs cleanly spends one call per fragment. A cover repair
+spends one more per fragment the model chose to change, and a rejected fragment spends its parameter
+repairs on top, so exhausting the budget takes a run in which most fragments failed and the repairs
+kept finding something else to try. A request stopped by `operator_calls` rather than by a recovery
+bound is a request that was not converging.
 
 Model calls are not budgeted (ADR-014). Every one of them happens inside a loop one of these bounds
 already limits, so a separate cap would restate them under another name.
 
 ### Where the values come from
 
-None of the seven is measured. The recovery bounds are deliberately conservative, on the reasoning
-that a second cut that also fails is better answered by a new plan than by a third cut, and the rest
-are set low enough to stop a run that is not converging without stopping one that is.
+None of the six is measured. The recovery bounds are deliberately conservative, on the reasoning
+that a second cover that also fails is better answered by a new plan than by a third cover, and the
+rest are set low enough to stop a run that is not converging without stopping one that is.
 
 The TAG-Bench harness reports operator calls per request, model calls per component, how often a plan
 schedules a replan, and how often each repair fires
@@ -203,7 +203,7 @@ application decides the format and the destination.
 logging.getLogger("blue_data_planner")
 ```
 
-The run record is the more useful instrument, and it is not a log. `PlanResult` carries every plan
+The run record is the more useful instrument, and it is not a log. `RunResult` carries every plan
 the request produced, every fragment attempt including the rejected ones, the counters, and one
 usage record per model call. A failed run is as inspectable as a successful one (ADR-015), so
 diagnosing one means reading the returned structure rather than reconstructing it from log lines.

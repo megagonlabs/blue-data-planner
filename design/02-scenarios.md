@@ -231,8 +231,9 @@ instruction, and `n5` is the reason there is anything to check. Titles such as "
 
 The parameter repair goes first, because it is the cheapest and the most often right: the same
 operator over the same nodes, with the instruction written again. Here it does not help, since no
-wording makes SQL read a title for meaning. The run then moves to the fragment repair, which covers
-`n3`, `n4`, and `n5` again and cuts them differently.
+wording makes SQL read a title for meaning. The run then moves to the cover repair, which decides
+every binding again. The model keeps `f2`, which ran and is unaffected, and cuts `n3`, `n4`, and
+`n5` differently.
 
 ```text
 cover 1

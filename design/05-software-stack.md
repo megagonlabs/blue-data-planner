@@ -212,7 +212,7 @@ injected values. `.env` files are never committed.
 
 The full list of settings and their defaults belongs to
 [12-deployment-ops.md](12-deployment-ops.md), including the operator call budget, the bound on each
-of the four repairs, and the cap on plan corrections (ADR-014).
+of the three repairs, and the cap on plan corrections (ADR-014).
 
 ---
 

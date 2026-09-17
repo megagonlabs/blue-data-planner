@@ -23,7 +23,7 @@ and reads its result writes one import. Everything else is reached through the m
 
 | Import | Holds |
 | --- | --- |
-| `blue_data_planner` | `DataPlanner`, `build_data_planner`, `PlanResult`, `RunLimits`, `RunStatus`, `BlueDataPlannerError`, `__version__` |
+| `blue_data_planner` | `DataPlanner`, `build_data_planner`, `RunResult`, `RunLimits`, `RunStatus`, `BlueDataPlannerError`, `__version__` |
 | `blue_data_planner.data_planner` | `DataPlanner`, `build_data_planner` |
 | `blue_data_planner.logical_planner`, `.physical_planner`, `.fragment_runner` | The three planning components, one module each |
 | `blue_data_planner.catalog_searcher` | `CatalogSearcher` |
@@ -130,14 +130,14 @@ be given one for the search terms a `DISCOVER` node expands into.
 ### `DataPlanner`
 
 ```python
-def run(self, request: str) -> PlanResult: ...
-def plan(self, request: str) -> PlanResult: ...
+def run(self, request: str) -> RunResult: ...
+def plan(self, request: str) -> RunResult: ...
 ```
 
 | Operation | Does | Returns | Spends operator calls |
 | --- | --- | --- | --- |
-| `run` | Plans, covers, executes, and repairs until the request ends | A `PlanResult` whose status says how it ended | Yes |
-| `plan` | Writes one logical plan and one cover, then stops | A `PlanResult` with status `planned` and `answer` set to `None` | No |
+| `run` | Plans, covers, executes, and repairs until the request ends | A `RunResult` whose status says how it ended | Yes |
+| `plan` | Writes one logical plan and one cover, then stops | A `RunResult` with status `planned` and `answer` set to `None` | No |
 
 Both take a request in plain language and nothing else. A plan is what a request produced, so no
 entry point accepts one: `to_dict` writes a plan for a reader, and `from_dict` reads a recorded plan
@@ -163,16 +163,15 @@ How a deployment sets a bound is in
 | --- | --- | --- | --- |
 | `operator_calls` | Per request | `RunCounters`, billed in `execute_physical_operator` | `budget_exhausted` |
 | `plan_corrections` | Per plan | `LogicalPlanner`, rewriting a plan validation turned down | `invalid_plan` |
-| `parameter_repairs` | Per fragment | `FragmentRunner`, writing parameters again after a rejected review | The fragment repair |
-| `fragment_repairs` | Per root node | The run loop's fragment repair loop | The cover repair |
+| `parameter_repairs` | Per fragment | `FragmentRunner`, writing parameters again after a rejected review | The cover repair |
 | `cover_repairs` | Per logical plan | The run loop's cover repair loop | The replan |
 | `failure_replans` | Per request | `RunCounters`, read by the run loop | `replan_exhausted` |
 | `control_replans` | Per request | `RunCounters`, read by the run loop | `replan_exhausted` |
 
-The four recovery bounds are one repair each, tried narrowest first
+The three recovery bounds are one repair each, tried narrowest first
 ([04-detailed-architecture.md](04-detailed-architecture.md#5-recovering-from-a-failure)).
 
-### `PlanResult`
+### `RunResult`
 
 Returned whichever way a request ends, and fixed in
 [10, what a run produces](10-data-model.md#3-what-a-run-produces).
@@ -241,7 +240,7 @@ blue-data-planner ask "Which Bay Area data scientist postings are at healthcare 
 | --- | --- | --- | --- |
 | `REQUEST` | positional, required | | The question, in plain language |
 | `--explain` | flag | off | Call `plan` instead of `run`: print the plan and the cover, and stop |
-| `--json` | flag | off | Print the whole `PlanResult` as JSON instead of a table |
+| `--json` | flag | off | Print the whole `RunResult` as JSON instead of a table |
 | `--show-conversations` | flag | off | Include the exchanges with the model in the printed output |
 | `--model` | string | from the environment | The litellm model string every component uses |
 | `--registry` | string | from the environment | Which `blue-data` registry to read |
@@ -256,7 +255,6 @@ the type name already says limits, and a command line has no such container.
 | `--max-operator-calls` | `operator_calls` |
 | `--max-plan-corrections` | `plan_corrections` |
 | `--max-parameter-repairs` | `parameter_repairs` |
-| `--max-fragment-repairs` | `fragment_repairs` |
 | `--max-cover-repairs` | `cover_repairs` |
 | `--max-failure-replans` | `failure_replans` |
 | `--max-control-replans` | `control_replans` |

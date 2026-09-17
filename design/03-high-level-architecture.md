@@ -112,7 +112,7 @@ them calls a model or invokes an operator directly.
 | Runs the repairs | Four nested loops, each bounded at its own scope, a failure moving outward when a bound is spent |
 | Installs a cover | Adds it and moves the pointer. A result is reused when the new cover asks for work already done |
 | Bills the budget | Operator calls against the operator call budget |
-| Assembles the result | One `PlanResult` whether the request succeeded or not |
+| Assembles the result | One `RunResult` whether the request succeeded or not |
 
 Keeping the loop here rather than in `execution/` is what lets `execution/` run without importing
 a planning component (ADR-011). `DataPlanner` is given the components below rather than building them, so it
@@ -166,7 +166,7 @@ vocabulary without importing each other.
 `types/` holds every data class that crosses a module boundary: `DataPipeline` and the plan
 versions it contains, `PipelineNode`, the physical plan and its fragments, every result type, the
 three catalog readings `data/` produces, and the `LLMUsage` records `llm/` produces. A type
-`PlanResult` names has to be nameable by everything that reads a `PlanResult`, so the line lands
+`RunResult` names has to be nameable by everything that reads a `RunResult`, so the line lands
 here: `types/` holds data, and every other module holds behavior.
 
 Inside it, `errors.py`, `plan.py`, `catalog.py`, and `run.py` split those classes by subject, and

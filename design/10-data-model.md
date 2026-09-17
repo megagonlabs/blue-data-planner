@@ -23,7 +23,7 @@ Four kinds of shape appear, in the order a request produces them.
 
 One sentence links them. A request becomes a logical plan; a physical plan cuts that plan into
 fragments and binds each one to an operator; running a fragment produces rows; the plan, the rows,
-and every exchange that produced them end up in the `PlanResult` the caller receives.
+and every exchange that produced them end up in the `RunResult` the caller receives.
 
 The vocabulary follows [04-detailed-architecture.md](04-detailed-architecture.md). A logical
 operator is a node kind such as `FILTER`. A physical operator is one implementation such as
@@ -68,7 +68,7 @@ pointer.
 
 | Repair | What is added |
 | --- | --- |
-| Fragment, cover | A `PhysicalPlan` with a new id over the same `logical_plan_id` |
+| Cover | A `PhysicalPlan` with a new id over the same `logical_plan_id` |
 | Replan | A `LogicalPlan` with a new id whose `parent_id` names the version it continues, then a cover for it |
 
 The logical half is the DAG. The physical half annotates it: which nodes are grouped, which operator
@@ -102,9 +102,10 @@ yet reached.
 An absorbed node materialized no table, so the run holds no result under its id. It is carried
 anyway, because the fragment's root reads it and dropping it would leave that edge pointing at
 nothing, and because a later cover can only fuse those nodes again if they are still in the plan.
-The carried set is therefore a superset of the keys of the run's result map for the parent version,
-and moving those results forward is still a copy of one map
-([section 3](#what-a-run-holds-while-it-runs)).
+The carried set is therefore a superset of the nodes the run holds a result for. Nothing is moved
+forward: a result is filed under the signature of the work that produced it, and a carried node's
+work is found again by the cover written for the new version
+([reusing a result](#reusing-a-result)).
 
 A control node is terminal. Nothing reads one, because what it produces is catalog records or a
 reason to plan again rather than rows, and the next plan is what reads that. Validation turns down a
@@ -285,7 +286,7 @@ class PhysicalPlan:
 | Instruction | One instruction to the operator covering everything the fragment absorbed, starting with a verb as a node's does: "Find data scientist job postings, with their title, company id, and location" |
 | Inputs | `input_data` lists the frontier nodes, which are the nodes outside the fragment feeding nodes inside it, in the order the fragment's nodes read them. The list is the plan's to decide, and only each entry's name and description are written during physical planning. One entry covers everything that node produced, so it may stand for more than one table; those tables share the name and keep their order |
 | Columns | `required_output_columns` is copied from the root node unless the model declares that the fusion cannot produce that list |
-| Identity | `id` names one fragment inside one cover and is fresh in every cover. What the fragment is for is its signature, which covers everything deciding what it produces, so that is what says whether two covers ask for the same work |
+| Identity | `id` names one fragment, and a fragment carried into a new cover keeps it, so the exchange that wrote its parameters stays attached to the work. What the fragment is for is its signature, which covers everything deciding what it produces, so that is what says whether two covers ask for the same work |
 
 A cover is written whole rather than patched, and what carries over from the previous cover is
 decided by each fragment's signature rather than by comparing the two covers
@@ -348,7 +349,7 @@ the same work in two covers gets the same value and an id never does.
 | Id | Format | Example | Resolved by |
 | --- | --- | --- | --- |
 | Node id | `n` followed by an integer, unique within a plan | `n6` | `LogicalPlan.node`, which raises on an unknown id |
-| Fragment id | `f` followed by an integer, fresh in every cover | `f2` | `PhysicalPlan.fragment` |
+| Fragment id | `f` followed by an integer, fresh when the fragment is, kept when it is carried | `f2` | `PhysicalPlan.fragment` |
 | Signature | A hash of the work one node does | `a3f1...` | `signatures`, over a plan and a cover |
 | Plan id | A UUID, on a logical plan and on a physical plan | `9f1c...` | `DataPipeline.logical_plans` and `.physical_plans` |
 | Operator id | Suite name, a dot, then the operation | `blue.nl2sql`, `lotus.sem_filter` | `OperatorRouter`, while the physical plan is written |
@@ -437,7 +438,7 @@ A `DataPipeline` serializes as its two maps and its two pointers. One version of
 ```
 
 A plan carries no results. It is the description of the work, and what running it produced belongs
-to `PlanResult`.
+to `RunResult`.
 
 Serialization runs one way. `to_dict` is how a plan leaves the process, in an MCP response, in CLI
 output, or into whatever a library caller writes down, and nothing reads one back in to run it. A
@@ -499,11 +500,11 @@ builds one data frame per table going in and flattens coming out.
 
 ## 3. What a run produces
 
-`PlanResult` is returned whichever way a request ends, and holds everything about the run.
+`RunResult` is returned whichever way a request ends, and holds everything about the run.
 
 ```python
 @dataclass(frozen=True)
-class PlanResult:
+class RunResult:
     status: RunStatus
     answer: DataBundle | None
     failure_reason: str | None
@@ -555,7 +556,7 @@ a run and `to_result` hands it to the caller unchanged.
 | An operator node that roots a fragment | The `ExecutionResult` that was accepted |
 | An operator node a fragment absorbed | None. A fused call produces no intermediate table |
 | `DISCOVER` | The `DiscoveryResult` the catalog search produced |
-| `REPLAN`, `RETURN` | None. The answer belongs to `PlanResult.answer` |
+| `REPLAN`, `RETURN` | None. The answer belongs to `RunResult.answer` |
 
 ### Reusing a result
 
@@ -568,6 +569,15 @@ exactly when it asks for the same work again, and a fragment whose operator, ins
 upstream changed finds nothing and runs. The same rule carries results across logical plan versions,
 so a continuation that keeps a node keeps what that node produced, and one that rewrites the work
 does not.
+
+Asking for the same work again is something a cover does deliberately. A node whose fragment already
+produced a result is offered that fragment as one of the candidates the model chooses among, and
+choosing it carries the fragment into the new cover unchanged
+([04](04-detailed-architecture.md#choosing-among-candidates)). That is what makes reuse turn on the
+decision rather than on how the model happened to word an instruction the second time. The two
+answer different questions and both are needed: the choice says what should happen at the node, and
+the signature says whether what was chosen still stands, so a fragment kept above work that has
+since changed signs differently and runs.
 
 A node id is not the key, because it answers a different question. Two plan versions may use one id
 for different nodes, and a repair that cuts a node set again may leave the same id covering a
@@ -649,11 +659,11 @@ logical planner and to the replan allowance, neither of which it can see.
 | An operator failed unrecoverably | `operator_failed` |
 | The operator call budget reached its cap | `budget_exhausted` |
 
-`needs_repair` goes to the fragment repair, and `needs_replan` goes straight to the replan. A
-`needs_repair` the fragment loop cannot answer moves outward to the next loop, which is how the
-repairs are ordered ([04, recovering from a
+`needs_repair` goes to the cover repair, and `needs_replan` goes straight to the replan. A
+`needs_repair` the cover loop cannot answer moves outward to the replan, which is how the repairs
+are ordered ([04, recovering from a
 failure](04-detailed-architecture.md#5-recovering-from-a-failure)). The two remaining statuses end
-the run, and each is the status the caller's `PlanResult` carries.
+the run, and each is the status the caller's `RunResult` carries.
 
 Each component returns what it did instead of writing it down as it goes, so one that raises cannot
 leave a half-written record behind, and plans and results have one writer.
@@ -704,7 +714,7 @@ planner reads them when it binds a scan to a source.
 
 `dropped_terms` is what a run holds for a reader rather than for itself. Nothing branches on it, and
 a search runs the terms it kept whatever the number is. It reaches a library caller inside
-`PlanResult.results`, where it is the one sign that a node wanted more searches than
+`RunResult.results`, where it is the one sign that a node wanted more searches than
 `CatalogSearcher` allows it.
 
 ### One model call
@@ -767,8 +777,8 @@ Three counts, one per bound that lasts a whole request, each named after the bou
 `RunCounters` carries the `RunLimits` it was counted against, so a reader has the spend and the cap
 side by side without knowing how the planner was built.
 
-The other four bounds reset inside a request: `plan_corrections` and `parameter_repairs` bound a
-loop inside a component, and `fragment_repairs` and `cover_repairs` bound one inside the run loop
+The other three bounds reset inside a request: `plan_corrections` and `parameter_repairs` bound a
+loop inside a component, and `cover_repairs` bounds one inside the run loop
 ([04, recovering from a failure](04-detailed-architecture.md#5-recovering-from-a-failure)). A bound
 that resets has no one number to report.
 
@@ -810,7 +820,7 @@ samples a table of its own.
 
 The shapes below live in `types/` with the rest of the shared data classes, and `data/catalog.py`
 holds the code that fills them. `EntityMatch` is why: it reaches a caller inside
-`PlanResult.results`, so `types/` has to name it, and splitting one reading from the other two on
+`RunResult.results`, so `types/` has to name it, and splitting one reading from the other two on
 that basis would draw a line no reader could see
 ([06-library.md](06-library.md#shared-types)).
 
@@ -1044,10 +1054,10 @@ corrected set auditable against the release.
 | Not here | Why |
 | --- | --- |
 | A `schema_version` field in a serialized plan | Nothing persists a plan. The shape is public interface, covered by semver |
-| A stored session, plan, or run | A `PlanResult` is the record, and it is returned to the caller |
+| A stored session, plan, or run | A `RunResult` is the record, and it is returned to the caller |
 | A model response cache | Every model call reaches the provider |
 | Operator or router state between requests | Both are assembled at startup and held in process |
-| A separate error response shape | A run that did not finish returns a `PlanResult` with a status (ADR-015) |
+| A separate error response shape | A run that did not finish returns a `RunResult` with a status (ADR-015) |
 | A row type of its own | A fragment passes plain dicts, so no shape belongs to a suite (ADR-012) |
 | Cost and cardinality estimates on a node or a fragment | Out of the first release |
-| A per-node record in `PlanResult` | A node's outcome is derivable from the attempt that covered it, and two places holding it would drift |
+| A per-node record in `RunResult` | A node's outcome is derivable from the attempt that covered it, and two places holding it would drift |

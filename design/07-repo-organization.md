@@ -137,7 +137,7 @@ benchmark scripts hold an import the library does not allow itself.
 | `logical_planner.py`, `physical_planner.py`, `fragment_runner.py` | The three planning components (ADR-006), one module each, beside the loop that drives them |
 | `catalog_searcher.py` | The discovery step. Beside the planning components rather than one of them: it resolves a `DISCOVER` node and writes no plan |
 | `prompts/` | Prompt text, one file per component that writes prompts, read by those components and written nowhere else (ADR-005) |
-| `types/` | Every data class that crosses a module boundary, the catalog readings and `LLMUsage` included, since a type `PlanResult` names has to be nameable by everything that reads one. Its four modules split those classes by subject, and `__init__.py` re-exports them under the one name `blue_data_planner.types`. Imports nothing outside itself |
+| `types/` | Every data class that crosses a module boundary, the catalog readings and `LLMUsage` included, since a type `RunResult` names has to be nameable by everything that reads one. Its four modules split those classes by subject, and `__init__.py` re-exports them under the one name `blue_data_planner.types`. Imports nothing outside itself |
 | `plan/` | The functions over a plan that need no model, no source, and no operator: checking one, enumerating the fragments an operator could cover, and building the response schema a planning stage sends. Imports only `types/` |
 | `execution/` | Beside the planning components rather than inside one, so invoking an operator, checking what it returned, and projecting the answer all need no model |
 | `operators/` | The router, one adapter per outside operator suite, and `builtin/`, the suite written here (ADR-020) |
@@ -163,7 +163,7 @@ names the same things `DataPlanner` does and belongs in the same file (ADR-002).
 ### What the root exports
 
 `__init__.py` holds `__version__` and the run path: `DataPlanner`, `build_data_planner`,
-`PlanResult`, `RunLimits`, `RunStatus`, and `BlueDataPlannerError`. A caller who runs a planner and
+`RunResult`, `RunLimits`, `RunStatus`, and `BlueDataPlannerError`. A caller who runs a planner and
 reads its result writes one import.
 
 Everything else is reached through the module that owns it. The components a caller assembles by

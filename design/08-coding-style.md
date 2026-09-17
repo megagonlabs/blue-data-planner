@@ -84,12 +84,12 @@ every physical operator's callable, and every call through `data/` are ordinary 
 ```python
 # correct
 class DataPlanner:
-    def run(self, request: str) -> PlanResult: ...
+    def run(self, request: str) -> RunResult: ...
 
 
 # incorrect — async through the core for no I/O concurrency
 class DataPlanner:
-    async def run(self, request: str) -> PlanResult: ...
+    async def run(self, request: str) -> RunResult: ...
 ```
 
 The exception is `LLMClient`'s general provider call, `execute_api_call`, which has an async twin,
@@ -126,7 +126,7 @@ Each one settles a case where two plausible names were in use at once.
 | A data type is called a type. Everything else that could be called one is a kind | `ColumnDataType` and the field `dtype` describe the type of a value. A node kind, a source kind, and an `ErrorKind` are kinds |
 | An id says which graph it names | `logical_node_ids`, `root_logical_node_id`, `InputData.logical_node_id`. A physical plan is full of logical node ids, so an unqualified `node_id` in it reads as its own |
 | One review's decision and one fragment's ending get two names | `FragmentReviewDecision` is what a single review turn returned; `FragmentResult.status` is how the whole fragment ended, and the run loop reads only the second |
-| A result type is called a result | `LogicalPlanResult`, `PhysicalPlanResult`, `FragmentResult`, `ExecutionResult`, `PlanResult` |
+| A result type is called a result | `LogicalPlanResult`, `PhysicalPlanResult`, `FragmentResult`, `ExecutionResult`, `RunResult` |
 | A catalog record's column is an attribute; a table moving between fragments has columns | `AttributeRef`, `AttributeView`, `attribute_views`, and `EntityMatch.attributes` read the registry, which is `blue-data`'s own vocabulary. `required_output_columns`, `OutputColumn`, and `ColumnDataType` describe a table a fragment passes on, whatever kind of source produced it |
 
 ### Names a reader can picture
@@ -141,8 +141,8 @@ and only because `blue-data` gives it a fixed meaning: one level of a catalog re
 a `SCAN` is bound to. Used for anything else it is as empty as the rest of the list.
 
 Borrowed metaphors go the same way. An ordered set of fallbacks is named by what each step rewrites
-— the parameter repair, the fragment repair, the cover repair, the replan — not by a ladder and its
-rungs, which says only that the steps are ordered and nothing about what any of them does.
+— the parameter repair, the cover repair, the replan — not by a ladder and its rungs, which says
+only that the steps are ordered and nothing about what any of them does.
 
 A term borrowed from another field has to mean here what it means there. `Placement` was rejected
 for the component that groups nodes because placing operators in distributed stream processing means
@@ -181,7 +181,7 @@ Six import rules carry architectural weight, and each can be checked by reading 
 
 | Rule | Why |
 | --- | --- |
-| `types/` imports nothing outside itself, and `plan/` imports only `types/` | Everything may import them without a cycle. It also fixes what belongs there: every data class crossing a module boundary, the catalog readings and `LLMUsage` included, since a type `PlanResult` names has to be nameable by everything that reads one. The modules inside `types/` may import each other, and nothing else in `blue_data_planner` |
+| `types/` imports nothing outside itself, and `plan/` imports only `types/` | Everything may import them without a cycle. It also fixes what belongs there: every data class crossing a module boundary, the catalog readings and `LLMUsage` included, since a type `RunResult` names has to be nameable by everything that reads one. The modules inside `types/` may import each other, and nothing else in `blue_data_planner` |
 | `execution/` imports only `types/`: no component, no `operators/`, no `llm/`, no `data/` | Invoking an operator needs no model, no router, and no registry (ADR-011) |
 | Within `lib/src/`, only `data/` imports `blue-data` | One place to change, one place to substitute in tests (ADR-003) |
 | Only `operators/adapters/lotus/` imports LOTUS, and only inside a callable | The package imports with LOTUS absent (ADR-004) |
@@ -276,14 +276,14 @@ expected. Validate at the library's boundary; internal code may then assume vali
 
 This is the rule that separates this repository from its siblings. A failure the planner is expected
 to recover from gets a dedicated exception type, so recovery is something a component decides rather
-than something that happens by accident. A run that exhausts an allowance returns a `PlanResult`
+than something that happens by accident. A run that exhausts an allowance returns a `RunResult`
 whose status says why, carrying every plan version, every fragment attempt, and every rejected one
 (ADR-015).
 
 | Outcome | Form |
 | --- | --- |
 | Bad parameters, a missing required column, an operator refusing input another operator might accept | A recoverable `ExecutionResult`, so a different operator can be tried |
-| Out of parameter repairs, fragment repairs, covers, replans, or operator calls; an unreachable source; a provider failing after retries | A `PlanResult` with a status |
+| Out of parameter repairs, covers, replans, or operator calls; an unreachable source; a provider failing after retries | A `RunResult` with a status |
 | A plan object that is not a plan, a missing required configuration value, an unknown node id or operator id | An exception |
 
 `answer` is `None` rather than an empty list when a run did not finish, so a caller that ignores the

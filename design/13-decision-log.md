@@ -375,8 +375,8 @@ accept rate need measuring rather than assuming.
 
 **Decision:** A request carries one budget, counting calls through `execute_physical_operator`;
 reaching its cap ends the request. Every bound the run loop obeys is a field of `RunLimits`, set
-once when the planner is built: plan corrections, parameter repairs, fragment repairs, cover
-repairs, failure replans, and control replans. `RunCounters` counts one request against them,
+once when the planner is built: plan corrections, parameter repairs, cover repairs, failure
+replans, and control replans. `RunCounters` counts one request against them,
 carries the `RunLimits` it counted against, and is what a result reports. A number whose only effect
 on reaching it is to drop work rather than to redirect a request is not a bound of this kind, which
 is where the cap on one `DISCOVER` node's search terms sits: `CatalogSearcher` holds it, as
@@ -428,7 +428,7 @@ per query and scores that query as an error.
 ## ADR-017 — The Package Root Exports the Run Path
 
 **Decision:** `blue_data_planner/__init__.py` holds `__version__` and the run path: `DataPlanner`,
-`build_data_planner`, `PlanResult`, `RunLimits`, `RunStatus`, and `BlueDataPlannerError`. Public is
+`build_data_planner`, `RunResult`, `RunLimits`, `RunStatus`, and `BlueDataPlannerError`. Public is
 the root, every module directly inside it, and the `__init__.py` of `types/`, `plan/`, `execution/`,
 `operators/`, `data/`, and `llm/`. An operator adapter is the one exception: `operators/__init__.py`
 re-exports the router alone, so an adapter is imported from the module named for its suite.
@@ -708,7 +708,9 @@ repair would write a second table rather than remove the first.
 **Decision:** Every node that produces a result has a signature covering what decides that result,
 the signatures of the work feeding it included. A run files results by signature, and installing a
 cover or a plan version compares nothing and removes nothing: a fragment reads a result when it asks
-for work already done, and runs when it does not.
+for work already done, and runs when it does not. Whether a cover asks for work already done is the
+model's choice: a node whose fragment produced a result is offered that fragment among the
+candidates it picks from, and choosing it carries the fragment across unchanged.
 
 **Rationale:** Reuse is a question about the work, and a node id does not name the work. Two plan
 versions may use one id for different nodes, and a repair that cuts a node set again may leave the
@@ -718,11 +720,18 @@ matching on node set and operator but carrying a different instruction would kee
 instruction would not have produced. Folding the inputs' signatures into a node's own replaces the
 separate walk that invalidated everything downstream of a change.
 
+The choice and the signature answer different questions, and reuse needs both. A fragment is written
+by a model, so an instruction reworded without being changed in substance signs differently and
+would throw a good result away; and a fragment kept above work that has since changed would keep a
+result that no longer stands. Letting the model say what should happen at a node and the signature
+say whether what it chose still stands settles both without narrowing what a signature covers.
+
 **Consequences:** Results accumulate and are never deleted; an entry no later cover asks for is
 unreachable rather than removed. What a signature covers is read off the fragment rather than listed,
 so a field added later is covered without anyone remembering to add it, and the cost of getting that
 wrong is a stale result rather than an error. A signature is derived, so it is the one value in the
-data model that is not assigned.
+data model that is not assigned. A kept fragment keeps its id, so the exchange that wrote its
+parameters stays attached to the work those parameters were written for.
 
 ---
 
@@ -747,6 +756,28 @@ a list, because the list differs from turn to turn.
 
 ---
 
+## ADR-026 — One Cover Repair Answers Every Physical Failure
+
+**Decision:** A fragment whose parameter repairs ran out sends the run to the cover repair, which
+covers the whole logical plan again. That one repair carries every fix physical planning has: binding
+a different operator, cutting a node set into smaller fragments, binding a scan to a different
+entity, and growing a fragment across nodes that already ran. `PhysicalPlanner` has one entry point
+for writing a cover, and `cover_repairs` is the only bound between the parameters and a new plan.
+
+**Rationale:** A repair confined to the failed node set looks cheaper and is not. Results are filed
+by signature and a cover keeps every fragment the model chooses to keep (ADR-024), so covering a
+whole plan again re-runs only what the model changed — the same work a confined repair would re-run,
+reached by the same decision. Confining it therefore buys nothing back, while costing the one fix
+that needs the whole plan in view. Its bound would also have to be counted against a node set that
+the repair is itself allowed to split, which is a scope no count holds still.
+
+**Consequences:** A repair decides every binding again, so it spends one model call per fragment
+rather than one in total; model calls are not budgeted (ADR-014) and the conversation's prefix is
+unchanged, so what grows is latency rather than a bound. A logical plan gets `cover_repairs` covers
+after its first, and a request those cannot fix replans.
+
+---
+
 ## Open Questions
 
 Design questions first, then defects in code that exists today.
@@ -762,8 +793,8 @@ Design questions first, then defects in code that exists today.
 | 33 | Does the fragment rule list still need convexity? [04-detailed-architecture.md](04-detailed-architecture.md#what-a-fragment-may-be) lists connected, convex, disjoint, and single exit as four separate properties, and `validate_physical_plan` enforces that list. For a plan that already passed `validate_logical_plan`, the other three give convexity for nothing. Every non-root node of a fragment has all its consumers inside the fragment; following consumers terminates only at the root, since a valid plan holds no node nothing reads; so every node of a fragment reaches its root, and an outside node lying between two inside nodes would close a cycle, which a DAG has none of. Both premises carry the argument, and one of them is already in question: dropping the disjointness rule, which question 6 weighs, would take the argument with it. Two ways to close it. Say in `04` which of the four the others already give, so a reader learns the list is not independent and a check for it need not be written. Or leave the four standing, on the grounds that the implication holds only as long as disjointness does. | Whether the fragment rules read as four independent constraints when three of them imply the fourth |
 | 37 | What may an adapter absorb, and what must it refuse? Every suite mismatches what a plan needs in its own way, and with no shared rule each mismatch is settled in whichever adapter hits it first. Five absorptions look like translation rather than behavior, and are the candidates for a permitted list: shaping a parameter schema an operation has none of, converting between the bundle and the suite's own shape, mapping the suite's failures onto the recoverable and unrecoverable kinds, supplying the registry or model client an operation needs to run at all, and offering fewer operations or narrower capability than the suite advertises. Four look like behavior and are the candidates for a forbidden list: declaring a capability the operation lacks, computing or patching part of a result, retrying or splitting or reordering work the run loop owns, and returning an empty result in place of a reported failure. What ADR-020 settles is the planning case alone: an operation may plan how to carry out its own fragment and may not take a decision the run loop owns, which permits one that writes a query and refuses one that decomposes the request. The rest of both lists is unsettled, and so is an operation whose declared capability contradicts its own metadata, where an adapter that binds it anyway fails partway through a run and never offering the candidate would have cost nothing. | Whether a capability gap is answered in the adapter or upstream, and which `blue-data-ops` operations an adapter offers at all |
 | 38 | Where does an operation's capability declaration come from? A `PhysicalOperator` carries `logical_operators`, `source_kinds`, `accepts_bound_inputs`, and `limitations`, and the adapter hand-writes all four. `blue-data-ops` states most of them itself, on an `OperatorCard`: closed `accepts-*`, `requires-*`, and `capability-*` tags plus a `when_to_invoke` line, written by whoever wrote the operation. Reading the card where it exists would have caught the `nl2sql` defect, since the card says `accepts-none`. Against reading it: the card is `blue-data-ops`'s own scheme and nothing else has one — LOTUS declares no capability metadata at all, and a suite this repository writes declares whatever it chooses — so deriving one suite's declarations and hand-writing every other suite's is two rules for one field. The tag vocabulary is also close to but not the same question: `capability-filter` and `LogicalOperator.FILTER` agree, while `accepts-data` says an operation reads a bundle and not whether it can read one alongside a source it scans. A third route is to keep hand-writing and have the conformance test compare against the card where a suite has one, so a disagreement fails a test rather than a run. | Whether a hand-written declaration is checked against anything, and whether the adapter conformance test reads more than `AttributeSpec` |
-| 41 | Is the bundle shape chosen to match one suite's operator signature? ADR-012 fixes a list of tables on both sides of an operator call, and no document says how much conversion the Blue adapter then needs ([06-library.md](06-library.md#the-adapters)). Two things are unsettled. Whether the alignment with the Blue operations is deliberate or incidental: if it is deliberate, the shape follows one suite and every other adapter pays the conversion, and if it is not, the shape is chosen for what a plan passes and the Blue adapter converts like any other. And what a callable invokes on the suite's side, which no document names either: a dependency's method name is a fact that goes stale, and naming it in two places is how two documents came to disagree about it. | Whether ADR-012's shape rests on a dependency's signature, and whether the Blue adapter is a pass-through |
-| 42 | Does anything here emit traces or logs of its own, and if so which package? [12-deployment-ops.md](12-deployment-ops.md#7-logging) fixes the library at standard-library logging with no handler configured, so an embedding application decides the format and the destination, and nothing in [05-software-stack.md](05-software-stack.md) declares a tracing dependency. Three routes. The adapters own it: the MCP package declares an exporter, emits structured JSON logs, and opens one span per tool request, leaving the library uninstrumented. The library owns it: spans cover each planning component, each operator call, and each model call, which is the only route that can show where a run's time and money went, at the price of a tracing dependency in `lib/` and an import in code every consumer runs. Or nothing ships in the first release and the run record stays the instrument. What argues for instrumenting at all is the fragment span: it would carry the logical nodes a fragment covered and the operator that ran them, which is where the pushdown boundary was drawn, and a trace can show that where a counter cannot. Against it: `PlanResult` already carries every plan, every attempt, the counters, and one usage record per model call, so a trace would restate what the caller is handed. | Whether a deployment can see inside a run without reading the returned result, and which package pays for it |
+| 41 | Is the bundle shape chosen to match one suite's operator signature? ADR-012 fixes a list of tables on both sides of an operator call, and no document says how much conversion the Blue adapter then needs ([06-library.md](06-library.md#what-an-adapter-reads)). Two things are unsettled. Whether the alignment with the Blue operations is deliberate or incidental: if it is deliberate, the shape follows one suite and every other adapter pays the conversion, and if it is not, the shape is chosen for what a plan passes and the Blue adapter converts like any other. And what a callable invokes on the suite's side, which no document names either: a dependency's method name is a fact that goes stale, and naming it in two places is how two documents came to disagree about it. | Whether ADR-012's shape rests on a dependency's signature, and whether the Blue adapter is a pass-through |
+| 42 | Does anything here emit traces or logs of its own, and if so which package? [12-deployment-ops.md](12-deployment-ops.md#7-logging) fixes the library at standard-library logging with no handler configured, so an embedding application decides the format and the destination, and nothing in [05-software-stack.md](05-software-stack.md) declares a tracing dependency. Three routes. The adapters own it: the MCP package declares an exporter, emits structured JSON logs, and opens one span per tool request, leaving the library uninstrumented. The library owns it: spans cover each planning component, each operator call, and each model call, which is the only route that can show where a run's time and money went, at the price of a tracing dependency in `lib/` and an import in code every consumer runs. Or nothing ships in the first release and the run record stays the instrument. What argues for instrumenting at all is the fragment span: it would carry the logical nodes a fragment covered and the operator that ran them, which is where the pushdown boundary was drawn, and a trace can show that where a counter cannot. Against it: `RunResult` already carries every plan, every attempt, the counters, and one usage record per model call, so a trace would restate what the caller is handed. | Whether a deployment can see inside a run without reading the returned result, and which package pays for it |
 | 43 | How is the physical planner made to choose a more capable operator over a built-in one? Where `builtin.nl2table` is registered every operator node kind has a built-in candidate (ADR-020), so a node is almost never answered as `no_operator` and a wrong choice is refused at review instead, one operator call later. `description` and `limitations` are the whole of what separates two candidates in the prompt, so an operator that cannot judge meaning has to say so in terms a model weighs against a description promising a general engine, and one that reads whole tables into memory to work over them has to say that too. A built-in program can approximate a semantic predicate — matching a phrase where a reader would have judged a title — and the approximation returns rows and reports no error, so nothing but review stands between it and an answer. The review rejection rate of fragments bound to a built-in entry, which the TAG-Bench harness reports, is what measures it. | Whether a floor that always has a candidate raises the cost of every request that needed the ceiling |
 | 44 | Can an operator declare that every scan in one fragment reads the same source? `source_kinds` is a set of kinds and says nothing about identity, and `scan_sources` binds each `SCAN` in a fragment separately, so nothing stops a cover from handing one operator two databases. `blue.nl2sql` needs the constraint, since one SQL query cannot span two of them, while `builtin.nl2table` deliberately lacks it and covering such a fragment is the point of it. Without a way to declare the difference the constraint lives in `limitations` as plain language, and a candidate that cannot work is offered anyway. This is question 8's family: a capability the declaration has no vocabulary for. | Whether an operator limited to one source at a time can be declared at all, or is offered candidates it has to refuse |
 | 45 | Is a bound an operator enforces inside its own call a bound of ADR-014's kind? `RunLimits` holds every bound the run loop obeys, and three numbers sit below it instead: the distinct values a bind join carries, the times `builtin.nl2table` writes its program again before returning a recoverable failure, and the rows a LOTUS operation accepts before refusing the call. All three are shaped like `RunLimits` fields, and they do not agree with each other about who sets them: the LOTUS cap is an argument to `lotus_operators`, so a deployment chooses it where it builds the suite, while the other two are fixed in the operator that enforces them. `builtin.scan` reads only `sql/sqlite`, a source with a predicate language, and implements two of the three realizations in [06](06-library.md#data): values embedded in the query text, capped at 100 distinct values, and a temporary table, capped by nothing. Past the embedded-values cap it escalates to the temporary table rather than refusing the input, so `builtin.scan` never refuses a bind join for carrying too many values; 100 is where it switches realization, not a limit it enforces. The one-call-per-value realization, and the tighter cap that would bound it, belong to an operator reading a source with no predicate language, a case nothing in the built-in suite covers. Every number here is a placeholder set low enough not to break a run rather than measured against real volumes or real failure rates. A `RunLimits` field would let a deployment raise a cap past a default nobody has tested; leaving each number inside its operator keeps the choice with whichever component already sees what decides it. | Whether a bound below the run loop is configurable per deployment, and what real volumes and failure rates call for |

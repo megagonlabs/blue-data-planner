@@ -23,7 +23,7 @@ rather than a copy of the code.
 
 | Module | Holds |
 | --- | --- |
-| `blue_data_planner/__init__.py` | The run path in one import: `DataPlanner`, `build_data_planner`, `PlanResult`, `RunLimits`, `RunStatus`, `BlueDataPlannerError`, and `__version__` |
+| `blue_data_planner/__init__.py` | The run path in one import: `DataPlanner`, `build_data_planner`, `RunResult`, `RunLimits`, `RunStatus`, `BlueDataPlannerError`, and `__version__` |
 | `blue_data_planner/data_planner.py` | `DataPlanner`, `build_data_planner` |
 | `blue_data_planner/run_state.py` | `RunState` |
 | `blue_data_planner/logical_planner.py` | `LogicalPlanner` |
@@ -52,9 +52,9 @@ class DataPlanner:
         limits: RunLimits,
     ) -> None: ...
 
-    def run(self, request: str) -> PlanResult: ...
+    def run(self, request: str) -> RunResult: ...
 
-    def plan(self, request: str) -> PlanResult: ...
+    def plan(self, request: str) -> RunResult: ...
 
 
 def build_data_planner(
@@ -102,8 +102,8 @@ rather than feeding one back in.
 
 | Operation | Does | Returns |
 | --- | --- | --- |
-| `run` | Plans, covers, executes, repairs, until the request ends | A `PlanResult` whose status says how it ended |
-| `plan` | Writes one logical plan and one cover, then stops | A `PlanResult` with status `planned` and `answer` set to `None` |
+| `run` | Plans, covers, executes, repairs, until the request ends | A `RunResult` whose status says how it ended |
+| `plan` | Writes one logical plan and one cover, then stops | A `RunResult` with status `planned` and `answer` set to `None` |
 
 `plan` is what the CLI's `--explain` prints and what a measurement of where pushdown boundaries get
 drawn reads. It spends no operator call. A plan whose first pass ends in a `DISCOVER` node comes
@@ -120,7 +120,7 @@ The loop schedules, dispatches on what came up, installs a cover, and assembles 
 those calls a model or invokes an operator directly.
 
 ```python
-def run(self, request: str) -> PlanResult:
+def run(self, request: str) -> RunResult:
     state = RunState(request=request, counters=RunCounters(self._limits))
     try:
         status, failure_reason, answer = self._run_plans(state)
@@ -165,24 +165,23 @@ outside the run state.
 
 ### Choosing a repair
 
-The four repairs are four nested loops
+The three repairs are three nested loops
 ([04, section 5](04-detailed-architecture.md#5-recovering-from-a-failure)). Each loop owns one bound,
 and hands the failure to the loop outside it once that bound is spent.
 
 | Loop | Repeats | Bounded by |
 | --- | --- | --- |
 | Parameter | Writing one fragment's parameters | `parameter_repairs`, inside `FragmentRunner` |
-| Fragment | Cutting one root node's fragment again | `fragment_repairs` |
 | Cover | Covering one logical plan again | `cover_repairs` |
 | Replan | Writing a logical plan | `failure_replans` and `control_replans` |
 
 The nesting is what bounds each repair at its own scope without a count that outlives it. A new
-logical plan enters the cover loop fresh, and a new cover enters the fragment loop fresh, because the
-count is a loop variable and the loop is new. Only the two replan counts last a whole request, which
-is why those are the two the run state holds.
+logical plan enters the cover loop fresh, because the count is a loop variable and the loop is new.
+Only the two replan counts last a whole request, which is why those are the two the run state holds.
 
-The fragment loop follows a root node rather than a node set. Cutting a set again may split it into
-smaller ones, and the root is the node that survives every cut.
+One loop sits between the parameters and a new plan, because a cover reuses the fragments the model
+keeps, so covering a whole plan again re-runs only what that cover changed
+([04, the cover repair](04-detailed-architecture.md#the-cover-repair)).
 
 The two replan paths count separately, because a replan a control node asked for and a replan a
 failure forced are different events with different limits, and either ends the request with
@@ -210,9 +209,9 @@ planner without an operator call being spent.
 `types/` imports nothing outside itself, so `execution/`, the planning components, and the adapters can
 share a vocabulary without importing each other.
 
-That rule fixes what belongs here, because a type `PlanResult` names has to be nameable by
-everything that reads a `PlanResult`. Following it through reaches further than the plan types:
-`PlanResult` holds `LLMUsage`, and the `DiscoveryResult` in its `results` map holds `EntityMatch`.
+That rule fixes what belongs here, because a type `RunResult` names has to be nameable by
+everything that reads a `RunResult`. Following it through reaches further than the plan types:
+`RunResult` holds `LLMUsage`, and the `DiscoveryResult` in its `results` map holds `EntityMatch`.
 So the line is drawn once and drawn wide — **`types/` holds data, and every other module holds
 behavior.** `data/` produces the catalog readings and `llm/` produces the usage records, and both
 import their shapes from here.
@@ -369,14 +368,14 @@ stops the run by raising, because it is billed where no caller is positioned to 
 | --- | --- |
 | `operator_calls` | `RunCounters`, billed in `execute_physical_operator` |
 | `failure_replans`, `control_replans` | `RunCounters`, read by the run loop |
-| `fragment_repairs`, `cover_repairs` | The run loop's nested repair loops |
+| `cover_repairs` | The run loop's cover loop |
 | `plan_corrections` | `LogicalPlanner`, rewriting a plan validation turned down |
 | `parameter_repairs` | `FragmentRunner`, writing parameters again after a rejected review |
 
-Three of the seven last a whole request and are the fields of `RunCounters`. The other four reset
+Three of the six last a whole request and are the fields of `RunCounters`. The other three reset
 inside one: `plan_corrections` and `parameter_repairs` bound a loop inside a component, and
-`fragment_repairs` and `cover_repairs` are loop variables of the run loop. A bound that resets has
-no single number to report, so the result carries what lasted. Every one of them is read off the
+`cover_repairs` is a loop variable of the run loop. A bound that resets has no single number to
+report, so the result carries what lasted. Every one of them is read off the
 `RunCounters` a call was handed, whether or not that call spends anything against it.
 
 How many search terms one `DISCOVER` node expands into is not a bound here. Reaching it drops the
@@ -387,14 +386,14 @@ The values in force are the defaults on `RunLimits`, and
 [12-deployment-ops.md](12-deployment-ops.md#5-request-limits) covers how a deployment sets them.
 
 Model calls are not budgeted (ADR-014): how many a request makes already falls out of the bounds
-above, and `PlanResult.conversations` holds one usage record per call so the spend stays readable.
+above, and `RunResult.conversations` holds one usage record per call so the spend stays readable.
 
 ### What a caller receives
 
-`PlanResult`, `RunCounters`, `RunConversations`, `ExecutionResult`, `DiscoveryResult`, and the four
+`RunResult`, `RunCounters`, `RunConversations`, `ExecutionResult`, `DiscoveryResult`, and the four
 enums that travel in them are fixed in
 [10, what a run produces](10-data-model.md#3-what-a-run-produces). Every request returns a
-`PlanResult` whether it worked or not: exhaustion, operator failure, and provider failure are
+`RunResult` whether it worked or not: exhaustion, operator failure, and provider failure are
 statuses rather than exceptions, so a failed run is as inspectable as a successful one and one
 structure serves every adapter (ADR-015).
 
@@ -404,7 +403,7 @@ against what each means to a caller. Each producer writes its own subset. `plann
 returns, `llm_failed` is what a provider that fails after retries returns, and `planner_failed` is
 what a planner defect comes back as; none of the three is reachable from a component.
 `needs_repair` and `needs_replan` run the other way: `FragmentRunner` is the only writer, the run
-loop the only reader, and a `PlanResult` never carries either, because both name work the loop still
+loop the only reader, and a `RunResult` never carries either, because both name work the loop still
 has left to do.
 
 `failure_reason` says why a run ended as it did, in the words of whatever ended it. Every failure
@@ -525,7 +524,9 @@ def logical_plan_schema() -> type[BaseModel]: ...
 
 def cover_choice_schema(
     plan: LogicalPlan,
+    root_node_id: str,
     candidates: list[tuple[frozenset[str], PhysicalOperator]],
+    reusable: PhysicalPlanFragment | None,
     entity_paths: frozenset[str],
 ) -> type[BaseModel]: ...
 ```
@@ -536,7 +537,9 @@ from the node schemas, so a plan naming an operation the vocabulary has no membe
 produced. `cover_choice_schema` is built for one binding decision from that decision's own
 candidates: a candidate set holding no `SCAN` has no field in which to name a source, and where a
 scan does appear the allowed values are the paths in `entity_paths`. It reads `plan` for one thing,
-which is which of a candidate's nodes are scans.
+which is which of a candidate's nodes are scans. The candidate that reuses the fragment already
+covering the node is a choice and nothing else: it carries no instruction, no input names, and no
+source, because everything about that fragment is already written down.
 
 A response schema over a plan is a question about the plan's shape, which is what this module
 answers without a model. The fixed schemas a component sends every time — a review's decision, a
@@ -620,41 +623,36 @@ class PhysicalPlanner:
         self,
         plan: LogicalPlan,
         conversation: Conversation,
+        previous: PhysicalPlan | None,
         results: dict[str, ExecutionResult | DiscoveryResult],
         reason: str | None = None,
     ) -> PhysicalPlanResult: ...
-
-    def recover_fragment(
-        self,
-        plan: LogicalPlan,
-        conversation: Conversation,
-        previous: PhysicalPlan,
-        node_ids: frozenset[str],
-        results: dict[str, ExecutionResult | DiscoveryResult],
-        reason: str,
-    ) -> PhysicalPlanResult: ...
 ```
 
-Two entry points for three moments. `cover` writes a cover for the whole plan, and serves both the
-first cover and the cover repair, which differ only in whether a failure reason is in the prompt.
-`recover_fragment` cuts one node set again, which is the fragment repair.
+One entry point for every moment a cover is written: the first cover of a request, the cover repair,
+and the cover that follows a continuation. They differ in what the arguments hold rather than in
+which method is called.
 
-Both return a whole new `PhysicalPlan`, because a cover is written whole and never patched into an
-older one ([04](04-detailed-architecture.md#a-cover-is-written-whole)). What `recover_fragment`
-changes is confined to `node_ids`: every other fragment in `previous` is carried into the new plan
-with its node set intact, which is what lets the results of those fragments survive installation.
+It returns a whole new `PhysicalPlan`, because a cover is written whole and never patched into an
+older one ([04](04-detailed-architecture.md#a-cover-is-written-whole)).
 
-`results` answers two questions here too, and both entry points need it. A `DISCOVER` entry's
-entities are the ones a `SCAN` may be bound to, and the presence of an entry says the node already
-ran, which is the cost the model weighs when it considers absorbing that node into a wider fragment
-([04, the cover repair](04-detailed-architecture.md#the-cover-repair)). `recover_fragment` needs the
-first of those as much as `cover` does: rebinding a scan to a different entity is one of the fixes a
-fragment repair can reach, and `previous` holds only the entity already chosen
-([04, the fragment repair](04-detailed-architecture.md#the-fragment-repair)).
+`previous` is the cover the run is replacing, and `None` before a request has one. It is what lets a
+node whose fragment already produced a result be offered a candidate that reuses it, and choosing
+that candidate carries the fragment into the new cover unchanged. Reusing finished work is therefore
+a decision the model takes against the same alternatives as everything else
+([04, choosing among candidates](04-detailed-architecture.md#choosing-among-candidates)).
+
+`results` answers two questions. A `DISCOVER` entry's entities are the ones a `SCAN` may be bound
+to, which is what makes rebinding a scan to a different entity one of the fixes a repair can reach
+where `previous` holds only the entity already chosen. And an operator node's entry says that node
+already ran, which is both what puts a reuse candidate in front of the model and the cost it weighs
+when it considers absorbing that node into a wider fragment
+([04, the cover repair](04-detailed-architecture.md#the-cover-repair)).
 
 Inside, the planner works top down from the root of the plan. For each uncovered node it asks
 `candidate_fragments` for the node sets each operator the router offers could cover, pairs each set
-with that operator, and a model picks one. One binding decision is one turn
+with that operator, adds the reuse candidate where there is one, and a model picks. One binding
+decision is one turn
 ([04, choosing among candidates](04-detailed-architecture.md#choosing-among-candidates)).
 
 One logical plan is one conversation. Every cover of that plan, the first and each repair, continues
@@ -777,6 +775,7 @@ class RunState:
     def next_ready(self) -> PhysicalPlanFragment | PipelineNode | None: ...
     def ready_control_nodes(self) -> list[PipelineNode]: ...
     def result_for(self, node_id: str) -> ExecutionResult | DiscoveryResult | None: ...
+    def signature_of(self, node_id: str) -> str: ...
     def inputs_for(self, fragment: PhysicalPlanFragment) -> DataBundle: ...
     def inputs_for_node(self, node: PipelineNode) -> DataBundle: ...
     def carried_node_ids(self) -> frozenset[str]: ...
@@ -786,11 +785,11 @@ class RunState:
     def record_discovery(self, node: PipelineNode, result: DiscoveryResult) -> None: ...
     def to_result(
         self, status: RunStatus, failure_reason: str | None, answer: DataBundle | None = None
-    ) -> PlanResult: ...
+    ) -> RunResult: ...
 ```
 
 The one mutable object per request. `DataPlanner` creates it and `to_result` freezes it into the
-`PlanResult` a caller receives. No component holds it: each takes what it reads, writes its turns to
+`RunResult` a caller receives. No component holds it: each takes what it reads, writes its turns to
 the conversation it was handed, and returns what it produced, which is what keeps the four components
 carrying nothing about a request between calls. The bounds reach a run through `RunCounters`, which
 carries the `RunLimits` the planner was built with, so nothing is configured per request.
@@ -800,12 +799,18 @@ produced, keyed by the signature of the work that produced it rather than by a n
 ([10, reusing a result](10-data-model.md#reusing-a-result)). The current plan and the current cover
 are read off `pipeline`, which already names both, so nothing here forwards to them.
 
-Keying by signature is what makes installation trivial. `install_cover` adds the cover and moves the
-pointer, and `install_logical_plan` does the same for a plan version. Neither compares anything and
-neither deletes anything, because a fragment whose work changed has a different signature and finds
-nothing to reuse, while one whose work is unchanged finds its result whatever cover or plan version
-it now sits in. A fragment fed by changed work is covered by the same rule, since its inputs'
-signatures are part of its own.
+Keying by signature is what makes installation trivial. `install_cover` adds the cover, moves the
+pointer, and signs the work that cover asks for; `install_logical_plan` adds a plan version and moves
+its pointer. Neither compares anything and neither deletes anything, because a fragment whose work
+changed has a different signature and finds nothing to reuse, while one whose work is unchanged
+finds its result whatever cover or plan version it now sits in. A fragment fed by changed work is
+covered by the same rule, since its inputs' signatures are part of its own.
+
+While a request is executing, the two pointers always name a matching pair: a logical version enters
+the pipeline alongside a cover for it, so a plan no operator could cover leaves nothing behind and
+every signature describes the plan and the cover that are current. The planning-only operation is
+the exception, and installs the plan it wrote whether or not a cover followed, since showing that
+plan is the whole of what it was asked for.
 
 Three methods carry the rules that would otherwise be scattered through the loop.
 
@@ -817,6 +822,8 @@ the loop resolves all of them before it returns to the logical planner.
 
 `result_for` is the one lookup by node id: it reads the current cover for the node's signature, then
 the results map for that signature. Everything that reads a node's output goes through it.
+`signature_of` returns the signature alone, which is what a `DISCOVER` node's conversation is filed
+under ([10, conversations](10-data-model.md#conversations)).
 
 `carried_node_ids` answers what a new logical version keeps: every node the run has something for,
 which for an operator node means belonging to a fragment whose result the run still holds, absorbed
@@ -946,7 +953,7 @@ logical operator can only ever cover one node; a set is what makes pushdown poss
 `source_kinds` is written in `blue-data`'s connection-protocol vocabulary: the string each source
 class records at registration, such as `sql/sqlite`, `vector/chromadb`, or `network/bn`. It is the
 same vocabulary a `SourceRecord.kind` reports
-([10](10-data-model.md#what-the-logical-planner-reads)), so a declaration and a source are directly
+([10](10-data-model.md#what-the-logical-planner-reads-first)), so a declaration and a source are directly
 comparable.
 
 `accepts_bound_inputs` constrains only an operation that reads a registered source. One with no
@@ -1156,7 +1163,7 @@ Spending that count returns a recoverable failure like any other.
 
 Its report carries the program that ran, each program that did not and what it did, the query behind
 each scan, and what its own model calls cost. Those counts travel there rather than in
-`PlanResult.conversations`, which holds what the planner itself spent (ADR-005).
+`RunResult.conversations`, which holds what the planner itself spent (ADR-005).
 
 ---
 
@@ -1336,7 +1343,7 @@ The only module that calls a provider (ADR-005).
 | `LLMClient` | One provider call, through litellm, with retry and rate limiting |
 | `LLMClientProvider`, `resolve_llm_client` | Injection points, so a client is supplied rather than constructed in place |
 | `Conversation` | The turns of one exchange, so a later turn sees an earlier one |
-| `LLMUsage` | One model call: model, prompt and completion tokens, cost, and latency. Defined in `types/`, since it reaches a caller inside `PlanResult` |
+| `LLMUsage` | One model call: model, prompt and completion tokens, cost, and latency. Defined in `types/`, since it reaches a caller inside `RunResult` |
 | `LLMError` | Every failure originating at the provider |
 
 The planner reaches a provider through one call: it returns a value constrained by a Pydantic
@@ -1363,7 +1370,7 @@ It also carries the usage, one entry per call made on it. A run's spend is there
 the conversations the run state holds, with no component reporting it separately and no accumulator
 class, since a total is a `sum()` over the list.
 
-`PlanResult.conversations` therefore covers calls through this module and nothing else. A model call
+`RunResult.conversations` therefore covers calls through this module and nothing else. A model call
 an operator makes internally, as a LOTUS operator does, is invisible here:
 LOTUS holds its own model configuration, is not routed through `llm/`, and reports no per-call token
 count, so the call is billed as part of the one operator call that contains it

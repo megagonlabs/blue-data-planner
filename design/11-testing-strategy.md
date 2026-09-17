@@ -6,7 +6,7 @@ are both covered.
 
 Two things shape everything below. The library is synchronous, so most tests are ordinary functions
 with no event loop. And a request's whole outcome is one inspectable structure (ADR-015), so a test
-asserts against `PlanResult` rather than against printed output.
+asserts against `RunResult` rather than against printed output.
 
 ---
 
@@ -217,22 +217,27 @@ produce one test per line of that document.
 
 | Component | What its tests have to show |
 | --- | --- |
-| `types/`, `plan/` | An invalid plan is rejected whatever makes it invalid with an error naming what was wrong, a plan that `to_dict` produced reads back through `from_dict` unchanged, and the node sets an operator could cover are enumerated from the plan alone |
-| `LogicalPlanner` | A plan a validation turned down is written again with the error in hand, and running out of corrections ends as `invalid_plan` carrying every plan that was turned down |
-| `PhysicalPlanner` | A cover cuts the plan into legal fragments, binds each scan to an entity the run's catalog context names and each fragment to the nodes feeding it, refuses a scan bound to any other path, and comes back with no cover and a reason naming the node when no operator can take one, without an operator call |
-| `FragmentRunner` | A fragment runs with parameters written from what its input tables carry and from the attributes of the entities it scans, a rejected review writes them again, and every attempt survives whatever ends the run |
+| `types/`, `plan/` | An invalid plan is rejected whatever makes it invalid with an error naming what was wrong, a plan that `to_dict` produced reads back through `from_dict` unchanged, the node sets an operator could cover are enumerated from the plan alone, and two pieces of identical work sign the same while any change that would change an output — a change upstream included — signs differently |
+| `LogicalPlanner` | A plan a validation turned down is written again with the error in hand, running out of corrections ends as `invalid_plan` carrying the objection that stopped it, and a continuation writing a carried node's id is turned down |
+| `PhysicalPlanner` | A cover cuts the plan into legal fragments, binds each scan to an entity the run's catalog context names and each fragment to the nodes feeding it, refuses a scan bound to any other path, lets a node whose fragment already produced a result keep that fragment unchanged, and comes back with no cover and a reason naming the node when no operator can take one, without an operator call |
+| `FragmentRunner` | A fragment runs with parameters written from what its input tables carry and from the attributes of the entities it scans, a rejected review writes them again, and what the review accepted comes back with the result while every attempt stays in the conversation whatever ends the run |
 | `CatalogSearcher` | A `DISCOVER` node resolves to the entities its terms found, each carrying its attributes, capped, and reports the terms it dropped |
 | `OperatorRouter` | An operator is found by each logical operator it declares, in registration order |
 | `execution/` | An operator call comes back as a result carrying its rows or its error and its kind, billed once against the budget, and checked against the output columns its caller declared |
-| `DataPlanner`, `RunState` | Each of the four repairs is reachable and counts against its own bound, installing a cover keeps the results of fragments that did not change, every `RunStatus` comes back with counters and a reason that explain it, and a defect ends the request as a status rather than raising at the caller |
+| `DataPlanner`, `RunState` | Each of the three repairs is reachable and counts against its own bound, a bound spent inside one loop starts again when the loop outside it turns, a result survives a cover that asks for the same work and is unreadable once the work above it changed, every `RunStatus` comes back with counters and a reason that explain it, and a defect ends the request as a status rather than raising at the caller |
 | `data/` | Each catalog reading ranks and caps rather than filters, carries what its component is entitled to and nothing more, a source or attribute nobody enriched still renders, and a record that cannot be read as one raises; a source read returns the rows a query produced, a source write changes what the source holds, and a source that could not be reached is told from one that refused what it was sent |
 | `llm/` | A conversation keeps its turns and the usage of every call made on it, and a provider failing after retries raises `LLMError` |
 | `operators/` | An operator's declaration reaches the router intact and describes what the operation does, cross-checked against the suite's own attribute declarations and against the operation's validator wherever those two disagree (ADR-010), a bundle crosses in both directions unchanged including a multi-table bundle (ADR-012), a bundle of the wrong length is refused before the operation runs, a suite's failure is mapped to the right error kind, what an operation reported about its own run reaches the result whether the call succeeded or failed, and LOTUS is imported only when an operator runs, so the package imports with LOTUS absent (ADR-004) |
 | `operators/builtin/` | Each operation transforms the bundle as its parameters say and refuses input it cannot serve, `builtin.scan` reads the one source its fragment bound it to, carries a reference input's values into that read and leaves nothing behind in the source when it does, and `builtin.nl2table` reads its fragment's sources before its program runs, refuses a program naming an import, a name, or an attribute it does not allow, writes the program again when it will not run, and reports every program it wrote |
 
-The run loop's row is the one worth reading twice. The four repairs are what the design is for, and
+The run loop's row is the one worth reading twice. The three repairs are what the design is for, and
 a test naming each one and the counter it spends is the shortest description of the loop that anyone
 can check ([04-detailed-architecture.md](04-detailed-architecture.md#5-recovering-from-a-failure)).
+
+One behavior spans all four components and is tested in each: the turn opening a conversation is the
+same for two runs asking different things. That is the whole of what the caching rule promises
+([04](04-detailed-architecture.md#one-conversation-per-component)), and the thing a later prompt edit
+would otherwise break silently.
 
 ---
 
@@ -291,7 +296,7 @@ Naming a gap is more useful than implying it is covered.
 | Prompt quality | Whether a prompt draws a usable answer out of a real model is what the benchmark measures, against gold answers ([section 8](#8-benchmark-suites)). A model changes under a fixed prompt, so an assertion written against one answer would say nothing about the next |
 | LOTUS itself, and the Blue operators | Each adapter is tested; a suite is a dependency and tests its own behavior |
 | Concurrency | The library is synchronous and runs one fragment at a time. A caller running several requests at once is running several threads, which is the caller's concern |
-| Cost | Model spend is reported per call in `PlanResult.conversations` and asserted nowhere, since a threshold would fail on a price change rather than on a regression |
+| Cost | Model spend is reported per call in `RunResult.conversations` and asserted nowhere, since a threshold would fail on a price change rather than on a regression |
 
 ---
 
