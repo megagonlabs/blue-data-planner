@@ -146,6 +146,7 @@ class DataPlanner:
         held = self._results_by_node_id(state)
         written = self._logical_planner.generate(
             state.request,
+            state.conversations.logical_planner,
             state.counters,
             parent=parent,
             carried_node_ids=carried,
@@ -153,7 +154,7 @@ class DataPlanner:
             reason=reason,
         )
         if written.plan is None:
-            state.failure_reason = written.rejected[-1].error if written.rejected else None
+            state.failure_reason = written.failure_reason
             return written.status
         state.install_logical_plan(written.plan)
         cover = self._physical_planner.cover(

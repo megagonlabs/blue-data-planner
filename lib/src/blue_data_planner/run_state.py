@@ -145,7 +145,6 @@ class RunState:
             pipeline=self.pipeline,
             results=self.results,
             attempts=[],
-            rejected_plans=[],
             counters=self.counters,
             planner_usage=[],
         )

@@ -50,34 +50,3 @@ Write a `REPLAN` node when the shape of the remaining work depends on values nob
 seen yet.
 
 Write neither when the request is answerable from what you already know.
-
-## The request
-
-{{ request }}
-
-## The registered sources
-
-{{ catalog_preview }}
-
-{% if catalog_context %}
-## What the searches found
-
-Each entity below carries every attribute it holds. Declare column names from these.
-
-{{ catalog_context }}
-{% endif %}
-
-{% if carried_nodes %}
-## What already ran
-
-These nodes stay in the plan. Name the id of one holding rows to read those rows; do not write
-any of them again. A `DISCOVER` node has already searched, and what it found is above.
-
-{{ carried_nodes }}
-{% endif %}
-
-{% if reason %}
-## Why the pass ended
-
-{{ reason }}
-{% endif %}

@@ -6,7 +6,7 @@ from typing import Any
 
 from pydantic import BaseModel
 
-from blue_data_planner.llm import Conversation
+from blue_data_planner.llm import Conversation, Turn
 from blue_data_planner.types import LLMUsage
 
 
@@ -24,6 +24,9 @@ class ScriptedLLMClient:
         answer = self.answers.pop(0)
         value = answer if isinstance(answer, BaseModel) else response_model.model_validate(answer)
         self.conversations.append([(turn.role, turn.content) for turn in conversation.turns])
+        # Mirrors LLMClient.complete_structured, which appends the model's own turn: a
+        # caller reading conversation.turns after the call sees the same shape either way.
+        conversation.turns.append(Turn(role="assistant", content=value.model_dump_json()))
         conversation.usage.append(
             LLMUsage(
                 model="scripted",

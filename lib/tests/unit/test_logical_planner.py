@@ -8,7 +8,9 @@ from blue_data_planner.logical_planner import LogicalPlanner
 from blue_data_planner.types import (
     CatalogPreview,
     ControlOperator,
-    LogicalOperator,
+    Conversation,
+    LogicalPlan,
+    PipelineNode,
     RunCounters,
     RunLimits,
     RunStatus,
@@ -89,6 +91,23 @@ def a_continuation_plan() -> dict[str, Any]:
     }
 
 
+def a_continuation_rewriting_n1() -> dict[str, Any]:
+    """A written plan that names n1 again, instead of naming it only to read it."""
+    return {
+        "output_node_id": "n2",
+        "nodes": [
+            {
+                "id": "n1",
+                "kind": "SCAN",
+                "input_node_ids": [],
+                "instruction": "read the postings",
+                "required_output_columns": [{"name": "title", "dtype": "str"}],
+            },
+            {"id": "n2", "kind": "RETURN", "input_node_ids": ["n1"], "columns": ["title"]},
+        ],
+    }
+
+
 def an_invalid_plan() -> dict[str, Any]:
     """A plan whose ending projects a column its input does not declare."""
     plan = a_complete_plan()
@@ -96,12 +115,29 @@ def an_invalid_plan() -> dict[str, Any]:
     return plan
 
 
-def a_planner(answers: list[Any]) -> LogicalPlanner:
-    """A planner whose model answers with these plans in order."""
+def a_parent_plan() -> LogicalPlan:
+    """A one-node plan holding n1, standing in for a version a prior pass already wrote."""
+    return LogicalPlan(
+        id="p0",
+        parent_id=None,
+        output_node_id=None,
+        nodes=[
+            PipelineNode(
+                id="n1",
+                kind=ControlOperator.DISCOVER,
+                input_node_ids=[],
+                attributes={"instruction": "find a source holding job postings"},
+            )
+        ],
+    )
+
+
+def a_planner_over(client: ScriptedLLMClient) -> LogicalPlanner:
+    """A planner whose model answers with what this client is scripted to say."""
     # ScriptedLLMClient and FakeCatalog stand in for LLMClient and DataCatalog
     # structurally; pyright's strict nominal check does not see them as related.
     return LogicalPlanner(
-        ScriptedLLMClient(answers),  # pyright: ignore[reportArgumentType]
+        client,  # pyright: ignore[reportArgumentType]
         FakeCatalog(),  # pyright: ignore[reportArgumentType]
     )
 
@@ -113,16 +149,18 @@ def counters(corrections: int = 3) -> RunCounters:
 
 def test_a_request_world_knowledge_answers_comes_back_as_a_complete_plan() -> None:
     """A first plan carrying no control node is one the planner could write in full."""
-    result = a_planner([a_complete_plan()]).generate("list the job titles", counters())
+    result = a_planner_over(ScriptedLLMClient([a_complete_plan()])).generate(
+        "list the job titles", Conversation(), counters()
+    )
     assert result.status is RunStatus.OK
     assert result.plan is not None
     assert result.plan.output_node_id == "n2"
 
 
 def test_a_request_over_registered_data_comes_back_as_one_discover_node_per_thing_to_find() -> None:
-    """The preview names sources and nothing below them, so the first pass only asks."""
-    result = a_planner([a_plan_ending_in_discovery()]).generate(
-        "Python jobs at Fortune 500", counters()
+    """The preview names sources and nothing under them, so the first pass only asks."""
+    result = a_planner_over(ScriptedLLMClient([a_plan_ending_in_discovery()])).generate(
+        "Python jobs at Fortune 500", Conversation(), counters()
     )
     assert result.plan is not None
     assert [node.kind for node in result.plan.nodes] == [
@@ -131,37 +169,16 @@ def test_a_request_over_registered_data_comes_back_as_one_discover_node_per_thin
     ]
 
 
-def test_a_plan_validation_rejects_is_written_again_with_the_error_in_the_conversation() -> None:
-    """The rejected plan and its error both stay in the session the correction runs in."""
-    client = ScriptedLLMClient([an_invalid_plan(), a_complete_plan()])
-    planner = LogicalPlanner(
-        client,  # pyright: ignore[reportArgumentType]
-        FakeCatalog(),  # pyright: ignore[reportArgumentType]
-    )
-    result = planner.generate("list the job titles", counters())
-    assert result.status is RunStatus.OK
-    assert len(result.rejected) == 1
-    assert "posting_count" in client.conversations[1][-1][1]
-
-
-def test_running_out_of_corrections_returns_invalid_plan_with_every_rejected_plan() -> None:
-    """A run that ends in invalid_plan shows what was attempted."""
-    result = a_planner([an_invalid_plan(), an_invalid_plan()]).generate(
-        "list them", counters(corrections=1)
-    )
-    assert result.status is RunStatus.INVALID_PLAN
-    assert result.plan is None
-    assert len(result.rejected) == 2
-
-
 def test_a_continuation_carries_the_nodes_the_run_has_something_for() -> None:
     """The new version keeps what already ran and covers the rest with what came back."""
-    first = a_planner([a_plan_ending_in_discovery()]).generate(
-        "Python jobs at Fortune 500", counters()
+    conversation = Conversation()
+    first = a_planner_over(ScriptedLLMClient([a_plan_ending_in_discovery()])).generate(
+        "Python jobs at Fortune 500", conversation, counters()
     )
     assert first.plan is not None
-    continuation = a_planner([a_continuation_plan()]).generate(
+    continuation = a_planner_over(ScriptedLLMClient([a_continuation_plan()])).generate(
         "Python jobs at Fortune 500",
+        conversation,
         counters(),
         parent=first.plan,
         carried_node_ids=frozenset({"n1"}),
@@ -175,21 +192,95 @@ def test_a_continuation_carries_the_nodes_the_run_has_something_for() -> None:
     assert nodes_by_id["n1"].kind is ControlOperator.DISCOVER
 
 
-def test_a_freshly_written_node_replaces_a_carried_node_sharing_its_id() -> None:
-    """A node the model writes again takes precedence over the carried node of the same id."""
-    first = a_planner([a_plan_ending_in_discovery()]).generate(
-        "Python jobs at Fortune 500", counters()
+def test_a_plan_validation_turned_down_is_written_again_with_the_error_in_the_conversation() -> (
+    None
+):
+    """A model answers what it wrote, so the objection is a turn rather than a new prompt."""
+    client = ScriptedLLMClient([an_invalid_plan(), a_complete_plan()])
+    conversation = Conversation()
+
+    written = a_planner_over(client).generate("a request", conversation, RunCounters(RunLimits()))
+
+    assert written.status is RunStatus.OK
+    assert [turn.role for turn in conversation.turns] == [
+        "system",
+        "user",
+        "assistant",
+        "user",
+        "assistant",
+    ]
+
+
+def test_running_out_of_corrections_ends_as_invalid_plan_carrying_the_last_objection() -> None:
+    """Every plan that was turned down stays in the conversation; the result carries the reason."""
+    client = ScriptedLLMClient([an_invalid_plan()] * 3)
+    conversation = Conversation()
+
+    written = a_planner_over(client).generate(
+        "a request", conversation, RunCounters(RunLimits(plan_corrections=2))
     )
+
+    assert written.status is RunStatus.INVALID_PLAN
+    assert written.plan is None
+    assert written.failure_reason is not None
+    assert sum(1 for turn in conversation.turns if turn.role == "assistant") == 3
+
+
+def test_a_continuation_is_a_turn_on_top_of_the_plans_already_written() -> None:
+    """One conversation serves a whole request, so a second pass is not a fresh exchange."""
+    client = ScriptedLLMClient([a_plan_ending_in_discovery(), a_continuation_plan()])
+    planner = a_planner_over(client)
+    conversation = Conversation()
+    counters = RunCounters(RunLimits())
+
+    first = planner.generate("a request", conversation, counters)
     assert first.plan is not None
-    continuation = a_planner([a_complete_plan()]).generate(
-        "Python jobs at Fortune 500",
-        counters(),
+    planner.generate(
+        "a request",
+        conversation,
+        counters,
         parent=first.plan,
         carried_node_ids=frozenset({"n1"}),
         results={},
-        reason="the searches returned",
+        reason="the discovery found two tables",
     )
-    assert continuation.plan is not None
-    nodes_by_id = {node.id: node for node in continuation.plan.nodes}
-    assert set(nodes_by_id) == {"n1", "n2"}
-    assert nodes_by_id["n1"].kind is LogicalOperator.SCAN
+
+    assert [turn.role for turn in conversation.turns] == [
+        "system",
+        "user",
+        "assistant",
+        "user",
+        "assistant",
+    ]
+    assert "the discovery found two tables" in conversation.turns[3].content
+
+
+def test_the_opening_instructions_carry_nothing_that_varies_by_request() -> None:
+    """An identical opening is what makes the prefix cache across runs and across passes."""
+    first, second = Conversation(), Conversation()
+    a_planner_over(ScriptedLLMClient([a_complete_plan()])).generate(
+        "how many stores are in Reno", first, RunCounters(RunLimits())
+    )
+    a_planner_over(ScriptedLLMClient([a_complete_plan()])).generate(
+        "which cities have stores", second, RunCounters(RunLimits())
+    )
+
+    assert first.turns[0].content == second.turns[0].content
+    assert "how many stores are in Reno" in first.turns[1].content
+
+
+def test_a_continuation_writing_a_carried_nodes_id_is_turned_down() -> None:
+    """A carried node's name must not end up attached to work nobody planned."""
+    client = ScriptedLLMClient([a_continuation_rewriting_n1()] * 3)
+    conversation = Conversation()
+
+    written = a_planner_over(client).generate(
+        "a request",
+        conversation,
+        RunCounters(RunLimits(plan_corrections=2)),
+        parent=a_parent_plan(),
+        carried_node_ids=frozenset({"n1"}),
+    )
+
+    assert written.status is RunStatus.INVALID_PLAN
+    assert "n1" in (written.failure_reason or "")

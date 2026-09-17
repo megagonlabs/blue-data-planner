@@ -209,7 +209,13 @@ def a_planner(
 
 
 def ok(plan: LogicalPlan) -> LogicalPlanResult:
-    return LogicalPlanResult(status=RunStatus.OK, plan=plan, rejected=[], usage=[])
+    return LogicalPlanResult(status=RunStatus.OK, plan=plan, failure_reason=None)
+
+
+def invalid_plan(failure_reason: str = "the plan was turned down") -> LogicalPlanResult:
+    return LogicalPlanResult(
+        status=RunStatus.INVALID_PLAN, plan=None, failure_reason=failure_reason
+    )
 
 
 def covered(cover: PhysicalPlan) -> PhysicalPlanResult:
@@ -267,12 +273,7 @@ def a_planner_whose_every_repair_is_refused() -> tuple[
     DataPlanner, FakePhysicalPlanner, FakeLogicalPlanner
 ]:
     """A fragment always rejected, so the run spends every cover repair before the plan gives up."""
-    logical = FakeLogicalPlanner(
-        [
-            ok(a_scan_and_ending("p1")),
-            LogicalPlanResult(status=RunStatus.INVALID_PLAN, plan=None, rejected=[], usage=[]),
-        ]
-    )
+    logical = FakeLogicalPlanner([ok(a_scan_and_ending("p1")), invalid_plan()])
     physical = FakePhysicalPlanner(
         [
             covered(a_cover("c1", "p1")),
@@ -403,11 +404,9 @@ def test_a_provider_that_fails_after_its_retries_ends_the_request_as_llm_failed(
 
 
 def test_a_plan_the_planner_could_not_write_ends_as_invalid_plan() -> None:
-    """Plan generation ran out of corrections, and every rejected plan travels out."""
+    """Plan generation ran out of corrections, so the run ends without a plan to cover."""
     result = a_planner(
-        FakeLogicalPlanner(
-            [LogicalPlanResult(status=RunStatus.INVALID_PLAN, plan=None, rejected=[], usage=[])]
-        ),
+        FakeLogicalPlanner([invalid_plan()]),
         FakePhysicalPlanner([]),
         FakeFragmentRunner([]),
         FakeCatalogSearcher(),

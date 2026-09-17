@@ -159,21 +159,12 @@ class FragmentAttempt:
 
 
 @dataclass(frozen=True)
-class RejectedPlan:
-    """One logical plan validation turned down, with what it objected to."""
-
-    plan: LogicalPlan
-    error: str
-
-
-@dataclass(frozen=True)
 class LogicalPlanResult:
-    """What the logical planner produced, and every plan it had turned down on the way."""
+    """What the logical planner produced, or the objection that stopped it."""
 
     status: RunStatus  # ok, or invalid_plan when the corrections ran out
     plan: LogicalPlan | None
-    rejected: list[RejectedPlan]
-    usage: list[LLMUsage]
+    failure_reason: str | None
 
 
 @dataclass(frozen=True)
@@ -221,7 +212,6 @@ class RunResult:
     pipeline: DataPipeline
     results: dict[str, ExecutionResult | DiscoveryResult]  # keyed by signature
     attempts: list[FragmentAttempt]
-    rejected_plans: list[RejectedPlan]
     counters: RunCounters
     planner_usage: list[LLMUsage]
 

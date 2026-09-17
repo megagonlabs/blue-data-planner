@@ -6,6 +6,7 @@ from typing import Any
 
 from blue_data_planner.types import (
     CatalogSearchResult,
+    Conversation,
     DataBundle,
     DiscoveryResult,
     FragmentResult,
@@ -25,10 +26,12 @@ class FakeLogicalPlanner:
     def __init__(self, results: list[LogicalPlanResult]) -> None:
         self.results = list(results)
         self.reasons: list[str | None] = []
+        self.conversations: list[Conversation] = []
 
     def generate(
         self,
         request: str,
+        conversation: Conversation,
         counters: RunCounters,
         parent: LogicalPlan | None = None,
         carried_node_ids: frozenset[str] = frozenset(),
@@ -36,6 +39,7 @@ class FakeLogicalPlanner:
         reason: str | None = None,
     ) -> LogicalPlanResult:
         self.reasons.append(reason)
+        self.conversations.append(conversation)
         if not self.results:
             raise AssertionError("the fake logical planner ran out of results")
         return self.results.pop(0)

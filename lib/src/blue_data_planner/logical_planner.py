@@ -20,7 +20,6 @@ from blue_data_planner.types import (
     OutputColumn,
     PipelineNode,
     PlanValidationError,
-    RejectedPlan,
     RunCounters,
     RunStatus,
 )
@@ -40,6 +39,7 @@ class LogicalPlanner:
     def generate(
         self,
         request: str,
+        conversation: Conversation,
         counters: RunCounters,
         parent: LogicalPlan | None = None,
         carried_node_ids: frozenset[str] = frozenset(),
@@ -48,22 +48,21 @@ class LogicalPlanner:
     ) -> LogicalPlanResult:
         """Write a plan, or a continuation of one, correcting it until validation accepts."""
         held = results or {}
-        conversation = Conversation(
-            turns=[
-                Turn(
-                    role="system",
-                    content=self._prompt(request, carried_node_ids, held, reason, parent),
-                )
-            ]
+        if not conversation.turns:
+            conversation.turns.append(
+                Turn(role="system", content=prompt_text("logical_planner.md"))
+            )
+        conversation.turns.append(
+            Turn(role="user", content=self._ask(request, carried_node_ids, held, reason, parent))
         )
-        rejected: list[RejectedPlan] = []
+        failure_reason: str | None = None
         for _attempt in range(counters.limits.plan_corrections + 1):
             written = self._llm_client.complete_structured(conversation, logical_plan_schema())
-            plan = _assemble(written.model_dump(), parent, carried_node_ids)
             try:
+                plan = _assemble(written.model_dump(), parent, carried_node_ids)
                 validate_logical_plan(plan, carried_node_ids)
             except PlanValidationError as error:
-                rejected.append(RejectedPlan(plan=plan, error=str(error)))
+                failure_reason = str(error)
                 conversation.turns.append(
                     Turn(
                         role="user",
@@ -74,20 +73,12 @@ class LogicalPlanner:
                     )
                 )
                 continue
-            return LogicalPlanResult(
-                status=RunStatus.OK,
-                plan=plan,
-                rejected=rejected,
-                usage=list(conversation.usage),
-            )
+            return LogicalPlanResult(status=RunStatus.OK, plan=plan, failure_reason=None)
         return LogicalPlanResult(
-            status=RunStatus.INVALID_PLAN,
-            plan=None,
-            rejected=rejected,
-            usage=list(conversation.usage),
+            status=RunStatus.INVALID_PLAN, plan=None, failure_reason=failure_reason
         )
 
-    def _prompt(
+    def _ask(
         self,
         request: str,
         carried_node_ids: frozenset[str],
@@ -95,11 +86,15 @@ class LogicalPlanner:
         reason: str | None,
         parent: LogicalPlan | None,
     ) -> str:
-        preview = self._catalog.preview(request, CATALOG_PREVIEW_LIMIT)
+        first_pass = parent is None
         return safe_substitute(
-            prompt_text("logical_planner.md"),
-            request=request,
-            catalog_preview=_render_preview(preview),
+            prompt_text("logical_planner_turn.md"),
+            request=request if first_pass else "",
+            catalog_preview=(
+                _render_preview(self._catalog.preview(request, CATALOG_PREVIEW_LIMIT))
+                if first_pass
+                else ""
+            ),
             catalog_context=_render_context(results),
             carried_nodes=_render_carried(parent, carried_node_ids, results),
             reason=reason or "",
@@ -112,12 +107,16 @@ def _assemble(
     nodes = [_node(payload) for payload in written["nodes"]]
     if parent is not None:
         written_ids = {node.id for node in nodes}
-        carried = [
-            node
-            for node in parent.nodes
-            if node.id in carried_node_ids and node.id not in written_ids
-        ]
-        nodes = carried + nodes
+        # A continuation names an existing id only to read a node it carried over (design/10, the
+        # logical half). Letting a written node take one would attach a carried node's name, and
+        # the result filed under it, to work nobody planned.
+        collisions = sorted(written_ids & carried_node_ids)
+        if collisions:
+            raise PlanValidationError(
+                f"the continuation writes node(s) {collisions}, whose id(s) name nodes it "
+                "carried over; name a carried node only to read it, and give new work new ids"
+            )
+        nodes = [node for node in parent.nodes if node.id in carried_node_ids] + nodes
     return LogicalPlan(
         id=str(uuid.uuid4()),
         parent_id=parent.id if parent is not None else None,
