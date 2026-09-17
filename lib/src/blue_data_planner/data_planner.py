@@ -17,9 +17,9 @@ from blue_data_planner.types import (
     DataBundle,
     LogicalOperator,
     PhysicalPlanFragment,
-    PlanResult,
     RunCounters,
     RunLimits,
+    RunResult,
     RunStatus,
 )
 
@@ -41,7 +41,7 @@ class DataPlanner:
         self._catalog_searcher = catalog_searcher
         self._limits = limits
 
-    def run(self, request: str) -> PlanResult:
+    def run(self, request: str) -> RunResult:
         """Plan, cover, execute, and repair until the request ends."""
         state = RunState(request=request, counters=RunCounters(self._limits))
         answer: DataBundle | None = None
@@ -64,7 +64,7 @@ class DataPlanner:
             state.failure_reason = str(error)
         return state.to_result(status, answer)
 
-    def plan(self, request: str) -> PlanResult:
+    def plan(self, request: str) -> RunResult:
         """Write one logical plan and one cover, then stop."""
         state = RunState(request=request, counters=RunCounters(self._limits))
         try:
@@ -186,7 +186,7 @@ class DataPlanner:
         """Project the answer the ending names, raising unless the run really produced one."""
         # A run that reaches here has nothing left to run, so the plan it ends on has to be
         # one that answers. Returning None instead would hand a caller status ok with no
-        # answer, which is the one thing PlanResult.answer promises cannot happen.
+        # answer, which is the one thing RunResult.answer promises cannot happen.
         output_node_id = state.logical_plan.output_node_id
         if output_node_id is None:
             raise BlueDataPlannerError(

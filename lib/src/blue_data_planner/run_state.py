@@ -19,9 +19,9 @@ from blue_data_planner.types import (
     PhysicalPlan,
     PhysicalPlanFragment,
     PipelineNode,
-    PlanResult,
     RejectedPlan,
     RunCounters,
+    RunResult,
     RunStatus,
 )
 
@@ -183,9 +183,9 @@ class RunState:
         """Append what one component's model calls cost, in the order they ran."""
         self.usage.extend(usage)
 
-    def to_result(self, status: RunStatus, answer: DataBundle | None = None) -> PlanResult:
+    def to_result(self, status: RunStatus, answer: DataBundle | None = None) -> RunResult:
         """Freeze the run into the result a caller receives."""
-        return PlanResult(
+        return RunResult(
             status=status,
             answer=answer if status is RunStatus.OK else None,
             failure_reason=None if status is RunStatus.OK else self.failure_reason,

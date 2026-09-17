@@ -150,14 +150,14 @@ class CatalogSearchResult:
     """What one catalog search found, and what finding it cost."""
 
     # A pair rather than a field on DiscoveryResult: a DiscoveryResult goes into the run's
-    # results map and reaches the caller inside PlanResult, where usage would be counted
+    # results map and reaches the caller inside RunResult, where usage would be counted
     # a second time.
     discovery: DiscoveryResult
     usage: list[LLMUsage]
 
 
 @dataclass(frozen=True)
-class PlanResult:
+class RunResult:
     """Everything one request produced, whether it worked or not."""
 
     status: RunStatus
