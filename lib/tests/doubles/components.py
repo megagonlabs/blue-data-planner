@@ -55,7 +55,11 @@ class FakePhysicalPlanner:
         self.covered_plan_ids: list[str] = []
 
     def cover(
-        self, plan: LogicalPlan, results: dict[str, Any], reason: str | None = None
+        self,
+        plan: LogicalPlan,
+        previous: PhysicalPlan | None,
+        results: dict[str, Any],
+        reason: str | None = None,
     ) -> PhysicalPlanResult:
         self.covered_plan_ids.append(plan.id)
         if not self.covers:

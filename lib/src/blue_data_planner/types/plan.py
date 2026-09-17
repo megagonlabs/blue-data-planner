@@ -215,6 +215,15 @@ class PhysicalPlan:
                 return fragment
         raise UnknownFragmentError(f"no fragment of the cover covers node {node_id!r}")
 
+    def fragment_for_root(self, node_id: str) -> PhysicalPlanFragment | None:
+        """Return the fragment rooted at this node, or nothing when none is."""
+        # None rather than a raise, because a node rooting no fragment of the cover being replaced
+        # is the ordinary case: it may have been absorbed, or the plan may have grown since.
+        for fragment in self.fragments:
+            if fragment.root_logical_node_id == node_id:
+                return fragment
+        return None
+
     def to_dict(self) -> dict[str, Any]:
         """Return the JSON form a cover travels in whenever it leaves the process."""
         return {

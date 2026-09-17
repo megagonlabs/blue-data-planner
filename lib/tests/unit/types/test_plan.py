@@ -129,6 +129,27 @@ def a_cover_fusing_the_scan_and_the_filter() -> PhysicalPlan:
     )
 
 
+def a_cover_over_one_fragment_rooted_at_n1() -> PhysicalPlan:
+    """One fragment covering n1 alone, the shape a cover of a single SCAN node takes."""
+    return PhysicalPlan(
+        id="b3a4c5d6",
+        parent_id=None,
+        logical_plan_id="3f2b9c14",
+        fragments=[
+            PhysicalPlanFragment(
+                id="f1",
+                logical_node_ids=["n1"],
+                root_logical_node_id="n1",
+                operator_id="blue.scan",
+                scan_sources={"n1": "/source/jobs/database/jobs/collection/public/entity/postings"},
+                instruction="Read job postings",
+                input_data=[],
+                required_output_columns=[OutputColumn(name="title", dtype="str")],
+            )
+        ],
+    )
+
+
 def a_pipeline_holding_one_plan_and_its_cover() -> DataPipeline:
     """One version of each, both current, which is what a first pass produces."""
     plan = a_scan_filter_return_plan()
@@ -156,6 +177,14 @@ def test_a_cover_answers_which_fragment_runs_a_node() -> None:
 
     assert cover.fragment("f1").root_logical_node_id == "n2"
     assert cover.fragment_for_node("n1").id == "f1"
+
+
+def test_a_node_rooting_no_fragment_of_the_cover_comes_back_as_nothing() -> None:
+    """A node rooting no fragment is the ordinary case when a cover is being replaced."""
+    cover = a_cover_over_one_fragment_rooted_at_n1()
+
+    assert cover.fragment_for_root("n1") is not None
+    assert cover.fragment_for_root("n9") is None
 
 
 def test_a_pipeline_names_the_pair_that_produced_the_answer() -> None:

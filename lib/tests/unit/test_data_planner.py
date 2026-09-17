@@ -326,7 +326,11 @@ def test_a_defect_in_a_component_ends_the_request_instead_of_raising_at_the_call
 
     class PhysicalPlannerWithADefect(FakePhysicalPlanner):
         def cover(
-            self, plan: LogicalPlan, results: dict[str, Any], reason: str | None = None
+            self,
+            plan: LogicalPlan,
+            previous: PhysicalPlan | None,
+            results: dict[str, Any],
+            reason: str | None = None,
         ) -> PhysicalPlanResult:
             raise PlanValidationError("fragment 'f1' reads ['n9'], the nodes feeding it are []")
 

@@ -12,6 +12,8 @@ from blue_data_planner.types import (
     AttributeRecord,
     DiscoveryResult,
     EntityMatch,
+    ExecutionResult,
+    ExecutionStatus,
     LogicalOperator,
     LogicalPlan,
     OutputColumn,
@@ -129,10 +131,23 @@ def a_discovery() -> dict[str, Any]:
     }
 
 
-def a_binding(index: int, inputs: tuple[str, ...] = (), **extra: Any) -> dict[str, Any]:
+def a_discovery_holding_n1() -> dict[str, Any]:
+    """A discovery, plus a result already sitting under n1, which is what offers reuse."""
+    return {
+        **a_discovery(),
+        "n1": ExecutionResult(
+            status=ExecutionStatus.OK,
+            output=[[{"title": "a planet"}]],
+            operator_id="op.one",
+            row_count=1,
+        ),
+    }
+
+
+def a_binding(label: str, inputs: tuple[str, ...] = (), **extra: Any) -> dict[str, Any]:
     """One binding decision's payload, naming each node on the chosen candidate's frontier."""
     payload: dict[str, Any] = {
-        "candidate_index": index,
+        "candidate": label,
         "instruction": "do the whole thing",
         "required_output_columns": None,
     }
@@ -152,9 +167,11 @@ def a_planner(client: ScriptedLLMClient, router: OperatorRouter) -> PhysicalPlan
 
 def test_a_plan_one_operator_can_absorb_comes_back_as_one_fragment() -> None:
     """The widest candidate is offered first, and taking it ends the cover in one turn."""
-    client = ScriptedLLMClient([a_binding(0, scan_source_n1=POSTINGS)])
+    client = ScriptedLLMClient(
+        [a_binding("n3:builtin.nl2table:[n1,n2,n3]", scan_source_n1=POSTINGS)]
+    )
     planner = a_planner(client, a_router(an_operator("builtin.nl2table", ALL_KINDS)))
-    result = planner.cover(a_plan(), a_discovery())
+    result = planner.cover(a_plan(), None, a_discovery())
     assert result.plan is not None
     assert [sorted(f.logical_node_ids) for f in result.plan.fragments] == [["n1", "n2", "n3"]]
 
@@ -165,7 +182,7 @@ def test_a_node_no_operator_can_run_ends_the_cover_with_the_reason_naming_it() -
         ScriptedLLMClient([]),
         a_router(an_operator("builtin.filter", frozenset({LogicalOperator.FILTER}))),
     )
-    result = planner.cover(a_plan(), a_discovery())
+    result = planner.cover(a_plan(), None, a_discovery())
     assert result.plan is None
     assert result.failure_reason is not None
     assert "n3" in result.failure_reason
@@ -175,9 +192,9 @@ def test_a_cover_taking_one_node_at_a_time_sends_one_turn_per_node() -> None:
     """Three atomic bindings are three turns of one conversation and three fragments."""
     client = ScriptedLLMClient(
         [
-            a_binding(0, inputs=("n2",)),
-            a_binding(0, inputs=("n1",)),
-            a_binding(0, scan_source_n1=POSTINGS),
+            a_binding("n3:builtin.aggregate:[n3]", inputs=("n2",)),
+            a_binding("n2:builtin.filter:[n2]", inputs=("n1",)),
+            a_binding("n1:builtin.scan:[n1]", scan_source_n1=POSTINGS),
         ]
     )
     planner = a_planner(
@@ -188,7 +205,7 @@ def test_a_cover_taking_one_node_at_a_time_sends_one_turn_per_node() -> None:
             an_operator("builtin.aggregate", frozenset({LogicalOperator.AGGREGATE})),
         ),
     )
-    result = planner.cover(a_plan(), a_discovery())
+    result = planner.cover(a_plan(), None, a_discovery())
     assert result.plan is not None
     assert sorted(sorted(f.logical_node_ids) for f in result.plan.fragments) == [
         ["n1"],
@@ -207,19 +224,19 @@ def test_a_fragment_repair_rebinds_one_node_set_and_leaves_the_rest_of_the_cover
     first = a_planner(
         ScriptedLLMClient(
             [
-                a_binding(0, inputs=("n2",)),
-                a_binding(0, inputs=("n1",)),
-                a_binding(0, scan_source_n1=POSTINGS),
+                a_binding("n3:builtin.aggregate:[n3]", inputs=("n2",)),
+                a_binding("n2:builtin.filter:[n2]", inputs=("n1",)),
+                a_binding("n1:builtin.scan:[n1]", scan_source_n1=POSTINGS),
             ]
         ),
         a_router(*atomics),
-    ).cover(a_plan(), a_discovery())
+    ).cover(a_plan(), None, a_discovery())
     assert first.plan is not None
     failed = frozenset({"n3"})
 
     # The router now offers a second operator for AGGREGATE, so the repair has somewhere to go.
     repaired = a_planner(
-        ScriptedLLMClient([a_binding(1, inputs=("n2",))]),
+        ScriptedLLMClient([a_binding("n3:builtin.nl2table:[n3]", inputs=("n2",))]),
         a_router(*atomics, an_operator("builtin.nl2table", ALL_KINDS)),
     ).recover_fragment(
         a_plan(), first.plan, failed, a_discovery(), "the aggregation returned one row too many"
@@ -248,22 +265,25 @@ def test_a_repair_starts_a_fresh_conversation() -> None:
     # this test would fail. Two separate clients, as in an earlier version of this test, could
     # never observe that: each would start empty regardless of what the implementation did.
     client = ScriptedLLMClient(
-        [a_binding(0, scan_source_n1=POSTINGS), a_binding(0, scan_source_n1=POSTINGS)]
+        [
+            a_binding("n3:builtin.nl2table:[n1,n2,n3]", scan_source_n1=POSTINGS),
+            a_binding("n3:builtin.nl2table:[n1,n2,n3]", scan_source_n1=POSTINGS),
+        ]
     )
     planner = a_planner(client, a_router(an_operator("builtin.nl2table", ALL_KINDS)))
-    first = planner.cover(a_plan(), a_discovery())
+    first = planner.cover(a_plan(), None, a_discovery())
     assert first.plan is not None
-    planner.cover(a_plan(), a_discovery(), reason="the fused call ignored the filter")
+    planner.cover(a_plan(), None, a_discovery(), reason="the fused call ignored the filter")
     assert len(client.conversations[1]) == 2
 
 
 def test_a_scan_an_operator_answers_from_its_own_knowledge_is_bound_to_no_source() -> None:
     """An operator declaring no source kinds needs no discovery, and names no entity path."""
     planner = a_planner(
-        ScriptedLLMClient([a_binding(0)]),
+        ScriptedLLMClient([a_binding("n1:builtin.nl2table:[n1]")]),
         a_router(an_operator("builtin.nl2table", ALL_KINDS, source_kinds=None)),
     )
-    result = planner.cover(a_scan_and_return(), {})
+    result = planner.cover(a_scan_and_return(), None, {})
     assert result.plan is not None
     assert result.plan.fragments[0].scan_sources == {}
 
@@ -274,7 +294,7 @@ def test_a_scan_no_discovered_source_matches_leaves_its_node_with_no_candidate()
         ScriptedLLMClient([]),
         a_router(an_operator("builtin.scan", ALL_KINDS, source_kinds=frozenset({"vector/chroma"}))),
     )
-    result = planner.cover(a_scan_and_return(), a_discovery())
+    result = planner.cover(a_scan_and_return(), None, a_discovery())
     assert result.plan is None
     assert result.failure_reason is not None
     assert "n1" in result.failure_reason
@@ -287,9 +307,9 @@ def test_a_fragments_inputs_are_the_nodes_feeding_it_and_not_a_model_choice() ->
     planner = a_planner(
         ScriptedLLMClient(
             [
-                a_binding(0, inputs=("n2",)),
-                a_binding(0, inputs=("n1",)),
-                a_binding(0, scan_source_n1=POSTINGS),
+                a_binding("n3:builtin.aggregate:[n3]", inputs=("n2",)),
+                a_binding("n2:builtin.filter:[n2]", inputs=("n1",)),
+                a_binding("n1:builtin.scan:[n1]", scan_source_n1=POSTINGS),
             ]
         ),
         a_router(
@@ -298,10 +318,48 @@ def test_a_fragments_inputs_are_the_nodes_feeding_it_and_not_a_model_choice() ->
             an_operator("builtin.aggregate", frozenset({LogicalOperator.AGGREGATE})),
         ),
     )
-    result = planner.cover(a_plan(), a_discovery())
+    result = planner.cover(a_plan(), None, a_discovery())
     assert result.plan is not None
     reads = {
         fragment.logical_node_ids[0]: [entry.logical_node_id for entry in fragment.input_data]
         for fragment in result.plan.fragments
     }
     assert reads == {"n1": [], "n2": ["n1"], "n3": ["n2"]}
+
+
+def test_a_node_whose_fragment_produced_a_result_can_reuse_it_unchanged() -> None:
+    """Reuse turns on the decision, so a reworded instruction cannot throw a good result away."""
+    client = ScriptedLLMClient(
+        [
+            a_binding("n1:op.one:[n1]", scan_source_n1=POSTINGS),
+            {"choice": {"candidate": "n1:reuse:[n1]"}},
+        ]
+    )
+    planner = a_planner(client, a_router(an_operator("op.one", frozenset({LogicalOperator.SCAN}))))
+    plan = a_scan_and_return()
+
+    first = planner.cover(plan, None, a_discovery())
+    assert first.plan is not None
+    again = planner.cover(plan, first.plan, a_discovery_holding_n1(), "try again")
+
+    assert again.plan is not None
+    assert again.plan.fragments[0] == first.plan.fragments[0]
+
+
+def test_a_node_with_no_result_is_offered_no_way_to_reuse_its_fragment() -> None:
+    """The failed fragment has no result, so the model must pick again and reword its work."""
+    client = ScriptedLLMClient(
+        [
+            a_binding("n1:op.one:[n1]", scan_source_n1=POSTINGS),
+            a_binding("n1:op.one:[n1]", scan_source_n1=POSTINGS),
+        ]
+    )
+    planner = a_planner(client, a_router(an_operator("op.one", frozenset({LogicalOperator.SCAN}))))
+    plan = a_scan_and_return()
+
+    first = planner.cover(plan, None, a_discovery())
+    assert first.plan is not None
+    again = planner.cover(plan, first.plan, a_discovery(), "it returned nothing")
+
+    assert again.plan is not None
+    assert again.plan.fragments[0].id != first.plan.fragments[0].id

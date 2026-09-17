@@ -9,13 +9,16 @@ from blue_data_planner.llm import Conversation, LLMClient, Turn
 from blue_data_planner.llm.templating import safe_substitute
 from blue_data_planner.operators import OperatorRouter
 from blue_data_planner.plan import (
+    REUSE,
     candidate_fragments,
+    candidate_label,
     cover_choice_schema,
     fragment_frontier,
     validate_physical_plan,
 )
 from blue_data_planner.prompts import prompt_text
 from blue_data_planner.types import (
+    BlueDataPlannerError,
     DiscoveryResult,
     ExecutionResult,
     InputData,
@@ -43,11 +46,14 @@ class PhysicalPlanner:
     def cover(
         self,
         plan: LogicalPlan,
+        previous: PhysicalPlan | None,
         results: dict[str, NodeResult],
         reason: str | None = None,
     ) -> PhysicalPlanResult:
         """Write a whole cover for this plan, which is both the first cover and the repair."""
-        return self._walk(plan, results, reason, _coverable(plan), carried=[], parent_id=None)
+        return self._walk(
+            plan, previous, results, reason, _coverable(plan), carried=[], parent_id=None
+        )
 
     def recover_fragment(
         self,
@@ -63,11 +69,12 @@ class PhysicalPlanner:
             for fragment in previous.fragments
             if not (set(fragment.logical_node_ids) & node_ids)
         ]
-        return self._walk(plan, results, reason, node_ids, carried, parent_id=previous.id)
+        return self._walk(plan, previous, results, reason, node_ids, carried, parent_id=previous.id)
 
     def _walk(
         self,
         plan: LogicalPlan,
+        previous: PhysicalPlan | None,
         results: dict[str, NodeResult],
         reason: str | None,
         confined_to: frozenset[str],
@@ -92,7 +99,16 @@ class PhysicalPlanner:
                     failure_reason=self._no_candidate_reason(node, entity_source_kinds),
                     usage=list(conversation.usage),
                 )
-            fragment = self._bind(plan, node, candidates, entity_source_kinds, conversation)
+            # A node id reaches results only because a fragment rooted there already produced
+            # something, so no signature knowledge is needed here to offer it back.
+            reusable = (
+                previous.fragment_for_root(node.id)
+                if previous is not None and node.id in results
+                else None
+            )
+            fragment = self._bind(
+                plan, node, candidates, reusable, results, entity_source_kinds, conversation
+            )
             fragments.append(fragment)
             covered.update(fragment.logical_node_ids)
         cover = PhysicalPlan(
@@ -129,19 +145,36 @@ class PhysicalPlanner:
         plan: LogicalPlan,
         node: PipelineNode,
         candidates: list[Candidate],
+        reusable: PhysicalPlanFragment | None,
+        results: dict[str, NodeResult],
         entity_source_kinds: dict[str, str],
         conversation: Conversation,
     ) -> PhysicalPlanFragment:
         conversation.turns.append(
-            Turn(role="user", content=_render_candidates(plan, node, candidates))
+            Turn(
+                role="user",
+                content=_render_candidates(plan, node, candidates, reusable, results),
+            )
         )
-        schema = cover_choice_schema(plan, candidates, entity_source_kinds)
+        schema = cover_choice_schema(plan, node.id, candidates, reusable, entity_source_kinds)
         written = self._llm_client.complete_structured(conversation, schema)
         choice: dict[str, Any] = written.model_dump()["choice"]
-        # An explicit int() resolves an otherwise ambiguous overload: list.__getitem__ has
-        # both an index and a slice form, and indexing with an untyped (Any) value leaves
-        # pyright unable to pick one, which taints node_ids and operator as Unknown below.
-        node_ids, operator = candidates[int(choice["candidate_index"])]
+        label = str(choice["candidate"])
+        if reusable is not None and label == candidate_label(
+            node.id, REUSE, frozenset(reusable.logical_node_ids)
+        ):
+            return reusable
+        by_label = {
+            candidate_label(node.id, operator.operator_id, node_ids): (node_ids, operator)
+            for node_ids, operator in candidates
+        }
+        chosen = by_label.get(label)
+        if chosen is None:
+            raise BlueDataPlannerError(
+                f"the binding for node {node.id!r} named candidate {label!r}, which is not one "
+                "of the candidates it was offered"
+            )
+        node_ids, operator = chosen
         declared = choice.get("required_output_columns")
         return PhysicalPlanFragment(
             id=f"f{uuid.uuid4().hex[:8]}",
@@ -236,19 +269,45 @@ def _bindable(
     return any(source_kind in operator.source_kinds for source_kind in entity_source_kinds.values())
 
 
-def _render_candidates(plan: LogicalPlan, node: PipelineNode, candidates: list[Candidate]) -> str:
+def _render_candidates(
+    plan: LogicalPlan,
+    node: PipelineNode,
+    candidates: list[Candidate],
+    reusable: PhysicalPlanFragment | None,
+    results: dict[str, NodeResult],
+) -> str:
     lines = [f"Node {node.id} is uncovered. Its instruction: {node.attributes['instruction']}", ""]
-    for index, (node_ids, operator) in enumerate(candidates):
+    if reusable is not None:
+        lines.append(_render_reuse_candidate(node, reusable, results[node.id]))
+    for node_ids, operator in candidates:
+        label = candidate_label(node.id, operator.operator_id, node_ids)
         steps = "; ".join(
             f"{inner} ({plan.node(inner).kind.value}) {plan.node(inner).attributes['instruction']}"
             for inner in sorted(node_ids)
         )
         limits = f" Cannot: {operator.limitations}" if operator.limitations else ""
         lines.append(
-            f"{index}. {operator.operator_id} over {sorted(node_ids)} — "
+            f"{label}. {operator.operator_id} over {sorted(node_ids)} — "
             f"{operator.description}{limits}\n   Steps: {steps}"
         )
     return "\n".join(lines)
+
+
+def _render_reuse_candidate(
+    node: PipelineNode, reusable: PhysicalPlanFragment, result: NodeResult
+) -> str:
+    if not isinstance(result, ExecutionResult):
+        raise BlueDataPlannerError(
+            f"node {node.id!r} offers a reusable fragment, but the result recorded for it is a "
+            f"{type(result).__name__}, not an ExecutionResult"
+        )
+    label = candidate_label(node.id, REUSE, frozenset(reusable.logical_node_ids))
+    return (
+        f"{label}. Reuse the fragment already run, {reusable.operator_id} over "
+        f"{sorted(reusable.logical_node_ids)} — costs nothing.\n"
+        f"   Instruction: {reusable.instruction}\n"
+        f"   Already produced: {_describe_execution(result)}"
+    )
 
 
 def _render_context(results: dict[str, NodeResult]) -> str:
@@ -264,12 +323,13 @@ def _render_context(results: dict[str, NodeResult]) -> str:
 
 
 def _render_results(results: dict[str, NodeResult]) -> str:
-    lines: list[str] = []
-    for node_id, result in results.items():
-        if not isinstance(result, ExecutionResult):
-            continue
-        columns = sorted(result.output[0][0]) if result.output and result.output[0] else []
-        lines.append(
-            f"- {node_id}: {result.row_count} row(s) from {result.operator_id}, columns {columns}"
-        )
-    return "\n".join(lines)
+    return "\n".join(
+        f"- {node_id}: {_describe_execution(result)}"
+        for node_id, result in results.items()
+        if isinstance(result, ExecutionResult)
+    )
+
+
+def _describe_execution(result: ExecutionResult) -> str:
+    columns = sorted(result.output[0][0]) if result.output and result.output[0] else []
+    return f"{result.row_count} row(s) from {result.operator_id}, columns {columns}"

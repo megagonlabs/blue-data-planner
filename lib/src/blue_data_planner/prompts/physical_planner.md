@@ -26,8 +26,8 @@ declares. Setting it is an exception, not the default.
 {% if node_results %}
 ## What has already run
 
-Absorbing a node that already ran throws its result away and pays for the work again. The
-row counts say how much.
+A candidate marked `reuse` keeps what ran and costs nothing. Absorbing a node that already ran
+throws its result away and pays for the work again; the row counts say how much.
 
 {{ node_results }}
 {% endif %}

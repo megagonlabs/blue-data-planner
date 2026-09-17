@@ -14,7 +14,18 @@ from blue_data_planner.types import (
     LogicalOperator,
     LogicalPlan,
     PhysicalOperator,
+    PhysicalPlanFragment,
 )
+
+# Never an operator id, because those are suite-qualified.
+REUSE = "reuse"
+
+
+def candidate_label(root_node_id: str, operator_id: str, node_ids: frozenset[str]) -> str:
+    """Return the name one binding candidate answers to, stable across turns."""
+    # A candidate names what it is rather than where it sat in the list it arrived in: the list
+    # differs from turn to turn, and from Task 8 the conversation keeps the earlier turns.
+    return f"{root_node_id}:{operator_id}:[{','.join(sorted(node_ids))}]"
 
 
 class _Strict(BaseModel):
@@ -88,7 +99,9 @@ def logical_plan_schema() -> type[BaseModel]:
 
 def cover_choice_schema(
     plan: LogicalPlan,
+    root_node_id: str,
     candidates: list[tuple[frozenset[str], PhysicalOperator]],
+    reusable: PhysicalPlanFragment | None,
     entity_source_kinds: Mapping[str, str],
 ) -> type[BaseModel]:
     """Return the response schema one binding decision is written into."""
@@ -98,18 +111,26 @@ def cover_choice_schema(
             "physical planner's no_operator case"
         )
     variants = tuple(
-        _candidate_model(plan, index, node_ids, operator, entity_source_kinds)
+        _candidate_model(root_node_id, plan, index, node_ids, operator, entity_source_kinds)
         for index, (node_ids, operator) in enumerate(candidates)
     )
+    if reusable is not None:
+        variants = (*variants, _reuse_model(root_node_id, reusable))
     if len(variants) == 1:
         choice: Any = variants[0]
     else:
         union: Any = Union
-        choice = Annotated[union[variants], Field(discriminator="candidate_index")]
+        choice = Annotated[union[variants], Field(discriminator="candidate")]
     return create_model("CoverChoice", __base__=_Strict, choice=(choice, ...))
 
 
+def _reuse_model(root_node_id: str, reusable: PhysicalPlanFragment) -> type[BaseModel]:
+    label = candidate_label(root_node_id, REUSE, frozenset(reusable.logical_node_ids))
+    return create_model("CandidateReuse", __base__=_Strict, candidate=(_only(label), ...))
+
+
 def _candidate_model(
+    root_node_id: str,
     plan: LogicalPlan,
     index: int,
     node_ids: frozenset[str],
@@ -117,7 +138,7 @@ def _candidate_model(
     entity_source_kinds: Mapping[str, str],
 ) -> type[BaseModel]:
     fields: dict[str, Any] = {
-        "candidate_index": (_only(index), ...),
+        "candidate": (_only(candidate_label(root_node_id, operator.operator_id, node_ids)), ...),
         "instruction": (
             str,
             Field(description="What this fragment is to do, as one instruction to the operator."),

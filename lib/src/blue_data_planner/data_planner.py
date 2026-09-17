@@ -122,7 +122,10 @@ class DataPlanner:
         if state.cover_attempts < self._limits.cover_repairs:
             state.cover_attempts += 1
             written = self._physical_planner.cover(
-                state.pipeline.logical_plan, self._results_by_node_id(state), reason
+                state.pipeline.logical_plan,
+                state.pipeline.physical_plans.get(state.pipeline.current_physical_plan_id or ""),
+                self._results_by_node_id(state),
+                reason,
             )
             if written.plan is not None:
                 state.install_cover(written.plan)
@@ -172,7 +175,12 @@ class DataPlanner:
             state.failure_reason = written.rejected[-1].error if written.rejected else None
             return written.status
         state.install_logical_plan(written.plan)
-        cover = self._physical_planner.cover(written.plan, held, reason)
+        cover = self._physical_planner.cover(
+            written.plan,
+            state.pipeline.physical_plans.get(state.pipeline.current_physical_plan_id or ""),
+            held,
+            reason,
+        )
         if cover.plan is None:
             if not retry_uncoverable_plan:
                 # plan writes one logical plan and attempts one cover, then stops, whatever
