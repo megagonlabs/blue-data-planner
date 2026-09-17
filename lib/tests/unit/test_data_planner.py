@@ -149,6 +149,7 @@ def an_accepted_fragment() -> FragmentResult:
     )
     return FragmentResult(
         status=RunStatus.OK,
+        result=result,
         attempts=[
             FragmentAttempt(
                 physical_plan_id="",
@@ -170,6 +171,7 @@ def an_escalating_fragment() -> FragmentResult:
     """One fragment whose parameter attempts ran out."""
     return FragmentResult(
         status=RunStatus.NEEDS_REPAIR,
+        result=None,
         attempts=[
             FragmentAttempt(
                 physical_plan_id="",
@@ -257,7 +259,7 @@ def test_every_control_node_ready_at_once_is_resolved_before_the_run_plans_again
         searcher,
     ).run("Python jobs at Fortune 500")
     assert searcher.searched == ["d1", "d2"]
-    assert result.counters["control_replans"] == 1
+    assert result.counters.control_replans == 1
     assert result.status is RunStatus.OK
 
 
@@ -282,7 +284,9 @@ def test_a_rejected_fragment_reaches_the_repairs_in_order_narrowest_first() -> N
         RunLimits(fragment_repairs=2, cover_repairs=1, failure_replans=1),
     ).run("list the job titles")
     assert physical.repaired_node_sets == [frozenset({"n1"}), frozenset({"n1"})]
-    assert result.counters["cover_attempts"] == 1
+    # The cover repair runs once the fragment repairs are spent: a second cover of p1.
+    assert physical.covered_plan_ids == ["p1", "p1"]
+    assert result.status is RunStatus.OK
 
 
 def test_a_plan_no_operator_can_cover_is_replanned_with_the_reason_in_hand() -> None:

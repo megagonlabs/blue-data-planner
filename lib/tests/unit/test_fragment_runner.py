@@ -11,6 +11,7 @@ from blue_data_planner.operators import OperatorRouter
 from blue_data_planner.types import (
     AttributeView,
     DataBundle,
+    ExecutionStatus,
     OperatorOutput,
     OutputColumn,
     PhysicalOperator,
@@ -118,6 +119,9 @@ def test_an_accepted_result_ends_the_fragment_with_the_run_continuing() -> None:
     result = runner.run(a_fragment(), ROWS, counters())
     assert result.status is RunStatus.OK
     assert len(result.attempts) == 1
+    assert result.result is not None
+    assert result.result.status is ExecutionStatus.OK
+    assert result.result.output == ROWS
 
 
 def test_a_rejected_result_is_answered_by_writing_the_parameters_again() -> None:

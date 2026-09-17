@@ -31,4 +31,4 @@ def test_a_request_over_a_registered_source_plans_twice_and_answers(
     assert result.status is RunStatus.OK
     assert result.answer is not None
     assert len(result.pipeline.logical_plans) >= 2
-    assert result.counters["control_replans"] >= 1
+    assert result.counters.control_replans >= 1

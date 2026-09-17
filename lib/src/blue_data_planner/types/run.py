@@ -140,6 +140,7 @@ class FragmentResult:
     """What one fragment's run came to, and what the run loop does next."""
 
     status: RunStatus
+    result: ExecutionResult | None  # what the review accepted, None on every other ending
     attempts: list[FragmentAttempt]  # rejected ones included, in order
     failure_reason: str | None
     usage: list[LLMUsage]
@@ -168,10 +169,10 @@ class RunResult:
     # carries one; ok never does, and planned does only when no cover could be written.
     failure_reason: str | None
     pipeline: DataPipeline
-    results: dict[str, dict[str, ExecutionResult | DiscoveryResult]]
+    results: dict[str, ExecutionResult | DiscoveryResult]  # keyed by signature
     attempts: list[FragmentAttempt]
     rejected_plans: list[RejectedPlan]
-    counters: dict[str, int]
+    counters: RunCounters
     planner_usage: list[LLMUsage]
 
 

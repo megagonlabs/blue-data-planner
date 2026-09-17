@@ -8,9 +8,8 @@ from blue_data_planner.types import (
     DiscoveryResult,
     ExecutionResult,
     ExecutionStatus,
-    FragmentAttempt,
     FragmentResult,
-    FragmentReviewDecision,
+    InputData,
     LogicalOperator,
     LogicalPlan,
     OutputColumn,
@@ -68,9 +67,13 @@ def a_plan() -> LogicalPlan:
 
 
 def a_fragment(
-    fragment_id: str, node_ids: list[str], root: str, operator_id: str
+    fragment_id: str,
+    node_ids: list[str],
+    root: str,
+    operator_id: str,
+    inputs: list[str] | None = None,
 ) -> PhysicalPlanFragment:
-    """One fragment binding a node set to an operator, with no scan sources named."""
+    """One fragment binding a node set to an operator, naming the nodes feeding it."""
     return PhysicalPlanFragment(
         id=fragment_id,
         logical_node_ids=node_ids,
@@ -78,7 +81,10 @@ def a_fragment(
         operator_id=operator_id,
         scan_sources={},
         instruction="do it",
-        input_data=[],
+        input_data=[
+            InputData(logical_node_id=input_id, name=input_id, description="rows")
+            for input_id in inputs or []
+        ],
         required_output_columns=[],
     )
 
@@ -92,7 +98,7 @@ def a_cover() -> PhysicalPlan:
         fragments=[
             a_fragment("f1", ["n1"], "n1", "builtin.scan"),
             a_fragment("f2", ["n2"], "n2", "builtin.scan"),
-            a_fragment("f3", ["n3", "n4"], "n4", "builtin.nl2table"),
+            a_fragment("f3", ["n3", "n4"], "n4", "builtin.nl2table", inputs=["n1", "n2"]),
         ],
     )
 
@@ -107,42 +113,154 @@ def an_ok_result(rows: list[dict[str, object]]) -> ExecutionResult:
     )
 
 
-def an_accepted_fragment() -> FragmentResult:
-    """One run of f1 whose single attempt the review kept."""
+def an_accepted_fragment(rows: list[dict[str, object]] | None = None) -> FragmentResult:
+    """One fragment run whose result the review kept."""
     return FragmentResult(
         status=RunStatus.OK,
-        attempts=[
-            FragmentAttempt(
-                physical_plan_id="",
-                fragment_id="f1",
-                logical_node_ids=["n1"],
-                operator_id="builtin.scan",
-                operator_attributes={},
-                result=an_ok_result([{"title": "SWE"}]),
-                assessment="looks right",
-                decision=FragmentReviewDecision.ACCEPT,
-            )
-        ],
+        result=an_ok_result(rows if rows is not None else [{"title": "SWE"}]),
+        attempts=[],
         failure_reason=None,
         usage=[],
     )
 
 
+def a_cover_with_fresh_fragment_ids() -> PhysicalPlan:
+    """The same three fragments over the same nodes, under a new cover and new fragment ids."""
+    return PhysicalPlan(
+        id="c2",
+        parent_id="c1",
+        logical_plan_id="p1",
+        fragments=[
+            a_fragment("f7", ["n1"], "n1", "builtin.scan"),
+            a_fragment("f8", ["n2"], "n2", "builtin.scan"),
+            a_fragment("f9", ["n3", "n4"], "n4", "builtin.nl2table", inputs=["n1", "n2"]),
+        ],
+    )
+
+
+def a_cover_binding_n1_to_another_operator() -> PhysicalPlan:
+    """The same cut, with n1 bound to a different operator."""
+    return PhysicalPlan(
+        id="c3",
+        parent_id="c1",
+        logical_plan_id="p1",
+        fragments=[
+            a_fragment("f7", ["n1"], "n1", "builtin.nl2table"),
+            a_fragment("f8", ["n2"], "n2", "builtin.scan"),
+            a_fragment("f9", ["n3", "n4"], "n4", "builtin.nl2table", inputs=["n1", "n2"]),
+        ],
+    )
+
+
+def a_second_version_of_the_plan() -> LogicalPlan:
+    """p2, carrying n1 unchanged and writing the rest of the plan fresh."""
+    plan = a_plan()
+    return LogicalPlan(
+        id="p2",
+        parent_id="p1",
+        output_node_id="n8",
+        nodes=[
+            plan.node("n1"),
+            PipelineNode(
+                id="n6",
+                kind=LogicalOperator.SCAN,
+                input_node_ids=[],
+                attributes={"instruction": "do it differently"},
+                required_output_columns=[OutputColumn(name="title", dtype="str")],
+            ),
+            PipelineNode(
+                id="n7",
+                kind=LogicalOperator.JOIN,
+                input_node_ids=["n1", "n6"],
+                attributes={"instruction": "do it"},
+                required_output_columns=[OutputColumn(name="title", dtype="str")],
+            ),
+            PipelineNode(
+                id="n8",
+                kind=LogicalOperator.RETURN,
+                input_node_ids=["n7"],
+                attributes={"columns": ["title"]},
+            ),
+        ],
+    )
+
+
+def a_cover_of_the_second_version() -> PhysicalPlan:
+    """A cover of p2 whose fragment over n1 matches a_cover's f1 in every field but its id."""
+    return PhysicalPlan(
+        id="c4",
+        parent_id=None,
+        logical_plan_id="p2",
+        fragments=[
+            a_fragment("f10", ["n1"], "n1", "builtin.scan"),
+            a_fragment("f11", ["n6"], "n6", "builtin.scan"),
+            a_fragment("f12", ["n7"], "n7", "builtin.nl2table", inputs=["n1", "n6"]),
+        ],
+    )
+
+
+def a_state_over_two_control_nodes() -> RunState:
+    """A plan ending in n6 DISCOVER and n7 REPLAN, both reading n1, covered over n1 alone."""
+    state = RunState(request="find the salary tables", counters=RunCounters(RunLimits()))
+    state.install_logical_plan(
+        LogicalPlan(
+            id="p1",
+            parent_id=None,
+            output_node_id=None,
+            nodes=[
+                PipelineNode(
+                    id="n1",
+                    kind=LogicalOperator.SCAN,
+                    input_node_ids=[],
+                    attributes={"instruction": "read the postings"},
+                    required_output_columns=[OutputColumn(name="title", dtype="str")],
+                ),
+                PipelineNode(
+                    id="n6",
+                    kind=ControlOperator.DISCOVER,
+                    input_node_ids=["n1"],
+                    attributes={"instruction": "find the salary tables"},
+                ),
+                PipelineNode(
+                    id="n7",
+                    kind=ControlOperator.REPLAN,
+                    input_node_ids=["n1"],
+                    attributes={"instruction": "write the rest"},
+                ),
+            ],
+        )
+    )
+    state.install_cover(
+        PhysicalPlan(
+            id="c1",
+            parent_id=None,
+            logical_plan_id="p1",
+            fragments=[a_fragment("f1", ["n1"], "n1", "builtin.scan")],
+        )
+    )
+    return state
+
+
+def a_discovery() -> DiscoveryResult:
+    """One search that found nothing."""
+    return DiscoveryResult(search_terms=["salary"], matches=[], dropped_terms=0)
+
+
 def test_a_fragment_becomes_ready_once_every_node_on_its_frontier_has_a_result() -> None:
     """f3 reads n1 and n2, so it waits for both and then comes up."""
     state = a_state()
-    state.results["p1"]["n1"] = an_ok_result([{"title": "SWE"}])
+    state.record_fragment(state.pipeline.cover.fragment("f1"), an_accepted_fragment())
     assert getattr(state.next_ready(), "id", None) == "f2"
-    state.results["p1"]["n2"] = an_ok_result([{"title": "SWE"}])
+    state.record_fragment(state.pipeline.cover.fragment("f2"), an_accepted_fragment())
     assert getattr(state.next_ready(), "id", None) == "f3"
 
 
 def test_a_fragment_whose_root_already_holds_a_result_is_not_offered_again() -> None:
     """A cover that left most fragments alone resumes on top of what already ran."""
     state = a_state()
-    state.results["p1"]["n1"] = an_ok_result([{"title": "SWE"}])
-    state.results["p1"]["n2"] = an_ok_result([{"title": "SWE"}])
-    state.results["p1"]["n4"] = an_ok_result([{"title": "SWE"}])
+    state.record_fragment(state.pipeline.cover.fragment("f1"), an_accepted_fragment())
+    state.record_fragment(state.pipeline.cover.fragment("f2"), an_accepted_fragment())
+    state.record_fragment(state.pipeline.cover.fragment("f3"), an_accepted_fragment())
     assert state.next_ready() is None
 
 
@@ -186,87 +304,77 @@ def test_a_ready_fragment_is_offered_before_a_ready_control_node() -> None:
         )
     )
     assert getattr(state.next_ready(), "id", None) == "f1"
-    state.results["p1"]["n1"] = an_ok_result([{"title": "SWE"}])
+    state.record_fragment(state.pipeline.cover.fragment("f1"), an_accepted_fragment())
     assert [node.id for node in state.ready_control_nodes()] == ["n2", "n3"]
 
 
-def test_installing_a_cover_keeps_an_unchanged_fragment_and_drops_a_changed_one() -> None:
-    """The changed fragment's nodes and everything executed downstream lose their results."""
+def test_a_result_survives_a_cover_that_asks_for_the_same_work_again() -> None:
+    """A signature names the work, so an unchanged fragment finds what it produced before."""
     state = a_state()
-    state.results["p1"]["n1"] = an_ok_result([{"title": "SWE"}])
-    state.results["p1"]["n2"] = an_ok_result([{"title": "SWE"}])
-    state.results["p1"]["n4"] = an_ok_result([{"title": "SWE"}])
-    state.install_cover(
-        PhysicalPlan(
-            id="c2",
-            parent_id="c1",
-            logical_plan_id="p1",
-            fragments=[
-                a_fragment("f1", ["n1"], "n1", "builtin.scan"),
-                a_fragment("g2", ["n2"], "n2", "builtin.nl2table"),
-                a_fragment("f3", ["n3", "n4"], "n4", "builtin.nl2table"),
-            ],
-        )
-    )
-    assert set(state.results["p1"]) == {"n1"}
+    state.record_fragment(state.pipeline.cover.fragment("f1"), an_accepted_fragment())
+
+    state.install_cover(a_cover_with_fresh_fragment_ids())
+
+    assert state.result_for("n1") is not None
 
 
-def test_a_new_logical_version_starts_with_the_carried_nodes_results_and_nothing_else() -> None:
-    """A continuation keeps what the run has something for and writes the rest again."""
+def test_a_result_is_unreadable_once_its_fragment_asks_for_other_work() -> None:
+    """A rebound fragment is different work, so nothing in the new cover reaches the old result."""
     state = a_state()
-    state.results["p1"]["n1"] = an_ok_result([{"title": "SWE"}])
+    state.record_fragment(state.pipeline.cover.fragment("f1"), an_accepted_fragment())
+
+    state.install_cover(a_cover_binding_n1_to_another_operator())
+
+    assert state.result_for("n1") is None
+
+
+def test_a_result_is_unreadable_once_the_work_above_it_changed() -> None:
+    """The inputs' signatures are part of a node's own, so nothing walks down the graph."""
+    state = a_state()
+    for fragment_id in ("f1", "f2", "f3"):
+        state.record_fragment(state.pipeline.cover.fragment(fragment_id), an_accepted_fragment())
+
+    state.install_cover(a_cover_binding_n1_to_another_operator())
+
+    assert state.result_for("n4") is None
+
+
+def test_a_node_a_fragment_absorbed_has_no_result_of_its_own() -> None:
+    """A fused call produces no intermediate table, so n3 answers the way an unrun node does."""
+    state = a_state()
+    state.record_fragment(state.pipeline.cover.fragment("f3"), an_accepted_fragment())
+
+    assert state.result_for("n4") is not None
+    assert state.result_for("n3") is None
+
+
+def test_a_new_logical_version_keeps_what_the_nodes_it_carried_produced() -> None:
+    """Identical work is identical whichever plan version asks for it."""
+    state = a_state()
+    state.record_fragment(state.pipeline.cover.fragment("f1"), an_accepted_fragment())
     carried = state.carried_node_ids()
+
+    state.install_logical_plan(a_second_version_of_the_plan())
+    state.install_cover(a_cover_of_the_second_version())
+
     assert carried == frozenset({"n1"})
-    state.install_logical_plan(
-        LogicalPlan(id="p2", parent_id="p1", output_node_id=None, nodes=a_plan().nodes)
-    )
-    assert set(state.results["p2"]) == {"n1"}
+    assert state.result_for("n1") is not None
 
 
 def test_a_resolved_discovery_node_carries_over_and_a_replan_node_does_not() -> None:
-    """A search never runs twice, and a REPLAN node that fired must not fire again."""
-    state = RunState(request="find them", counters=RunCounters(RunLimits()))
-    state.install_logical_plan(
-        LogicalPlan(
-            id="p1",
-            parent_id=None,
-            output_node_id=None,
-            nodes=[
-                PipelineNode(
-                    id="n1",
-                    kind=ControlOperator.DISCOVER,
-                    input_node_ids=[],
-                    attributes={"instruction": "find a source"},
-                ),
-                PipelineNode(
-                    id="n2",
-                    kind=ControlOperator.REPLAN,
-                    input_node_ids=[],
-                    attributes={"instruction": "write the rest"},
-                ),
-            ],
-        )
-    )
-    state.install_cover(PhysicalPlan(id="c1", parent_id=None, logical_plan_id="p1", fragments=[]))
-    state.record_discovery(
-        "n1", DiscoveryResult(search_terms=["jobs"], matches=[], dropped_terms=0)
-    )
-    assert state.carried_node_ids() == frozenset({"n1"})
+    """A DISCOVER node never searches twice, and a REPLAN node that fired never fires again."""
+    state = a_state_over_two_control_nodes()
+    state.record_discovery(state.pipeline.logical_plan.node("n6"), a_discovery())
+
+    assert state.carried_node_ids() == frozenset({"n6"})
 
 
-def test_the_counters_a_result_reports_are_derived_from_what_the_run_holds() -> None:
-    """One number, one place it comes from, so nothing is tracked twice."""
+def test_the_counters_a_result_reports_are_the_ones_the_run_spent() -> None:
+    """RunCounters travels to the caller carrying the bounds it was counted against."""
     state = a_state()
     state.counters.spend_operator_call()
-    state.counters.spend_operator_call()
-    result = state.to_result(RunStatus.BUDGET_EXHAUSTED)
-    assert result.counters["operator_calls"] == 2
-    assert result.counters["plan_corrections"] == 0
-    assert result.answer is None
 
+    result = state.to_result(RunStatus.OK, None, answer=[[{"title": "SWE"}]])
 
-def test_a_recorded_attempt_names_the_cover_it_ran_under() -> None:
-    """A fragment id is fresh in every cover, so the cover id is what places an attempt."""
-    state = a_state()
-    state.record_fragment(an_accepted_fragment())
-    assert [attempt.physical_plan_id for attempt in state.attempts] == [state.cover.id]
+    assert result.counters.operator_calls == 1
+    assert result.counters.limits.operator_calls == 30

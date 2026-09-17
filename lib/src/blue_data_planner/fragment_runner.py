@@ -69,6 +69,7 @@ class FragmentRunner:
             # returned rather than lost with the exception.
             return _ended(
                 RunStatus.BUDGET_EXHAUSTED,
+                None,
                 attempts,
                 "the operator call budget ran out",
                 conversation,
@@ -100,6 +101,7 @@ class FragmentRunner:
                 )
                 return _ended(
                     RunStatus.OPERATOR_FAILED,
+                    None,
                     attempts,
                     result.error.message,
                     conversation,
@@ -123,9 +125,11 @@ class FragmentRunner:
                 _attempt(fragment, parameters, result, review.assessment, review.decision)
             )
             if review.decision is FragmentReviewDecision.ACCEPT:
-                return _ended(RunStatus.OK, attempts, None, conversation)
+                return _ended(RunStatus.OK, result, attempts, None, conversation)
             if review.decision is FragmentReviewDecision.REPLAN:
-                return _ended(RunStatus.NEEDS_REPLAN, attempts, review.assessment, conversation)
+                return _ended(
+                    RunStatus.NEEDS_REPLAN, None, attempts, review.assessment, conversation
+                )
             conversation.turns.append(
                 Turn(
                     role="user",
@@ -137,6 +141,7 @@ class FragmentRunner:
             )
         return _ended(
             RunStatus.NEEDS_REPAIR,
+            None,
             attempts,
             _escalation_reason(attempts),
             conversation,
@@ -206,12 +211,14 @@ def _escalation_reason(attempts: list[FragmentAttempt]) -> str:
 
 def _ended(
     status: RunStatus,
+    result: ExecutionResult | None,
     attempts: list[FragmentAttempt],
     failure_reason: str | None,
     conversation: Conversation,
 ) -> FragmentResult:
     return FragmentResult(
         status=status,
+        result=result,
         attempts=attempts,
         failure_reason=failure_reason,
         usage=list(conversation.usage),

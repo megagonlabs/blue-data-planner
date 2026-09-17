@@ -8,6 +8,7 @@ from blue_data_planner.plan.schemas import (
     cover_choice_schema,
     logical_plan_schema,
 )
+from blue_data_planner.plan.signatures import signatures
 from blue_data_planner.plan.validation import validate_logical_plan, validate_physical_plan
 
 __all__ = [
@@ -16,6 +17,7 @@ __all__ = [
     "cover_choice_schema",
     "fragment_frontier",
     "logical_plan_schema",
+    "signatures",
     "validate_logical_plan",
     "validate_physical_plan",
 ]
