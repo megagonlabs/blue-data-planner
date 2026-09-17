@@ -7,7 +7,7 @@ from enum import StrEnum
 from typing import Any
 
 from blue_data_planner.types.catalog import EntityMatch
-from blue_data_planner.types.errors import BlueDataPlannerError, BudgetExhaustedError
+from blue_data_planner.types.errors import BudgetExhaustedError
 from blue_data_planner.types.plan import DataBundle, DataPipeline, LogicalPlan, PhysicalPlan
 
 
@@ -176,49 +176,55 @@ class PlanResult:
 
 
 @dataclass(frozen=True)
-class PlanLimits:
+class RunLimits:
     """Every bound a run obeys, set once when the planner is built."""
 
     # The one ceiling on a request's total work, across every operator call it makes.
     operator_calls: int = 30
-    # How many times the logical planner may correct a plan validation rejected.
+    # How many times the logical planner may write a plan again after validation turned one down.
     plan_corrections: int = 5
-    # How many times a fragment may retry with different parameters before the fragment repair.
-    parameter_attempts: int = 3
-    # How many different cuts one node set may get before the cover repair.
-    fragment_attempts: int = 2
-    # How many covers one logical plan may get before the run replans.
-    cover_attempts: int = 2
+    # How many times one fragment may write its parameters again before the next repair.
+    parameter_repairs: int = 3
+    # How many different cuts one root node's fragment may get before the cover repair.
+    fragment_repairs: int = 2
+    # How many times one logical plan may be covered again before the run replans.
+    cover_repairs: int = 2
     # How many times an operator failure may trigger a replan before the run gives up.
     failure_replans: int = 2
-    # How many times a review's REPLAN decision may trigger a replan before the run gives up.
+    # How many times a control node may trigger a replan before the run gives up.
     control_replans: int = 2
-    # How many search terms one DISCOVER node may spend on the catalog.
-    search_terms: int = 8
 
 
-class CallBudget:
-    """Counts calls against a cap and raises once the cap is reached."""
+@dataclass
+class RunCounters:
+    """What one run has spent, against the bounds RunLimits set."""
 
-    def __init__(self, cap: int) -> None:
-        if cap < 0:
-            raise BlueDataPlannerError(f"a budget cap must not be negative, got {cap}")
-        self._cap = cap
-        self._spent = 0
+    limits: RunLimits
+    operator_calls: int = 0
+    failure_replans: int = 0
+    control_replans: int = 0
 
-    @property
-    def cap(self) -> int:
-        return self._cap
-
-    @property
-    def spent(self) -> int:
-        return self._spent
-
-    def spend(self, amount: int = 1) -> None:
-        """Bill the budget, raising when the call would take it past its cap."""
-        if self._spent + amount > self._cap:
+    def spend_operator_call(self) -> None:
+        """Bill one operator call, raising when the cap leaves no room."""
+        # This one raises where the other two return, because it is billed deep inside an
+        # operator call, with no caller in a position to read an answer.
+        if self.operator_calls >= self.limits.operator_calls:
             raise BudgetExhaustedError(
-                f"a budget of {self._cap} calls is exhausted: "
-                f"{self._spent} spent and {amount} more requested"
+                f"a budget of {self.limits.operator_calls} operator calls is exhausted: "
+                f"{self.operator_calls} spent and one more requested"
             )
-        self._spent += amount
+        self.operator_calls += 1
+
+    def spend_failure_replan(self) -> bool:
+        """Bill one replan an operator failure asked for, False when the cap leaves no room."""
+        if self.failure_replans >= self.limits.failure_replans:
+            return False
+        self.failure_replans += 1
+        return True
+
+    def spend_control_replan(self) -> bool:
+        """Bill one replan a control node asked for, False when the cap leaves no room."""
+        if self.control_replans >= self.limits.control_replans:
+            return False
+        self.control_replans += 1
+        return True

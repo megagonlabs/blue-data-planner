@@ -8,13 +8,14 @@ from blue_data_planner.execution import execute_physical_operator
 from blue_data_planner.types import (
     BlueDataPlannerError,
     BudgetExhaustedError,
-    CallBudget,
     ErrorKind,
     ExecutionStatus,
     LogicalOperator,
     OperatorOutput,
     OutputColumn,
     RecoverableOperatorError,
+    RunCounters,
+    RunLimits,
     UnrecoverableOperatorError,
 )
 from tests.doubles.operators import recording_operator
@@ -27,16 +28,16 @@ def test_a_call_comes_back_as_the_rows_it_produced_with_the_row_count_across_eve
         frozenset({LogicalOperator.FILTER}),
         [OperatorOutput(data=[[{"a": 1}], [{"a": 2}, {"a": 3}]])],
     )
-    budget = CallBudget(cap=5)
+    counters = RunCounters(RunLimits(operator_calls=5))
 
-    result = execute_physical_operator(operator, {"key": "a"}, [[{"a": 1}]], [], budget)
+    result = execute_physical_operator(operator, {"key": "a"}, [[{"a": 1}]], [], counters)
 
     assert result.status is ExecutionStatus.OK
     assert result.output == [[{"a": 1}], [{"a": 2}, {"a": 3}]]
     assert result.row_count == 3
     assert result.operator_id == "blue.select"
     assert recorder.calls == [([[{"a": 1}]], {"key": "a"}, [])]
-    assert budget.spent == 1
+    assert counters.operator_calls == 1
 
 
 @pytest.mark.parametrize(
@@ -53,7 +54,9 @@ def test_an_operator_that_refuses_its_input_comes_back_as_a_failure_of_its_kind(
     """The kind is what decides whether another operator is worth trying."""
     operator, _ = recording_operator("blue.select", frozenset({LogicalOperator.FILTER}), [raised])
 
-    result = execute_physical_operator(operator, {}, [], [], CallBudget(cap=5))
+    result = execute_physical_operator(
+        operator, {}, [], [], RunCounters(RunLimits(operator_calls=5))
+    )
 
     assert result.status is ExecutionStatus.FAILED
     assert result.error is not None
@@ -67,7 +70,7 @@ def test_any_other_exception_reaches_the_caller_as_the_bug_it_is() -> None:
     )
 
     with pytest.raises(ValueError):
-        execute_physical_operator(operator, {}, [], [], CallBudget(cap=5))
+        execute_physical_operator(operator, {}, [], [], RunCounters(RunLimits(operator_calls=5)))
 
 
 def test_a_result_missing_a_declared_column_fails_recoverably_and_still_bills() -> None:
@@ -75,16 +78,16 @@ def test_a_result_missing_a_declared_column_fails_recoverably_and_still_bills() 
     operator, _ = recording_operator(
         "blue.select", frozenset({LogicalOperator.FILTER}), [OperatorOutput(data=[[{"a": 1}]])]
     )
-    budget = CallBudget(cap=5)
+    counters = RunCounters(RunLimits(operator_calls=5))
 
     result = execute_physical_operator(
-        operator, {}, [], [OutputColumn(name="title", dtype="str")], budget
+        operator, {}, [], [OutputColumn(name="title", dtype="str")], counters
     )
 
     assert result.status is ExecutionStatus.FAILED
     assert result.error is not None
     assert result.error.kind is ErrorKind.RECOVERABLE
-    assert budget.spent == 1
+    assert counters.operator_calls == 1
 
 
 def test_parameters_the_operator_cannot_take_raise_before_the_budget_is_touched() -> None:
@@ -92,12 +95,12 @@ def test_parameters_the_operator_cannot_take_raise_before_the_budget_is_touched(
     operator, _ = recording_operator(
         "blue.select", frozenset({LogicalOperator.FILTER}), [OperatorOutput(data=[[{"a": 1}]])]
     )
-    budget = CallBudget(cap=5)
+    counters = RunCounters(RunLimits(operator_calls=5))
 
     with pytest.raises(BlueDataPlannerError):
-        execute_physical_operator(operator, {"unknown": 1}, [], [], budget)
+        execute_physical_operator(operator, {"unknown": 1}, [], [], counters)
 
-    assert budget.spent == 0
+    assert counters.operator_calls == 0
 
 
 def test_an_exhausted_budget_raises_before_the_operator_runs() -> None:
@@ -107,7 +110,7 @@ def test_an_exhausted_budget_raises_before_the_operator_runs() -> None:
     )
 
     with pytest.raises(BudgetExhaustedError):
-        execute_physical_operator(operator, {}, [], [], CallBudget(cap=0))
+        execute_physical_operator(operator, {}, [], [], RunCounters(RunLimits(operator_calls=0)))
 
     assert recorder.calls == []
 
@@ -120,7 +123,9 @@ def test_a_successful_call_carries_the_operator_report_to_the_result() -> None:
         [OperatorOutput(data=[[{"id": 1}]], report={"query": "SELECT 1"})],
     )
 
-    result = execute_physical_operator(operator, {}, [], [], CallBudget(1))
+    result = execute_physical_operator(
+        operator, {}, [], [], RunCounters(RunLimits(operator_calls=1))
+    )
 
     assert result.status is ExecutionStatus.OK
     assert result.report == {"query": "SELECT 1"}
@@ -131,7 +136,9 @@ def test_a_failed_call_carries_the_report_the_operator_raised_with() -> None:
     raised = RecoverableOperatorError("no column 'city'", report={"steps_run": 2})
     operator, _ = recording_operator("blue.select", frozenset({LogicalOperator.FILTER}), [raised])
 
-    result = execute_physical_operator(operator, {}, [], [], CallBudget(1))
+    result = execute_physical_operator(
+        operator, {}, [], [], RunCounters(RunLimits(operator_calls=1))
+    )
 
     assert result.status is ExecutionStatus.FAILED
     assert result.report == {"steps_run": 2}
@@ -146,6 +153,8 @@ def test_a_callable_is_handed_the_columns_its_fragment_declares() -> None:
     )
     columns = [OutputColumn(name="a", dtype="int")]
 
-    execute_physical_operator(operator, {"key": "a"}, [], columns, CallBudget(cap=5))
+    execute_physical_operator(
+        operator, {"key": "a"}, [], columns, RunCounters(RunLimits(operator_calls=5))
+    )
 
     assert recorder.calls == [([], {"key": "a"}, columns)]

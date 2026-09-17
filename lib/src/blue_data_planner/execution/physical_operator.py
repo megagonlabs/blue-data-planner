@@ -9,7 +9,6 @@ from pydantic import ValidationError
 from blue_data_planner.execution.output_columns import check_output_columns
 from blue_data_planner.types import (
     BlueDataPlannerError,
-    CallBudget,
     DataBundle,
     ErrorInfo,
     ErrorKind,
@@ -18,6 +17,7 @@ from blue_data_planner.types import (
     OutputColumn,
     PhysicalOperator,
     RecoverableOperatorError,
+    RunCounters,
     UnrecoverableOperatorError,
 )
 
@@ -27,9 +27,9 @@ def execute_physical_operator(
     parameters: dict[str, Any],
     inputs: DataBundle,
     required_output_columns: list[OutputColumn],
-    budget: CallBudget,
+    counters: RunCounters,
 ) -> ExecutionResult:
-    """Check the parameters, bill the budget, run one operator, and check what it returned."""
+    """Check the parameters, bill one operator call, run one operator, and check what came back."""
     # Two orderings are deliberate. The parameter check runs before the billing, because the
     # runner wrote them under this same schema, so a mismatch is a bug rather than a call
     # worth charging for. The billing runs before the operator, so a call that really
@@ -40,7 +40,7 @@ def execute_physical_operator(
         raise BlueDataPlannerError(
             f"operator {operator.operator_id!r} was given parameters it cannot take: {error}"
         ) from error
-    budget.spend()
+    counters.spend_operator_call()
     try:
         output = operator.call(inputs, parameters, required_output_columns)
     except RecoverableOperatorError as error:

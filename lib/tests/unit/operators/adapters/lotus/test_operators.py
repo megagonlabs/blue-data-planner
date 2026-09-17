@@ -11,12 +11,13 @@ import pytest
 from blue_data_planner.execution import execute_physical_operator
 from blue_data_planner.operators.adapters.lotus import lotus_operators, settings
 from blue_data_planner.types import (
-    CallBudget,
     DataBundle,
     ExecutionResult,
     LogicalOperator,
     OutputColumn,
     PhysicalOperator,
+    RunCounters,
+    RunLimits,
 )
 
 MODEL = "openai/gpt-4o"
@@ -52,7 +53,9 @@ def run(
     columns: list[OutputColumn],
 ) -> ExecutionResult:
     """Run one operator the way the fragment runner does, so a refusal is a result."""
-    return execute_physical_operator(one, parameters, inputs, columns, CallBudget(cap=10))
+    return execute_physical_operator(
+        one, parameters, inputs, columns, RunCounters(RunLimits(operator_calls=10))
+    )
 
 
 def test_the_suite_declares_one_logical_operator_per_operation() -> None:

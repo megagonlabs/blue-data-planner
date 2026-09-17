@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from blue_data_planner.run_state import RunState
 from blue_data_planner.types import (
-    CallBudget,
     ControlOperator,
     DiscoveryResult,
     ExecutionResult,
@@ -18,6 +17,8 @@ from blue_data_planner.types import (
     PhysicalPlan,
     PhysicalPlanFragment,
     PipelineNode,
+    RunCounters,
+    RunLimits,
     RunStatus,
 )
 from blue_data_planner.types import (
@@ -27,7 +28,9 @@ from blue_data_planner.types import (
 
 def a_state() -> RunState:
     """A run over a two-scan plan cut into three fragments, with nothing run yet."""
-    state = RunState(request="how many Python postings per title", budget=CallBudget(30))
+    state = RunState(
+        request="how many Python postings per title", counters=RunCounters(RunLimits())
+    )
     state.install_logical_plan(a_plan())
     state.install_cover(a_cover())
     return state
@@ -145,7 +148,7 @@ def test_a_fragment_whose_root_already_holds_a_result_is_not_offered_again() -> 
 
 def test_a_ready_fragment_is_offered_before_a_ready_control_node() -> None:
     """A pass runs everything it can before it plans again."""
-    state = RunState(request="find them", budget=CallBudget(30))
+    state = RunState(request="find them", counters=RunCounters(RunLimits()))
     state.install_logical_plan(
         LogicalPlan(
             id="p1",
@@ -222,7 +225,7 @@ def test_a_new_logical_version_starts_with_the_carried_nodes_results_and_nothing
 
 def test_a_resolved_discovery_node_carries_over_and_a_replan_node_does_not() -> None:
     """A search never runs twice, and a REPLAN node that fired must not fire again."""
-    state = RunState(request="find them", budget=CallBudget(30))
+    state = RunState(request="find them", counters=RunCounters(RunLimits()))
     state.install_logical_plan(
         LogicalPlan(
             id="p1",
@@ -254,8 +257,8 @@ def test_a_resolved_discovery_node_carries_over_and_a_replan_node_does_not() -> 
 def test_the_counters_a_result_reports_are_derived_from_what_the_run_holds() -> None:
     """One number, one place it comes from, so nothing is tracked twice."""
     state = a_state()
-    state.budget.spend()
-    state.budget.spend()
+    state.counters.spend_operator_call()
+    state.counters.spend_operator_call()
     result = state.to_result(RunStatus.BUDGET_EXHAUSTED)
     assert result.counters["operator_calls"] == 2
     assert result.counters["plan_corrections"] == 0

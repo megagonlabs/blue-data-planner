@@ -5,7 +5,6 @@ from __future__ import annotations
 from typing import Any
 
 from blue_data_planner.types import (
-    CallBudget,
     CatalogSearchResult,
     DataBundle,
     DiscoveryResult,
@@ -16,6 +15,7 @@ from blue_data_planner.types import (
     PhysicalPlanFragment,
     PhysicalPlanResult,
     PipelineNode,
+    RunCounters,
 )
 
 
@@ -29,6 +29,7 @@ class FakeLogicalPlanner:
     def generate(
         self,
         request: str,
+        counters: RunCounters,
         parent: LogicalPlan | None = None,
         carried_node_ids: frozenset[str] = frozenset(),
         results: dict[str, Any] | None = None,
@@ -83,7 +84,7 @@ class FakeFragmentRunner:
         self.ran: list[str] = []
 
     def run(
-        self, fragment: PhysicalPlanFragment, inputs: DataBundle, budget: CallBudget
+        self, fragment: PhysicalPlanFragment, inputs: DataBundle, counters: RunCounters
     ) -> FragmentResult:
         self.ran.append(fragment.id)
         if not self.results:

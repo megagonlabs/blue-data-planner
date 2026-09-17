@@ -8,8 +8,8 @@ _RUN_PATH = frozenset(
     {
         "BlueDataPlannerError",
         "DataPlanner",
-        "PlanLimits",
         "PlanResult",
+        "RunLimits",
         "RunStatus",
         "build_data_planner",
     }

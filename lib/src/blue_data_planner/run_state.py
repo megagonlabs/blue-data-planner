@@ -6,7 +6,6 @@ from dataclasses import dataclass, field, replace
 
 from blue_data_planner.types import (
     BlueDataPlannerError,
-    CallBudget,
     ControlOperator,
     DataBundle,
     DataPipeline,
@@ -22,6 +21,7 @@ from blue_data_planner.types import (
     PipelineNode,
     PlanResult,
     RejectedPlan,
+    RunCounters,
     RunStatus,
 )
 
@@ -33,7 +33,7 @@ class RunState:
     """Everything one request has produced so far, written by the run loop alone."""
 
     request: str
-    budget: CallBudget
+    counters: RunCounters
     pipeline: DataPipeline = field(
         default_factory=lambda: DataPipeline(
             logical_plans={},
@@ -199,7 +199,7 @@ class RunState:
 
     def _counters(self) -> dict[str, int]:
         return {
-            "operator_calls": self.budget.spent,
+            "operator_calls": self.counters.operator_calls,
             "plan_corrections": len(self.rejected_plans),
             "parameter_attempts": self._most_attempts_at_one_fragment(),
             "fragment_attempts": max(self.fragment_attempts.values(), default=0),

@@ -15,7 +15,6 @@ from blue_data_planner.prompts import prompt_text
 from blue_data_planner.types import (
     AttributeView,
     BudgetExhaustedError,
-    CallBudget,
     DataBundle,
     ErrorKind,
     ExecutionResult,
@@ -25,6 +24,7 @@ from blue_data_planner.types import (
     FragmentReviewDecision,
     PhysicalOperator,
     PhysicalPlanFragment,
+    RunCounters,
     RunStatus,
 )
 
@@ -48,15 +48,13 @@ class FragmentRunner:
         llm_client: LLMClient,
         catalog: DataCatalog,
         router: OperatorRouter,
-        max_parameter_attempts: int,
     ) -> None:
         self._llm_client = llm_client
         self._catalog = catalog
         self._router = router
-        self._max_parameter_attempts = max_parameter_attempts
 
     def run(
-        self, fragment: PhysicalPlanFragment, inputs: DataBundle, budget: CallBudget
+        self, fragment: PhysicalPlanFragment, inputs: DataBundle, counters: RunCounters
     ) -> FragmentResult:
         """Run this fragment until a review accepts a result or the attempts run out."""
         operator = self._router.resolve(fragment.operator_id)
@@ -65,7 +63,7 @@ class FragmentRunner:
         )
         attempts: list[FragmentAttempt] = []
         try:
-            return self._attempt_loop(fragment, operator, inputs, budget, conversation, attempts)
+            return self._attempt_loop(fragment, operator, inputs, counters, conversation, attempts)
         except BudgetExhaustedError:
             # Catching it is what lets the attempts already made, and their usage, be
             # returned rather than lost with the exception.
@@ -81,16 +79,16 @@ class FragmentRunner:
         fragment: PhysicalPlanFragment,
         operator: PhysicalOperator,
         inputs: DataBundle,
-        budget: CallBudget,
+        counters: RunCounters,
         conversation: Conversation,
         attempts: list[FragmentAttempt],
     ) -> FragmentResult:
-        for _spent in range(self._max_parameter_attempts):
+        for _spent in range(counters.limits.parameter_repairs + 1):
             parameters = self._llm_client.complete_structured(
                 conversation, operator.parameter_schema
             ).model_dump()
             result = execute_physical_operator(
-                operator, parameters, inputs, fragment.required_output_columns, budget
+                operator, parameters, inputs, fragment.required_output_columns, counters
             )
             if (
                 result.status is ExecutionStatus.FAILED

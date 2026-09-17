@@ -10,13 +10,14 @@ from blue_data_planner.fragment_runner import FragmentRunner
 from blue_data_planner.operators import OperatorRouter
 from blue_data_planner.types import (
     AttributeView,
-    CallBudget,
     DataBundle,
     OperatorOutput,
     OutputColumn,
     PhysicalOperator,
     PhysicalPlanFragment,
     RecoverableOperatorError,
+    RunCounters,
+    RunLimits,
     RunStatus,
     UnrecoverableOperatorError,
 )
@@ -64,12 +65,12 @@ def an_operator(behavior: Any) -> PhysicalOperator:
     )
 
 
-def a_runner(answers: list[Any], behavior: Any, attempts: int = 3) -> FragmentRunner:
+def a_runner(answers: list[Any], behavior: Any) -> FragmentRunner:
     """A runner over one operator, whose model answers with these values in order."""
-    return a_runner_over(ScriptedLLMClient(answers), behavior, attempts)
+    return a_runner_over(ScriptedLLMClient(answers), behavior)
 
 
-def a_runner_over(client: ScriptedLLMClient, behavior: Any, attempts: int = 3) -> FragmentRunner:
+def a_runner_over(client: ScriptedLLMClient, behavior: Any) -> FragmentRunner:
     """A runner over one operator, driven by a client the test keeps a handle on."""
     router = OperatorRouter()
     router.register(an_operator(behavior))
@@ -79,8 +80,12 @@ def a_runner_over(client: ScriptedLLMClient, behavior: Any, attempts: int = 3) -
         client,  # pyright: ignore[reportArgumentType]
         FakeCatalog(),  # pyright: ignore[reportArgumentType]
         router,
-        attempts,
     )
+
+
+def counters(repairs: int = 2, operator_calls: int = 10) -> RunCounters:
+    """Counters bounding one run() call, standing in for the CallBudget a test used to pass."""
+    return RunCounters(RunLimits(parameter_repairs=repairs, operator_calls=operator_calls))
 
 
 def keeps_everything(
@@ -110,7 +115,7 @@ def test_an_accepted_result_ends_the_fragment_with_the_run_continuing() -> None:
         [{"predicate": "title is not null"}, {"decision": "accept", "assessment": "looks right"}],
         keeps_everything,
     )
-    result = runner.run(a_fragment(), ROWS, CallBudget(10))
+    result = runner.run(a_fragment(), ROWS, counters())
     assert result.status is RunStatus.OK
     assert len(result.attempts) == 1
 
@@ -126,7 +131,7 @@ def test_a_rejected_result_is_answered_by_writing_the_parameters_again() -> None
         ],
         keeps_everything,
     )
-    result = runner.run(a_fragment(), ROWS, CallBudget(10))
+    result = runner.run(a_fragment(), ROWS, counters())
     assert result.status is RunStatus.OK
     assert len(result.attempts) == 2
 
@@ -141,9 +146,8 @@ def test_running_out_of_parameter_attempts_escalates() -> None:
             {"decision": "reject", "assessment": "still no"},
         ],
         keeps_everything,
-        attempts=2,
     )
-    result = runner.run(a_fragment(), ROWS, CallBudget(10))
+    result = runner.run(a_fragment(), ROWS, counters(repairs=1))
     assert result.status is RunStatus.NEEDS_REPAIR
     assert len(result.attempts) == 2
 
@@ -157,7 +161,7 @@ def test_a_review_asking_for_a_replan_comes_back_with_its_assessment() -> None:
         ],
         keeps_everything,
     )
-    result = runner.run(a_fragment(), ROWS, CallBudget(10))
+    result = runner.run(a_fragment(), ROWS, counters())
     assert result.status is RunStatus.NEEDS_REPLAN
     assert result.failure_reason == "the plan asks for data nobody registered"
 
@@ -182,15 +186,15 @@ def test_a_recoverable_operator_failure_is_answered_by_writing_the_parameters_ag
         ],
         fails_once,
     )
-    result = runner.run(a_fragment(), ROWS, CallBudget(10))
+    result = runner.run(a_fragment(), ROWS, counters())
     assert result.status is RunStatus.OK
     assert len(result.attempts) == 2
 
 
 def test_an_escalation_after_a_trailing_operator_failure_reports_the_operators_error() -> None:
     """The last attempt has no review assessment; its error message is what a repair reads."""
-    runner = a_runner([{"predicate": "a"}], raises_recoverably, attempts=1)
-    result = runner.run(a_fragment(), ROWS, CallBudget(10))
+    runner = a_runner([{"predicate": "a"}], raises_recoverably)
+    result = runner.run(a_fragment(), ROWS, counters(repairs=0))
     assert result.status is RunStatus.NEEDS_REPAIR
     assert result.failure_reason == "the predicate names no column the table carries"
 
@@ -198,7 +202,7 @@ def test_an_escalation_after_a_trailing_operator_failure_reports_the_operators_e
 def test_an_unrecoverable_operator_failure_stops_the_run_without_a_review_turn() -> None:
     """No other operator would avoid the same failure, so there is nothing to review."""
     runner = a_runner([{"predicate": "a"}], raises_unrecoverably)
-    result = runner.run(a_fragment(), ROWS, CallBudget(10))
+    result = runner.run(a_fragment(), ROWS, counters())
     assert result.status is RunStatus.OPERATOR_FAILED
 
 
@@ -212,7 +216,7 @@ def test_a_budget_that_runs_out_mid_fragment_returns_the_attempts_already_made()
         ],
         keeps_everything,
     )
-    result = runner.run(a_fragment(), ROWS, CallBudget(1))
+    result = runner.run(a_fragment(), ROWS, counters(operator_calls=1))
     assert result.status is RunStatus.BUDGET_EXHAUSTED
     assert len(result.attempts) == 1
 
@@ -223,7 +227,7 @@ def test_the_prompt_names_the_entity_path_each_scan_is_bound_to() -> None:
         [{"predicate": "title is not null"}, {"decision": "accept", "assessment": "looks right"}]
     )
     a_runner_over(client, keeps_everything).run(
-        a_fragment(scan_sources={"n1": POSTINGS}), ROWS, CallBudget(10)
+        a_fragment(scan_sources={"n1": POSTINGS}), ROWS, counters()
     )
     _role, content = client.conversations[0][0]
     assert POSTINGS in content

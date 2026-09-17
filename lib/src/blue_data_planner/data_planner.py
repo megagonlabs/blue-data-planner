@@ -13,13 +13,13 @@ from blue_data_planner.physical_planner import PhysicalPlanner
 from blue_data_planner.run_state import RunState
 from blue_data_planner.types import (
     BlueDataPlannerError,
-    CallBudget,
     ControlOperator,
     DataBundle,
     LogicalOperator,
     PhysicalPlanFragment,
-    PlanLimits,
     PlanResult,
+    RunCounters,
+    RunLimits,
     RunStatus,
 )
 
@@ -33,7 +33,7 @@ class DataPlanner:
         physical_planner: PhysicalPlanner,
         fragment_runner: FragmentRunner,
         catalog_searcher: CatalogSearcher,
-        limits: PlanLimits,
+        limits: RunLimits,
     ) -> None:
         self._logical_planner = logical_planner
         self._physical_planner = physical_planner
@@ -43,7 +43,7 @@ class DataPlanner:
 
     def run(self, request: str) -> PlanResult:
         """Plan, cover, execute, and repair until the request ends."""
-        state = RunState(request=request, budget=CallBudget(self._limits.operator_calls))
+        state = RunState(request=request, counters=RunCounters(self._limits))
         answer: DataBundle | None = None
         try:
             status = self._plan_and_cover(state, reason=None)
@@ -66,7 +66,7 @@ class DataPlanner:
 
     def plan(self, request: str) -> PlanResult:
         """Write one logical plan and one cover, then stop."""
-        state = RunState(request=request, budget=CallBudget(self._limits.operator_calls))
+        state = RunState(request=request, counters=RunCounters(self._limits))
         try:
             status = self._plan_and_cover(state, reason=None, retry_uncoverable_plan=False)
         except LLMError as error:
@@ -86,7 +86,7 @@ class DataPlanner:
         return self._resolve_control_nodes(state)
 
     def _run_fragment(self, state: RunState, fragment: PhysicalPlanFragment) -> RunStatus | None:
-        result = self._fragment_runner.run(fragment, state.inputs_for(fragment), state.budget)
+        result = self._fragment_runner.run(fragment, state.inputs_for(fragment), state.counters)
         state.record_fragment(result)
         if result.status is RunStatus.OK:
             return None
@@ -104,7 +104,7 @@ class DataPlanner:
     ) -> RunStatus | None:
         node_ids = frozenset(fragment.logical_node_ids)
         spent = state.fragment_attempts.get(node_ids, 0)
-        if spent < self._limits.fragment_attempts:
+        if spent < self._limits.fragment_repairs:
             state.fragment_attempts[node_ids] = spent + 1
             written = self._physical_planner.recover_fragment(
                 state.logical_plan, state.cover, node_ids, state.current_results, reason
@@ -114,7 +114,7 @@ class DataPlanner:
                 state.install_cover(written.plan)
                 return None
             return self._replan(state, written.failure_reason)
-        if state.cover_attempts < self._limits.cover_attempts:
+        if state.cover_attempts < self._limits.cover_repairs:
             state.cover_attempts += 1
             written = self._physical_planner.cover(
                 state.logical_plan, state.current_results, reason
@@ -156,6 +156,7 @@ class DataPlanner:
         results = state.current_results if parent is not None else {}
         written = self._logical_planner.generate(
             state.request,
+            state.counters,
             parent=parent,
             carried_node_ids=carried,
             results=results,
@@ -206,14 +207,13 @@ def build_data_planner(
     router: OperatorRouter,
     catalog: DataCatalog,
     llm_client: LLMClient,
-    limits: PlanLimits | None = None,
+    limits: RunLimits | None = None,
 ) -> DataPlanner:
     """Assemble the four components over one router, one catalog, and one model client."""
-    bounds = limits or PlanLimits()
     return DataPlanner(
-        logical_planner=LogicalPlanner(llm_client, catalog, bounds.plan_corrections),
+        logical_planner=LogicalPlanner(llm_client, catalog),
         physical_planner=PhysicalPlanner(llm_client, router),
-        fragment_runner=FragmentRunner(llm_client, catalog, router, bounds.parameter_attempts),
-        catalog_searcher=CatalogSearcher(llm_client, catalog, bounds.search_terms),
-        limits=bounds,
+        fragment_runner=FragmentRunner(llm_client, catalog, router),
+        catalog_searcher=CatalogSearcher(llm_client, catalog),
+        limits=limits or RunLimits(),
     )

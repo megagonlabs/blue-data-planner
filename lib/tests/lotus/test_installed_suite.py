@@ -8,11 +8,12 @@ from typing import Any
 from blue_data_planner.execution import execute_physical_operator
 from blue_data_planner.operators.adapters.lotus import lotus_operators
 from blue_data_planner.types import (
-    CallBudget,
     DataBundle,
     ExecutionResult,
     OutputColumn,
     PhysicalOperator,
+    RunCounters,
+    RunLimits,
 )
 
 MODEL = os.environ.get("BLUE_DATA_PLANNER_LOTUS_MODEL", "openai/gpt-4o-mini")
@@ -37,7 +38,9 @@ def run(
     columns: list[OutputColumn],
 ) -> ExecutionResult:
     """Run one operator the way the fragment runner does."""
-    return execute_physical_operator(one, parameters, inputs, columns, CallBudget(cap=10))
+    return execute_physical_operator(
+        one, parameters, inputs, columns, RunCounters(RunLimits(operator_calls=10))
+    )
 
 
 def test_an_instruction_naming_an_absent_column_is_refused_by_the_installed_suite() -> None:

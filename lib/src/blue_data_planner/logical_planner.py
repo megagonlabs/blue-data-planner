@@ -21,27 +21,26 @@ from blue_data_planner.types import (
     PipelineNode,
     PlanValidationError,
     RejectedPlan,
+    RunCounters,
     RunStatus,
 )
 
 # How many source records one prompt carries. It decides how much of a registry a prompt
-# holds rather than how much work a run may do, so it is not a PlanLimits field.
+# holds rather than how much work a run may do, so it is not a RunLimits field.
 CATALOG_PREVIEW_LIMIT = 20
 
 
 class LogicalPlanner:
     """Writes a plan, and a continuation for every pass after the first."""
 
-    def __init__(
-        self, llm_client: LLMClient, catalog: DataCatalog, max_plan_corrections: int
-    ) -> None:
+    def __init__(self, llm_client: LLMClient, catalog: DataCatalog) -> None:
         self._llm_client = llm_client
         self._catalog = catalog
-        self._max_plan_corrections = max_plan_corrections
 
     def generate(
         self,
         request: str,
+        counters: RunCounters,
         parent: LogicalPlan | None = None,
         carried_node_ids: frozenset[str] = frozenset(),
         results: dict[str, ExecutionResult | DiscoveryResult] | None = None,
@@ -58,7 +57,7 @@ class LogicalPlanner:
             ]
         )
         rejected: list[RejectedPlan] = []
-        for _attempt in range(self._max_plan_corrections + 1):
+        for _attempt in range(counters.limits.plan_corrections + 1):
             written = self._llm_client.complete_structured(conversation, logical_plan_schema())
             plan = _assemble(written.model_dump(), parent, carried_node_ids)
             try:

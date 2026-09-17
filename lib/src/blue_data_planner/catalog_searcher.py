@@ -18,6 +18,10 @@ from blue_data_planner.types import (
 
 SAMPLE_ROWS = 5
 
+# Reaching this drops the extra terms and changes nothing else about how a request proceeds, so it
+# shapes one component's work rather than bounding a run, like CATALOG_PREVIEW_LIMIT.
+MAX_SEARCH_TERMS = 8
+
 
 class SearchTerms(BaseModel):
     """The terms one discovery node expands into."""
@@ -30,7 +34,12 @@ class SearchTerms(BaseModel):
 class CatalogSearcher:
     """Turns a DISCOVER node into the entities its search terms found."""
 
-    def __init__(self, llm_client: LLMClient, catalog: DataCatalog, max_search_terms: int) -> None:
+    def __init__(
+        self,
+        llm_client: LLMClient,
+        catalog: DataCatalog,
+        max_search_terms: int = MAX_SEARCH_TERMS,
+    ) -> None:
         self._llm_client = llm_client
         self._catalog = catalog
         self._max_search_terms = max_search_terms

@@ -42,7 +42,6 @@ from blue_data_planner.types.plan import (
     Record,
 )
 from blue_data_planner.types.run import (
-    CallBudget,
     CatalogSearchResult,
     DiscoveryResult,
     ErrorInfo,
@@ -55,9 +54,10 @@ from blue_data_planner.types.run import (
     LLMUsage,
     LogicalPlanResult,
     PhysicalPlanResult,
-    PlanLimits,
     PlanResult,
     RejectedPlan,
+    RunCounters,
+    RunLimits,
     RunStatus,
 )
 
@@ -68,7 +68,6 @@ __all__ = [
     "AttributeRef",
     "AttributeView",
     "BudgetExhaustedError",
-    "CallBudget",
     "CatalogPreview",
     "CatalogSearchResult",
     "ColumnDataType",
@@ -99,12 +98,13 @@ __all__ = [
     "PhysicalPlanResult",
     "PipelineNode",
     "PlanFormatError",
-    "PlanLimits",
     "PlanResult",
     "PlanValidationError",
     "Record",
     "RecoverableOperatorError",
     "RejectedPlan",
+    "RunCounters",
+    "RunLimits",
     "RunStatus",
     "SourceQueryError",
     "SourceRecord",

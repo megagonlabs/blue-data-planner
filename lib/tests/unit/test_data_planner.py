@@ -24,8 +24,8 @@ from blue_data_planner.types import (
     PhysicalPlanFragment,
     PhysicalPlanResult,
     PipelineNode,
-    PlanLimits,
     PlanValidationError,
+    RunLimits,
     RunStatus,
 )
 from tests.doubles.components import (
@@ -192,7 +192,7 @@ def a_planner(
     physical: FakePhysicalPlanner,
     runner: FakeFragmentRunner,
     searcher: FakeCatalogSearcher,
-    limits: PlanLimits | None = None,
+    limits: RunLimits | None = None,
 ) -> DataPlanner:
     """A run loop over four fakes."""
     # The four fakes stand in for the real components structurally; pyright's strict
@@ -202,7 +202,7 @@ def a_planner(
         physical,  # pyright: ignore[reportArgumentType]
         runner,  # pyright: ignore[reportArgumentType]
         searcher,  # pyright: ignore[reportArgumentType]
-        limits or PlanLimits(),
+        limits or RunLimits(),
     )
 
 
@@ -279,7 +279,7 @@ def test_a_rejected_fragment_reaches_the_repairs_in_order_narrowest_first() -> N
             ]
         ),
         FakeCatalogSearcher(),
-        PlanLimits(fragment_attempts=2, cover_attempts=1, failure_replans=1),
+        RunLimits(fragment_repairs=2, cover_repairs=1, failure_replans=1),
     ).run("list the job titles")
     assert physical.repaired_node_sets == [frozenset({"n1"}), frozenset({"n1"})]
     assert result.counters["cover_attempts"] == 1
@@ -311,7 +311,7 @@ def test_a_replan_limit_ends_the_request_as_replan_exhausted() -> None:
         FakePhysicalPlanner([covered(a_cover("c1", "p1"))]),
         FakeFragmentRunner([an_escalating_fragment()]),
         FakeCatalogSearcher(),
-        PlanLimits(fragment_attempts=0, cover_attempts=0, failure_replans=0),
+        RunLimits(fragment_repairs=0, cover_repairs=0, failure_replans=0),
     ).run("list the job titles")
     assert result.status is RunStatus.REPLAN_EXHAUSTED
     assert result.failure_reason == "the predicate matched nothing"

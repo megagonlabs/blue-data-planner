@@ -9,6 +9,8 @@ from blue_data_planner.types import (
     CatalogPreview,
     ControlOperator,
     LogicalOperator,
+    RunCounters,
+    RunLimits,
     RunStatus,
     SourceRecord,
 )
@@ -94,20 +96,24 @@ def an_invalid_plan() -> dict[str, Any]:
     return plan
 
 
-def a_planner(answers: list[Any], corrections: int = 3) -> LogicalPlanner:
+def a_planner(answers: list[Any]) -> LogicalPlanner:
     """A planner whose model answers with these plans in order."""
     # ScriptedLLMClient and FakeCatalog stand in for LLMClient and DataCatalog
     # structurally; pyright's strict nominal check does not see them as related.
     return LogicalPlanner(
         ScriptedLLMClient(answers),  # pyright: ignore[reportArgumentType]
         FakeCatalog(),  # pyright: ignore[reportArgumentType]
-        corrections,
     )
+
+
+def counters(corrections: int = 3) -> RunCounters:
+    """Counters bounding one generate() call, standing in for the constructor argument."""
+    return RunCounters(RunLimits(plan_corrections=corrections))
 
 
 def test_a_request_world_knowledge_answers_comes_back_as_a_complete_plan() -> None:
     """A first plan carrying no control node is one the planner could write in full."""
-    result = a_planner([a_complete_plan()]).generate("list the job titles")
+    result = a_planner([a_complete_plan()]).generate("list the job titles", counters())
     assert result.status is RunStatus.OK
     assert result.plan is not None
     assert result.plan.output_node_id == "n2"
@@ -115,7 +121,9 @@ def test_a_request_world_knowledge_answers_comes_back_as_a_complete_plan() -> No
 
 def test_a_request_over_registered_data_comes_back_as_one_discover_node_per_thing_to_find() -> None:
     """The preview names sources and nothing below them, so the first pass only asks."""
-    result = a_planner([a_plan_ending_in_discovery()]).generate("Python jobs at Fortune 500")
+    result = a_planner([a_plan_ending_in_discovery()]).generate(
+        "Python jobs at Fortune 500", counters()
+    )
     assert result.plan is not None
     assert [node.kind for node in result.plan.nodes] == [
         ControlOperator.DISCOVER,
@@ -129,9 +137,8 @@ def test_a_plan_validation_rejects_is_written_again_with_the_error_in_the_conver
     planner = LogicalPlanner(
         client,  # pyright: ignore[reportArgumentType]
         FakeCatalog(),  # pyright: ignore[reportArgumentType]
-        3,
     )
-    result = planner.generate("list the job titles")
+    result = planner.generate("list the job titles", counters())
     assert result.status is RunStatus.OK
     assert len(result.rejected) == 1
     assert "posting_count" in client.conversations[1][-1][1]
@@ -139,7 +146,9 @@ def test_a_plan_validation_rejects_is_written_again_with_the_error_in_the_conver
 
 def test_running_out_of_corrections_returns_invalid_plan_with_every_rejected_plan() -> None:
     """A run that ends in invalid_plan shows what was attempted."""
-    result = a_planner([an_invalid_plan(), an_invalid_plan()], corrections=1).generate("list them")
+    result = a_planner([an_invalid_plan(), an_invalid_plan()]).generate(
+        "list them", counters(corrections=1)
+    )
     assert result.status is RunStatus.INVALID_PLAN
     assert result.plan is None
     assert len(result.rejected) == 2
@@ -147,10 +156,13 @@ def test_running_out_of_corrections_returns_invalid_plan_with_every_rejected_pla
 
 def test_a_continuation_carries_the_nodes_the_run_has_something_for() -> None:
     """The new version keeps what already ran and covers the rest with what came back."""
-    first = a_planner([a_plan_ending_in_discovery()]).generate("Python jobs at Fortune 500")
+    first = a_planner([a_plan_ending_in_discovery()]).generate(
+        "Python jobs at Fortune 500", counters()
+    )
     assert first.plan is not None
     continuation = a_planner([a_continuation_plan()]).generate(
         "Python jobs at Fortune 500",
+        counters(),
         parent=first.plan,
         carried_node_ids=frozenset({"n1"}),
         results={},
@@ -165,10 +177,13 @@ def test_a_continuation_carries_the_nodes_the_run_has_something_for() -> None:
 
 def test_a_freshly_written_node_replaces_a_carried_node_sharing_its_id() -> None:
     """A node the model writes again takes precedence over the carried node of the same id."""
-    first = a_planner([a_plan_ending_in_discovery()]).generate("Python jobs at Fortune 500")
+    first = a_planner([a_plan_ending_in_discovery()]).generate(
+        "Python jobs at Fortune 500", counters()
+    )
     assert first.plan is not None
     continuation = a_planner([a_complete_plan()]).generate(
         "Python jobs at Fortune 500",
+        counters(),
         parent=first.plan,
         carried_node_ids=frozenset({"n1"}),
         results={},
