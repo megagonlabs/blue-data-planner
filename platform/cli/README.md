@@ -45,9 +45,11 @@ blue-planner profile config OPENAI_API_KEY
 | --- | --- | --- | --- |
 | `OPENAI_API_KEY` | secret | None, required | Yes |
 | `BLUE_DATA_REGISTRY_PATH` | file | None, required | Yes |
-| `BLUE_DATA_PLANNER_MODEL` | str | `BLUE_DATA_LLM_MODEL`, then `openai/gpt-4o` | Yes |
+| `BLUE_DATA_PLANNER_MODEL` | str | `BLUE_DATA_LLM_MODEL`, then `openai/gpt-5.6-luna` | Yes |
+| `BLUE_DATA_PLANNER_REASONING_EFFORT` | str | `low` | No |
 | `BLUE_DATA_PLANNER_OPERATORS` | str | `builtin,lotus` | Yes |
 | `BLUE_DATA_PLANNER_LOTUS_MODEL` | str | Inherits `BLUE_DATA_PLANNER_MODEL` | No |
+| `BLUE_DATA_PLANNER_LOTUS_REASONING_EFFORT` | str | `none` | No |
 | `BLUE_DATA_PLANNER_LOTUS_MAX_ROWS` | int | `5000` | No |
 | `BLUE_DATA_PLANNER_ENABLE_NL2TABLE` | bool | `false` | No |
 | `BLUE_DATA_PLANNER_MAX_OPERATOR_CALLS` | int | `30` | No |
@@ -62,9 +64,14 @@ blue-planner profile config OPENAI_API_KEY
 The first row and the two `BLUE_DATA_CLI_` rows are family-wide parameters, declared once for
 every Blue CLI rather than by `blue-planner` alone. `BLUE_DATA_PLANNER_MODEL` reads
 `BLUE_DATA_LLM_MODEL` where it is unset, and `BLUE_DATA_PLANNER_LOTUS_MODEL` reads
-`BLUE_DATA_PLANNER_MODEL` the same way. A `MAX_` name is a bound on one run; `--registry` and
-`--model` are the two settings an operator changes between one invocation and the next, so each has
-its own command option in addition to its profile parameter.
+`BLUE_DATA_PLANNER_MODEL` the same way. Setting `BLUE_DATA_PLANNER_REASONING_EFFORT` to `off` omits
+the parameter from the LLM call, for a model that does not accept it; `none` is a different, real
+value that litellm still forwards to the provider, disabling reasoning rather than omitting the
+parameter. `BLUE_DATA_PLANNER_LOTUS_REASONING_EFFORT` does not inherit from
+`BLUE_DATA_PLANNER_REASONING_EFFORT`: it defaults to `none` on its own, since a LOTUS operation
+spends many calls per row and gains little from added reasoning. A `MAX_` name is a bound on one
+run; `--registry` and `--model` are the two settings an operator changes between one invocation and
+the next, so each has its own command option in addition to its profile parameter.
 
 The family-wide spec also contributes `ANTHROPIC_API_KEY`, `BLUE_DATA_LLM_PROVIDER`, and
 `BLUE_DATA_LLM_MODEL`, all visible through `profile inspect`; `BLUE_DATA_LLM_MODEL` is required, so

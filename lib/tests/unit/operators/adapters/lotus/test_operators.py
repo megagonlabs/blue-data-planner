@@ -25,8 +25,9 @@ MODEL = "openai/gpt-4o"
 
 @pytest.fixture(autouse=True)
 def lotus_stub() -> Any:
-    """Return the stub with its script emptied and its configuration forgotten."""
+    """Return the stub with its script emptied and its model and reasoning effort forgotten."""
     settings._configured_model = None  # pyright: ignore[reportPrivateUsage]
+    settings._configured_reasoning_effort = None  # pyright: ignore[reportPrivateUsage]
     import lotus
 
     lotus.settings.lm = lotus.models.LM()
@@ -333,3 +334,18 @@ def test_a_join_over_an_empty_side_returns_no_rows(lotus_stub: Any) -> None:
 
     assert result.data == [[]]
     assert lotus_stub.calls == []
+
+
+def test_a_call_reaches_lotus_with_the_reasoning_effort_it_was_given(lotus_stub: Any) -> None:
+    """lotus_operators's own reasoning_effort argument is what configured_lotus receives."""
+    found = [
+        one
+        for one in lotus_operators(MODEL, reasoning_effort="none")
+        if one.operator_id == "lotus.sem_filter"
+    ]
+    assert found, "lotus.sem_filter is not registered"
+    lotus_stub.frames.append(pd.DataFrame([{"city": "Reno"}]))
+
+    found[0].call([[{"city": "Reno"}]], {"instruction": "Is {city} inland?"}, [])
+
+    assert lotus_stub.settings.lm.kwargs["reasoning_effort"] == "none"

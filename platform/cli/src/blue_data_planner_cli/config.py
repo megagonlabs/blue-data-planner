@@ -33,6 +33,12 @@ DEFAULT_CLI_HOME: str = "~/.blue-planner"
 
 OPERATOR_SUITES: tuple[str, ...] = ("builtin", "lotus", "blue")
 
+_LLM_CLIENT_NAME: str = "blue_planner"
+
+# The one value that means "omit this parameter," for a model that rejects it. Distinct from
+# "none", a real litellm reasoning_effort value that still has to reach the provider.
+_REASONING_EFFORT_OFF: str = "off"
+
 OUTPUT_FORMATS: tuple[str, ...] = ("table", "json")
 
 _LIMIT_FIELDS: tuple[str, ...] = (
@@ -72,13 +78,20 @@ class PlannerSettings:
 
     registry_path: Path
     model: str
+    reasoning_effort: str
     operator_suites: tuple[str, ...]
     lotus_model: str
+    lotus_reasoning_effort: str
     lotus_max_rows: int
     enable_nl2table: bool
     limits: RunLimits
     output_format: str
     log_limit: int
+
+
+def _effective_reasoning_effort(value: str) -> str | None:
+    """Return the value litellm should receive, or None to omit the parameter."""
+    return value if value and value != _REASONING_EFFORT_OFF else None
 
 
 def build_resolver(profile: str | None, environ: dict[str, str]) -> ConfigResolver:
@@ -116,8 +129,12 @@ def resolve_settings(
     return PlannerSettings(
         registry_path=registry_path,
         model=planner_model,
+        reasoning_effort=str(_get(resolver, "BLUE_DATA_PLANNER_REASONING_EFFORT") or ""),
         operator_suites=suites,
         lotus_model=str(_get(resolver, "BLUE_DATA_PLANNER_LOTUS_MODEL") or planner_model),
+        lotus_reasoning_effort=str(
+            _get(resolver, "BLUE_DATA_PLANNER_LOTUS_REASONING_EFFORT") or ""
+        ),
         lotus_max_rows=int(_get(resolver, "BLUE_DATA_PLANNER_LOTUS_MAX_ROWS")),
         enable_nl2table=bool(_get(resolver, "BLUE_DATA_PLANNER_ENABLE_NL2TABLE")),
         limits=RunLimits(
@@ -141,7 +158,11 @@ def assemble_planner(settings: PlannerSettings) -> DataPlanner:
             "REGISTRY_UNREADABLE",
             f"cannot read the registry at {settings.registry_path}: {error}",
         ) from error
-    llm_client = LLMClient(name="blue_planner", properties={"model": settings.model})
+    llm_properties: dict[str, Any] = {f"{_LLM_CLIENT_NAME}.model": settings.model}
+    effort = _effective_reasoning_effort(settings.reasoning_effort)
+    if effort is not None:
+        llm_properties[f"{_LLM_CLIENT_NAME}.reasoning_effort"] = effort
+    llm_client = LLMClient(name=_LLM_CLIENT_NAME, properties=llm_properties)
     router = OperatorRouter()
     for operator in _operators(settings, data_registry, llm_client):
         router.register(operator)
@@ -159,7 +180,13 @@ def _operators(
             )
         elif suite == "lotus":
             # An empty list where LOTUS is not installed, which is how the extra is optional.
-            operators.extend(lotus_operators(settings.lotus_model, settings.lotus_max_rows))
+            operators.extend(
+                lotus_operators(
+                    settings.lotus_model,
+                    settings.lotus_max_rows,
+                    reasoning_effort=_effective_reasoning_effort(settings.lotus_reasoning_effort),
+                )
+            )
         elif suite == "blue":
             operators.extend(blue_operators(default_registry(), data_registry))
     return operators

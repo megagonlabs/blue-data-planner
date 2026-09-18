@@ -49,7 +49,9 @@ class _Entry:
     row_cap: str = "Reads at most {max_rows} rows in one call and refuses a larger input."
 
 
-def lotus_operators(model: str, max_rows: int = DEFAULT_MAX_ROWS) -> list[PhysicalOperator]:
+def lotus_operators(
+    model: str, max_rows: int = DEFAULT_MAX_ROWS, reasoning_effort: str | None = None
+) -> list[PhysicalOperator]:
     """Return one physical operator per LOTUS operation, or none where LOTUS is not installed."""
     if not settings.lotus_is_installed():
         return []
@@ -59,7 +61,7 @@ def lotus_operators(model: str, max_rows: int = DEFAULT_MAX_ROWS) -> list[Physic
             logical_operators=frozenset({entry.logical_operator}),
             description=entry.description,
             parameter_schema=entry.parameter_schema,
-            call=_build_call(entry, model, max_rows),
+            call=_build_call(entry, model, max_rows, reasoning_effort),
             source_kinds=None,
             accepts_bound_inputs=False,
             limitations=_limitations(entry, max_rows),
@@ -74,7 +76,7 @@ def _limitations(entry: _Entry, max_rows: int) -> str:
 
 
 def _build_call(
-    entry: _Entry, model: str, max_rows: int
+    entry: _Entry, model: str, max_rows: int, reasoning_effort: str | None
 ) -> Callable[[DataBundle, dict[str, Any], list[OutputColumn]], OperatorOutput]:
     def call(
         inputs: DataBundle,
@@ -92,7 +94,7 @@ def _build_call(
         # call over no rows can only return nothing. A join over an empty side is empty too.
         if any(not table for table in inputs):
             return OperatorOutput(data=[[]])
-        lotus = settings.configured_lotus(model)
+        lotus = settings.configured_lotus(model, reasoning_effort)
         # Annotated Any rather than inferred as pandas' DataFrame: pandas ships no type stubs,
         # so frame.columns below would otherwise resolve to an unknown type.
         frames: list[Any] = [frame_conversion.frame_from_table(table) for table in inputs]

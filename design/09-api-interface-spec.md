@@ -76,7 +76,7 @@ from blue_data_planner.operators.adapters.lotus import lotus_operators
 from blue_data_planner.operators.builtin import builtin_operators
 
 data_registry = open_registry(Path("registry.json"))
-llm_client = LLMClient(name="planner", properties={"model": "openai/gpt-4o"})
+llm_client = LLMClient(name="planner", properties={"planner.model": "openai/gpt-4o"})
 
 router = OperatorRouter()
 # operator_registry is a blue-data-ops OperatorRegistry, built the way that package documents
@@ -416,9 +416,11 @@ variable > profile > default** — and `profile inspect` reports the tier that s
 | --- | --- | --- | --- |
 | `OPENAI_API_KEY` | secret | None, required | ✓ |
 | `BLUE_DATA_REGISTRY_PATH` | file | None, required | ✓ |
-| `BLUE_DATA_PLANNER_MODEL` | str | `BLUE_DATA_LLM_MODEL`, then `openai/gpt-4o` | ✓ |
+| `BLUE_DATA_PLANNER_MODEL` | str | `BLUE_DATA_LLM_MODEL`, then `openai/gpt-5.6-luna` | ✓ |
+| `BLUE_DATA_PLANNER_REASONING_EFFORT` | str | `low` | |
 | `BLUE_DATA_PLANNER_OPERATORS` | str | `builtin,lotus` | ✓ |
 | `BLUE_DATA_PLANNER_LOTUS_MODEL` | str | Inherits `BLUE_DATA_PLANNER_MODEL` | |
+| `BLUE_DATA_PLANNER_LOTUS_REASONING_EFFORT` | str | `none` | |
 | `BLUE_DATA_PLANNER_LOTUS_MAX_ROWS` | int | `5000` | |
 | `BLUE_DATA_PLANNER_ENABLE_NL2TABLE` | bool | `false` | |
 | `BLUE_DATA_PLANNER_MAX_OPERATOR_CALLS` | int | `30` | |
@@ -430,9 +432,16 @@ variable > profile > default** — and `profile inspect` reports the tier that s
 | `BLUE_DATA_CLI_FORMAT` | str | `table` | |
 | `BLUE_DATA_CLI_LOG_LIMIT` | int | `80` | |
 
-The first four rows and the two `BLUE_DATA_CLI_` rows are family-wide parameters, declared once for
-every Blue CLI. `BLUE_DATA_PLANNER_MODEL` reads `BLUE_DATA_LLM_MODEL` where it is unset, and
-`BLUE_DATA_PLANNER_LOTUS_MODEL` reads `BLUE_DATA_PLANNER_MODEL` the same way.
+The first row and the two `BLUE_DATA_CLI_` rows are family-wide parameters, declared once for every
+Blue CLI rather than by `blue-planner` alone. `BLUE_DATA_PLANNER_MODEL` reads
+`BLUE_DATA_LLM_MODEL` where it is unset, and
+`BLUE_DATA_PLANNER_LOTUS_MODEL` reads `BLUE_DATA_PLANNER_MODEL` the same way. Setting
+`BLUE_DATA_PLANNER_REASONING_EFFORT` to `off` omits the parameter from the LLM call, for a model
+that does not accept it; `none` is a different, real value that litellm still forwards to the
+provider, disabling reasoning rather than omitting the parameter.
+`BLUE_DATA_PLANNER_LOTUS_REASONING_EFFORT` does not inherit from
+`BLUE_DATA_PLANNER_REASONING_EFFORT`: it defaults to `none` on its own, since a LOTUS operation
+spends many calls per row and gains little from added reasoning.
 
 A `MAX_` name is a `RunLimits` field with a prefix saying the number is a cap, which the field name
 alone does not: `RunLimits` drops it because the type name already says limits, and a profile has no

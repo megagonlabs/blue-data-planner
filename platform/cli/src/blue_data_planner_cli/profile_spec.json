@@ -6,11 +6,17 @@
     "cast": "file"
   },
   "BLUE_DATA_PLANNER_MODEL": {
-    "default": "openai/gpt-4o",
+    "default": "openai/gpt-5.6-luna",
     "prompt": "litellm model string every planner component uses",
     "required": true,
     "cast": "str",
     "inherits": ["BLUE_DATA_LLM_MODEL"]
+  },
+  "BLUE_DATA_PLANNER_REASONING_EFFORT": {
+    "default": "low",
+    "prompt": "Reasoning effort a reasoning model spends per call (minimal, low, medium, high, none; off omits the parameter, for a model that does not support it)",
+    "required": false,
+    "cast": "str"
   },
   "BLUE_DATA_PLANNER_OPERATORS": {
     "default": "builtin,lotus",
@@ -24,6 +30,12 @@
     "required": false,
     "cast": "str",
     "inherits": ["BLUE_DATA_PLANNER_MODEL"]
+  },
+  "BLUE_DATA_PLANNER_LOTUS_REASONING_EFFORT": {
+    "default": "none",
+    "prompt": "Reasoning effort LOTUS's own model spends per call (minimal, low, medium, high, none; off omits the parameter, for a model that does not support it)",
+    "required": false,
+    "cast": "str"
   },
   "BLUE_DATA_PLANNER_LOTUS_MAX_ROWS": {
     "default": 5000,
