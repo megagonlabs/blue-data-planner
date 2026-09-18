@@ -46,12 +46,6 @@ class RunState:
     results: dict[str, NodeResult] = field(default_factory=dict[str, "NodeResult"])
     # Derived from the current plan and the current cover, and rewritten with every cover.
     _signatures: dict[str, str] = field(default_factory=dict[str, str], repr=False)
-    # Repair-loop bookkeeping the run loop reads and writes across passes. RunCounters already
-    # bounds the replan counts (spend_failure_replan, spend_control_replan); a cover repair has
-    # no counterpart there yet, so it stays here for now. Task 10 revisits how a failure reason
-    # travels; until then it is written here and read back into to_result.
-    cover_attempts: int = 0
-    failure_reason: str | None = None
 
     def next_ready(self) -> PhysicalPlanFragment | PipelineNode | None:
         """Return the next ready fragment, else a ready control node, else nothing."""

@@ -19,11 +19,10 @@ class ExecutionStatus(StrEnum):
 
 
 class ErrorKind(StrEnum):
-    """What a failure means for the run: try another operator, end the run, or replan."""
+    """What a failure means for the run: try another operator, or end the run."""
 
     RECOVERABLE = "recoverable"
     UNRECOVERABLE = "unrecoverable"
-    NO_OPERATOR = "no_operator"
 
 
 class RunStatus(StrEnum):

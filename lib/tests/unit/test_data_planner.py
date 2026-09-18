@@ -267,6 +267,39 @@ def test_a_rejected_fragment_reaches_the_repairs_in_order_narrowest_first() -> N
     assert result.status is RunStatus.INVALID_PLAN
 
 
+def a_planner_over_two_plans_each_needing_every_cover() -> tuple[DataPlanner, FakePhysicalPlanner]:
+    """Two logical plans, each covered twice and rejected every time cover_repairs=1 allows."""
+    logical = FakeLogicalPlanner([ok(a_scan_and_ending("p1")), ok(a_scan_and_ending("p2"))])
+    physical = FakePhysicalPlanner(
+        [
+            covered(a_cover("c1", "p1")),
+            covered(a_cover("c2", "p1")),
+            covered(a_cover("c3", "p2")),
+            covered(a_cover("c4", "p2")),
+        ]
+    )
+    runner = FakeFragmentRunner([an_escalating_fragment() for _ in range(4)])
+    planner = a_planner(
+        logical,
+        physical,
+        runner,
+        FakeCatalogSearcher(),
+        RunLimits(cover_repairs=1, failure_replans=1),
+    )
+    return planner, physical
+
+
+def test_a_replan_gives_the_next_plan_its_own_covers() -> None:
+    """The cover allowance is a loop variable, so a new logical plan enters the loop fresh."""
+    planner, physical = a_planner_over_two_plans_each_needing_every_cover()
+
+    result = planner.run("a request")
+
+    # cover_repairs=1 means two covers per logical plan, and there are two plans.
+    assert len(physical.covered_plan_ids) == 4
+    assert result.status is RunStatus.REPLAN_EXHAUSTED
+
+
 def test_a_plan_no_operator_can_cover_is_replanned_with_the_reason_in_hand() -> None:
     """Nothing ran, so the repair is a fresh plan written against why the cover failed."""
     logical = FakeLogicalPlanner([ok(a_scan_and_ending("p1")), ok(a_scan_and_ending("p2"))])
@@ -322,8 +355,9 @@ def test_a_defect_in_a_component_ends_the_request_instead_of_raising_at_the_call
     assert result.status is RunStatus.PLANNER_FAILED
     assert result.failure_reason is not None
     assert "n9" in result.failure_reason
-    # The plan the run had written before the defect is still readable.
-    assert "p1" in result.pipeline.logical_plans
+    # A logical plan is installed only once it is paired with a cover that covers it, so the
+    # defective attempt never enters the pipeline.
+    assert result.pipeline.logical_plans == {}
 
 
 def test_the_planning_only_operation_stops_after_the_first_cover() -> None:

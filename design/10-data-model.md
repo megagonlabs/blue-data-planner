@@ -826,7 +826,7 @@ that basis would draw a line no reader could see
 
 | Reading | Read by | Answers |
 | --- | --- | --- |
-| `CatalogPreview` | The logical planner, once per pass | Which sources exist and what each is for |
+| `CatalogPreview` | The logical planner, once per request, until the first cover installs | Which sources exist and what each is for |
 | `EntityMatch` | The logical planner and the physical planner, as the run's catalog context | Which entities exist and what each holds |
 | `AttributeView` | The fragment runner, for the entities its own fragment scans | How an attribute's values are actually spelled |
 

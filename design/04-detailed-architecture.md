@@ -48,7 +48,7 @@ can be found and repaired on its own ([section 5](#5-recovering-from-a-failure))
 
 | Stage | Question | Component | Reads | Runs |
 | --- | --- | --- | --- | --- |
-| Logical planning | What is the user asking for | `LogicalPlanner` | The request and a preview of the catalog | Once per pass |
+| Logical planning | What is the user asking for | `LogicalPlanner` | The request and a preview of the catalog | Once per request, until the first cover installs |
 | Physical planning | How much of the plan does each operator take on, and against which entity | `PhysicalPlanner` | The plan, what each operator declares, and the entities discovery found | Once per pass, over the whole plan |
 | Fragment execution | What parameters does it run with, and was the result any good | `FragmentRunner` | The rows its inputs produced, and a view of every attribute of the entities it scans | Once per fragment, during execution |
 
@@ -290,14 +290,14 @@ knows what it bound a moment earlier, and a repair continues the same exchange, 
 answers the binding that failed rather than being told about it. A new logical plan starts a new
 conversation, because the node ids already in the turns name a different graph.
 
-The run's catalog context opens the conversation, so it is sent once rather than once per node. What
-happened since is carried as structured facts: for each node with a result, the fragment and operator
-that produced it and the output's row count and column names, and on a repair the failed fragment's
-node set, why it failed, and which operators have already been tried on it. Row counts are there
-because absorbing a node that already ran throws its result away and pays for the work again, and how
-much that costs is how many rows are discarded ([the cover repair](#the-cover-repair)). Rows
-themselves stay out: the physical planner chooses boundaries and operators, and values are the
-fragment runner's reading.
+The run's catalog context opens the conversation, so it is sent once rather than once per node. The
+operator, row count, and column names of every node with a result are sent the same way, once, when
+the conversation opens. The failed fragment's node set and which operators were tried on it need no
+separate turn either: they are already there, in the turns that bound it the first time, so a repair
+adds only why the last attempt failed. Row counts matter because absorbing a node that already ran
+throws its result away and pays for the work again, and how much that costs is how many rows are
+discarded ([the cover repair](#the-cover-repair)). Rows themselves stay out: the physical planner
+chooses boundaries and operators, and values are the fragment runner's reading.
 
 A candidate is named by its operator and its node set rather than by a position in the list it
 arrived in. The list differs from turn to turn, so a position means something different in each one,

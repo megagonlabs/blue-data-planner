@@ -576,8 +576,8 @@ With one it writes a continuation covering the remaining work, assembles it with
 result.
 
 The planner reads a catalog preview it fetches itself, ranked against `request`, rather than one
-handed in. That costs one registry read per pass and removes the preview from four signatures and
-from the run state.
+handed in. That costs one registry read per request, until the first cover installs, and removes
+the preview from four signatures and from the run state.
 
 `results` is the run's map for the parent version, and it answers two different questions. A
 `REPLAN` node's continuation is written against the rows its inputs produced, so the planner reads
@@ -1285,7 +1285,7 @@ Three readings of the same registry, one per caller, all fixed in
 
 | Method | Read by | Answers |
 | --- | --- | --- |
-| `preview` | `LogicalPlanner`, once per pass | Which sources exist. Source-level records only, ranked against the request and capped, with the total count so the planner can tell a complete list from a sample |
+| `preview` | `LogicalPlanner`, once per request, until the first cover installs | Which sources exist. Source-level records only, ranked against the request and capped, with the total count so the planner can tell a complete list from a sample |
 | `search_records` | `CatalogSearcher`, for a `DISCOVER` node | Which entities the request needs and what each holds. One call per search term |
 | `attribute_views` | `FragmentRunner`, for each entity its fragment scans | How each of that entity's attributes spells its values |
 
