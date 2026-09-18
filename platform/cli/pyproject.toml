@@ -1,0 +1,51 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "blue-data-planner-cli"
+version = "0.1.0"
+description = "blue-planner — the command line over blue-data-planner"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "blue-data-planner==0.1.0",
+    "blue-data>=0.1.0",
+    "click>=8",
+    "rich>=13",
+]
+
+[project.optional-dependencies]
+dev = ["pytest", "ruff", "pyright"]
+
+[project.scripts]
+blue-planner = "blue_data_planner_cli.commands:cli"
+
+[tool.uv.sources]
+# Local development installs. Replace with a package index at release, the way lib/ documents.
+blue-data-planner = { path = "../../lib", editable = true }
+blue-data = { git = "ssh://git@github.com/megagon-internal/blue-data.git", subdirectory = "lib", rev = "b2ca35214114156bdef50143d1ee7c05f42b6451" }
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+blue_data_planner_cli = ["profile_spec.json"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP"]
+
+[tool.pyright]
+pythonVersion = "3.11"
+typeCheckingMode = "strict"
+venvPath = "."
+venv = ".venv"
+extraPaths = ["src"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests/unit"]

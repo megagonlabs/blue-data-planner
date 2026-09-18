@@ -259,7 +259,7 @@ so no command accepts one.
 | `--model NAME` | The two query actions | The litellm model string every component uses |
 | `--format table\|json` | Anything printing a result | How the result is written, `table` by default |
 | `--log` | The two query actions | Print the run's trace after the run |
-| `--log-limit N` | The two query actions | Cap that trace, 80 lines by default |
+| `--log-limit N` | The two query actions | Truncate each trace line, 80 characters by default |
 | `--confirm` | `profile remove` | Answer the confirmation ahead of time |
 | `--version` | The root | The package version |
 
@@ -283,8 +283,9 @@ indicator naming the stage that is running.
 `--log` prints the run's trace after the run, grouped by cover. One line is one attempt: the logical
 nodes it covered, the operator that ran it, and how it ended — a row count where a review accepted
 the result, the review's own words where it did not, which is the pushdown boundary and its outcome.
-Under `--format json` the same trace is one JSON object on standard error. `--log-limit` keeps the
-most recent attempts and says how many earlier ones it dropped.
+Under `--format json` the same trace is one JSON object on standard error. How many lines the trace
+holds is bounded by `operator_calls`; what grows without a bound is a review's own wording, so
+`--log-limit` truncates each line.
 
 ```text
 cover 1
@@ -415,7 +416,7 @@ variable > profile > default** — and `profile inspect` reports the tier that s
 | --- | --- | --- | --- |
 | `OPENAI_API_KEY` | secret | None, required | ✓ |
 | `BLUE_DATA_REGISTRY_PATH` | file | None, required | ✓ |
-| `BLUE_DATA_PLANNER_MODEL` | str | `openai/gpt-4o` | ✓ |
+| `BLUE_DATA_PLANNER_MODEL` | str | `BLUE_DATA_LLM_MODEL`, then `openai/gpt-4o` | ✓ |
 | `BLUE_DATA_PLANNER_OPERATORS` | str | `builtin,lotus` | ✓ |
 | `BLUE_DATA_PLANNER_LOTUS_MODEL` | str | Inherits `BLUE_DATA_PLANNER_MODEL` | |
 | `BLUE_DATA_PLANNER_LOTUS_MAX_ROWS` | int | `5000` | |
@@ -428,6 +429,10 @@ variable > profile > default** — and `profile inspect` reports the tier that s
 | `BLUE_DATA_PLANNER_MAX_CONTROL_REPLANS` | int | `2` | |
 | `BLUE_DATA_CLI_FORMAT` | str | `table` | |
 | `BLUE_DATA_CLI_LOG_LIMIT` | int | `80` | |
+
+The first four rows and the two `BLUE_DATA_CLI_` rows are family-wide parameters, declared once for
+every Blue CLI. `BLUE_DATA_PLANNER_MODEL` reads `BLUE_DATA_LLM_MODEL` where it is unset, and
+`BLUE_DATA_PLANNER_LOTUS_MODEL` reads `BLUE_DATA_PLANNER_MODEL` the same way.
 
 A `MAX_` name is a `RunLimits` field with a prefix saying the number is a cap, which the field name
 alone does not: `RunLimits` drops it because the type name already says limits, and a profile has no

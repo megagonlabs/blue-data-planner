@@ -211,7 +211,7 @@ wheels = [
 [[package]]
 name = "blue-data"
 version = "0.1.0"
-source = { git = "ssh://git@github.com/megagon-internal/blue-data.git?subdirectory=lib&rev=f39abf96a84a3ed9677006b6363b7b9f4510a88a#f39abf96a84a3ed9677006b6363b7b9f4510a88a" }
+source = { git = "ssh://git@github.com/megagon-internal/blue-data.git?subdirectory=lib&rev=b2ca35214114156bdef50143d1ee7c05f42b6451#b2ca35214114156bdef50143d1ee7c05f42b6451" }
 dependencies = [
     { name = "jsonpath-ng" },
     { name = "numpy", version = "1.26.4", source = { registry = "https://pypi.org/simple" }, marker = "extra == 'extra-17-blue-data-planner-lotus'" },
@@ -260,7 +260,7 @@ lotus = [
 
 [package.metadata]
 requires-dist = [
-    { name = "blue-data", git = "ssh://git@github.com/megagon-internal/blue-data.git?subdirectory=lib&rev=f39abf96a84a3ed9677006b6363b7b9f4510a88a" },
+    { name = "blue-data", git = "ssh://git@github.com/megagon-internal/blue-data.git?subdirectory=lib&rev=b2ca35214114156bdef50143d1ee7c05f42b6451" },
     { name = "blue-data-ops", git = "ssh://git@github.com/megagon-internal/blue-data-ops.git?subdirectory=lib&rev=a161d9eaf8511fab3820b50a6dd00cba235ec8a8" },
     { name = "diskcache", marker = "extra == 'dev'" },
     { name = "jinja2" },

@@ -1,0 +1,76 @@
+{
+  "BLUE_DATA_REGISTRY_PATH": {
+    "default": null,
+    "prompt": "Path to the blue-data registry to plan over",
+    "required": true,
+    "cast": "file"
+  },
+  "BLUE_DATA_PLANNER_MODEL": {
+    "default": "openai/gpt-4o",
+    "prompt": "litellm model string every planner component uses",
+    "required": true,
+    "cast": "str",
+    "inherits": ["BLUE_DATA_LLM_MODEL"]
+  },
+  "BLUE_DATA_PLANNER_OPERATORS": {
+    "default": "builtin,lotus",
+    "prompt": "Operator suites to register, comma separated (builtin, lotus, blue)",
+    "required": true,
+    "cast": "str"
+  },
+  "BLUE_DATA_PLANNER_LOTUS_MODEL": {
+    "default": null,
+    "prompt": "litellm model string LOTUS configures for itself",
+    "required": false,
+    "cast": "str",
+    "inherits": ["BLUE_DATA_PLANNER_MODEL"]
+  },
+  "BLUE_DATA_PLANNER_LOTUS_MAX_ROWS": {
+    "default": 5000,
+    "prompt": "Rows a LOTUS operation accepts before refusing the call",
+    "required": false,
+    "cast": "int"
+  },
+  "BLUE_DATA_PLANNER_ENABLE_NL2TABLE": {
+    "default": false,
+    "prompt": "Register builtin.nl2table, which writes a Python program and runs it",
+    "required": false,
+    "cast": "bool"
+  },
+  "BLUE_DATA_PLANNER_MAX_OPERATOR_CALLS": {
+    "default": 30,
+    "prompt": "Operator calls one request may spend",
+    "required": false,
+    "cast": "int"
+  },
+  "BLUE_DATA_PLANNER_MAX_PLAN_CORRECTIONS": {
+    "default": 5,
+    "prompt": "Times a plan may be written again after validation turned one down",
+    "required": false,
+    "cast": "int"
+  },
+  "BLUE_DATA_PLANNER_MAX_PARAMETER_REPAIRS": {
+    "default": 3,
+    "prompt": "Times one fragment may write its parameters again",
+    "required": false,
+    "cast": "int"
+  },
+  "BLUE_DATA_PLANNER_MAX_COVER_REPAIRS": {
+    "default": 2,
+    "prompt": "Times one logical plan may be covered again",
+    "required": false,
+    "cast": "int"
+  },
+  "BLUE_DATA_PLANNER_MAX_FAILURE_REPLANS": {
+    "default": 2,
+    "prompt": "Times an operator failure may trigger a replan",
+    "required": false,
+    "cast": "int"
+  },
+  "BLUE_DATA_PLANNER_MAX_CONTROL_REPLANS": {
+    "default": 2,
+    "prompt": "Times a control node may trigger a replan",
+    "required": false,
+    "cast": "int"
+  }
+}

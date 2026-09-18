@@ -109,14 +109,14 @@ above the exported environment.
 | --- | --- | --- |
 | `OPENAI_API_KEY` | None, required | Every component that calls a model, and LOTUS operations |
 | `BLUE_DATA_REGISTRY_PATH` | None, required | The serialized registry an interface opens and plans against |
-| `BLUE_DATA_PLANNER_MODEL` | `openai/gpt-4o` | The litellm model string every component uses |
+| `BLUE_DATA_PLANNER_MODEL` | `BLUE_DATA_LLM_MODEL`, then `openai/gpt-4.1` | The litellm model string every component uses |
 | `BLUE_DATA_PLANNER_OPERATORS` | `builtin,lotus` | Which operator suites are registered, as a comma-separated list over `builtin`, `lotus`, and `blue` |
-| `BLUE_DATA_PLANNER_LOTUS_MODEL` | `openai/gpt-4o` | The litellm model string an interface passes to `lotus_operators`, which LOTUS then configures for itself, independently of `BLUE_DATA_PLANNER_MODEL` (ADR-005) |
+| `BLUE_DATA_PLANNER_LOTUS_MODEL` | `BLUE_DATA_PLANNER_MODEL` | The litellm model string an interface passes to `lotus_operators`, which LOTUS then configures for itself, and which a deployment can set away from `BLUE_DATA_PLANNER_MODEL` (ADR-005) |
 | `BLUE_DATA_PLANNER_LOTUS_MAX_ROWS` | `5000` | The rows a LOTUS operation accepts before refusing the call, passed to `lotus_operators` |
 | `BLUE_DATA_PLANNER_ENABLE_NL2TABLE` | `false` | Whether `builtin.nl2table` is registered, which writes a Python program and runs it (ADR-020) |
 | `BLUE_DATA_PLANNER_MAX_*` | The `RunLimits` defaults | One per bound, listed in [section 5](#5-request-limits) |
 | `BLUE_DATA_CLI_FORMAT` | `table` | The CLI's default output format |
-| `BLUE_DATA_CLI_LOG_LIMIT` | `80` | How many lines of trace `--log` prints |
+| `BLUE_DATA_CLI_LOG_LIMIT` | `80` | The characters each trace line is truncated to |
 | `LOG_LEVEL` | `INFO` | Logging verbosity |
 
 One model string serves every component. `DataPlanner`'s constructor takes a client per component,
