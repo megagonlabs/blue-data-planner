@@ -1007,8 +1007,9 @@ that changes them.
 | Everything else, `pipeline` included | As above | The same, as JSON |
 
 These differences exist because an agent reasons about the outcome, and a full transcript of every
-exchange would bloat every response ([09](09-api-interface-spec.md#planning-tools)). The library and
-the CLI carry them in full.
+exchange would bloat every response ([09](09-api-interface-spec.md#planning-tools)). A library
+caller reads them in full off the returned result, and the CLI's `--log` prints what a review said
+about each attempt.
 
 A run that did not finish returns the same object with its status, `answer` null, and its counters,
 in every interface. There is no separate error shape.

@@ -30,7 +30,7 @@ platform package is a dependency of the library.
 | Package | Path | Depends on |
 | --- | --- | --- |
 | `blue-data-planner` | `lib/` | `blue-data-ops`, `blue-data`, `pydantic`, `jsonmerge`, `jsonpath-ng` |
-| `blue-data-planner-cli` | `platform/cli/` | `blue-data-planner`, `click`, `rich`, `python-dotenv` |
+| `blue-data-planner-cli` | `platform/cli/` | `blue-data-planner`, `blue-data`, `click`, `rich` |
 | `blue-data-planner-mcp` | `platform/mcp/` | `blue-data-planner`, `mcp`, `pydantic` |
 
 The MCP package pins `blue-data-planner` to an exact version. The CLI follows the same rule, because
@@ -170,10 +170,12 @@ its behavior needs, not an install.
 | --- | --- |
 | Command routing and argument parsing | `click>=8` |
 | Terminal output | `rich>=13` |
-| Configuration loading | `python-dotenv` |
+| Profiles, configuration resolution, and secret storage | `blue-data` |
 
-Click matches `platform/cli/` in the sibling Blue repositories, and Rich renders the per-fragment
-progress table and the result rows that [02-scenarios.md](02-scenarios.md) shows.
+Click matches `platform/cli/` in the sibling Blue repositories, and Rich renders the progress
+indicator, the trace, and the result rows that [02-scenarios.md](02-scenarios.md) shows.
+`blue-data` carries the configuration engine every Blue CLI resolves its profile through, so one
+set of rules governs precedence and secret handling across the family (ADR-028).
 
 ### MCP server
 
@@ -199,16 +201,16 @@ Not part of the first release ([03-high-level-architecture.md](03-high-level-arc
 
 ## Configuration
 
-Configuration comes from environment variables. An adapter loads a `.env` file with
-`dotenv.load_dotenv(override=True)` at startup and passes values into the library; the library
-itself does not read the environment, since it takes concrete implementations and settings as
-injected values. `.env` files are never committed.
+The library takes concrete implementations and settings as injected values and reads no environment
+variable itself. The MCP server reads the environment and loads a `.env` file with
+`dotenv.load_dotenv(override=True)` at startup; `.env` files are never committed. The CLI reads a
+profile, with the environment above it and below a command option (ADR-028).
 
-| Variable | Read by | For |
+| Setting | Read by | For |
 | --- | --- | --- |
 | `OPENAI_API_KEY` | litellm, through `llm/` | The five planner calls above, and LOTUS operators |
-| `BLUE_DATA_PLANNER_MODEL` | The adapter, passed to `llm/` | The default litellm model string for every component that calls a model |
-| `BLUE_DATA_REGISTRY_PATH` | The adapter, passed to `data/` | The serialized registry an adapter opens and plans against |
+| `BLUE_DATA_PLANNER_MODEL` | The interface, passed to `llm/` | The default litellm model string for every component that calls a model |
+| `BLUE_DATA_REGISTRY_PATH` | The interface, passed to `data/` | The serialized registry it opens and plans against |
 
 The full list of settings and their defaults belongs to
 [12-deployment-ops.md](12-deployment-ops.md), including the operator call budget, the bound on each
@@ -259,7 +261,8 @@ has the files and which script writes each one.
 | `mcp` | `platform/mcp/` | Required | MCP server |
 | `click` | `platform/cli/` | Required | CLI command routing |
 | `rich` | `platform/cli/` | Required | CLI output formatting |
-| `python-dotenv` | `platform/*` | Required | Loads `.env` at adapter startup |
+| `python-dotenv` | `platform/mcp/` | Required | Loads `.env` at server startup |
+| `blue-data` | `platform/cli/` | Required | Profiles, configuration resolution, secret storage |
 | `pytest`, `pytest-asyncio`, `pytest-cov` | All | `dev` extra | Test tiers |
 | `ruff`, `pyright` | All | `dev` extra | Lint and type gates |
 | `build`, `twine` | All | `dev` extra | Packaging and publishing |

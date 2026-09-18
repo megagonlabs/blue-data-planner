@@ -34,7 +34,7 @@ column a database can compare directly, while "data scientist role" and "healthc
 judgments no column holds.
 
 ```bash
-blue-data-planner ask "Which Bay Area data scientist postings are at healthcare companies?"
+blue-planner data query "Which Bay Area data scientist postings are at healthcare companies?"
 ```
 
 ### The first plan: two questions about the catalog
@@ -267,13 +267,13 @@ The analyst can stop after planning, which spends no operator calls and is worth
 expensive question over a large source.
 
 ```bash
-blue-data-planner ask --explain "Which Bay Area data scientist postings are at healthcare companies?"
+blue-planner plan query "Which Bay Area data scientist postings are at healthcare companies?"
 ```
 
-For this question, `--explain` shows the first plan and stops at the two `DISCOVER` nodes.
-Everything after them depends on what the searches return, and no search has run. That is what
-`--explain` shows for any question over registered data, since the first plan over registered data
-is the one that asks the catalog. For a question the planner answers from its own world knowledge it
+For this question, `plan query` shows the first plan and stops at the two `DISCOVER` nodes.
+Everything after them depends on what the searches return, and no search has run. That is what it
+shows for any question over registered data, since the first plan over registered data is the one
+that asks the catalog. For a question the planner answers from its own world knowledge it
 prints the complete plan and the cover over it, which is the pushdown boundary before anything is
 spent on it.
 
@@ -342,8 +342,8 @@ produced.
 
 The MCP response collapses what an agent reasons about into counts. The exchanges with the model are
 a call count and a cost rather than eleven transcripts, and the discovery node reports how many
-records matched rather than listing them, because the full record would bloat every response. The
-library and the CLI carry both in full.
+records matched rather than listing them, because the full record would bloat every response. A
+library caller reads both in full off the returned result.
 
 The agent does not have to know that the run discovered a source, ended a pass, and took a pushdown
 boundary back, since the tool call still reads as one request and one answer. The record is there if
@@ -399,7 +399,7 @@ record = result.pipeline.to_dict()   # structured data, safe to write to a file 
 ```
 
 An application that wants to see the plan before anything is spent stops after planning, which is
-what `--explain` does at the command line.
+what `plan query` does at the command line.
 
 ```python
 preview = planner.plan("Which Bay Area data scientist postings are at healthcare companies?")

@@ -97,8 +97,8 @@ takes a plan: a plan is what a request produced, not something a caller hands in
 | Run a request | The rows that answer it, together with every plan and every attempt the run produced | Yes |
 | Plan a request | The same record with status `planned` and no rows: the logical plan and the cover over it, and nothing run | No |
 
-The second is what the CLI's `--explain` prints, and what a measurement of where pushdown boundaries
-get drawn reads. Argument and return shapes are in
+The second is what the CLI's `plan query` prints, and what a measurement of where pushdown
+boundaries get drawn reads. Argument and return shapes are in
 [09-api-interface-spec.md](09-api-interface-spec.md).
 
 `DataPlanner` owns the loop from request to answer, set out in

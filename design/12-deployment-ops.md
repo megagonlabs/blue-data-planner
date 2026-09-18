@@ -32,15 +32,20 @@ All three packages publish to PyPI, and the documented consumer path is `python 
 ```bash
 python -m venv .venv && source .venv/bin/activate
 pip install blue-data-planner
+pip install blue-data-planner-cli
 pip install blue-data-planner-mcp
 ```
+
+Installing the CLI package puts `blue-planner` on the path, and installing the MCP package puts
+`blue-data-planner-mcp` there.
 
 Development installs from a checkout instead, the same way `blue-data` and `blue-data-kb-source` are
 installed.
 
 ```bash
 cd lib && pip install -e .
-cd ../platform/mcp && pip install -e .
+cd ../platform/cli && pip install -e .
+cd ../mcp && pip install -e .
 ```
 
 The library's extras select what an install pays for.
@@ -89,24 +94,54 @@ answer.
 
 ## 4. Configuration
 
-The library takes settings as injected values and reads no environment variable itself. Each adapter
-loads a `.env` file with `dotenv.load_dotenv(override=True)` at startup and passes what it reads
-into the constructor. `.env` files are never committed.
+The library takes settings as injected values and reads no environment variable itself. Each
+interface loads what it needs and passes it into the constructors.
+
+The MCP server reads the environment, and loads a `.env` file with `dotenv.load_dotenv(override=True)`
+at startup, which is how a client launching it as a subprocess configures it. `.env` files are never
+committed.
+
+`blue-planner` reads a profile, and resolves each setting in one order (ADR-028): **command option,
+then environment variable, then profile, then default**. It loads no `.env` file, so nothing sits
+above the exported environment.
 
 | Variable | Default | For |
 | --- | --- | --- |
 | `OPENAI_API_KEY` | None, required | Every component that calls a model, and LOTUS operations |
+| `BLUE_DATA_REGISTRY_PATH` | None, required | The serialized registry an interface opens and plans against |
 | `BLUE_DATA_PLANNER_MODEL` | `openai/gpt-4o` | The litellm model string every component uses |
-| `BLUE_DATA_PLANNER_LOTUS_MODEL` | `openai/gpt-4o` | The litellm model string an adapter passes to `lotus_operators`, which LOTUS then configures for itself, independently of `BLUE_DATA_PLANNER_MODEL` (ADR-005) |
+| `BLUE_DATA_PLANNER_OPERATORS` | `builtin,lotus` | Which operator suites are registered, as a comma-separated list over `builtin`, `lotus`, and `blue` |
+| `BLUE_DATA_PLANNER_LOTUS_MODEL` | `openai/gpt-4o` | The litellm model string an interface passes to `lotus_operators`, which LOTUS then configures for itself, independently of `BLUE_DATA_PLANNER_MODEL` (ADR-005) |
 | `BLUE_DATA_PLANNER_LOTUS_MAX_ROWS` | `5000` | The rows a LOTUS operation accepts before refusing the call, passed to `lotus_operators` |
-| `BLUE_DATA_REGISTRY_PATH` | None, required | The serialized registry an adapter opens and plans against |
-| `BLUE_DATA_PLANNER_ENABLE_NL2TABLE` | `false` | Whether the adapter registers `builtin.nl2table`, which writes a Python program and runs it (ADR-020) |
+| `BLUE_DATA_PLANNER_ENABLE_NL2TABLE` | `false` | Whether `builtin.nl2table` is registered, which writes a Python program and runs it (ADR-020) |
+| `BLUE_DATA_PLANNER_MAX_*` | The `RunLimits` defaults | One per bound, listed in [section 5](#5-request-limits) |
+| `BLUE_DATA_CLI_FORMAT` | `table` | The CLI's default output format |
+| `BLUE_DATA_CLI_LOG_LIMIT` | `80` | How many lines of trace `--log` prints |
 | `LOG_LEVEL` | `INFO` | Logging verbosity |
 
 One model string serves every component. `DataPlanner`'s constructor takes a client per component,
 so a deployment that wants a stronger model for logical planning than for writing parameters builds
 them itself ([09-api-interface-spec.md](09-api-interface-spec.md#assembly)). Whether that split
 should be the default is open question 18.
+
+### The CLI's profile
+
+A profile is a named set of these values, and `blue-planner profile` manages them
+([09-api-interface-spec.md](09-api-interface-spec.md#2-cli)). The CLI keeps them under its own home
+directory, which `BLUE_DATA_PLANNER_HOME` relocates.
+
+```text
+~/.blue-planner/
+├── .profiles           # one section per profile, mode 0600
+└── .selected.profile   # what `profile select` wrote
+```
+
+A secret is stored either as an encoded value or as a reference such as `$OPENAI_API_KEY`, read from
+the environment when a command runs. The reference form keeps a key off disk entirely; the encoded
+form keeps it off a screen, and the file mode is what protects it.
+
+`BLUE_DATA_PLANNER_HOME` is not itself a profile parameter, since the profiles live inside the
+directory it names.
 
 ---
 
@@ -115,7 +150,8 @@ should be the default is open question 18.
 `RunLimits` holds every bound the run loop obeys, and it is set once, when the planner is built
 (ADR-014). Nothing overrides one per request. An operator enforcing a bound on work it repeats
 inside a single call holds that number itself, and a deployment does not set it. The values in force
-are the defaults on `RunLimits`, which is where a deployment reads them.
+are the defaults on `RunLimits`, and a deployment raises or lowers one by setting
+`BLUE_DATA_PLANNER_MAX_` plus the field's name ([section 4](#4-configuration)).
 
 Where a bound is counted decides whether a result can report it. Three are counted across a whole
 request and are the fields of `RunCounters`. The other three are spent inside a loop and start again

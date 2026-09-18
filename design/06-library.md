@@ -105,7 +105,7 @@ rather than feeding one back in.
 | `run` | Plans, covers, executes, repairs, until the request ends | A `RunResult` whose status says how it ended |
 | `plan` | Writes one logical plan and one cover, then stops | A `RunResult` with status `planned` and `answer` set to `None` |
 
-`plan` is what the CLI's `--explain` prints and what a measurement of where pushdown boundaries get
+`plan` is what the CLI's `plan query` prints and what a measurement of where pushdown boundaries get
 drawn reads. It spends no operator call. A plan whose first pass ends in a `DISCOVER` node comes
 back as it stands, with no search run, since resolving one would start the second pass.
 

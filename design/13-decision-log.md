@@ -778,6 +778,84 @@ after its first, and a request those cannot fix replans.
 
 ---
 
+## ADR-027 — The CLI Follows the Blue CLI Family's Command Shape
+
+**Decision:** The command is `blue-planner`, and every invocation reads
+`<cli> <component> <action> <parameters>`. Components are `data`, `plan`, and `profile`; actions come
+from the family's verb list; `--profile`, `--format`, `--log`, and `--log-limit` carry the meanings
+they carry in the other Blue CLIs. Running a request is `data query`, and the only deviation is that
+`nl` is absent from `--format` (ADR-029).
+
+**Rationale:** The planner is one component of the Data Intelligence Layer, and a user reaching it
+from `blue-registry` or `blue-kb` should not have to learn a second grammar for the same kind of
+work. `data query` is also the operation those CLIs already name that way: a question in plain
+language, answered from registered data. A single verb such as `ask` would be shorter and would have
+no place to put the profile actions, which every Blue CLI needs and which are defined only inside
+this grammar.
+
+**Consequences:** The command surface grows a level before it grows a command. A new capability
+arrives as an action on an existing component, or as a new component, rather than as a flag on a
+single command. Deviations from the family are recorded, since a reader is entitled to assume the
+family's meaning everywhere it is not.
+
+---
+
+## ADR-028 — CLI Configuration Lives in a Profile
+
+**Decision:** `blue-planner` resolves every setting as command option, then environment variable,
+then the selected profile, then the default. Profiles live in `~/.blue-planner/.profiles`, over the
+configuration engine `blue-data` publishes, and `BLUE_DATA_PLANNER_HOME` relocates the directory. A
+secret is stored encoded or as an environment reference, never accepted as a command-line value, and
+masked wherever the CLI prints it. The CLI loads no `.env` file. The MCP server keeps reading the
+environment, and loads one.
+
+**Rationale:** A profile is what lets one machine hold a demonstration setup and a production one
+without a shell full of exports, and the engine that implements it already exists in `blue-data`, so
+every Blue CLI resolves settings and stores secrets by the same rules. `load_dotenv(override=True)`
+is what keeps the CLI out of that scheme: a file that overrides the exported environment sits
+between the option and the profile in a way the documented order cannot describe. The MCP server has
+no interactive user to configure a profile, and a client that launches it as a subprocess passes an
+environment, so the file stays useful there.
+
+**Consequences:** The CLI package depends on `blue-data` directly, which the library reaches only
+through `data/`. Every bound on a run is a profile parameter rather than a flag, so a request that
+needs a different budget selects a different profile. A demonstration configures itself with
+`profile config` rather than with a `.env` file in the checkout.
+
+---
+
+## ADR-029 — The CLI Prints Rows, and Offers No Prose Format
+
+**Decision:** `--format` accepts `table` and `json`. The family's third name, `nl`, is not offered.
+
+**Rationale:** The family offers `nl` where a source answers in prose. A planner's answer is the
+`RETURN` node's rows, and turning rows into a sentence is a model call nothing in the library makes,
+so offering the format would mean either an interface that plans behavior of its own (ADR-002) or a
+format that prints something other than what it promises. Naming a format the command cannot honor
+is worse than leaving it out.
+
+**Consequences:** A caller wanting a sentence writes one from the rows. Whether the library should
+be able to phrase an answer is open question 54, and the format arrives with it if it ever does.
+
+---
+
+## ADR-030 — Three Exit Codes, and an Error Code for What They Do Not Separate
+
+**Decision:** The CLI exits 0 when the command succeeded, 2 for a usage error, and 1 for everything
+else, including a run that did not finish and a configuration failure. What kind of failure it was
+is the `<CODE>` in the `ERROR: <CODE> <description>` line on standard error.
+
+**Rationale:** The other Blue CLIs use these three, and a script written against one of them should
+read the same number from all of them. A fourth code for configuration would separate one failure
+class in this repository alone, while the error codes separate every class in every repository at
+once, which is the separation a caller can actually rely on.
+
+**Consequences:** A caller distinguishing a missing API key from an exhausted budget reads the error
+code or the JSON payload rather than `$?`. A run that did not finish still prints its result under
+`--format json`, so the status is machine-readable without parsing the error line.
+
+---
+
 ## Open Questions
 
 Design questions first, then defects in code that exists today.
@@ -804,3 +882,7 @@ Design questions first, then defects in code that exists today.
 | 50 | Does the boundary hold against a program built to defeat it rather than one merely wrong? `check_program` refuses `attrgetter`, `methodcaller`, and `get_field` by name, and the module a program imports is wrapped so an attribute access returning another module is refused. Neither refuses a program that reaches the same attribute through a format-string field reference (`"{0.__globals__[os]}".format(x)`), which performs the identical by-name lookup through a mechanism no AST walk inspects, since the field name is a string constant rather than a parsed attribute access. A function bound into the child's namespace is defined in `program_run.py` itself, whose own module holds `os` and `subprocess` for its own parent-side process management, so this route reaches the child process's environment — which, following this repository's own convention, can hold provider credentials. Building a class through the `type` builtin to capture a live rather than a stringified object during field resolution reaches every class the interpreter knows, `subprocess.Popen` included. `str.format` is too ordinary a method to refuse outright, so closing this needs an answer at a different level than a name check: whether the child process inherits the parent's environment at all, whether a function bound into the child's namespace may come from a module holding a name this boundary exists to keep a program from reaching, and whether `type` belongs on the child's builtins. | Whether `builtin.nl2table` can be enabled for a program not known to be adversarial without one of these three closed |
 | 51 | What does a compound operation do with a fragment whose frontier carries rows, before it can read one? `blue.nl2sql` declares bound inputs, so the physical planner offers it groups whose inputs arrive from an earlier fragment. A query written from a source's schema alone would answer from that source and leave those rows out, which is a wrong answer rather than a failure, and refusing the bundle as a recoverable failure is what keeps it from being returned. That refusal costs an operator call on a candidate that could not have worked. Narrowing the declaration instead would stop the candidate being enumerated at all, and would have to be widened again by hand once the operation reads its bundle, so the declaration states the target state and is not narrowed. What is unsettled is whether the refusal should cost a call, and whether a candidate an operator is known to refuse should be enumerated at all. That is question 44's shape: a constraint the declaration has no vocabulary for is stated in `limitations`, and the candidate is offered anyway. | Whether a fragment with a non-empty frontier reaches the compound Blue operation, and what a run spends finding out that it cannot serve one |
 | 52 | Should a group whose node lists reference inputs be offered to an operation declaring one logical operator? Arity is a floor in a plan, so a node may list more inputs than its kind transforms ([10-data-model.md](10-data-model.md#how-many-inputs-a-node-takes)), and the bundle built for such a group carries one table per input the fragment reads, which is more tables than the arity names. An operation reading only the tables its arity names refuses that bundle as a recoverable failure, and the physical planner covers the node set again, so the run spends an operator call on a candidate the cover could have skipped. Nothing in a declaration says whether an operation can read a table without transforming it: `logical_operators` names the kinds an operation covers and no field carries the rest, which is the shape questions 44 and 51 share. Two routes. The cover compares a node's input count against the arity and offers only operators declared to read a reference input, which needs that field written first. Or the refusal stays where it is and its cost is accepted, on the grounds that what an operation can read moves with its own suite while a hand-written declaration has to be rewritten to follow. | Whether a plan the arity floor admits is one every operator bound to it can run, and what a run spends on a call refused for the length of its bundle |
+| 53 | What does a run record carry per fragment attempt? `--log` shows every attempt a cover made, with the operator that ran it and the review's own words where one was rejected ([09-api-interface-spec.md](09-api-interface-spec.md#2-cli)), and that is the record of where each pushdown boundary was drawn. `RunResult` files an accepted result by signature and carries a rejected one only as turns in the fragment runner's conversation ([10-data-model.md](10-data-model.md#3-what-a-run-produces)), so the trace's rejected lines are prose a reader parses rather than data a caller reads. Keeping each attempt as structured data would put every consumer — the CLI, the MCP response, and the benchmark harness — on the same record, at the cost of a result that grows with the repairs a request needed. Against it: the conversation already holds every word of the exchange, and a second copy of the rejection has to be kept consistent with it. | Whether the trace and the benchmark harness read structured attempts or parse a conversation |
+| 54 | Should the library be able to phrase an answer, and the CLI then offer `--format nl`? The family offers a natural-language format where a source answers in prose, and ADR-029 leaves it out because a planner answers in rows. A benchmark whose expected answers are single values, and an agent that wants a sentence rather than a table, both suggest the phrasing has to happen somewhere; doing it in an interface is behavior in an adapter (ADR-002), so the question is whether a library operation should return prose alongside the rows, and what it costs in model calls per request. | Whether `--format nl` and the MCP response ever carry a sentence, and which component writes it |
+| 55 | Should a run be kept on disk so a plan can be read back? The CLI's home directory holds profiles and nothing else, so a plan printed by `plan query` is gone when the terminal scrolls, and `data query` keeps no record a later command could inspect. The family's storage convention has a place for one (`~/.<cli>/<profile>/<component>/`), and `from_dict` already reads a recorded plan back ([06-library.md](06-library.md#two-operations)). What is unsettled is whether a CLI should accumulate state at all for a planner that holds none between requests, and what would remove an old run. | Whether the CLI grows an action that reads a plan it wrote earlier |
+

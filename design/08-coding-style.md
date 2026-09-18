@@ -322,10 +322,10 @@ The split is deliberate: a shipped multi-command interface earns a dependency th
 does not.
 
 ```python
-@click.command()
+@data.command("query")
 @click.argument("request")
-@click.option("--explain", is_flag=True, help="Print the plan without running it.")
-def ask(request: str, explain: bool) -> None: ...
+@click.option("--format", "output_format", type=click.Choice(["table", "json"]), default="table")
+def data_query(request: str, output_format: str) -> None: ...
 ```
 
 ---

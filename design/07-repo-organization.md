@@ -82,13 +82,16 @@ blue-data-planner/
 └── platform/
     ├── cli/
     │   ├── README.md
-    │   ├── pyproject.toml              # blue-data-planner = commands:cli
+    │   ├── pyproject.toml              # blue-planner = commands:cli
     │   ├── scripts/
     │   │   ├── build.sh
     │   │   └── install.sh
     │   ├── src/blue_data_planner_cli/
-    │   │   ├── commands.py             # the ask command and its options
-    │   │   └── config.py               # what the environment supplies
+    │   │   ├── commands.py             # the data, plan, and profile groups
+    │   │   ├── config.py               # resolved settings, and the planner they assemble
+    │   │   ├── profile.py              # the profile actions
+    │   │   ├── profile_spec.json       # the parameters a profile holds
+    │   │   └── output.py               # tables, result JSON, the trace, error lines
     │   └── tests/
     └── mcp/
         ├── README.md
@@ -212,13 +215,14 @@ Two modules and a console script, which is the shape both sibling repositories s
 
 | File | Holds |
 | --- | --- |
-| `commands.py` or `server.py` | Everything the interface does: parsing, formatting, error mapping, and the entry point the console script names |
-| `config.py` | What the environment supplies, read once at startup |
+| `commands.py` or `server.py` | What the interface parses and which library call each command reaches, and the entry point the console script names |
+| `config.py` | The settings in force, resolved once at startup, and the planner they assemble |
+| `profile.py`, `profile_spec.json`, `output.py` | The CLI's three subjects that are not command routing: the profile actions, the parameters a profile holds, and how a result is rendered |
 | `pyproject.toml` | The package, and the console script under `[project.scripts]` |
 | `scripts/` | `build.sh` and `install.sh`. Publishing is a tag in CI ([12-deployment-ops.md](12-deployment-ops.md)), so no platform package carries a `publish.sh` |
 
-The CLI has no `commands/` package. One command with many options is one module, and a directory
-for it would follow a convention neither sibling repository actually uses.
+The CLI has no `commands/` package. Three command groups fit in one module, which is what the
+sibling Blue CLIs do with more groups than that.
 
 The MCP package has no module for wire shapes or for tool registration. Two tools and one planner
 fit beside the bootstrap, and a suite that exposes one tool per operator — which this repository

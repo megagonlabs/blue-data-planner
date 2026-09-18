@@ -227,73 +227,105 @@ request as `planner_failed` with the message in `failure_reason`.
 
 ## 2. CLI
 
-One command. `plan` and `run` subcommands are deliberately absent: a plan is an output rather than
-an input, so there is nothing for a `run` subcommand to read.
+`blue-planner` puts the two library operations on the command line, in the shape the Blue CLI family
+uses: `<cli> <component> <action> <parameters>` (ADR-027).
 
 ```bash
-blue-data-planner ask "Which Bay Area data scientist postings are at healthcare companies?"
+blue-planner data query "Which Bay Area data scientist postings are at healthcare companies?"
 ```
 
-### Arguments and options
+### Commands
 
-| Option | Type | Default | Effect |
-| --- | --- | --- | --- |
-| `REQUEST` | positional, required | | The question, in plain language |
-| `--explain` | flag | off | Call `plan` instead of `run`: print the plan and the cover, and stop |
-| `--json` | flag | off | Print the whole `RunResult` as JSON instead of a table |
-| `--show-conversations` | flag | off | Include the exchanges with the model in the printed output |
-| `--model` | string | from the environment | The litellm model string every component uses |
-| `--registry` | string | from the environment | Which `blue-data` registry to read |
-| `--quiet` | flag | off | Suppress the per-fragment progress lines |
-
-Each of the seven bounds has a flag, named `--max-` plus its `RunLimits` field name. The prefix is
-what says the number is a cap, which the field name alone does not: `RunLimits` drops it because
-the type name already says limits, and a command line has no such container.
-
-| Flag | Sets |
+| Command | Does |
 | --- | --- |
-| `--max-operator-calls` | `operator_calls` |
-| `--max-plan-corrections` | `plan_corrections` |
-| `--max-parameter-repairs` | `parameter_repairs` |
-| `--max-cover-repairs` | `cover_repairs` |
-| `--max-failure-replans` | `failure_replans` |
-| `--max-control-replans` | `control_replans` |
+| `data query REQUEST` | Runs `run`: plans, covers, executes, and repairs until the request ends, then prints the answer |
+| `plan query REQUEST` | Runs `plan`: writes one logical plan and one cover, prints them, and spends no operator call |
+| `profile add NAME` | Creates a profile |
+| `profile remove NAME` | Deletes a profile, after a confirmation |
+| `profile list` | Names every profile, marking the selected one |
+| `profile config [PARAM [VALUE]]` | Prompts for every parameter marked as asked, prompts for one, or sets one |
+| `profile inspect` | Every parameter, the value in force, and the tier that supplied it |
+| `profile select NAME` | Makes one profile the one later commands read |
 
-A flag left off takes the deployment's default. The CLI builds one planner per invocation, so the
-flags reach `RunLimits` before the planner exists and no bound is set twice.
+The request is a positional parameter, in plain language. A plan is an output rather than an input,
+so no command accepts one.
+
+### Options
+
+| Option | Commands | Effect |
+| --- | --- | --- |
+| `--profile NAME` | All | Which profile supplies configuration |
+| `--registry PATH` | The two query actions | The `blue-data` registry to plan over |
+| `--model NAME` | The two query actions | The litellm model string every component uses |
+| `--format table\|json` | Anything printing a result | How the result is written, `table` by default |
+| `--log` | The two query actions | Print the run's trace after the run |
+| `--log-limit N` | The two query actions | Cap that trace, 80 lines by default |
+| `--confirm` | `profile remove` | Answer the confirmation ahead of time |
+| `--version` | The root | The package version |
+
+Every bound on a run is a profile parameter rather than a flag: a bound is configuration, and
+configuration belongs to a profile (ADR-028). `--registry` and `--model` are the two an operator
+changes between one invocation and the next.
+
+`nl` is not one of the formats. An answer is a set of rows, and phrasing rows as a sentence is
+behavior no library operation has (ADR-029).
 
 ### Output
 
-Progress goes to standard error as each fragment finishes, grouped by cover, so redirecting standard
-output captures only the answer. Each line names the fragment, the logical nodes it covered, the
-operator that ran it, and what happened, which is the pushdown boundary and its outcome.
+Standard output carries the result. Standard error carries the progress indicator, the trace, the
+closing summary, and errors, so redirecting standard output captures the answer alone.
+
+`--format table` renders each table in the answer under its own column names. `--format json` writes
+the `RunResult` in the JSON form [10-data-model.md](10-data-model.md#3-what-a-run-produces) fixes,
+and nothing else reaches standard output. While a run is in flight, a terminal gets a progress
+indicator naming the stage that is running.
+
+`--log` prints the run's trace after the run, grouped by cover. One line is one attempt: the logical
+nodes it covered, the operator that ran it, and how it ended — a row count where a review accepted
+the result, the review's own words where it did not, which is the pushdown boundary and its outcome.
+Under `--format json` the same trace is one JSON object on standard error. `--log-limit` keeps the
+most recent attempts and says how many earlier ones it dropped.
 
 ```text
 cover 1
-  f1  n2,n3,n4  tablesuite.nl2sql          rejected: titles that are not data scientist roles
-  f2  n5        tablesuite.document_fetch  ok (140 rows)
-  f1  n2,n3,n4  tablesuite.nl2sql          rejected: the same, with the predicate written into the SQL text
+  f1  n2,n3,n4  lotus.sem_filter      rejected: kept rows outside the bay area counties
+  f2  n5        builtin.source_scan   ok (140 rows)
+  f1  n2,n3,n4  lotus.sem_filter      rejected: the same predicate, rewritten
 cover 2
-  f1  n2,n3     tablesuite.nl2sql          ok (48 rows)
-  f2  n4        textsuite.semantic_filter  ok (11 rows)
+  f1  n2,n3     builtin.source_scan   ok (48 rows)
+  f2  n4        lotus.sem_filter      ok (11 rows)
+counters  operator calls 7/30   failure replans 0/2   control replans 1/2
+model     11 calls   $0.42
 ```
 
-The answer follows on standard output as a Rich table, or as JSON under `--json`. A run that did not
-finish prints its status, the counter that ran out, and the fragment that failed, then exits
-non-zero. Under `--explain` the plan and the cover are printed and no answer follows.
+### Errors and exit codes
 
-### Exit codes
+An error reaches standard error as `ERROR: <CODE> <description>`.
 
-| Code | Meaning |
+| Code | Raised for |
 | --- | --- |
-| 0 | `status` is `ok` or `planned` |
-| 1 | The run finished with any other status |
-| 2 | Bad usage: a missing argument, an unparseable option |
-| 3 | Bad configuration: no API key, an unreachable registry |
+| `USAGE` | A missing argument, an unknown option, a value outside what an option allows |
+| `CONFIG_MISSING` | A required parameter with no value: the registry path, the API key |
+| `CONFIG_INVALID` | A parameter whose value cannot be used, such as an unknown operator suite |
+| `REGISTRY_UNREADABLE` | A registry path that does not exist or does not parse |
+| `PROFILE_NOT_FOUND` | A named profile that does not exist |
+| `INVALID_PLAN`, `REPLAN_EXHAUSTED`, `BUDGET_EXHAUSTED`, `OPERATOR_FAILED`, `LLM_FAILED`, `PLANNER_FAILED` | A run that ended with that status, carrying its failure reason |
+| `INTERNAL_ERROR` | An exception the adapter did not expect. The traceback prints under `--log` |
 
-A logical plan no operator can cover is not a configuration error. The physical planner answers
-`no_operator` per node and returns to the logical planner, and a request that never finds a cover
-ends as `replan_exhausted`, which is code 1 ([06-library.md](06-library.md#operatorrouter)).
+| Exit code | Meaning |
+| --- | --- |
+| 0 | The command succeeded; for a query action, the run ended `ok` or `planned` |
+| 1 | Any error above other than a usage error |
+| 2 | A usage error |
+
+A configuration failure is told apart by its error code (ADR-030). A logical plan no operator can
+cover is neither: the physical planner answers `no_operator` per node and returns to the logical
+planner, and a request that never finds a cover ends as `replan_exhausted`, which is code 1
+([06-library.md](06-library.md#operatorrouter)).
+
+Under `--format json`, a run that produced a result prints that result whatever its status, so a
+failed run stays machine-readable. A failure with no result prints
+`{"error": {"code": ..., "description": ...}}` on standard error.
 
 ---
 
@@ -371,14 +403,39 @@ shapes are specified when someone builds it.
 
 ## Configuration
 
-The library takes settings as injected values. Each adapter loads a `.env` file with
-`dotenv.load_dotenv(override=True)` at startup and passes what it reads into the constructor.
+The library takes settings as injected values and reads no environment variable itself. Each
+interface loads what it needs and passes it into the constructors.
 
-| Variable | Used by | For |
-| --- | --- | --- |
-| `OPENAI_API_KEY` | Both adapters | Planning, physical planning, parameters, review, discovery, and LOTUS operations |
-| `BLUE_DATA_PLANNER_MODEL` | Both adapters | The default litellm model string, which `--model` overrides |
-| `BLUE_DATA_REGISTRY_PATH` | Both adapters | The serialized registry an adapter opens and plans against |
+The MCP server reads the environment, which is how a client that launches it as a subprocess
+configures it. `blue-planner` resolves each setting in one order — **command option > environment
+variable > profile > default** — and `profile inspect` reports the tier that supplied each value
+(ADR-028).
 
-Their defaults, and how a deployment sets them, belong to
-[12-deployment-ops.md](12-deployment-ops.md).
+| Parameter | Cast | Default | Asked by `profile config` |
+| --- | --- | --- | --- |
+| `OPENAI_API_KEY` | secret | None, required | ✓ |
+| `BLUE_DATA_REGISTRY_PATH` | file | None, required | ✓ |
+| `BLUE_DATA_PLANNER_MODEL` | str | `openai/gpt-4o` | ✓ |
+| `BLUE_DATA_PLANNER_OPERATORS` | str | `builtin,lotus` | ✓ |
+| `BLUE_DATA_PLANNER_LOTUS_MODEL` | str | Inherits `BLUE_DATA_PLANNER_MODEL` | |
+| `BLUE_DATA_PLANNER_LOTUS_MAX_ROWS` | int | `5000` | |
+| `BLUE_DATA_PLANNER_ENABLE_NL2TABLE` | bool | `false` | |
+| `BLUE_DATA_PLANNER_MAX_OPERATOR_CALLS` | int | `30` | |
+| `BLUE_DATA_PLANNER_MAX_PLAN_CORRECTIONS` | int | `5` | |
+| `BLUE_DATA_PLANNER_MAX_PARAMETER_REPAIRS` | int | `3` | |
+| `BLUE_DATA_PLANNER_MAX_COVER_REPAIRS` | int | `2` | |
+| `BLUE_DATA_PLANNER_MAX_FAILURE_REPLANS` | int | `2` | |
+| `BLUE_DATA_PLANNER_MAX_CONTROL_REPLANS` | int | `2` | |
+| `BLUE_DATA_CLI_FORMAT` | str | `table` | |
+| `BLUE_DATA_CLI_LOG_LIMIT` | int | `80` | |
+
+A `MAX_` name is a `RunLimits` field with a prefix saying the number is a cap, which the field name
+alone does not: `RunLimits` drops it because the type name already says limits, and a profile has no
+such container. The two `BLUE_DATA_CLI_` names are the family's, shared with the other Blue CLIs.
+
+A secret is never a command-line value. `profile config OPENAI_API_KEY` prompts, and stores either
+an encoded value or a reference such as `$OPENAI_API_KEY`, resolved when a command runs.
+`profile inspect` masks a stored secret and shows a reference by name with whether it resolves.
+
+Where each value lands is [12-deployment-ops.md](12-deployment-ops.md#4-configuration), together
+with the directory a profile lives in.
