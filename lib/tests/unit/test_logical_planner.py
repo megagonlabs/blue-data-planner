@@ -253,6 +253,9 @@ def test_a_continuation_is_a_turn_on_top_of_the_plans_already_written() -> None:
         "assistant",
     ]
     assert "the discovery found two tables" in conversation.turns[3].content
+    # The request and catalog preview were already sent on turn 1; a continuation must not
+    # resend them, or the prefix the model already cached stops matching (ADR-025).
+    assert "a request" not in conversation.turns[3].content
 
 
 def test_the_opening_instructions_carry_nothing_that_varies_by_request() -> None:

@@ -321,6 +321,10 @@ def test_a_repair_answers_the_binding_it_is_replacing_in_the_same_conversation()
 
     assert sum(1 for turn in conversation.turns if turn.role == "system") == 1
     assert "it returned nothing" in conversation.turns[-2].content
+    # The discovered entities were already sent on the opening turn; a repair must not
+    # resend them, or the prefix the model already cached stops matching (ADR-025).
+    assert "The entities the searches found" in conversation.turns[1].content
+    assert "The entities the searches found" not in conversation.turns[-2].content
 
 
 def test_the_opening_instructions_carry_nothing_that_varies_by_plan() -> None:

@@ -6,9 +6,12 @@ from collections.abc import Callable
 from typing import Any
 
 import pytest
+from pydantic import BaseModel
 
 from blue_data_planner.data_planner import DataPlanner
 from blue_data_planner.llm import LLMError
+from blue_data_planner.operators import OperatorRouter
+from blue_data_planner.physical_planner import PhysicalPlanner
 from blue_data_planner.types import (
     ControlOperator,
     Conversation,
@@ -19,6 +22,7 @@ from blue_data_planner.types import (
     LogicalPlan,
     LogicalPlanResult,
     OutputColumn,
+    PhysicalOperator,
     PhysicalPlan,
     PhysicalPlanFragment,
     PhysicalPlanResult,
@@ -33,6 +37,7 @@ from tests.doubles.components import (
     FakeLogicalPlanner,
     FakePhysicalPlanner,
 )
+from tests.doubles.llm import ScriptedLLMClient
 
 
 def a_scan_and_ending(plan_id: str) -> LogicalPlan:
@@ -298,6 +303,110 @@ def test_a_replan_gives_the_next_plan_its_own_covers() -> None:
     # cover_repairs=1 means two covers per logical plan, and there are two plans.
     assert len(physical.covered_plan_ids) == 4
     assert result.status is RunStatus.REPLAN_EXHAUSTED
+
+
+def a_scan_and_a_filter(plan_id: str) -> LogicalPlan:
+    """n1 SCAN -> n2 FILTER -> n3 RETURN, two nodes an operator cannot fuse into one fragment."""
+    return LogicalPlan(
+        id=plan_id,
+        parent_id=None,
+        output_node_id="n3",
+        nodes=[
+            PipelineNode(
+                id="n1",
+                kind=LogicalOperator.SCAN,
+                input_node_ids=[],
+                attributes={"instruction": "read the postings"},
+                required_output_columns=[OutputColumn(name="title", dtype="str")],
+            ),
+            PipelineNode(
+                id="n2",
+                kind=LogicalOperator.FILTER,
+                input_node_ids=["n1"],
+                attributes={"instruction": "keep the Python ones"},
+                required_output_columns=[OutputColumn(name="title", dtype="str")],
+            ),
+            PipelineNode(
+                id="n3",
+                kind=LogicalOperator.RETURN,
+                input_node_ids=["n2"],
+                attributes={"columns": ["title"]},
+            ),
+        ],
+    )
+
+
+class _NoParameters(BaseModel):
+    """A parameter schema for an operator this test never calls."""
+
+
+def a_single_kind_operator(operator_id: str, kind: LogicalOperator) -> PhysicalOperator:
+    """One registered operator declaring only this kind, reading no registered source."""
+    return PhysicalOperator(
+        operator_id=operator_id,
+        logical_operators=frozenset({kind}),
+        description=f"{operator_id} does its one job.",
+        parameter_schema=_NoParameters,
+        call=lambda inputs, parameters, columns: None,  # pyright: ignore[reportArgumentType]
+        source_kinds=None,
+    )
+
+
+def a_binding(label: str, inputs: tuple[str, ...] = ()) -> dict[str, Any]:
+    """One binding decision's payload, naming each node on the chosen candidate's frontier."""
+    payload: dict[str, Any] = {
+        "candidate": label,
+        "instruction": "do it",
+        "required_output_columns": None,
+    }
+    for node_id in inputs:
+        payload[f"input_name_{node_id}"] = f"the {node_id} table"
+        payload[f"input_description_{node_id}"] = f"the rows {node_id} produced"
+    return {"choice": payload}
+
+
+def test_a_cover_repair_carries_an_unchanged_fragment_forward_without_rerunning_it() -> None:
+    """ADR-026 holds only if reuse survives a real repair loop, not just each link in isolation."""
+    router = OperatorRouter()
+    router.register(a_single_kind_operator("builtin.scan", LogicalOperator.SCAN))
+    router.register(a_single_kind_operator("builtin.filter", LogicalOperator.FILTER))
+    client = ScriptedLLMClient(
+        [
+            # First cover: n2 (the consumer) is bound before n1, per the physical planner's
+            # reverse dependency order.
+            a_binding("n2:builtin.filter:[n2]", inputs=("n1",)),
+            a_binding("n1:builtin.scan:[n1]"),
+            # Repair cover, same logical plan: n2 is rebound, n1 is offered back as reuse.
+            a_binding("n2:builtin.filter:[n2]", inputs=("n1",)),
+            {"choice": {"candidate": "n1:reuse:[n1]"}},
+        ]
+    )
+    physical = PhysicalPlanner(client, router)  # pyright: ignore[reportArgumentType]
+    runner = FakeFragmentRunner(
+        [
+            an_accepted_fragment(),  # n1
+            an_escalating_fragment(),  # n2, first attempt: triggers the cover repair
+            an_accepted_fragment(),  # n2, after the repair
+        ]
+    )
+
+    result = DataPlanner(
+        FakeLogicalPlanner([ok(a_scan_and_a_filter("p1"))]),  # pyright: ignore[reportArgumentType]
+        physical,
+        runner,  # pyright: ignore[reportArgumentType]
+        FakeCatalogSearcher(),  # pyright: ignore[reportArgumentType]
+        RunLimits(),
+    ).run("list the Python job titles")
+
+    assert result.status is RunStatus.OK
+    covers = list(result.pipeline.physical_plans.values())
+    assert len(covers) == 2  # the opening cover, plus the one cover repair
+    n1_fragment_ids = {
+        fragment.id for cover in covers if (fragment := cover.fragment_for_root("n1"))
+    }
+    # The reused fragment is the same object across both covers, not a rebuilt copy of it.
+    assert len(n1_fragment_ids) == 1
+    assert runner.ran.count(next(iter(n1_fragment_ids))) == 1
 
 
 def test_a_plan_no_operator_can_cover_is_replanned_with_the_reason_in_hand() -> None:

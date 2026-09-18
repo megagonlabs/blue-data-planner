@@ -527,7 +527,7 @@ def cover_choice_schema(
     root_node_id: str,
     candidates: list[tuple[frozenset[str], PhysicalOperator]],
     reusable: PhysicalPlanFragment | None,
-    entity_paths: frozenset[str],
+    entity_source_kinds: Mapping[str, str],
 ) -> type[BaseModel]: ...
 ```
 
@@ -536,7 +536,8 @@ Each builds the Pydantic model the model client is handed as a strict response s
 from the node schemas, so a plan naming an operation the vocabulary has no member for cannot be
 produced. `cover_choice_schema` is built for one binding decision from that decision's own
 candidates: a candidate set holding no `SCAN` has no field in which to name a source, and where a
-scan does appear the allowed values are the paths in `entity_paths`. It reads `plan` for one thing,
+scan does appear the allowed values are narrowed to the paths whose discovered source kind matches
+what that candidate's operator declares it reads. It reads `plan` for one thing,
 which is which of a candidate's nodes are scans. The candidate that reuses the fragment already
 covering the node is a choice and nothing else: it carries no instruction, no input names, and no
 source, because everything about that fragment is already written down.

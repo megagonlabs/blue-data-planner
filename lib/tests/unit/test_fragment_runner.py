@@ -86,7 +86,7 @@ def a_runner_over(client: ScriptedLLMClient, behavior: Any) -> FragmentRunner:
 
 
 def counters(repairs: int = 2, operator_calls: int = 10) -> RunCounters:
-    """Counters bounding one run() call, standing in for the CallBudget a test used to pass."""
+    """Counters bounding one run() call's parameter repairs and operator calls."""
     return RunCounters(RunLimits(parameter_repairs=repairs, operator_calls=operator_calls))
 
 

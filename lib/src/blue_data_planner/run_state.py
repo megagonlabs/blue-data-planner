@@ -113,6 +113,15 @@ class RunState:
 
     def install_cover(self, cover: PhysicalPlan) -> None:
         """Add the cover, move the pointer, and sign the work it asks for."""
+        if cover.logical_plan_id != self.pipeline.current_logical_plan_id:
+            # signatures() below signs the cover against the current logical plan, so a cover
+            # built for a different one would be signed against the wrong graph rather than
+            # failing loudly.
+            raise BlueDataPlannerError(
+                f"cover {cover.id!r} was built for logical plan {cover.logical_plan_id!r}, but "
+                f"the pipeline's current logical plan is "
+                f"{self.pipeline.current_logical_plan_id!r}"
+            )
         # Nothing is compared and nothing is deleted: a fragment whose work changed carries a
         # signature no earlier result sits under, and one whose work did not finds its own.
         self.pipeline.physical_plans[cover.id] = cover

@@ -137,8 +137,9 @@ def _candidate_model(
     operator: PhysicalOperator,
     entity_source_kinds: Mapping[str, str],
 ) -> type[BaseModel]:
+    label = candidate_label(root_node_id, operator.operator_id, node_ids)
     fields: dict[str, Any] = {
-        "candidate": (_only(candidate_label(root_node_id, operator.operator_id, node_ids)), ...),
+        "candidate": (_only(label), ...),
         "instruction": (
             str,
             Field(description="What this fragment is to do, as one instruction to the operator."),
@@ -174,7 +175,7 @@ def _candidate_model(
         # bare str would let the model invent a path.
         if not readable:
             raise BlueDataPlannerError(
-                f"candidate {index} binds {operator.operator_id} to {scan_ids}, but no "
+                f"candidate {label!r} binds {operator.operator_id} to {scan_ids}, but no "
                 f"discovered entity has a source kind it reads "
                 f"({sorted(operator.source_kinds)})"
             )

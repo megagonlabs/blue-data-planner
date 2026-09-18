@@ -122,7 +122,6 @@ class RunConversations:
 
     @property
     def usage(self) -> list[LLMUsage]:
-        """Every model call the planner made, in the order the conversations hold them."""
         collected = list(self.logical_planner.usage)
         for held in (self.physical_planner, self.fragment_runner, self.catalog_searcher):
             for conversation in held.values():
