@@ -22,6 +22,7 @@ from blue_data_planner_cli.config import (
 from blue_data_planner_cli.output import (
     error_line,
     print_answer,
+    print_plan,
     summary_line,
     trace_lines,
     trace_payload,
@@ -92,6 +93,41 @@ def data_query(
         ctx.exit(1)
 
 
+@cli.group("plan")
+def plan_group() -> None:
+    """Write a plan for a question without running it."""
+
+
+@plan_group.command("query")
+@click.argument("request")
+@click.option("--registry", default=None, help="The blue-data registry to plan over.")
+@click.option("--model", default=None, help="The litellm model string every component uses.")
+@click.option("--format", "output_format", type=click.Choice(["table", "json"]), default=None)
+@click.option("--log", is_flag=True, help="Print the run's trace after the run.")
+@click.option("--log-limit", type=int, default=None, help="Truncate each trace line.")
+@click.pass_context
+def plan_query(
+    ctx: click.Context,
+    request: str,
+    registry: str | None,
+    model: str | None,
+    output_format: str | None,
+    log: bool,
+    log_limit: int | None,
+) -> None:
+    """Write one logical plan and one cover, and print them."""
+    try:
+        _run_query(ctx, "plan", request, registry, model, output_format, log, log_limit)
+    except CliError as failure:
+        Console(stderr=True).print(
+            error_line(failure.code, failure.description),
+            markup=False,
+            highlight=False,
+            soft_wrap=True,
+        )
+        ctx.exit(1)
+
+
 def _run_query(
     ctx: click.Context,
     operation: str,
@@ -111,7 +147,10 @@ def _run_query(
     # The indicator is a terminal courtesy: a redirected stream gets none of it.
     with errors.status(f"Planning {request[:40]}…") if errors.is_terminal else _nothing():
         result: RunResult = getattr(planner, operation)(request)
-    print_answer(result, chosen_format, Console())
+    if operation == "plan":
+        print_plan(result, chosen_format, Console())
+    else:
+        print_answer(result, chosen_format, Console())
     if log:
         _print_trace(errors, result, chosen_format, limit)
     errors.print(summary_line(result), markup=False)

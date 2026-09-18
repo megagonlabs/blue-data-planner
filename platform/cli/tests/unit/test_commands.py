@@ -9,6 +9,14 @@ from typing import Any
 
 import pytest
 from blue_data_planner import RunResult, RunStatus
+from blue_data_planner.types import (
+    DataPipeline,
+    LogicalOperator,
+    LogicalPlan,
+    PhysicalPlan,
+    PhysicalPlanFragment,
+    PipelineNode,
+)
 from click.testing import CliRunner
 
 from blue_data_planner_cli import commands
@@ -210,3 +218,54 @@ def test_main_exits_zero_after_a_successful_run(
         commands.main()
 
     assert excinfo.value.code == 0
+
+
+def a_planned_pipeline() -> DataPipeline:
+    """Return a pipeline with one logical plan and one matching cover, each holding one step."""
+    logical_plan = LogicalPlan(
+        id="l1",
+        parent_id=None,
+        nodes=[PipelineNode(id="n1", kind=LogicalOperator.SCAN)],
+        output_node_id="n1",
+    )
+    physical_plan = PhysicalPlan(
+        id="p1",
+        parent_id=None,
+        logical_plan_id="l1",
+        fragments=[
+            PhysicalPlanFragment(
+                id="f1",
+                logical_node_ids=["n1"],
+                root_logical_node_id="n1",
+                operator_id="blue.select",
+                scan_sources={},
+                instruction="scan the stores table",
+                input_data=[],
+                required_output_columns=[],
+            )
+        ],
+    )
+    return DataPipeline(
+        logical_plans={"l1": logical_plan},
+        physical_plans={"p1": physical_plan},
+        current_logical_plan_id="l1",
+        current_physical_plan_id="p1",
+    )
+
+
+def test_planning_prints_the_cover_and_spends_no_operator_call(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The point of this command is seeing the boundary before paying for it."""
+    double = a_planner_answering(
+        monkeypatch, a_run_result(status=RunStatus.PLANNED, pipeline=a_planned_pipeline())
+    )
+
+    result = CliRunner().invoke(
+        cli, ["plan", "query", "which cities have stores"], env=a_configured_environment(tmp_path)
+    )
+
+    assert result.exit_code == 0
+    assert double.operations == ["plan"]
+    assert "n1" in result.stdout
+    assert "blue.select" in result.stdout

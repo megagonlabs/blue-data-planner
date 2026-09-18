@@ -24,6 +24,30 @@ def print_answer(result: RunResult, output_format: str, console: Console) -> Non
         console.print(_as_table(table_rows))
 
 
+def print_plan(result: RunResult, output_format: str, console: Console) -> None:
+    """Print the logical plan and the cover a planning run produced."""
+    if output_format == "json":
+        console.print_json(data=result_payload(result))
+        return
+    for plan in result.pipeline.logical_plans.values():
+        nodes = Table("Node", "Kind", "Instruction")
+        for node in plan.nodes:
+            # The instruction is model-authored, so it goes through Text like every other
+            # cell in _as_table: a plain string with square brackets would be read as markup.
+            instruction = str(node.attributes.get("instruction", ""))
+            nodes.add_row(Text(node.id), Text(str(node.kind)), Text(instruction))
+        console.print(nodes)
+    for cover in result.pipeline.physical_plans.values():
+        fragments = Table("Fragment", "Nodes", "Operator")
+        for fragment in cover.fragments:
+            fragments.add_row(
+                Text(fragment.id),
+                Text(",".join(fragment.logical_node_ids)),
+                Text(fragment.operator_id),
+            )
+        console.print(fragments)
+
+
 def result_payload(result: RunResult) -> dict[str, Any]:
     """Return the JSON form of a run: everything but the model transcripts."""
     return {
