@@ -9,7 +9,8 @@ from blue_data_planner import RunResult
 from blue_data_planner.plan import signatures
 from blue_data_planner.types import ErrorInfo, ExecutionResult
 from rich.console import Console
-from rich.table import Table
+from rich.table import Column, Table
+from rich.text import Text
 
 
 def print_answer(result: RunResult, output_format: str, console: Console) -> None:
@@ -87,10 +88,12 @@ def error_line(code: str, description: str) -> str:
 
 
 def _as_table(rows: list[dict[str, Any]]) -> Table:
+    # Every header and cell is a Text rather than a string: Rich reads square brackets in a
+    # string as markup, which drops "[red, blue]" and raises on "[/red]".
     columns = list(rows[0]) if rows else []
-    table = Table(*columns)
+    table = Table(*(Column(header=Text(column)) for column in columns))
     for row in rows:
-        table.add_row(*(str(row.get(column, "")) for column in columns))
+        table.add_row(*(Text(str(row.get(column, ""))) for column in columns))
     return table
 
 

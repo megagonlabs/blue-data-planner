@@ -126,6 +126,18 @@ def test_a_table_carries_the_column_names_the_rows_came_with() -> None:
     assert "school" in printed and "takers" in printed and "Lowell" in printed
 
 
+def test_an_answer_value_holding_square_brackets_reaches_the_table_whole() -> None:
+    """An answer is data a model wrote, so Rich must not read a bracket in one as markup."""
+    result = a_run_result(answer=[[{"co[/red]lumn": "cols [red, blue]"}]])
+    console, buffer = a_console()
+
+    print_answer(result, "table", console)
+
+    printed = buffer.getvalue()
+    assert "co[/red]lumn" in printed
+    assert "cols [red, blue]" in printed
+
+
 def test_the_json_format_prints_the_payload_rather_than_a_table() -> None:
     """Under --format json the one thing standard output carries is the result."""
     console, buffer = a_console()

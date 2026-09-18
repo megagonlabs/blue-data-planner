@@ -86,6 +86,18 @@ def test_an_unknown_operator_suite_is_a_configuration_error(tmp_path: Path) -> N
     assert "sqlmagic" in raised.value.description
 
 
+def test_an_output_format_outside_the_two_is_a_configuration_error(tmp_path: Path) -> None:
+    """A name the printer does not know would otherwise print a table and report nothing."""
+    resolver = a_resolver_over(tmp_path, BLUE_DATA_CLI_FORMAT="yaml")
+
+    with pytest.raises(CliError) as raised:
+        resolve_settings(resolver)
+
+    assert raised.value.code == "CONFIG_INVALID"
+    assert "yaml" in raised.value.description
+    assert "table" in raised.value.description and "json" in raised.value.description
+
+
 def test_a_registry_path_naming_no_file_is_reported_before_a_run_starts(tmp_path: Path) -> None:
     """An unreadable registry is a configuration failure, not a run that ends badly."""
     resolver = a_resolver_over(tmp_path)

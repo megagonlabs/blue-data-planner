@@ -33,6 +33,8 @@ DEFAULT_CLI_HOME: str = "~/.blue-planner"
 
 OPERATOR_SUITES: tuple[str, ...] = ("builtin", "lotus", "blue")
 
+OUTPUT_FORMATS: tuple[str, ...] = ("table", "json")
+
 _LIMIT_FIELDS: tuple[str, ...] = (
     "operator_calls",
     "plan_corrections",
@@ -104,6 +106,13 @@ def resolve_settings(
             f"expected one or more of {', '.join(OPERATOR_SUITES)}",
         )
     planner_model = str(_require(resolver, "BLUE_DATA_PLANNER_MODEL", model))
+    output_format = str(_get(resolver, "BLUE_DATA_CLI_FORMAT"))
+    if output_format not in OUTPUT_FORMATS:
+        raise CliError(
+            "CONFIG_INVALID",
+            f"BLUE_DATA_CLI_FORMAT names {output_format}; "
+            f"expected one of {', '.join(OUTPUT_FORMATS)}",
+        )
     return PlannerSettings(
         registry_path=registry_path,
         model=planner_model,
@@ -117,7 +126,7 @@ def resolve_settings(
                 for field in _LIMIT_FIELDS
             }
         ),
-        output_format=str(_get(resolver, "BLUE_DATA_CLI_FORMAT")),
+        output_format=output_format,
         log_limit=int(_get(resolver, "BLUE_DATA_CLI_LOG_LIMIT")),
     )
 
