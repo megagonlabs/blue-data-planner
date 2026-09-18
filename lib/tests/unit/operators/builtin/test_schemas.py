@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, cast
 
 import pytest
 from pydantic import BaseModel, ValidationError
@@ -12,14 +12,34 @@ from blue_data_planner.operators.builtin.schemas import (
     AndPredicate,
     BoundValues,
     Comparison,
+    ComparisonValue,
+    DistinctParameters,
+    ExpandParameters,
     FilterParameters,
     IndexedBoundValues,
+    JoinParameters,
     Nl2TableParameters,
     NotPredicate,
     OrPredicate,
     ProjectParameters,
     ScanParameters,
+    SortSuperlativeParameters,
+    UnionParameters,
 )
+
+# Every schema a model fills for a built-in operator, which is what an operator declares.
+BUILTIN_PARAMETER_SCHEMAS = [
+    AggregateParameters,
+    DistinctParameters,
+    ExpandParameters,
+    FilterParameters,
+    JoinParameters,
+    Nl2TableParameters,
+    ProjectParameters,
+    ScanParameters,
+    SortSuperlativeParameters,
+    UnionParameters,
+]
 
 
 def test_a_predicate_reads_back_as_the_tree_it_was_written_as() -> None:
@@ -55,6 +75,21 @@ def test_a_predicate_reads_back_as_the_tree_it_was_written_as() -> None:
 
 
 @pytest.mark.parametrize(
+    "value",
+    ["CA", 4, 4.0, True, None, ["CA", "NY"], [1, 2.5]],
+)
+def test_a_comparison_keeps_the_kind_of_value_it_was_written_with(value: ComparisonValue) -> None:
+    """A value compares as a string, a number, a boolean, null, or a list, and is not coerced
+    into a neighboring type on the way in."""
+    operator = "in" if isinstance(value, list) else "is_null" if value is None else "eq"
+
+    written = Comparison.model_validate({"column": "state", "operator": operator, "value": value})
+
+    assert written.value == value
+    assert type(written.value) is type(value)
+
+
+@pytest.mark.parametrize(
     ("schema", "parameters"),
     [
         (FilterParameters, {"predicate": {"column": "closed", "operator": "is_null", "value": 1}}),
@@ -64,6 +99,7 @@ def test_a_predicate_reads_back_as_the_tree_it_was_written_as() -> None:
             {"predicate": {"column": "state", "operator": "matches", "value": "CA"}},
         ),
         (FilterParameters, {"predicate": {"column": "closed", "operator": "eq"}}),
+        (FilterParameters, {"predicate": {"column": "tags", "operator": "eq", "value": {"a": 1}}}),
         (AggregateParameters, {"aggregations": [{"function": "avg", "into": "mean"}]}),
         (ProjectParameters, {"columns": []}),
         (ProjectParameters, {"columns": [{"column": "id"}], "unknown": 1}),
@@ -175,3 +211,30 @@ def test_nl2tables_scan_source_keeps_the_input_index_its_bound_values_were_given
     bound_values = parameters.scan_sources[0].bound_values
     assert bound_values is not None
     assert bound_values.input_index == 1
+
+
+def typeless_subschemas(schema: dict[str, Any]) -> list[str]:
+    """Return the path of every field of a JSON schema that declares no type of its own."""
+    declares_a_type = {"type", "anyOf", "allOf", "$ref", "enum", "const"}
+    found: list[str] = []
+
+    def walk(node: Any, path: str) -> None:
+        if not isinstance(node, dict):
+            return
+        for name, field in cast(dict[str, Any], node).get("properties", {}).items():
+            if not declares_a_type & cast(dict[str, Any], field).keys():
+                found.append(f"{path}.{name}")
+        for key, child in cast(dict[str, Any], node).items():
+            if isinstance(child, dict):
+                walk(child, f"{path}.{key}")
+
+    walk(schema, "")
+    return found
+
+
+@pytest.mark.parametrize("schema", BUILTIN_PARAMETER_SCHEMAS)
+def test_a_parameter_schema_declares_a_type_for_every_value_it_takes(
+    schema: type[BaseModel],
+) -> None:
+    """A provider enforcing a schema during decoding refuses a field that names no type."""
+    assert typeless_subschemas(schema.model_json_schema()) == []

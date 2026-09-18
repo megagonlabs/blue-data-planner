@@ -16,6 +16,10 @@ AggregationFunction = Literal["count", "sum", "avg", "min", "max"]
 SortDirection = Literal["asc", "desc"]
 JoinKind = Literal["inner", "left"]
 
+# An explicit union rather than Any, which pydantic renders as a schema declaring no type at
+# all: a provider enforcing a schema strictly refuses one. A list is what "in" compares against.
+ComparisonValue = str | int | float | bool | list[str | int | float] | None
+
 
 class Comparison(BaseModel):
     """One column checked against one value."""
@@ -24,7 +28,7 @@ class Comparison(BaseModel):
 
     column: str = Field(min_length=1)
     operator: ComparisonOperator
-    value: Any = None
+    value: ComparisonValue = None
 
     @model_validator(mode="before")
     @classmethod
