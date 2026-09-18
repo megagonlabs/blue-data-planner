@@ -19,6 +19,7 @@ from blue_data_planner.types import (
     RunCounters,
     RunLimits,
     RunStatus,
+    Turn,
 )
 from blue_data_planner.types import (
     PipelineNode as Node,
@@ -118,9 +119,7 @@ def an_accepted_fragment(rows: list[dict[str, object]] | None = None) -> Fragmen
     return FragmentResult(
         status=RunStatus.OK,
         result=an_ok_result(rows if rows is not None else [{"title": "SWE"}]),
-        attempts=[],
         failure_reason=None,
-        usage=[],
     )
 
 
@@ -378,3 +377,14 @@ def test_the_counters_a_result_reports_are_the_ones_the_run_spent() -> None:
 
     assert result.counters.operator_calls == 1
     assert result.counters.limits.operator_calls == 30
+
+
+def test_the_result_a_caller_receives_carries_the_conversations_the_run_held() -> None:
+    """The conversations are where a rejected plan and a rejected set of parameters are read."""
+    state = a_state()
+    state.conversations.logical_planner.turns.append(Turn(role="system", content="fixed"))
+
+    result = state.to_result(RunStatus.OK, None, answer=[[{"title": "SWE"}]])
+
+    assert result.conversations is state.conversations
+    assert not hasattr(result, "planner_usage")

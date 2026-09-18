@@ -144,21 +144,6 @@ class RunConversations:
 
 
 @dataclass(frozen=True)
-class FragmentAttempt:
-    """One try at one fragment, whether or not the review kept it."""
-
-    physical_plan_id: str
-    fragment_id: str
-    logical_node_ids: list[str]
-    operator_id: str
-    operator_attributes: dict[str, Any]
-    # None when the operator raised before returning anything.
-    result: ExecutionResult | None
-    assessment: str | None
-    decision: FragmentReviewDecision
-
-
-@dataclass(frozen=True)
 class LogicalPlanResult:
     """What the logical planner produced, or the objection that stopped it."""
 
@@ -181,20 +166,7 @@ class FragmentResult:
 
     status: RunStatus
     result: ExecutionResult | None  # what the review accepted, None on every other ending
-    attempts: list[FragmentAttempt]  # rejected ones included, in order
     failure_reason: str | None
-    usage: list[LLMUsage]
-
-
-@dataclass(frozen=True)
-class CatalogSearchResult:
-    """What one catalog search found, and what finding it cost."""
-
-    # A pair rather than a field on DiscoveryResult: a DiscoveryResult goes into the run's
-    # results map and reaches the caller inside RunResult, where usage would be counted
-    # a second time.
-    discovery: DiscoveryResult
-    usage: list[LLMUsage]
 
 
 @dataclass(frozen=True)
@@ -202,17 +174,16 @@ class RunResult:
     """Everything one request produced, whether it worked or not."""
 
     status: RunStatus
-    # None rather than [] unless status is ok, so a caller who ignores the status cannot
-    # mistake a failed run for an empty answer.
+    # None rather than [] unless status is ok, so a caller who ignores the status cannot mistake
+    # a failed run for an empty answer.
     answer: DataBundle | None
-    # Why the run ended as it did, in the words of whatever ended it. Every failure status
-    # carries one; ok never does, and planned does only when no cover could be written.
+    # Why the run ended as it did, in the words of whatever ended it. Every failure status carries
+    # one; ok never does, and planned does only when no cover could be written.
     failure_reason: str | None
     pipeline: DataPipeline
     results: dict[str, ExecutionResult | DiscoveryResult]  # keyed by signature
-    attempts: list[FragmentAttempt]
     counters: RunCounters
-    planner_usage: list[LLMUsage]
+    conversations: RunConversations
 
 
 @dataclass(frozen=True)

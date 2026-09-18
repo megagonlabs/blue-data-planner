@@ -9,7 +9,6 @@ from blue_data_planner.llm import Conversation, LLMClient, Turn
 from blue_data_planner.llm.templating import safe_substitute
 from blue_data_planner.prompts import prompt_text
 from blue_data_planner.types import (
-    CatalogSearchResult,
     DataBundle,
     DiscoveryResult,
     EntityMatch,
@@ -44,9 +43,21 @@ class CatalogSearcher:
         self._catalog = catalog
         self._max_search_terms = max_search_terms
 
-    def search(self, node: PipelineNode, inputs: DataBundle) -> CatalogSearchResult:
+    def search(
+        self, node: PipelineNode, conversation: Conversation, inputs: DataBundle
+    ) -> DiscoveryResult:
         """Write search terms from the node's instruction and search the registry for each."""
-        conversation = Conversation(turns=[Turn(role="system", content=self._prompt(node, inputs))])
+        if not conversation.turns:
+            conversation.turns.append(
+                Turn(
+                    role="system",
+                    content=safe_substitute(
+                        prompt_text("catalog_searcher.md"),
+                        max_search_terms=self._max_search_terms,
+                    ),
+                )
+            )
+        conversation.turns.append(Turn(role="user", content=self._ask(node, inputs)))
         written = self._llm_client.complete_structured(conversation, SearchTerms)
         kept = written.terms[: self._max_search_terms]
         matches: dict[str, EntityMatch] = {}
@@ -55,20 +66,16 @@ class CatalogSearcher:
                 held = matches.get(match.path)
                 if held is None or match.score > held.score:
                     matches[match.path] = match
-        return CatalogSearchResult(
-            discovery=DiscoveryResult(
-                search_terms=kept,
-                matches=sorted(matches.values(), key=lambda match: -match.score),
-                dropped_terms=len(written.terms) - len(kept),
-            ),
-            usage=list(conversation.usage),
+        return DiscoveryResult(
+            search_terms=kept,
+            matches=sorted(matches.values(), key=lambda match: -match.score),
+            dropped_terms=len(written.terms) - len(kept),
         )
 
-    def _prompt(self, node: PipelineNode, inputs: DataBundle) -> str:
+    def _ask(self, node: PipelineNode, inputs: DataBundle) -> str:
         return safe_substitute(
-            prompt_text("catalog_searcher.md"),
+            prompt_text("catalog_searcher_turn.md"),
             instruction=node.attributes.get("instruction", ""),
-            max_search_terms=self._max_search_terms,
             input_tables=_render_tables(inputs),
         )
 

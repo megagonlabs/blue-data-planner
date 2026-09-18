@@ -14,9 +14,7 @@ from blue_data_planner.types import (
     Conversation,
     ExecutionResult,
     ExecutionStatus,
-    FragmentAttempt,
     FragmentResult,
-    FragmentReviewDecision,
     LogicalOperator,
     LogicalPlan,
     LogicalPlanResult,
@@ -148,24 +146,7 @@ def an_accepted_fragment() -> FragmentResult:
         operator_id="builtin.scan",
         row_count=1,
     )
-    return FragmentResult(
-        status=RunStatus.OK,
-        result=result,
-        attempts=[
-            FragmentAttempt(
-                physical_plan_id="",
-                fragment_id="f1",
-                logical_node_ids=["n1"],
-                operator_id="builtin.scan",
-                operator_attributes={},
-                result=result,
-                assessment="looks right",
-                decision=FragmentReviewDecision.ACCEPT,
-            )
-        ],
-        failure_reason=None,
-        usage=[],
-    )
+    return FragmentResult(status=RunStatus.OK, result=result, failure_reason=None)
 
 
 def an_escalating_fragment() -> FragmentResult:
@@ -173,20 +154,7 @@ def an_escalating_fragment() -> FragmentResult:
     return FragmentResult(
         status=RunStatus.NEEDS_REPAIR,
         result=None,
-        attempts=[
-            FragmentAttempt(
-                physical_plan_id="",
-                fragment_id="f1",
-                logical_node_ids=["n1"],
-                operator_id="builtin.scan",
-                operator_attributes={},
-                result=None,
-                assessment="the predicate matched nothing",
-                decision=FragmentReviewDecision.REJECT,
-            )
-        ],
         failure_reason="the predicate matched nothing",
-        usage=[],
     )
 
 

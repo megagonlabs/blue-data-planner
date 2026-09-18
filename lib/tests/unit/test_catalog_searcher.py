@@ -8,6 +8,7 @@ from blue_data_planner.catalog_searcher import CatalogSearcher
 from blue_data_planner.types import (
     AttributeRecord,
     ControlOperator,
+    Conversation,
     EntityMatch,
     PipelineNode,
 )
@@ -41,13 +42,13 @@ def a_match(term: str, score: float) -> EntityMatch:
     )
 
 
-def a_discover_node() -> PipelineNode:
+def a_discover_node(instruction: str = "find a source holding job postings") -> PipelineNode:
     """A DISCOVER node with no inputs, asking for a source of job postings."""
     return PipelineNode(
         id="n1",
         kind=ControlOperator.DISCOVER,
         input_node_ids=[],
-        attributes={"instruction": "find a source holding job postings"},
+        attributes={"instruction": instruction},
     )
 
 
@@ -65,17 +66,21 @@ def a_searcher(terms: list[str], catalog: Any, cap: int = 8) -> CatalogSearcher:
 def test_a_discovery_nodes_instruction_becomes_terms_and_each_searches_once() -> None:
     """One model call writes the terms, and every term reaches the registry."""
     catalog = FakeCatalog({"job postings": [a_match("job postings", 0.9)]})
-    result = a_searcher(["job postings", "vacancies"], catalog).search(a_discover_node(), [])
+    result = a_searcher(["job postings", "vacancies"], catalog).search(
+        a_discover_node(), Conversation(), []
+    )
     assert catalog.searched == ["job postings", "vacancies"]
-    assert result.discovery.search_terms == ["job postings", "vacancies"]
+    assert result.search_terms == ["job postings", "vacancies"]
 
 
 def test_terms_past_the_cap_are_dropped_and_counted() -> None:
     """A reader of the result can tell a complete search from a capped one."""
     catalog = FakeCatalog({})
-    result = a_searcher(["a", "b", "c"], catalog, cap=2).search(a_discover_node(), [])
+    result = a_searcher(["a", "b", "c"], catalog, cap=2).search(
+        a_discover_node(), Conversation(), []
+    )
     assert catalog.searched == ["a", "b"]
-    assert result.discovery.dropped_terms == 1
+    assert result.dropped_terms == 1
 
 
 def test_one_entity_found_by_two_terms_appears_once_keeping_its_better_score() -> None:
@@ -83,5 +88,19 @@ def test_one_entity_found_by_two_terms_appears_once_keeping_its_better_score() -
     catalog = FakeCatalog(
         {"job postings": [a_match("job postings", 0.4)], "vacancies": [a_match("vacancies", 0.9)]}
     )
-    result = a_searcher(["job postings", "vacancies"], catalog).search(a_discover_node(), [])
-    assert [(match.path, match.score) for match in result.discovery.matches] == [(POSTINGS, 0.9)]
+    result = a_searcher(["job postings", "vacancies"], catalog).search(
+        a_discover_node(), Conversation(), []
+    )
+    assert [(match.path, match.score) for match in result.matches] == [(POSTINGS, 0.9)]
+
+
+def test_the_opening_instructions_carry_nothing_that_varies_by_node() -> None:
+    """A search is one exchange, and its opening is the same one every search opens with."""
+    first, second = Conversation(), Conversation()
+    a_searcher(["stores"], FakeCatalog({})).search(a_discover_node(), first, [])
+    a_searcher(["salaries"], FakeCatalog({})).search(
+        a_discover_node(instruction="find the salary tables"), second, []
+    )
+
+    assert first.turns[0].content == second.turns[0].content
+    assert "find the salary tables" in second.turns[1].content

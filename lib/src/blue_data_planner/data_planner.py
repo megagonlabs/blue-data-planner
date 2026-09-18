@@ -88,7 +88,12 @@ class DataPlanner:
         return self._resolve_control_nodes(state)
 
     def _run_fragment(self, state: RunState, fragment: PhysicalPlanFragment) -> RunStatus | None:
-        result = self._fragment_runner.run(fragment, state.inputs_for(fragment), state.counters)
+        result = self._fragment_runner.run(
+            fragment,
+            state.conversations.for_fragment_runner(fragment.id),
+            state.inputs_for(fragment),
+            state.counters,
+        )
         state.record_fragment(fragment, result)
         if result.status is RunStatus.OK:
             return None
@@ -127,8 +132,12 @@ class DataPlanner:
             reasons.append(str(node.attributes.get("instruction", "")))
             if node.kind is not ControlOperator.DISCOVER:
                 continue
-            found = self._catalog_searcher.search(node, state.inputs_for_node(node))
-            state.record_discovery(node, found.discovery)
+            found = self._catalog_searcher.search(
+                node,
+                state.conversations.for_catalog_searcher(state.signature_of(node.id)),
+                state.inputs_for_node(node),
+            )
+            state.record_discovery(node, found)
         if not state.counters.spend_control_replan():
             state.failure_reason = "\n".join(reasons)
             return RunStatus.REPLAN_EXHAUSTED

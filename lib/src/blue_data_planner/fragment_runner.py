@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from typing import Any
-
 from pydantic import BaseModel, ConfigDict
 
 from blue_data_planner.data import DataCatalog
@@ -19,7 +17,6 @@ from blue_data_planner.types import (
     ErrorKind,
     ExecutionResult,
     ExecutionStatus,
-    FragmentAttempt,
     FragmentResult,
     FragmentReviewDecision,
     PhysicalOperator,
@@ -54,26 +51,25 @@ class FragmentRunner:
         self._router = router
 
     def run(
-        self, fragment: PhysicalPlanFragment, inputs: DataBundle, counters: RunCounters
+        self,
+        fragment: PhysicalPlanFragment,
+        conversation: Conversation,
+        inputs: DataBundle,
+        counters: RunCounters,
     ) -> FragmentResult:
-        """Run this fragment until a review accepts a result or the attempts run out."""
+        """Run this fragment until a review accepts a result or the repairs run out."""
         operator = self._router.resolve(fragment.operator_id)
-        conversation = Conversation(
-            turns=[Turn(role="system", content=self._prompt(fragment, operator, inputs))]
-        )
-        attempts: list[FragmentAttempt] = []
-        try:
-            return self._attempt_loop(fragment, operator, inputs, counters, conversation, attempts)
-        except BudgetExhaustedError:
-            # Catching it is what lets the attempts already made, and their usage, be
-            # returned rather than lost with the exception.
-            return _ended(
-                RunStatus.BUDGET_EXHAUSTED,
-                None,
-                attempts,
-                "the operator call budget ran out",
-                conversation,
+        if not conversation.turns:
+            conversation.turns.append(
+                Turn(role="system", content=prompt_text("fragment_runner.md"))
             )
+        conversation.turns.append(Turn(role="user", content=self._ask(fragment, operator, inputs)))
+        try:
+            return self._attempt_loop(fragment, operator, inputs, counters, conversation)
+        except BudgetExhaustedError:
+            # Catching it is what lets what the runner was doing stay readable, in the
+            # conversation the run state holds, rather than leaving with the exception.
+            return _ended(RunStatus.BUDGET_EXHAUSTED, None, "the operator call budget ran out")
 
     def _attempt_loop(
         self,
@@ -82,8 +78,9 @@ class FragmentRunner:
         inputs: DataBundle,
         counters: RunCounters,
         conversation: Conversation,
-        attempts: list[FragmentAttempt],
     ) -> FragmentResult:
+        last_assessment: str | None = None
+        last_error: str | None = None
         for _spent in range(counters.limits.parameter_repairs + 1):
             parameters = self._llm_client.complete_structured(
                 conversation, operator.parameter_schema
@@ -96,20 +93,10 @@ class FragmentRunner:
                 and result.error is not None
                 and result.error.kind is ErrorKind.UNRECOVERABLE
             ):
-                attempts.append(
-                    _attempt(fragment, parameters, result, None, FragmentReviewDecision.REJECT)
-                )
-                return _ended(
-                    RunStatus.OPERATOR_FAILED,
-                    None,
-                    attempts,
-                    result.error.message,
-                    conversation,
-                )
+                return _ended(RunStatus.OPERATOR_FAILED, None, result.error.message)
             if result.status is ExecutionStatus.FAILED and result.error is not None:
-                attempts.append(
-                    _attempt(fragment, parameters, result, None, FragmentReviewDecision.REJECT)
-                )
+                last_assessment = None
+                last_error = result.error.message
                 conversation.turns.append(
                     Turn(
                         role="user",
@@ -121,15 +108,12 @@ class FragmentRunner:
                 )
                 continue
             review = self._review(conversation, fragment, result)
-            attempts.append(
-                _attempt(fragment, parameters, result, review.assessment, review.decision)
-            )
+            last_assessment = review.assessment
+            last_error = None
             if review.decision is FragmentReviewDecision.ACCEPT:
-                return _ended(RunStatus.OK, result, attempts, None, conversation)
+                return _ended(RunStatus.OK, result, None)
             if review.decision is FragmentReviewDecision.REPLAN:
-                return _ended(
-                    RunStatus.NEEDS_REPLAN, None, attempts, review.assessment, conversation
-                )
+                return _ended(RunStatus.NEEDS_REPLAN, None, review.assessment)
             conversation.turns.append(
                 Turn(
                     role="user",
@@ -139,13 +123,7 @@ class FragmentRunner:
                     ),
                 )
             )
-        return _ended(
-            RunStatus.NEEDS_REPAIR,
-            None,
-            attempts,
-            _escalation_reason(attempts),
-            conversation,
-        )
+        return _ended(RunStatus.NEEDS_REPAIR, None, _escalation_reason(last_assessment, last_error))
 
     def _review(
         self,
@@ -156,14 +134,14 @@ class FragmentRunner:
         conversation.turns.append(Turn(role="user", content=_render_result(fragment, result)))
         return self._llm_client.complete_structured(conversation, Review)
 
-    def _prompt(
+    def _ask(
         self, fragment: PhysicalPlanFragment, operator: PhysicalOperator, inputs: DataBundle
     ) -> str:
         views: list[AttributeView] = []
         for entity_path in fragment.scan_sources.values():
             views.extend(self._catalog.attribute_views(entity_path))
         return safe_substitute(
-            prompt_text("fragment_runner.md"),
+            prompt_text("fragment_runner_turn.md"),
             instruction=fragment.instruction,
             operator_description=operator.description,
             operator_limitations=operator.limitations or "",
@@ -173,56 +151,16 @@ class FragmentRunner:
         )
 
 
-def _attempt(
-    fragment: PhysicalPlanFragment,
-    parameters: dict[str, Any],
-    result: ExecutionResult | None,
-    assessment: str | None,
-    decision: FragmentReviewDecision,
-) -> FragmentAttempt:
-    return FragmentAttempt(
-        # A fragment arrives without the cover it was cut from, so RunState.record_fragment
-        # stamps the cover id on every attempt it takes.
-        physical_plan_id="",
-        fragment_id=fragment.id,
-        logical_node_ids=list(fragment.logical_node_ids),
-        operator_id=fragment.operator_id,
-        operator_attributes=parameters,
-        result=result,
-        assessment=assessment,
-        decision=decision,
-    )
-
-
-def _escalation_reason(attempts: list[FragmentAttempt]) -> str:
-    # The last attempt has no assessment when it ended in a recoverable operator failure
-    # rather than a review; its error message is the only account of what went wrong, and
-    # DataPlanner._repair passes this straight into PhysicalPlanner.cover's non-optional
-    # reason, so it must never come back None.
-    if not attempts:
-        return "no attempt produced a result"
-    last = attempts[-1]
-    if last.assessment is not None:
-        return last.assessment
-    if last.result is not None and last.result.error is not None:
-        return last.result.error.message
-    return "no attempt produced a result"
+def _escalation_reason(assessment: str | None, error: str | None) -> str:
+    # This is passed straight into the cover repair's non-optional reason, so it must never come
+    # back None. A trailing recoverable failure left no review turn to quote.
+    return assessment or error or "no attempt produced a result"
 
 
 def _ended(
-    status: RunStatus,
-    result: ExecutionResult | None,
-    attempts: list[FragmentAttempt],
-    failure_reason: str | None,
-    conversation: Conversation,
+    status: RunStatus, result: ExecutionResult | None, failure_reason: str | None
 ) -> FragmentResult:
-    return FragmentResult(
-        status=status,
-        result=result,
-        attempts=attempts,
-        failure_reason=failure_reason,
-        usage=list(conversation.usage),
-    )
+    return FragmentResult(status=status, result=result, failure_reason=failure_reason)
 
 
 def _render_scan_sources(fragment: PhysicalPlanFragment) -> str:

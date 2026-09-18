@@ -144,9 +144,8 @@ class RunState:
             failure_reason=None if status is RunStatus.OK else failure_reason,
             pipeline=self.pipeline,
             results=self.results,
-            attempts=[],
             counters=self.counters,
-            planner_usage=[],
+            conversations=self.conversations,
         )
 
     def _outputs(self, node_ids: list[str]) -> DataBundle:

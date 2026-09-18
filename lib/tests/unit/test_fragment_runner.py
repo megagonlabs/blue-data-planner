@@ -10,6 +10,7 @@ from blue_data_planner.fragment_runner import FragmentRunner
 from blue_data_planner.operators import OperatorRouter
 from blue_data_planner.types import (
     AttributeView,
+    Conversation,
     DataBundle,
     ExecutionStatus,
     OperatorOutput,
@@ -89,6 +90,11 @@ def counters(repairs: int = 2, operator_calls: int = 10) -> RunCounters:
     return RunCounters(RunLimits(parameter_repairs=repairs, operator_calls=operator_calls))
 
 
+def a_review(decision: str, assessment: str = "looks right") -> dict[str, Any]:
+    """One scripted review turn's answer."""
+    return {"decision": decision, "assessment": assessment}
+
+
 def keeps_everything(
     inputs: DataBundle, parameters: dict[str, Any], columns: list[OutputColumn]
 ) -> OperatorOutput:
@@ -110,50 +116,66 @@ def raises_unrecoverably(
 ROWS: DataBundle = [[{"title": "SWE"}]]
 
 
+def assistant_turns(conversation: Conversation) -> int:
+    """Count the model's own turns, one per model call the run made."""
+    return sum(1 for turn in conversation.turns if turn.role == "assistant")
+
+
 def test_an_accepted_result_ends_the_fragment_with_the_run_continuing() -> None:
     """A review that accepts is the ordinary ending, and the result is the one kept."""
+    conversation = Conversation()
     runner = a_runner(
-        [{"predicate": "title is not null"}, {"decision": "accept", "assessment": "looks right"}],
+        [{"predicate": "title is not null"}, a_review("accept")],
         keeps_everything,
     )
-    result = runner.run(a_fragment(), ROWS, counters())
+    result = runner.run(a_fragment(), conversation, ROWS, counters())
     assert result.status is RunStatus.OK
-    assert len(result.attempts) == 1
     assert result.result is not None
     assert result.result.status is ExecutionStatus.OK
     assert result.result.output == ROWS
+    assert assistant_turns(conversation) == 2
 
 
 def test_a_rejected_result_is_answered_by_writing_the_parameters_again() -> None:
-    """Both attempts run against the same input, so no reduction compounds into the next."""
-    runner = a_runner(
+    """A review that rejects is answered on top of what it rejected, in the same exchange."""
+    client = ScriptedLLMClient(
         [
             {"predicate": "title = 'nothing'"},
-            {"decision": "reject", "assessment": "the predicate matched nothing"},
+            a_review("reject", "the predicate matched nothing"),
             {"predicate": "title is not null"},
-            {"decision": "accept", "assessment": "looks right"},
-        ],
-        keeps_everything,
+            a_review("accept"),
+        ]
     )
-    result = runner.run(a_fragment(), ROWS, counters())
+    conversation = Conversation()
+
+    result = a_runner_over(client, keeps_everything).run(
+        a_fragment(), conversation, ROWS, counters()
+    )
+
     assert result.status is RunStatus.OK
-    assert len(result.attempts) == 2
+    assert result.result is not None
+    assert assistant_turns(conversation) == 4
 
 
-def test_running_out_of_parameter_attempts_escalates() -> None:
-    """The runner spends its own bound before the run loop reaches a wider repair."""
-    runner = a_runner(
+def test_running_out_of_parameter_repairs_escalates() -> None:
+    """The cover repair is what answers a fragment its own repairs could not fix."""
+    client = ScriptedLLMClient(
         [
             {"predicate": "a"},
-            {"decision": "reject", "assessment": "no"},
+            a_review("reject", "no"),
             {"predicate": "b"},
-            {"decision": "reject", "assessment": "still no"},
-        ],
-        keeps_everything,
+            a_review("reject", "still no"),
+        ]
     )
-    result = runner.run(a_fragment(), ROWS, counters(repairs=1))
+    conversation = Conversation()
+
+    result = a_runner_over(client, keeps_everything).run(
+        a_fragment(), conversation, ROWS, counters(repairs=1)
+    )
+
     assert result.status is RunStatus.NEEDS_REPAIR
-    assert len(result.attempts) == 2
+    assert result.result is None
+    assert result.failure_reason is not None
 
 
 def test_a_review_asking_for_a_replan_comes_back_with_its_assessment() -> None:
@@ -161,11 +183,11 @@ def test_a_review_asking_for_a_replan_comes_back_with_its_assessment() -> None:
     runner = a_runner(
         [
             {"predicate": "a"},
-            {"decision": "replan", "assessment": "the plan asks for data nobody registered"},
+            a_review("replan", "the plan asks for data nobody registered"),
         ],
         keeps_everything,
     )
-    result = runner.run(a_fragment(), ROWS, counters())
+    result = runner.run(a_fragment(), Conversation(), ROWS, counters())
     assert result.status is RunStatus.NEEDS_REPLAN
     assert result.failure_reason == "the plan asks for data nobody registered"
 
@@ -182,23 +204,24 @@ def test_a_recoverable_operator_failure_is_answered_by_writing_the_parameters_ag
             raise RecoverableOperatorError("no such column")
         return OperatorOutput(data=list(inputs))
 
+    conversation = Conversation()
     runner = a_runner(
         [
             {"predicate": "a"},
             {"predicate": "title is not null"},
-            {"decision": "accept", "assessment": "looks right"},
+            a_review("accept"),
         ],
         fails_once,
     )
-    result = runner.run(a_fragment(), ROWS, counters())
+    result = runner.run(a_fragment(), conversation, ROWS, counters())
     assert result.status is RunStatus.OK
-    assert len(result.attempts) == 2
+    assert assistant_turns(conversation) == 3
 
 
 def test_an_escalation_after_a_trailing_operator_failure_reports_the_operators_error() -> None:
     """The last attempt has no review assessment; its error message is what a repair reads."""
     runner = a_runner([{"predicate": "a"}], raises_recoverably)
-    result = runner.run(a_fragment(), ROWS, counters(repairs=0))
+    result = runner.run(a_fragment(), Conversation(), ROWS, counters(repairs=0))
     assert result.status is RunStatus.NEEDS_REPAIR
     assert result.failure_reason == "the predicate names no column the table carries"
 
@@ -206,32 +229,45 @@ def test_an_escalation_after_a_trailing_operator_failure_reports_the_operators_e
 def test_an_unrecoverable_operator_failure_stops_the_run_without_a_review_turn() -> None:
     """No other operator would avoid the same failure, so there is nothing to review."""
     runner = a_runner([{"predicate": "a"}], raises_unrecoverably)
-    result = runner.run(a_fragment(), ROWS, counters())
+    result = runner.run(a_fragment(), Conversation(), ROWS, counters())
     assert result.status is RunStatus.OPERATOR_FAILED
 
 
-def test_a_budget_that_runs_out_mid_fragment_returns_the_attempts_already_made() -> None:
-    """Those attempts are the record of what the runner was doing when the request ended."""
-    runner = a_runner(
-        [
-            {"predicate": "a"},
-            {"decision": "reject", "assessment": "no"},
-            {"predicate": "b"},
-        ],
-        keeps_everything,
+def test_a_budget_that_runs_out_mid_fragment_ends_the_fragment_rather_than_raising() -> None:
+    """Catching it is what lets what the runner was doing stay readable in the conversation."""
+    client = ScriptedLLMClient([{"predicate": "a"}])
+    conversation = Conversation()
+
+    result = a_runner_over(client, keeps_everything).run(
+        a_fragment(), conversation, ROWS, counters(operator_calls=0)
     )
-    result = runner.run(a_fragment(), ROWS, counters(operator_calls=1))
+
     assert result.status is RunStatus.BUDGET_EXHAUSTED
-    assert len(result.attempts) == 1
+    assert any(turn.role == "assistant" for turn in conversation.turns)
+
+
+def test_the_opening_instructions_carry_nothing_that_varies_by_fragment() -> None:
+    """Every fragment shares an opening, so even unrelated fragments share a cached prefix."""
+    first, second = Conversation(), Conversation()
+    a_runner([{"predicate": "a"}, a_review("accept")], keeps_everything).run(
+        a_fragment(), first, ROWS, counters()
+    )
+    a_runner([{"predicate": "a"}, a_review("accept")], keeps_everything).run(
+        a_fragment(scan_sources={"n1": "src/db/table"}),
+        second,
+        ROWS,
+        counters(),
+    )
+
+    assert first.turns[0].content == second.turns[0].content
+    assert "src/db/table" in second.turns[1].content
 
 
 def test_the_prompt_names_the_entity_path_each_scan_is_bound_to() -> None:
     """A scan operator takes that path back as a parameter, so the model has to be shown it."""
-    client = ScriptedLLMClient(
-        [{"predicate": "title is not null"}, {"decision": "accept", "assessment": "looks right"}]
-    )
+    client = ScriptedLLMClient([{"predicate": "title is not null"}, a_review("accept")])
+    conversation = Conversation()
     a_runner_over(client, keeps_everything).run(
-        a_fragment(scan_sources={"n1": POSTINGS}), ROWS, counters()
+        a_fragment(scan_sources={"n1": POSTINGS}), conversation, ROWS, counters()
     )
-    _role, content = client.conversations[0][0]
-    assert POSTINGS in content
+    assert POSTINGS in conversation.turns[1].content

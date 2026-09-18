@@ -5,7 +5,6 @@ from __future__ import annotations
 from typing import Any
 
 from blue_data_planner.types import (
-    CatalogSearchResult,
     Conversation,
     DataBundle,
     DiscoveryResult,
@@ -76,7 +75,11 @@ class FakeFragmentRunner:
         self.ran: list[str] = []
 
     def run(
-        self, fragment: PhysicalPlanFragment, inputs: DataBundle, counters: RunCounters
+        self,
+        fragment: PhysicalPlanFragment,
+        conversation: Conversation,
+        inputs: DataBundle,
+        counters: RunCounters,
     ) -> FragmentResult:
         self.ran.append(fragment.id)
         if not self.results:
@@ -90,9 +93,8 @@ class FakeCatalogSearcher:
     def __init__(self) -> None:
         self.searched: list[str] = []
 
-    def search(self, node: PipelineNode, inputs: DataBundle) -> CatalogSearchResult:
+    def search(
+        self, node: PipelineNode, conversation: Conversation, inputs: DataBundle
+    ) -> DiscoveryResult:
         self.searched.append(node.id)
-        return CatalogSearchResult(
-            discovery=DiscoveryResult(search_terms=["a term"], matches=[], dropped_terms=0),
-            usage=[],
-        )
+        return DiscoveryResult(search_terms=["a term"], matches=[], dropped_terms=0)
