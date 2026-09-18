@@ -84,7 +84,8 @@ How far a schema is enforced depends on the provider. One that supports strict s
 applies it during decoding, and a response the schema forbids cannot be produced at all. Where a
 provider does not, litellm falls back to describing the schema in the prompt. Either way the
 response is validated against the schema on arrival, and one that fails is a failed call rather than
-something repaired, so the difference between the two is cost and not correctness.
+something repaired, so the difference between the two is cost and not correctness. Every schema
+built here stays inside the subset a strict provider accepts, so one schema serves either kind.
 
 `pydantic` is a required dependency of `lib/`, so nothing new is installed for this.
 

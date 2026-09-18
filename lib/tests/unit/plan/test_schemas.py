@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from typing import Any
 
 import pytest
@@ -359,3 +360,29 @@ def test_reusing_a_fragment_is_a_choice_and_carries_nothing_else() -> None:
     written = schema.model_validate({"choice": {"candidate": "n2:reuse:[n1,n2]"}})
 
     assert written.model_dump()["choice"] == {"candidate": "n2:reuse:[n1,n2]"}
+
+
+@pytest.mark.parametrize(
+    ("name", "schema"),
+    [
+        ("logical plan", logical_plan_schema()),
+        (
+            "cover choice",
+            cover_choice_schema(
+                a_scan_and_filter(),
+                "n2",
+                two_candidates(),
+                a_fragment_over_n1_and_n2(),
+                {"src/db/t": "sql/sqlite"},
+            ),
+        ),
+    ],
+)
+def test_a_schema_offering_a_choice_stays_within_what_a_strict_provider_accepts(
+    name: str, schema: type[BaseModel]
+) -> None:
+    """A provider enforcing a schema during decoding rejects oneOf and discriminator outright."""
+    written = json.dumps(schema.model_json_schema())
+
+    assert "oneOf" not in written, name
+    assert "discriminator" not in written, name

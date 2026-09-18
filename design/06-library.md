@@ -990,7 +990,9 @@ def blue_operators(
 ) -> list[PhysicalOperator]: ...
 
 
-def lotus_operators(model: str, max_rows: int = 5000) -> list[PhysicalOperator]: ...
+def lotus_operators(
+    model: str, max_rows: int = 5000, reasoning_effort: str | None = None
+) -> list[PhysicalOperator]: ...
 
 
 def builtin_operators(

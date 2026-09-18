@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from typing import Annotated, Any, Literal, Union
+from typing import Any, Literal, Union
 
 from pydantic import BaseModel, ConfigDict, Field, create_model
 
@@ -79,10 +79,10 @@ class ControlNodeModel(_Strict):
     instruction: str
 
 
-PlanNodeModel = Annotated[
-    OperatorNodeModel | ReturnNodeModel | ControlNodeModel,
-    Field(discriminator="kind"),
-]
+# A plain union rather than a discriminated one: a discriminator is rendered as the JSON Schema
+# keywords `oneOf` and `discriminator`, and a provider enforcing a schema strictly accepts
+# neither. The kinds are disjoint literals, so the node a response holds is unambiguous anyway.
+PlanNodeModel = OperatorNodeModel | ReturnNodeModel | ControlNodeModel
 
 
 class LogicalPlanModel(_Strict):
@@ -120,7 +120,9 @@ def cover_choice_schema(
         choice: Any = variants[0]
     else:
         union: Any = Union
-        choice = Annotated[union[variants], Field(discriminator="candidate")]
+        # Undiscriminated, for the reason PlanNodeModel gives. Each variant's label is its own
+        # literal, so the candidate a response took is unambiguous.
+        choice = union[variants]
     return create_model("CoverChoice", __base__=_Strict, choice=(choice, ...))
 
 
