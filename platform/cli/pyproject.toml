@@ -22,7 +22,7 @@ dependencies = [
 dev = ["pytest", "ruff", "pyright"]
 
 [project.scripts]
-blue-planner = "blue_data_planner_cli.commands:cli"
+blue-planner = "blue_data_planner_cli.commands:main"
 
 [tool.uv.sources]
 # Local development installs. Replace with a package index at release, the way lib/ documents.

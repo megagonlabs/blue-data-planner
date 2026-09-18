@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -117,3 +118,95 @@ def test_a_failure_reason_holding_square_brackets_is_traced_whole(
 
     assert "nope [/red] x" in result.stderr
     assert "operator_failed" in result.stderr  # the summary still follows the trace
+
+
+def test_a_run_that_did_not_finish_reports_its_status_as_the_error_code(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The status is what failed, so it is also the code a caller matches on."""
+    a_planner_answering(
+        monkeypatch,
+        a_run_result(status=RunStatus.BUDGET_EXHAUSTED, failure_reason="30 calls spent"),
+    )
+
+    result = CliRunner().invoke(cli, ["data", "query", "q"], env=a_configured_environment(tmp_path))
+
+    assert result.exit_code == 1
+    assert "ERROR: BUDGET_EXHAUSTED 30 calls spent" in result.stderr
+
+
+def test_a_configuration_failure_names_the_parameter_and_exits_one(tmp_path: Path) -> None:
+    """The first failure a new user meets has to say what to set."""
+    result = CliRunner().invoke(
+        cli, ["data", "query", "q"], env={"BLUE_DATA_PLANNER_HOME": str(tmp_path / "home")}
+    )
+
+    assert result.exit_code == 1
+    assert result.stderr.startswith("ERROR: CONFIG_MISSING ")
+    assert "BLUE_DATA_REGISTRY_PATH" in result.stderr
+    assert result.stdout == ""
+
+
+def test_a_failed_run_still_prints_its_result_under_json(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A failed run stays machine-readable, which is what keeps the status useful."""
+    a_planner_answering(
+        monkeypatch, a_run_result(status=RunStatus.LLM_FAILED, failure_reason="provider down")
+    )
+
+    result = CliRunner().invoke(
+        cli, ["data", "query", "q", "--format", "json"], env=a_configured_environment(tmp_path)
+    )
+
+    assert json.loads(result.stdout)["status"] == "llm_failed"
+    assert result.exit_code == 1
+
+
+def test_a_long_failure_reason_prints_as_one_unbroken_error_line(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Rich wraps stderr at 80 columns when it is not a terminal, which would break the
+    ERROR line the global constraints require to stay whole."""
+    reason = "the operator refused every column it was offered, one at a time, " * 3
+    a_planner_answering(
+        monkeypatch, a_run_result(status=RunStatus.BUDGET_EXHAUSTED, failure_reason=reason)
+    )
+
+    result = CliRunner().invoke(cli, ["data", "query", "q"], env=a_configured_environment(tmp_path))
+
+    assert f"ERROR: BUDGET_EXHAUSTED {reason}" in result.stderr
+
+
+def a_process_environment(monkeypatch: pytest.MonkeyPatch, variables: dict[str, str]) -> None:
+    """Set each variable in the real process environment `main()` reads through `os.environ`."""
+    for key, value in variables.items():
+        monkeypatch.setenv(key, value)
+
+
+def test_main_exits_one_on_a_configuration_failure(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Click's non-standalone main() returns an exit code rather than calling sys.exit itself;
+    main() has to propagate it or the process exits 0 no matter what failed."""
+    monkeypatch.setattr(sys, "argv", ["blue-planner", "data", "query", "q"])
+    a_process_environment(monkeypatch, {"BLUE_DATA_PLANNER_HOME": str(tmp_path / "home")})
+
+    with pytest.raises(SystemExit) as excinfo:
+        commands.main()
+
+    assert excinfo.value.code == 1
+
+
+def test_main_exits_zero_after_a_successful_run(
+    tmp_path: Path, planner: FakeDataPlanner, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Click's non-standalone main() returns None on a clean run, and that has to become
+    exit code 0 rather than a bare fall-through that leaves the process's own exit status."""
+    monkeypatch.setattr(sys, "argv", ["blue-planner", "data", "query", "which cities have stores"])
+    a_process_environment(monkeypatch, a_configured_environment(tmp_path))
+
+    with pytest.raises(SystemExit) as excinfo:
+        commands.main()
+
+    assert excinfo.value.code == 0

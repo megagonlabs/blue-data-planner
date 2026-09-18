@@ -3,22 +3,39 @@
 from __future__ import annotations
 
 import os
+import sys
 from collections.abc import Callable, Generator
 from contextlib import contextmanager
 
 import click
-from blue_data_planner import DataPlanner, RunResult, RunStatus
+from blue_data_planner import BlueDataPlannerError, DataPlanner, RunResult, RunStatus
 from rich.console import Console
 
 from blue_data_planner_cli import __version__
 from blue_data_planner_cli.config import (
+    CliError,
     PlannerSettings,
     assemble_planner,
     build_resolver,
     resolve_settings,
 )
-from blue_data_planner_cli.output import print_answer, summary_line, trace_lines, trace_payload
+from blue_data_planner_cli.output import (
+    error_line,
+    print_answer,
+    summary_line,
+    trace_lines,
+    trace_payload,
+)
 from blue_data_planner_cli.profile import profile_group
+
+RUN_STATUS_CODES: dict[RunStatus, str] = {
+    RunStatus.INVALID_PLAN: "INVALID_PLAN",
+    RunStatus.REPLAN_EXHAUSTED: "REPLAN_EXHAUSTED",
+    RunStatus.BUDGET_EXHAUSTED: "BUDGET_EXHAUSTED",
+    RunStatus.OPERATOR_FAILED: "OPERATOR_FAILED",
+    RunStatus.LLM_FAILED: "LLM_FAILED",
+    RunStatus.PLANNER_FAILED: "PLANNER_FAILED",
+}
 
 
 @click.group()
@@ -63,7 +80,16 @@ def data_query(
     log_limit: int | None,
 ) -> None:
     """Plan the request, run it, and print the answer."""
-    _run_query(ctx, "run", request, registry, model, output_format, log, log_limit)
+    try:
+        _run_query(ctx, "run", request, registry, model, output_format, log, log_limit)
+    except CliError as failure:
+        Console(stderr=True).print(
+            error_line(failure.code, failure.description),
+            markup=False,
+            highlight=False,
+            soft_wrap=True,
+        )
+        ctx.exit(1)
 
 
 def _run_query(
@@ -90,6 +116,13 @@ def _run_query(
         _print_trace(errors, result, chosen_format, limit)
     errors.print(summary_line(result), markup=False)
     if result.status not in (RunStatus.OK, RunStatus.PLANNED):
+        code = RUN_STATUS_CODES.get(result.status, "PLANNER_FAILED")
+        errors.print(
+            error_line(code, result.failure_reason or ""),
+            markup=False,
+            highlight=False,
+            soft_wrap=True,
+        )
         ctx.exit(1)
 
 
@@ -104,3 +137,38 @@ def _print_trace(errors: Console, result: RunResult, output_format: str, limit: 
 @contextmanager
 def _nothing() -> Generator[None]:
     yield
+
+
+def main() -> None:
+    """Run the command line, reporting a failure as one ERROR line and exit code 1."""
+    errors = Console(stderr=True)
+    try:
+        # Non-standalone mode returns the exit code instead of calling sys.exit itself,
+        # so the return value has to be propagated explicitly.
+        sys.exit(cli.main(standalone_mode=False) or 0)
+    except click.UsageError as usage:  # Click's own exit code 2
+        usage.show()
+        sys.exit(2)
+    except click.Abort:  # a confirmation the user declined
+        errors.print(
+            error_line("ABORTED", "the command was not confirmed"),
+            markup=False,
+            highlight=False,
+            soft_wrap=True,
+        )
+        sys.exit(1)
+    except CliError as failure:
+        errors.print(
+            error_line(failure.code, failure.description),
+            markup=False,
+            highlight=False,
+            soft_wrap=True,
+        )
+        sys.exit(1)
+    except BlueDataPlannerError as defect:
+        errors.print(
+            error_line("INTERNAL_ERROR", str(defect)), markup=False, highlight=False, soft_wrap=True
+        )
+        sys.exit(1)
+    except SystemExit:
+        raise
