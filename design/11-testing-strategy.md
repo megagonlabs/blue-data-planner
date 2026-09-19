@@ -252,8 +252,10 @@ mapping, exit codes. Planning and execution are the library's tests, not repeate
 | MCP threading | A tool that runs a plan goes through `asyncio.to_thread` rather than blocking the event loop |
 | CLI | Argument and option parsing through Click's `CliRunner`; a profile's parameters resolved in the documented order, with a secret masked rather than printed; the answer on standard output and everything else on standard error; each error code and each of the three exit codes |
 
-Adapter tests import doubles from `lib/tests/` rather than defining their own, so one scripted model
-client serves every package.
+Each platform package keeps its own doubles under `tests/doubles/`: `lib/tests/` ships in no
+package, and a platform package's tests resolve imports against its own root. An adapter test
+replaces the library's entry point with a fake planner that returns a prepared result, so no
+adapter test reaches a model.
 
 The MCP threading test earns its place. Getting `asyncio.to_thread` wrong there stalls the transport
 for a whole session, and it is the one place in the repository where async meets synchronous code.

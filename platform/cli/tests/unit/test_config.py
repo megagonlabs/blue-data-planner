@@ -20,6 +20,7 @@ from blue_data_planner_cli.config import (
     build_resolver,
     cli_home,
     config_spec,
+    export_secrets,
     resolve_settings,
 )
 
@@ -120,6 +121,31 @@ def test_a_command_option_outranks_the_profile(tmp_path: Path) -> None:
     settings: PlannerSettings = resolve_settings(resolver, registry=str(other))
 
     assert settings.registry_path == other
+
+
+def test_the_model_option_reaches_the_lotus_suite_as_well_as_the_planner(tmp_path: Path) -> None:
+    """--model names the model every component uses, and BLUE_DATA_PLANNER_LOTUS_MODEL inherits
+    BLUE_DATA_PLANNER_MODEL, so its own resolution never sees the option."""
+    resolver = a_resolver_over(tmp_path)
+
+    settings: PlannerSettings = resolve_settings(resolver, model="openai/gpt-4o-mini")
+
+    assert settings.model == "openai/gpt-4o-mini"
+    assert settings.lotus_model == "openai/gpt-4o-mini"
+
+
+def test_a_profile_set_lotus_model_stands_apart_from_the_planners_own(tmp_path: Path) -> None:
+    """Setting LOTUS away from the planner's model is what the parameter is for."""
+    resolver = a_resolver_over(
+        tmp_path,
+        BLUE_DATA_PLANNER_MODEL="openai/gpt-4o",
+        BLUE_DATA_PLANNER_LOTUS_MODEL="openai/gpt-4o-mini",
+    )
+
+    settings: PlannerSettings = resolve_settings(resolver)
+
+    assert settings.model == "openai/gpt-4o"
+    assert settings.lotus_model == "openai/gpt-4o-mini"
 
 
 def test_an_unknown_operator_suite_is_a_configuration_error(tmp_path: Path) -> None:
@@ -243,3 +269,17 @@ def test_a_missing_required_parameter_names_what_to_set(tmp_path: Path) -> None:
 
     assert raised.value.code == "CONFIG_MISSING"
     assert "BLUE_DATA_REGISTRY_PATH" in raised.value.description
+
+
+def test_a_stored_value_that_fails_its_cast_is_a_configuration_error_when_the_profile_is_applied(
+    tmp_path: Path,
+) -> None:
+    """export resolves every parameter, so one bad stored value has to reach the ERROR line
+    rather than the underlying ConfigError reaching the user as a traceback."""
+    resolver = a_resolver_over(tmp_path, BLUE_DATA_PLANNER_MAX_OPERATOR_CALLS="many")
+
+    with pytest.raises(CliError) as raised:
+        export_secrets(resolver)
+
+    assert raised.value.code == "CONFIG_INVALID"
+    assert "BLUE_DATA_PLANNER_MAX_OPERATOR_CALLS" in raised.value.description

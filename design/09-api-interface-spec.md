@@ -280,21 +280,21 @@ the `RunResult` in the JSON form [10-data-model.md](10-data-model.md#3-what-a-ru
 and nothing else reaches standard output. While a run is in flight, a terminal gets a progress
 indicator naming the stage that is running.
 
-`--log` prints the run's trace after the run, grouped by cover. One line is one attempt: the logical
-nodes it covered, the operator that ran it, and how it ended — a row count where a review accepted
-the result, the review's own words where it did not, which is the pushdown boundary and its outcome.
-Under `--format json` the same trace is one JSON object on standard error. How many lines the trace
-holds is bounded by `operator_calls`; what grows without a bound is a review's own wording, so
-`--log-limit` truncates each line.
+`--log` prints the run's trace after the run, grouped by cover: one line per fragment, naming the
+logical nodes it covered, the operator that ran it, and how it ended, as one of "ok" with a row
+count, "ok (discovery)", or "no result under this cover" — the third of those is what a fragment a
+review rejected reads as, since the trace names an outcome and not why it was reached. A run that
+failed closes the trace with one more line naming why. Under `--format json` the same trace is one
+JSON object on standard error. `--log-limit` truncates each trace line, since a failure reason has
+no fixed length.
 
 ```text
 cover 1
-  f1  n2,n3,n4  lotus.sem_filter      rejected: kept rows outside the bay area counties
-  f2  n5        builtin.source_scan   ok (140 rows)
-  f1  n2,n3,n4  lotus.sem_filter      rejected: the same predicate, rewritten
+  f1  n2,n3   builtin.scan        ok (140 rows)
+  f2  n4,n5   lotus.sem_filter    no result under this cover
 cover 2
-  f1  n2,n3     builtin.source_scan   ok (48 rows)
-  f2  n4        lotus.sem_filter      ok (11 rows)
+  f1  n2,n3   builtin.scan        ok (140 rows)
+  f2  n4,n5   lotus.sem_filter    ok (11 rows)
 counters  operator calls 7/30   failure replans 0/2   control replans 1/2
 model     11 calls   $0.42
 ```
@@ -305,28 +305,29 @@ An error reaches standard error as `ERROR: <CODE> <description>`.
 
 | Code | Raised for |
 | --- | --- |
-| `USAGE` | A missing argument, an unknown option, a value outside what an option allows |
 | `CONFIG_MISSING` | A required parameter with no value: the registry path, the API key |
 | `CONFIG_INVALID` | A parameter whose value cannot be used, such as an unknown operator suite |
 | `REGISTRY_UNREADABLE` | A registry path that does not exist or does not parse |
 | `PROFILE_NOT_FOUND` | A named profile that does not exist |
+| `ABORTED` | A confirmation prompt, such as `profile remove` without `--confirm`, declined |
 | `INVALID_PLAN`, `REPLAN_EXHAUSTED`, `BUDGET_EXHAUSTED`, `OPERATOR_FAILED`, `LLM_FAILED`, `PLANNER_FAILED` | A run that ended with that status, carrying its failure reason |
-| `INTERNAL_ERROR` | An exception the adapter did not expect. The traceback prints under `--log` |
+| `INTERNAL_ERROR` | An exception the adapter did not expect |
 
 | Exit code | Meaning |
 | --- | --- |
 | 0 | The command succeeded; for a query action, the run ended `ok` or `planned` |
-| 1 | Any error above other than a usage error |
-| 2 | A usage error |
+| 1 | Any error above |
+| 2 | A usage error: a missing argument, an unknown option, a value outside what an option allows |
 
 A configuration failure is told apart by its error code (ADR-030). A logical plan no operator can
 cover is neither: the physical planner answers `no_operator` per node and returns to the logical
 planner, and a request that never finds a cover ends as `replan_exhausted`, which is code 1
 ([06-library.md](06-library.md#operatorrouter)).
 
-Under `--format json`, a run that produced a result prints that result whatever its status, so a
-failed run stays machine-readable. A failure with no result prints
-`{"error": {"code": ..., "description": ...}}` on standard error.
+Under `--format json`, a run that produced a result prints that result on standard output whatever
+its status, so a failed run stays machine-readable. An error outside a run — a configuration
+failure, an internal error, or a declined confirmation — always prints as the plain
+`ERROR: <CODE> <description>` line on standard error; `--format` has no effect on it.
 
 ---
 
@@ -446,6 +447,10 @@ spends many calls per row and gains little from added reasoning.
 A `MAX_` name is a `RunLimits` field with a prefix saying the number is a cap, which the field name
 alone does not: `RunLimits` drops it because the type name already says limits, and a profile has no
 such container. The two `BLUE_DATA_CLI_` names are the family's, shared with the other Blue CLIs.
+
+The family-wide spec also contributes `ANTHROPIC_API_KEY`, `BLUE_DATA_LLM_PROVIDER`, and
+`BLUE_DATA_LLM_MODEL`, all visible through `profile inspect`. `BLUE_DATA_LLM_MODEL` is required,
+so `profile config` prompts for it as well as for the parameters the table marks.
 
 A secret is never a command-line value. `profile config OPENAI_API_KEY` prompts, and stores either
 an encoded value or a reference such as `$OPENAI_API_KEY`, resolved when a command runs.

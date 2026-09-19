@@ -82,11 +82,12 @@ blue-data-planner/
 └── platform/
     ├── cli/
     │   ├── README.md
-    │   ├── pyproject.toml              # blue-planner = commands:cli
+    │   ├── pyproject.toml              # blue-planner = commands:main
     │   ├── scripts/
     │   │   ├── build.sh
     │   │   └── install.sh
     │   ├── src/blue_data_planner_cli/
+    │   │   ├── __init__.py             # __version__, read by --version
     │   │   ├── commands.py             # the data, plan, and profile groups
     │   │   ├── config.py               # resolved settings, and the planner they assemble
     │   │   ├── profile.py              # the profile actions

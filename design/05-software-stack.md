@@ -30,7 +30,7 @@ platform package is a dependency of the library.
 | Package | Path | Depends on |
 | --- | --- | --- |
 | `blue-data-planner` | `lib/` | `blue-data-ops`, `blue-data`, `pydantic`, `jsonmerge`, `jsonpath-ng` |
-| `blue-data-planner-cli` | `platform/cli/` | `blue-data-planner`, `blue-data`, `click`, `rich` |
+| `blue-data-planner-cli` | `platform/cli/` | `blue-data-planner`, `blue-data-ops`, `blue-data`, `click`, `rich` |
 | `blue-data-planner-mcp` | `platform/mcp/` | `blue-data-planner`, `mcp`, `pydantic` |
 
 The MCP package pins `blue-data-planner` to an exact version. The CLI follows the same rule, because
@@ -172,11 +172,15 @@ its behavior needs, not an install.
 | Command routing and argument parsing | `click>=8` |
 | Terminal output | `rich>=13` |
 | Profiles, configuration resolution, and secret storage | `blue-data` |
+| The operator registry `blue_operators` binds against | `blue-data-ops` |
 
 Click matches `platform/cli/` in the sibling Blue repositories, and Rich renders the progress
 indicator, the trace, and the result rows that [02-scenarios.md](02-scenarios.md) shows.
 `blue-data` carries the configuration engine every Blue CLI resolves its profile through, so one
-set of rules governs precedence and secret handling across the family (ADR-028).
+set of rules governs precedence and secret handling across the family (ADR-028). `blue-data-ops`
+is the caller's dependency rather than only the library's: assembling a router is the caller's job
+([09-api-interface-spec.md](09-api-interface-spec.md#assembly)), and the CLI is the one building the
+registry it passes to `blue_operators`.
 
 ### MCP server
 
@@ -251,6 +255,7 @@ has the files and which script writes each one.
 | Package | Where declared | Required or extra | Role |
 | --- | --- | --- | --- |
 | `blue-data-ops` | `lib/` | Required, pinned to an exact version | The Blue operators and their registry |
+| `blue-data-ops` | `platform/cli/` | Required, pinned to an exact version | Builds the operator registry the CLI passes to `blue_operators` |
 | `blue-data` | `lib/` | Required | Data source interfaces and the registry |
 | `pydantic` | `lib/`, `platform/mcp/` | Required | Response schemas for structured output, attribute validation |
 | `jsonmerge` | `lib/` | Required, pinned to an exact version | Blue-compatible JSON merge |

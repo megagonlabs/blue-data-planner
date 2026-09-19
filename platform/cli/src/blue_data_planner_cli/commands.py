@@ -17,6 +17,7 @@ from blue_data_planner_cli.config import (
     PlannerSettings,
     assemble_planner,
     build_resolver,
+    export_secrets,
     resolve_settings,
 )
 from blue_data_planner_cli.output import (
@@ -84,12 +85,7 @@ def data_query(
     try:
         _run_query(ctx, "run", request, registry, model, output_format, log, log_limit)
     except CliError as failure:
-        Console(stderr=True).print(
-            error_line(failure.code, failure.description),
-            markup=False,
-            highlight=False,
-            soft_wrap=True,
-        )
+        _print_cli_error(Console(stderr=True), failure)
         ctx.exit(1)
 
 
@@ -119,12 +115,7 @@ def plan_query(
     try:
         _run_query(ctx, "plan", request, registry, model, output_format, log, log_limit)
     except CliError as failure:
-        Console(stderr=True).print(
-            error_line(failure.code, failure.description),
-            markup=False,
-            highlight=False,
-            soft_wrap=True,
-        )
+        _print_cli_error(Console(stderr=True), failure)
         ctx.exit(1)
 
 
@@ -139,9 +130,12 @@ def _run_query(
     log_limit: int | None,
 ) -> None:
     resolver = build_resolver(ctx.obj["profile"], ctx.obj["environ"])
+    # litellm and the provider SDKs read their keys from the process environment, so what a
+    # profile resolved has to be applied to it before a planner makes its first call.
+    os.environ.update(export_secrets(resolver))
     settings = resolve_settings(resolver, registry=registry, model=model)
     chosen_format = output_format or settings.output_format
-    limit = log_limit or settings.log_limit
+    limit = log_limit if log_limit is not None else settings.log_limit
     errors = Console(stderr=True)
     planner = PLANNER_FACTORY(settings)
     # The indicator is a terminal courtesy: a redirected stream gets none of it.
@@ -173,6 +167,13 @@ def _print_trace(errors: Console, result: RunResult, output_format: str, limit: 
         errors.print(line, markup=False, highlight=False)
 
 
+def _print_cli_error(errors: Console, failure: CliError) -> None:
+    """Print one CliError in the one shape every Blue CLI reports a failure in."""
+    errors.print(
+        error_line(failure.code, failure.description), markup=False, highlight=False, soft_wrap=True
+    )
+
+
 @contextmanager
 def _nothing() -> Generator[None]:
     yield
@@ -197,17 +198,10 @@ def main() -> None:
         )
         sys.exit(1)
     except CliError as failure:
-        errors.print(
-            error_line(failure.code, failure.description),
-            markup=False,
-            highlight=False,
-            soft_wrap=True,
-        )
+        _print_cli_error(errors, failure)
         sys.exit(1)
     except BlueDataPlannerError as defect:
         errors.print(
             error_line("INTERNAL_ERROR", str(defect)), markup=False, highlight=False, soft_wrap=True
         )
         sys.exit(1)
-    except SystemExit:
-        raise

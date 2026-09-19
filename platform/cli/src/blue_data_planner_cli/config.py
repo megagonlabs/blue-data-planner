@@ -10,6 +10,7 @@ from blue_data.utils.config import (  # pyright: ignore[reportMissingTypeStubs] 
     ConfigError,
     ConfigResolver,
     ConfigSpec,
+    SecretError,
     base_spec,
     load_spec,
 )
@@ -131,7 +132,9 @@ def resolve_settings(
         model=planner_model,
         reasoning_effort=str(_get(resolver, "BLUE_DATA_PLANNER_REASONING_EFFORT") or ""),
         operator_suites=suites,
-        lotus_model=str(_get(resolver, "BLUE_DATA_PLANNER_LOTUS_MODEL") or planner_model),
+        # --model names the model every component uses, and LOTUS_MODEL inherits
+        # BLUE_DATA_PLANNER_MODEL, so its own resolution never sees the override.
+        lotus_model=str(model or _get(resolver, "BLUE_DATA_PLANNER_LOTUS_MODEL") or planner_model),
         lotus_reasoning_effort=str(
             _get(resolver, "BLUE_DATA_PLANNER_LOTUS_REASONING_EFFORT") or ""
         ),
@@ -198,6 +201,15 @@ def _get(resolver: ConfigResolver, name: str, override: str | None = None) -> An
     try:
         return resolver.get(name, override)
     except ConfigError as error:
+        raise CliError("CONFIG_INVALID", str(error)) from error
+
+
+def export_secrets(resolver: ConfigResolver) -> dict[str, str]:
+    """Write every resolved parameter into the real process environment, raising CliError on
+    a stored value that fails to resolve."""
+    try:
+        return resolver.export()
+    except (ConfigError, SecretError) as error:
         raise CliError("CONFIG_INVALID", str(error)) from error
 
 

@@ -3,11 +3,16 @@
 from __future__ import annotations
 
 import json
+import os
 import sys
 from pathlib import Path
 from typing import Any
 
 import pytest
+from blue_data.utils.config import (  # pyright: ignore[reportMissingTypeStubs]
+    ProfileStore,
+    encode,
+)
 from blue_data_planner import RunResult, RunStatus
 from blue_data_planner.types import (
     DataPipeline,
@@ -21,13 +26,18 @@ from click.testing import CliRunner
 
 from blue_data_planner_cli import commands
 from blue_data_planner_cli.commands import cli
+from blue_data_planner_cli.config import PlannerSettings
 from tests.doubles.components import FakeDataPlanner, a_run_result
 
 
 def a_planner_answering(monkeypatch: pytest.MonkeyPatch, result: RunResult) -> FakeDataPlanner:
     """Replace the assembled planner with a double returning `result`."""
     double = FakeDataPlanner(result)
-    monkeypatch.setattr(commands, "PLANNER_FACTORY", lambda settings: double)
+
+    def _factory(settings: PlannerSettings) -> FakeDataPlanner:
+        return double
+
+    monkeypatch.setattr(commands, "PLANNER_FACTORY", _factory)
     return double
 
 
@@ -184,6 +194,56 @@ def test_a_long_failure_reason_prints_as_one_unbroken_error_line(
     result = CliRunner().invoke(cli, ["data", "query", "q"], env=a_configured_environment(tmp_path))
 
     assert f"ERROR: BUDGET_EXHAUSTED {reason}" in result.stderr
+
+
+def a_profile_holding(home: str, **values: str) -> None:
+    """Write `values` into the default profile under `home`, the way `profile config` does."""
+    store = ProfileStore(home)
+    store.add("default", dict(values))
+    store.select("default")
+
+
+def an_environment_seen_by_the_planner(monkeypatch: pytest.MonkeyPatch) -> dict[str, str]:
+    """Return the mapping the process environment held when the planner was assembled."""
+    seen: dict[str, str] = {}
+
+    def _factory(settings: PlannerSettings) -> FakeDataPlanner:
+        seen.update(os.environ)
+        return FakeDataPlanner(a_run_result())
+
+    monkeypatch.setattr(commands, "PLANNER_FACTORY", _factory)
+    return seen
+
+
+def test_a_key_held_only_in_the_profile_reaches_the_environment_a_model_call_reads(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """litellm reads OPENAI_API_KEY from os.environ, so a key stored through `profile config`
+    and never exported would leave every run of every profile unauthenticated."""
+    env = a_configured_environment(tmp_path)
+    del env["OPENAI_API_KEY"]
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    a_profile_holding(env["BLUE_DATA_PLANNER_HOME"], OPENAI_API_KEY=encode("sk-stored"))
+    seen = an_environment_seen_by_the_planner(monkeypatch)
+
+    result = CliRunner().invoke(cli, ["data", "query", "q"], env=env)
+
+    assert result.exit_code == 0
+    assert seen["OPENAI_API_KEY"] == "sk-stored"
+
+
+def test_a_log_limit_of_zero_truncates_every_trace_line(
+    tmp_path: Path, planner: FakeDataPlanner
+) -> None:
+    """Zero is a limit a user can ask for, and the profile's own limit must not stand in for it."""
+    result = CliRunner().invoke(
+        cli,
+        ["data", "query", "q", "--log", "--log-limit", "0"],
+        env=a_configured_environment(tmp_path),
+    )
+
+    assert result.exit_code == 0
+    assert "counters" not in result.stderr
 
 
 def a_process_environment(monkeypatch: pytest.MonkeyPatch, variables: dict[str, str]) -> None:

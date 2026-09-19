@@ -109,7 +109,7 @@ above the exported environment.
 | --- | --- | --- |
 | `OPENAI_API_KEY` | None, required | Every component that calls a model, and LOTUS operations |
 | `BLUE_DATA_REGISTRY_PATH` | None, required | The serialized registry an interface opens and plans against |
-| `BLUE_DATA_PLANNER_MODEL` | `BLUE_DATA_LLM_MODEL`, then `openai/gpt-4.1` | The litellm model string every component uses |
+| `BLUE_DATA_PLANNER_MODEL` | `BLUE_DATA_LLM_MODEL`, then `openai/gpt-5.6-luna` | The litellm model string every component uses |
 | `BLUE_DATA_PLANNER_REASONING_EFFORT` | `low` | The reasoning effort each component's model call spends, or `off` to omit the parameter for a model that does not accept it |
 | `BLUE_DATA_PLANNER_OPERATORS` | `builtin,lotus` | Which operator suites are registered, as a comma-separated list over `builtin`, `lotus`, and `blue` |
 | `BLUE_DATA_PLANNER_LOTUS_MODEL` | `BLUE_DATA_PLANNER_MODEL` | The litellm model string an interface passes to `lotus_operators`, which LOTUS then configures for itself, and which a deployment can set away from `BLUE_DATA_PLANNER_MODEL` (ADR-005) |
@@ -119,7 +119,6 @@ above the exported environment.
 | `BLUE_DATA_PLANNER_MAX_*` | The `RunLimits` defaults | One per bound, listed in [section 5](#5-request-limits) |
 | `BLUE_DATA_CLI_FORMAT` | `table` | The CLI's default output format |
 | `BLUE_DATA_CLI_LOG_LIMIT` | `80` | The characters each trace line is truncated to |
-| `LOG_LEVEL` | `INFO` | Logging verbosity |
 
 One model string serves every component. `DataPlanner`'s constructor takes a client per component,
 so a deployment that wants a stronger model for logical planning than for writing parameters builds

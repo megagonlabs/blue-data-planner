@@ -186,7 +186,7 @@ Six import rules carry architectural weight, and each can be checked by reading 
 | Within `lib/src/`, only `data/` imports `blue-data` | One place to change, one place to substitute in tests (ADR-003) |
 | Only `operators/adapters/lotus/` imports LOTUS, and only inside a callable | The package imports with LOTUS absent (ADR-004) |
 | Only `operators/` imports `blue-data-ops` | The Blue operator library enters through one adapter, the way LOTUS does |
-| `platform/*/src/` imports only the public surface | An adapter cannot grow planning logic it can reach (ADR-002). A platform package's tests stand outside the rule, which is what lets them use the library's own doubles |
+| `platform/*/src/` imports only the public surface | An adapter cannot grow planning logic it can reach (ADR-002). A platform package's tests stand outside the rule, so a test can build the plans and results its adapter prints |
 
 The last rule names a shape rather than a count, and
 [09-api-interface-spec.md](09-api-interface-spec.md#the-public-surface) fixes it: a module nested
