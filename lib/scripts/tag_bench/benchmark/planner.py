@@ -18,6 +18,11 @@ LLM_CLIENT_NAME: str = "tag_bench_benchmark"
 # LOTUS runs the planner's own model. "none" is a real litellm reasoning_effort value rather
 # than an omission, and it is what the CLI configures LOTUS with.
 LOTUS_REASONING_EFFORT: str = "none"
+# The one value that means "omit this parameter," for a model that rejects it. Distinct from
+# "none", a real litellm reasoning_effort value that still has to reach the provider. Mirrors
+# platform/cli/src/blue_data_planner_cli/config.py's _REASONING_EFFORT_OFF: lib/ does not depend
+# on platform/cli, so the check is duplicated here rather than imported.
+_REASONING_EFFORT_OFF: str = "off"
 
 
 @dataclass(frozen=True)
@@ -35,8 +40,9 @@ def build_benchmark_planner(settings: BenchmarkSettings) -> DataPlanner:
     """Open the registry, register the builtin and LOTUS suites, and build the planner."""
     data_registry = open_registry(settings.registry_path)
     llm_properties: dict[str, Any] = {f"{LLM_CLIENT_NAME}.model": settings.model}
-    if settings.reasoning_effort is not None:
-        llm_properties[f"{LLM_CLIENT_NAME}.reasoning_effort"] = settings.reasoning_effort
+    reasoning_effort = _effective_reasoning_effort(settings.reasoning_effort)
+    if reasoning_effort is not None:
+        llm_properties[f"{LLM_CLIENT_NAME}.reasoning_effort"] = reasoning_effort
     llm_client = LLMClient(name=LLM_CLIENT_NAME, properties=llm_properties)
     # builtin.nl2table runs a generated program, and open questions 49 and 50 have not settled
     # its boundary, so the benchmark leaves it unregistered.
@@ -58,3 +64,8 @@ def build_benchmark_planner(settings: BenchmarkSettings) -> DataPlanner:
     for operator in operators:
         router.register(operator)
     return build_data_planner(router, DataCatalog(data_registry), llm_client, settings.limits)
+
+
+def _effective_reasoning_effort(value: str | None) -> str | None:
+    """Return the value litellm should receive, or None to omit the parameter."""
+    return value if value and value != _REASONING_EFFORT_OFF else None
