@@ -95,18 +95,19 @@ expected count that equals a bound deserves one line; a returned status does not
 | Library unit tests | `lib/tests/unit/` | Yes | No |
 | Adapter tests | `platform/*/tests/` | Yes, in that package | No |
 | LOTUS suite tests | `lib/tests/lotus/` | No, excluded by `testpaths` | Yes, for an operation that calls a model |
-| Benchmark suites | `lib/tests/benchmarks/` | No, excluded by `testpaths` | Yes |
+| End-to-end tests | `lib/tests/end_to_end/` | No, excluded by `testpaths` | Yes |
 
 Unit tests are the main tier and the one that has to stay fast and offline, so a component that
 writes prompts is tested against a scripted model client ([section 5](#5-doubles-and-stubs)). The
-benchmark tier measures the system rather than checking it, and it is opt-in by path
-([07-repo-organization.md](07-repo-organization.md#where-the-benchmark-lives)). A tier needing a
-model calls a real provider, which is part of why it is opt-in.
+end-to-end tier plans one real request through a real provider, which is why it is opt-in by path.
+The benchmark is no tier at all: it is a script, and [section 8](#8-the-benchmark) says what it
+measures and how it runs
+([07-repo-organization.md](07-repo-organization.md#where-the-benchmark-lives)).
 
 The LOTUS tier answers what a stub cannot: whether the adapter calls the operations an installed
 LOTUS offers, with the arguments they take, and whether the tables they return convert back to
 rows. It runs in an environment carrying the `lotus` extra, which is why it is opt-in by path like
-the benchmarks. Every other tier passes with LOTUS absent (ADR-004).
+the end-to-end tier. Every other tier passes with LOTUS absent (ADR-004).
 
 There is no integration tier against a live networked backend. A source that runs embedded is tested
 against a real instance instead of a double ([section 5](#5-doubles-and-stubs)); a source reached
@@ -142,7 +143,8 @@ uv run pyright
 `lib/tests/unit/` mirrors `lib/src/blue_data_planner/` directory for directory, so the test for
 `physical_planner.py` is `tests/unit/test_physical_planner.py` and the test for `plan/validation.py`
 is `tests/unit/plan/test_validation.py`. It mirrors
-`lib/scripts/` too. Four directories sit beside it and mirror nothing.
+`lib/scripts/` too, which is why `tests/unit/scripts/tag_bench/` exists. Five directories sit beside
+it and mirror nothing.
 
 ```text
 lib/tests/
@@ -153,8 +155,7 @@ lib/tests/
   unit/                 # mirrors src/blue_data_planner/ and scripts/
     types/  plan/  data/  llm/  operators/  execution/  scripts/
   lotus/                # against an installed LOTUS; excluded from the default run
-  benchmarks/
-    tag_bench/          # excluded from the default run
+  end_to_end/           # one real request through a provider; excluded from the default run
 ```
 
 Every directory under `unit/` carries an `__init__.py`, so pytest does not confuse two test modules
@@ -262,28 +263,40 @@ for a whole session, and it is the one place in the repository where async meets
 
 ---
 
-## 8. Benchmark suites
+## 8. The benchmark
 
-`lib/tests/benchmarks/tag_bench/` measures the system against TAG-Bench, with a target of 60%
-accuracy end to end. It is excluded from the default run by `testpaths` and runs only when named by
-path.
+`lib/scripts/tag_bench/benchmark/` measures the system against TAG-Bench. The target is 60% exact
+match over the Match, Comparison, and Ranking queries, 48 of the test split's 64. The aggregation
+queries are left out of the benchmark: each one asks for a summary and carries an empty gold answer,
+so no exact-match score exists for it
+([10-data-model.md](10-data-model.md#6-benchmark-inputs-and-runs)).
 
-Its inputs come from `data/tag_bench/`, built by the three scripts under `lib/scripts/tag_bench/`,
-which download a release and correct it rather than editing the download in place
-([10-data-model.md](10-data-model.md#6-benchmark-inputs)). A run reports accuracy plus what the
-design still needs measured.
+It is a script rather than a test (ADR-031). A run spends paid model calls for as long as its
+selection takes, so a person starts it, watches the line it prints as each query finishes, and reads
+a number at the end.
+
+Its inputs come from `data/tag_bench/`, built by the three scripts beside it, which download a
+release and correct it rather than editing the download in place
+([10-data-model.md](10-data-model.md#6-benchmark-inputs-and-runs)). A run writes one record per
+query and one summary over them, both structured data, and the summary reports what the design still
+needs measured.
 
 | Reported | Answers |
 | --- | --- |
-| Accuracy against the gold answers | Whether the system meets the 60% target |
-| Operator calls per request, and model calls per component | Whether `RunLimits`'s defaults are near the truth ([12-deployment-ops.md](12-deployment-ops.md#5-request-limits)) |
-| How often a plan schedules a replan | Open question 2: whether planning is two-pass in practice |
-| How large a fragment the physical planner draws, and how often each repair fires | Whether the pushdown boundary lands where the design expects, and which repair is doing the work |
-| The review's accept rate | Whether the review talks itself into bad results, which ADR-013 flags as the risk worth watching |
+| Exact match against the gold answers, overall and per query type | Whether the system meets the 60% target, and which kind of question it misses |
+| Operator calls per query, and model calls per component | Whether `RunLimits`'s defaults are near the truth ([12-deployment-ops.md](12-deployment-ops.md#5-request-limits)) |
+| How often a run replans, and how many covers one logical plan needed | Whether planning is two-pass in practice, and which repair is doing the work |
+| How large a fragment the physical planner draws | Whether the pushdown boundary lands where the design expects |
+| How each run ended, and its failure reasons grouped | Which defect to fix next, since a status names the loop that ran out |
 
-The last three are the reason the benchmark is part of the testing strategy rather than a side
-project. They are design questions the decision log records as open, and none can be settled by
+The rows past the first are the reason the benchmark is part of the testing strategy rather than a
+side project: they are design questions the decision log records as open, and none can be settled by
 reasoning about the code.
+
+Two measurements are absent, because a `RunResult` states neither: how often a parameter repair
+fires, and the review's accept rate, which ADR-013 flags as the risk worth watching. Both live in
+the fragment runner's conversation as turns. Open question 53 holds whether a run records each
+attempt as structured data, and the report gains both with it.
 
 ---
 
@@ -295,7 +308,7 @@ Naming a gap is more useful than implying it is covered.
 | --- | --- |
 | A live networked backend | A source that runs embedded is tested against a real instance instead ([section 5](#5-doubles-and-stubs)); one reached over a network needs a running instance and a tier allowed to be slow |
 | The import rules | The six rules in [08-coding-style.md](08-coding-style.md) are checked in review. A test that parses imports would assert a rule rather than a behavior, which is what section 1 rules out |
-| Prompt quality | Whether a prompt draws a usable answer out of a real model is what the benchmark measures, against gold answers ([section 8](#8-benchmark-suites)). A model changes under a fixed prompt, so an assertion written against one answer would say nothing about the next |
+| Prompt quality | Whether a prompt draws a usable answer out of a real model is what the benchmark measures, against gold answers ([section 8](#8-the-benchmark)). A model changes under a fixed prompt, so an assertion written against one answer would say nothing about the next |
 | LOTUS itself, and the Blue operators | Each adapter is tested; a suite is a dependency and tests its own behavior |
 | Concurrency | The library is synchronous and runs one fragment at a time. A caller running several requests at once is running several threads, which is the caller's concern |
 | Cost | Model spend is reported per call in `RunResult.conversations` and asserted nowhere, since a threshold would fail on a price change rather than on a regression |
@@ -330,6 +343,14 @@ cd platform/mcp && uv run pytest
 # The LOTUS tier, in an environment carrying the lotus extra
 cd lib && uv run pytest tests/lotus
 
-# The benchmark tier, named by path because testpaths excludes it, against a real provider
-cd lib && uv run pytest tests/benchmarks/tag_bench
+# The end-to-end tier, named by path because testpaths excludes it, against a real provider
+cd lib && uv run pytest tests/end_to_end
+```
+
+The benchmark is a script rather than a test ([section 8](#8-the-benchmark)), so `pytest` does not
+run it:
+
+```bash
+cd lib && export UV_PROJECT_ENVIRONMENT=.venv-lotus
+uv run --extra lotus --extra dev python -m scripts.tag_bench.benchmark run --split dev
 ```

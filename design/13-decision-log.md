@@ -856,6 +856,27 @@ code or the JSON payload rather than `$?`. A run that did not finish still print
 
 ---
 
+## ADR-031 — The Benchmark Is a Script, Not a Test Tier
+
+**Decision:** The TAG-Bench harness lives at `lib/scripts/tag_bench/benchmark/`, beside the three
+scripts that build its inputs, and runs as a module. `pytest` runs no part of it; the harness's own
+unit tests live at `tests/unit/scripts/tag_bench/benchmark/`, which is where the mirror puts them.
+
+**Rationale:** A run is an experiment rather than a check. It spends paid model calls for as long as
+its selection takes, so a person starts it, reads the lines it prints while it works, and stops it
+when something looks wrong. What it produces is a number and a per-query record to triage, and a
+stopped run has to resume where it left off. Selecting queries, naming a run, resuming one, and
+aggregating records written earlier would each arrive as a `pytest` option, and the assertion at the
+end is the least useful thing in the output.
+
+**Consequences:** No CI job can gate on the accuracy target; the number is read by whoever ran it,
+and the pipeline runs no benchmark ([12-deployment-ops.md](12-deployment-ops.md)). The harness
+assembles a planner through the library's public surface, the way the CLI does, so a benchmark run
+and a CLI run answer the same request the same way. `lib/tests/` holds no benchmark directory, and
+the opt-in tier that remains there is `end_to_end/`, one real request through a provider.
+
+---
+
 ## Open Questions
 
 Design questions first, then defects in code that exists today.

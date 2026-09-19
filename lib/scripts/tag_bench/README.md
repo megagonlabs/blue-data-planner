@@ -8,7 +8,7 @@ Run them from the repository root, so the default `--data-dir` of `data/tag_benc
 harness looks:
 
 ```bash
-python lib/scripts/tag_bench/fetch_queries.py       # data/tag_bench/queries.json + splits/
+python lib/scripts/tag_bench/fetch_queries.py       # data/tag_bench/queries.json
 python lib/scripts/tag_bench/fetch_databases.py     # data/tag_bench/databases/*.db
 python lib/scripts/tag_bench/register_databases.py  # data/tag_bench/registry.json
 ```
@@ -17,7 +17,7 @@ Each script skips its work when its output is already there. `--force` rebuilds.
 
 | Script | Writes | Notes |
 | --- | --- | --- |
-| `fetch_queries.py` | `queries.json`, `splits/` | Downloads the released query CSV and corrects the known errors in it. The download itself is never edited |
+| `fetch_queries.py` | `queries.json` | Downloads the released query CSV, corrects the known errors in it, and assigns each query to the dev or the test split. The download itself is never edited |
 | `fetch_databases.py` | `databases/*.db` | Downloads the BIRD dev set (about 1 GB) and keeps the five databases the queries name |
 | `register_databases.py` | `registry.json` | Registers those databases with `blue-data`, syncs them, collects statistics, and infers semantic types |
 

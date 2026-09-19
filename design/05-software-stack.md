@@ -245,8 +245,9 @@ editing anything downloaded.
 | Dependency placement | A development-only extra, since the harness measures the system rather than being part of it |
 
 Reading the databases needs no new dependency: they are SQLite, which the standard library opens,
-and registering them is `blue-data`'s job. [10-data-model.md](10-data-model.md#6-benchmark-inputs)
-has the files and which script writes each one.
+and registering them is `blue-data`'s job.
+[10-data-model.md](10-data-model.md#6-benchmark-inputs-and-runs) has the files and which script
+writes each one.
 
 ---
 

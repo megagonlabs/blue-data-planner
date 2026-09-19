@@ -31,7 +31,8 @@ blue-data-planner/
 │   │   └── tag_bench/
 │   │       ├── fetch_queries.py       # reads a release and writes corrected queries
 │   │       ├── fetch_databases.py     # downloads the five BIRD databases
-│   │       └── register_databases.py  # builds one registry over them and serializes it
+│   │       ├── register_databases.py  # builds one registry over them and serializes it
+│   │       └── benchmark/             # runs the queries, scores the answers, reports a run
 │   ├── src/blue_data_planner/
 │   │   ├── __init__.py                # __version__ and the run path
 │   │   ├── data_planner.py            # DataPlanner, build_data_planner
@@ -77,8 +78,7 @@ blue-data-planner/
 │       ├── fixtures/                  # recorded inputs
 │       ├── unit/                      # mirrors src/blue_data_planner/ and scripts/
 │       ├── lotus/                     # against an installed LOTUS; excluded from the default run
-│       └── benchmarks/
-│           └── tag_bench/             # excluded from the default pytest run
+│       └── end_to_end/                # one real request through a provider; excluded by default
 └── platform/
     ├── cli/
     │   ├── README.md
@@ -255,27 +255,35 @@ One `LICENSE` sits at the repository root and covers everything published from i
 `plan/validation.py` is `tests/unit/plan/test_validation.py`. It mirrors `lib/scripts/` the same
 way, which is why `tests/unit/scripts/tag_bench/` exists.
 
-`doubles/`, `stubs/`, `fixtures/`, `lotus/`, and `benchmarks/` sit beside `unit/` and mirror
-nothing. `lotus/` holds the one tier that runs against an installed operator suite, so it is run by
-name, in an environment carrying the `lotus` extra. What each directory holds, and what a platform
-package's tests cover, is in [11-testing-strategy.md](11-testing-strategy.md#4-layout).
+`doubles/`, `stubs/`, `fixtures/`, `lotus/`, and `end_to_end/` sit beside `unit/` and mirror
+nothing. `lotus/` holds the tier that runs against an installed operator suite, so it is run by
+name, in an environment carrying the `lotus` extra. `end_to_end/` holds the one test that plans a
+real request through a provider, run by name for the same reason. What each directory holds, and
+what a platform package's tests cover, is in
+[11-testing-strategy.md](11-testing-strategy.md#4-layout).
 
 ### Where the benchmark lives
 
-Three directories hold the benchmark, and none of them ships.
+Two directories hold the benchmark, and neither ships.
 
 | Part | Where |
 | --- | --- |
-| The harness that runs requests and scores answers | `lib/tests/benchmarks/tag_bench/` |
-| The queries, the databases, and the registry over them | `data/tag_bench/`, downloaded and built rather than committed |
-| The steps that download a release, correct it, and build the registry | `lib/scripts/tag_bench/` |
+| The steps that build the inputs, and the harness that runs the queries and scores the answers | `lib/scripts/tag_bench/` |
+| The queries, the databases, the registry over them, and what each run writes | `data/tag_bench/`, downloaded, built, and written rather than committed |
 
 The build step is three scripts rather than one because the three outputs are fetched and rebuilt on
 different occasions. `fetch_queries.py` reads a release and writes corrected queries beside it,
 leaving the download untouched. `fetch_databases.py` downloads the five BIRD databases.
 `register_databases.py` builds one `blue-data` registry over those databases and serializes it once,
-so a test opens a file instead of syncing five databases again. The paths each one writes are fixed
-in [10-data-model.md](10-data-model.md#6-benchmark-inputs).
+so a run opens a file instead of syncing five databases again. The paths each one writes are fixed
+in [10-data-model.md](10-data-model.md#6-benchmark-inputs-and-runs).
+
+`benchmark/` sits beside those three and is a package rather than a file, because it has four
+separable jobs: selecting queries, running one, scoring an answer against the gold one, and
+aggregating a run. It runs as a module, in the environment carrying the `lotus` extra, and writes
+one record per query as that query finishes, so a person can read a record while the rest of the run
+continues, a run that stops keeps what it finished, and a finished run is triaged from what it wrote
+(ADR-031).
 
 `register_databases.py` is the one place in the repository outside `data/` that imports `blue-data`.
 Registering sources, syncing them, collecting statistics, and enriching them are ingestion, which
@@ -286,8 +294,8 @@ an ingestion surface into `data/` ([06-library.md](06-library.md#opening-a-regis
 library holds itself to is scoped to `lib/src/` and stated that way in
 [08-coding-style.md](08-coding-style.md).
 
-The benchmark measures the system rather than being part of it. It ships in no package and runs only
-when asked for by name.
+The benchmark measures the system rather than being part of it. It ships in no package, and a run is
+started by a person rather than by a test run.
 
 ---
 

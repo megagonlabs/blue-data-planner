@@ -204,7 +204,7 @@ rest are set low enough to stop a run that is not converging without stopping on
 
 The TAG-Bench harness reports operator calls per request, model calls per component, how often a plan
 schedules a replan, and how often each repair fires
-([11-testing-strategy.md](11-testing-strategy.md#8-benchmark-suites)), and the values are meant to be
+([11-testing-strategy.md](11-testing-strategy.md#8-the-benchmark)), and the values are meant to be
 replaced by what it shows. Open question 2 holds the one that most needs the measurement.
 
 ---
@@ -302,10 +302,10 @@ runner another platform provides.
 
 Verify has to pass before a merge. Publish is gated on a tag a maintainer pushes.
 
-Two things the pipeline deliberately does not do. It does not run the benchmark suites, which need a
-provider and cost money per run, so TAG-Bench stays a run someone asks for
-([11-testing-strategy.md](11-testing-strategy.md)). And it enforces no coverage threshold, only
-reporting the number.
+Two things the pipeline deliberately does not do. It does not run the benchmark, which needs a
+provider and costs money per run, so TAG-Bench stays a run a person starts and watches
+([11-testing-strategy.md](11-testing-strategy.md#8-the-benchmark)). And it enforces no coverage
+threshold, only reporting the number.
 
 ---
 

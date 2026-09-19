@@ -1016,7 +1016,7 @@ in every interface. There is no separate error shape.
 
 ---
 
-## 6. Benchmark inputs
+## 6. Benchmark inputs and runs
 
 TAG-Bench inputs live under `data/tag_bench/`, downloaded rather than committed
 ([07-repo-organization.md](07-repo-organization.md#where-the-benchmark-lives)).
@@ -1029,24 +1029,48 @@ beside it, leaving the download untouched.
 | `data/tag_bench/databases/*.db` | The five BIRD SQLite databases | `lib/scripts/tag_bench/fetch_databases.py` |
 | `data/tag_bench/registry.json` | A `blue-data` registry over those databases, synced, with stats collected and enriched | `lib/scripts/tag_bench/register_databases.py` |
 
-The registry is built once and kept, so tests and benchmark runs open a file instead of re-syncing
+The registry is built once and kept, so a test and a benchmark run open a file instead of re-syncing
 five databases.
 
-A corrected query carries the released fields plus what a correction needs to be traceable.
+One query record carries the released fields, the split it belongs to, and what a correction needs
+to be traceable. It is the whole shape the harness reads, so nothing about a query lives in a second
+file.
 
 ```json
 {
   "query_id": 42,
-  "db": "california_schools",
-  "query": "Which schools in Alameda County have an average SAT math score above 600?",
-  "answer": ["Alameda High", "Piedmont High"],
-  "query_type": "match",
-  "correction": "the released answer omitted two schools present in the source tables"
+  "question": "How many schools have the difference in enrollements between K-12 and ages 5-17 as more than the number of days in April?",
+  "query_type": "Comparison",
+  "db_name": "california_schools",
+  "gold_answer": 1239,
+  "split": "dev",
+  "correction": "the released answer of 1236 disagrees with the reference program, which returns 1239"
 }
 ```
 
 `correction` is absent on a query the build step passed through unchanged, which is what makes the
-corrected set auditable against the release.
+corrected set auditable against the release. `split` is `dev` on the queries a debugging pass uses
+and `test` on the rest, assigned once per query type when the queries are built.
+
+A query whose `gold_answer` is empty states no answer to score. TAG-Bench's twenty aggregation
+queries each ask for a summary and carry one, so a benchmark selection leaves them out
+([11-testing-strategy.md](11-testing-strategy.md#8-the-benchmark)).
+
+### What a run writes
+
+A run writes under `data/tag_bench/runs/<run-name>/`, git-ignored like the inputs beside it.
+
+| Path | Holds |
+| --- | --- |
+| `config.json` | Every setting the run resolved, the query ids it selected, and the commit it ran |
+| `query_<id>.json` | The query, its gold answer, the answer extracted from the run, whether the two match, and the `RunResult` behind it: status, failure reason, every plan version, each fragment's result, the counters, and what the query spent |
+| `query_<id>.conversations.json` | That query's model transcripts, apart from the record because triage starts with the record |
+| `summary.json` | Exact match overall and per query type, and the run-level measurements ([11-testing-strategy.md](11-testing-strategy.md#8-the-benchmark)) |
+
+A record is written as its query finishes, so a run that stops keeps what it finished. A query that
+raised carries the traceback in place of a result, which is how one defect leaves the rest of a run
+scorable. A run writes into a directory of its own: one already holding records is refused rather
+than added to, so no summary mixes two runs.
 
 ---
 

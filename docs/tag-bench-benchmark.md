@@ -1,10 +1,14 @@
 # TAG-Bench benchmark
 
-TAG-Bench is a set of natural-language questions over five BIRD SQLite databases, each paired with
-a gold answer. It measures the planner's answer accuracy end to end, against a target of 60%
-([design/11-testing-strategy.md](../design/11-testing-strategy.md#8-benchmark-suites)). The planner
-is tested against it running LOTUS operators, since LOTUS is established and TAG-Bench is designed
-to be solvable with it.
+TAG-Bench is a set of natural-language questions over five BIRD SQLite databases. It measures the
+planner's answer accuracy end to end, against a target of 60% exact match
+([design/11-testing-strategy.md](../design/11-testing-strategy.md#8-the-benchmark)). The planner is
+tested against it running LOTUS operators, since LOTUS is established and TAG-Bench is designed to
+be solvable with it.
+
+Sixty of its eighty questions carry a gold answer: the Match, Comparison, and Ranking ones. The
+twenty aggregation questions ask for a summary and carry an empty answer, so exact match cannot
+score them, and the benchmark leaves them out.
 
 None of the benchmark's input data ships in the package or is committed; a clean checkout rebuilds
 it. The harness that runs requests against it and scores the answers is not implemented yet
@@ -28,14 +32,14 @@ script, including the registry's record shape, is in
 [lib/scripts/tag_bench/README.md](../lib/scripts/tag_bench/README.md).
 
 ```bash
-uv run --project lib python lib/scripts/tag_bench/fetch_queries.py       # queries.json, splits/
+uv run --project lib python lib/scripts/tag_bench/fetch_queries.py       # queries.json
 uv run --project lib python lib/scripts/tag_bench/fetch_databases.py     # databases/*.db
 uv run --project lib python lib/scripts/tag_bench/register_databases.py  # registry.json
 ```
 
 | Script | Writes | Does |
 | --- | --- | --- |
-| `fetch_queries.py` | `queries.json`, `splits/` | Downloads the released query CSV and corrects its known errors, leaving the download itself untouched |
+| `fetch_queries.py` | `queries.json` | Downloads the released query CSV, corrects its known errors, and assigns each query to the dev or the test split, leaving the download itself untouched |
 | `fetch_databases.py` | `databases/*.db` | Downloads the BIRD dev set and keeps the five databases the queries name |
 | `register_databases.py` | `registry.json` | Registers those databases with `blue-data`, syncs them, collects statistics, and infers semantic types |
 
@@ -43,10 +47,7 @@ After all three, `data/tag_bench/` holds:
 
 ```
 data/tag_bench/
-├── queries.json     # corrected TAG-Bench queries, with their gold answers
-├── splits/
-│   ├── dev_query_ids.json
-│   └── test_query_ids.json
+├── queries.json     # corrected TAG-Bench queries, their gold answers, and their splits
 ├── databases/
 │   └── *.db         # the five BIRD SQLite databases the queries name
 └── registry.json    # blue-data catalog metadata over those databases
@@ -76,6 +77,6 @@ meant to measure.
 Not yet implemented. Once the harness lands, this section will cover invoking it and reading its
 report. For the shape it is expected to take, see
 [design/07-repo-organization.md](../design/07-repo-organization.md#where-the-benchmark-lives) and
-[design/11-testing-strategy.md](../design/11-testing-strategy.md#8-benchmark-suites): the harness
-lives at `lib/tests/benchmarks/tag_bench/`, is excluded from the default `pytest` run, and is run by
-naming its path directly.
+[design/11-testing-strategy.md](../design/11-testing-strategy.md#8-the-benchmark): the harness lives
+at `lib/scripts/tag_bench/benchmark/` beside the three build scripts, runs as a module rather than
+through `pytest`, and writes one record per query under `data/tag_bench/runs/`.
