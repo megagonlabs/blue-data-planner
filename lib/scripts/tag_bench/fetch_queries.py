@@ -11,29 +11,20 @@ import random
 import urllib.request
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import TypedDict
+from typing import NotRequired, TypedDict
 
 AnswerValue = int | str | list[str]
 
-_SPECIAL_ANSWER_QUERY_ID = 51
+SPECIAL_ANSWER_QUERY_ID = 51
 
 # Corrections for known TAG-Bench vendor CSV errors. Reimplemented from (not copied from)
 # ~/dev/redundancy-aware-data-planning/preprocessing/tag_bench/build_queries.py; the
 # gold-LOTUS-program corrections there have no counterpart here, since this planner
 # does not run TAG-Bench's hand-written LOTUS pipelines.
 ANSWER_OVERRIDES: dict[int, AnswerValue] = {
-    # Query 33's vendor answer of 2 counts a district aggregate row alongside the one
-    # actual school matching the filter; the correct count of schools is 1.
     33: 1,
-    # Query 42's vendor answer is 1236; the reference pipeline returns 1239 from the
-    # same "days in April" constant the program logic depends on.
     42: 1239,
-    # Query 45 asks for weight "more than 77.1kg" (= 169.976 lb); two players weigh
-    # exactly 170 lb, so the intended threshold is the original "> 170 lbs" filter,
-    # which gives 26, not the vendor answer of 24.
     45: 26,
-    # Query 53's vendor cell wraps the gold comment in extra quotes and drops its
-    # trailing "\n;-)", which the database's stored text actually ends with.
     53: (
         "That pirates / global warming chart is clearly cooked up by conspiracy "
         "theorists - anyone can see they have deliberately plotted even spacing "
@@ -43,7 +34,6 @@ ANSWER_OVERRIDES: dict[int, AnswerValue] = {
         "pirates cannot survive those conditions.\n"
         ";-)"
     ),
-    # Query 1000's vendor cell drops the diacritic in "São Paulo".
     1000: ["Mexico City", "São Paulo", "Abu Dhabi", "Austin", "Suzuka"],
 }
 
@@ -53,9 +43,30 @@ DB_NAME_OVERRIDES: dict[int, str] = {
     25: "debit_card_specializing",
 }
 
-KNOWN_CORRECTION_IDS: frozenset[int] = (
-    frozenset(ANSWER_OVERRIDES) | {_SPECIAL_ANSWER_QUERY_ID} | frozenset(DB_NAME_OVERRIDES)
-)
+# Why each released row was corrected. It travels in the record, so the corrected set is
+# auditable against the release without reading this file.
+CORRECTION_REASONS: dict[int, str] = {
+    33: "the released answer of 2 counts a district aggregate row beside the one school that "
+    "matches the filter; the count of schools is 1",
+    42: "the released answer of 1236 disagrees with the reference program, which returns 1239 "
+    "from the same days-in-April constant the program logic depends on",
+    45: "the released answer of 24 applies a 77.1 kg threshold (169.976 lb) that drops two "
+    "players weighing exactly 170 lb; the original > 170 lbs filter gives 26",
+    SPECIAL_ANSWER_QUERY_ID: "the released cell is a comma-separated string rather than a list "
+    "literal, and collapses a double space the stored title has",
+    53: "the released cell wraps the comment in extra quotes and drops the trailing newline and "
+    "';-)' the stored text ends with",
+    1000: "the released cell drops the diacritic in 'São Paulo'",
+    25: "the released row names the wrong database; the gold program reads only "
+    "debit_card_specializing tables",
+}
+
+KNOWN_CORRECTION_IDS: frozenset[int] = frozenset(CORRECTION_REASONS)
+
+
+def correction_reason(query_id: int) -> str | None:
+    """Return why this query's released row was corrected, or None where it was not."""
+    return CORRECTION_REASONS.get(query_id)
 
 
 def parse_answer_cell(raw_answer: str) -> AnswerValue:
@@ -73,7 +84,7 @@ def parse_answer_cell(raw_answer: str) -> AnswerValue:
 
 def corrected_answer(query_id: int, raw_answer: str) -> AnswerValue:
     """Return one query's gold answer, applying known TAG-Bench vendor CSV corrections."""
-    if query_id == _SPECIAL_ANSWER_QUERY_ID:
+    if query_id == SPECIAL_ANSWER_QUERY_ID:
         # Query 51's vendor cell is a comma-separated string, not a Python list literal,
         # and collapses a double space the database's stored title actually has.
         titles = [title.strip() for title in raw_answer.split(", ")]
@@ -88,37 +99,48 @@ def corrected_db_name(query_id: int, raw_db_name: str) -> str:
     return DB_NAME_OVERRIDES.get(query_id, raw_db_name)
 
 
-class QueryRecord(TypedDict):
+class CorrectedQuery(TypedDict):
     query_id: int
     question: str
     query_type: str
     db_name: str
-    answer: AnswerValue
+    gold_answer: AnswerValue
+    correction: NotRequired[str]
+
+
+class QueryRecord(CorrectedQuery):
+    split: str
+
+
+DEV_SPLIT: str = "dev"
+TEST_SPLIT: str = "test"
 
 
 def parse_query_rows(
     csv_text: str, required_correction_ids: frozenset[int] = KNOWN_CORRECTION_IDS
-) -> list[QueryRecord]:
+) -> list[CorrectedQuery]:
     """Parse tag_queries.csv text into corrected query records.
 
     Raises:
         ValueError: If a query id in required_correction_ids is absent from csv_text.
     """
-    records: list[QueryRecord] = []
+    records: list[CorrectedQuery] = []
     seen_ids: set[int] = set()
     reader = csv.DictReader(io.StringIO(csv_text))
     for row in reader:
         query_id = int(row["Query ID"])
         seen_ids.add(query_id)
-        records.append(
-            QueryRecord(
-                query_id=query_id,
-                question=row["Query"],
-                query_type=row["Query type"],
-                db_name=corrected_db_name(query_id, row["DB used"]),
-                answer=corrected_answer(query_id, row["Answer"]),
-            )
+        record = CorrectedQuery(
+            query_id=query_id,
+            question=row["Query"],
+            query_type=row["Query type"],
+            db_name=corrected_db_name(query_id, row["DB used"]),
+            gold_answer=corrected_answer(query_id, row["Answer"]),
         )
+        reason = correction_reason(query_id)
+        if reason is not None:
+            record["correction"] = reason
+        records.append(record)
     missing = sorted(required_correction_ids - seen_ids)
     if missing:
         raise ValueError(f"Expected query ids {missing} in tag_queries.csv, but they were absent")
@@ -132,21 +154,20 @@ TAG_BENCH_REPO = "TAG-Research/TAG-Bench"
 TAG_BENCH_BRANCH = "main"
 
 
-def build_dev_test_split(
-    records: list[QueryRecord], dev_per_type: int, split_seed: int
-) -> tuple[list[int], list[int]]:
-    """Split query ids into a fixed dev/test partition, sampling dev_per_type ids per query_type.
+def with_splits(
+    queries: list[CorrectedQuery], dev_per_type: int, split_seed: int
+) -> list[QueryRecord]:
+    """Return the queries with a split assigned, dev_per_type of each type in the dev split.
 
     Raises:
         ValueError: If a query_type has fewer than dev_per_type examples.
     """
     by_type: dict[str, list[int]] = {}
-    for record in records:
-        by_type.setdefault(record["query_type"], []).append(record["query_id"])
+    for query in queries:
+        by_type.setdefault(query["query_type"], []).append(query["query_id"])
 
     rng = random.Random(split_seed)
-    dev_ids: list[int] = []
-    test_ids: list[int] = []
+    dev_ids: set[int] = set()
     for query_type, ids in by_type.items():
         type_ids = sorted(ids)
         if len(type_ids) < dev_per_type:
@@ -154,13 +175,13 @@ def build_dev_test_split(
                 f"Query type {query_type!r} has only {len(type_ids)} examples, "
                 f"but dev_per_type={dev_per_type}"
             )
-        dev_for_type = set(rng.sample(type_ids, dev_per_type))
-        dev_ids.extend(dev_for_type)
-        test_ids.extend(query_id for query_id in type_ids if query_id not in dev_for_type)
-
-    dev_ids.sort()
-    test_ids.sort()
-    return dev_ids, test_ids
+        dev_ids.update(rng.sample(type_ids, dev_per_type))
+    # pyright accepts unpacking one TypedDict into another's constructor, so the optional
+    # correction travels without being named here.
+    return [
+        QueryRecord(**query, split=DEV_SPLIT if query["query_id"] in dev_ids else TEST_SPLIT)
+        for query in queries
+    ]
 
 
 class QueriesDocument(TypedDict):
@@ -220,17 +241,15 @@ def main() -> None:
         return
 
     csv_text, source_commit = fetch_queries_csv()
-    records = parse_query_rows(csv_text)
-    dev_ids, test_ids = build_dev_test_split(records, args.dev_per_type, args.split_seed)
+    queries = parse_query_rows(csv_text)
+    records = with_splits(queries, args.dev_per_type, args.split_seed)
     fetched_at = datetime.now(UTC).isoformat()
     document = build_queries_document(records, source_commit, fetched_at)
 
-    splits_dir = args.data_dir / "splits"
     _write_json(queries_path, document)
-    _write_json(splits_dir / "dev_query_ids.json", dev_ids)
-    _write_json(splits_dir / "test_query_ids.json", test_ids)
+    dev_count = sum(1 for record in records if record["split"] == DEV_SPLIT)
     print(f"Wrote {len(records)} queries to {queries_path} (commit {source_commit})")
-    print(f"Wrote {len(dev_ids)} dev ids and {len(test_ids)} test ids to {splits_dir}")
+    print(f"{dev_count} in the dev split and {len(records) - dev_count} in the test split")
 
 
 if __name__ == "__main__":

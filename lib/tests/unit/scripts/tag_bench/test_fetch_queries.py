@@ -5,12 +5,19 @@ from __future__ import annotations
 import pytest
 
 from scripts.tag_bench.fetch_queries import (
-    build_dev_test_split,
+    ANSWER_OVERRIDES,
+    CORRECTION_REASONS,
+    DB_NAME_OVERRIDES,
+    DEV_SPLIT,
+    SPECIAL_ANSWER_QUERY_ID,
+    TEST_SPLIT,
     build_queries_document,
     corrected_answer,
     corrected_db_name,
+    correction_reason,
     parse_answer_cell,
     parse_query_rows,
+    with_splits,
 )
 
 
@@ -74,10 +81,38 @@ def test_parse_query_rows_applies_all_corrections() -> None:
         _FIXTURE_CSV, required_correction_ids=frozenset({33, 42, 45, 51, 53, 1000, 25})
     )
     by_id = {record["query_id"]: record for record in records}
-    assert by_id[33]["answer"] == 1
-    assert by_id[42]["answer"] == 1239
-    assert by_id[45]["answer"] == 26
+    assert by_id[33]["gold_answer"] == 1
+    assert by_id[42]["gold_answer"] == 1239
+    assert by_id[45]["gold_answer"] == 26
     assert by_id[25]["db_name"] == "debit_card_specializing"
+
+
+def test_every_corrected_query_records_why_it_was_corrected() -> None:
+    """A corrected gold answer is auditable against the release only with its reason beside it."""
+    corrected = (
+        frozenset(ANSWER_OVERRIDES) | {SPECIAL_ANSWER_QUERY_ID} | frozenset(DB_NAME_OVERRIDES)
+    )
+
+    assert corrected == frozenset(CORRECTION_REASONS)
+
+
+def test_a_corrected_query_carries_its_reason_and_an_untouched_one_carries_none() -> None:
+    """The record says why it differs from the release, or says nothing by carrying no key."""
+    records = parse_query_rows(
+        _FIXTURE_CSV, required_correction_ids=frozenset({33, 42, 45, 51, 53, 1000, 25})
+    )
+    by_id = {record["query_id"]: record for record in records}
+
+    # "correction" is NotRequired; this row is one of the fixture's known corrected ids.
+    corrected_reason = by_id[33]["correction"]  # pyright: ignore[reportTypedDictNotRequiredAccess]
+    assert corrected_reason == correction_reason(33)
+    assert (
+        "correction"
+        not in parse_query_rows(
+            'Query ID,Query,Query type,DB used,Answer\n999,"How many?",Match,formula_1,7\n',
+            required_correction_ids=frozenset(),
+        )[0]
+    )
 
 
 def test_parse_query_rows_raises_on_missing_correction_target() -> None:
@@ -94,31 +129,38 @@ def test_parse_query_rows_keeps_uncorrected_fields() -> None:
     assert by_id[42]["query_type"] == "Aggregation"
 
 
-def test_build_dev_test_split_is_deterministic_and_covers_every_id() -> None:
-    """The same seed produces the same split, and every id lands in exactly one side."""
-    records = parse_query_rows(_FIXTURE_CSV, required_correction_ids=frozenset())
-    dev_ids, test_ids = build_dev_test_split(records, dev_per_type=1, split_seed=0)
-    assert sorted(dev_ids + test_ids) == sorted(record["query_id"] for record in records)
-    assert set(dev_ids).isdisjoint(test_ids)
-    dev_ids_again, test_ids_again = build_dev_test_split(records, dev_per_type=1, split_seed=0)
-    assert (dev_ids, test_ids) == (dev_ids_again, test_ids_again)
+def test_every_query_is_assigned_one_split_and_the_same_seed_assigns_the_same_one() -> None:
+    """A split is a property of the record, and a rebuild with one seed reproduces it."""
+    queries = parse_query_rows(_FIXTURE_CSV, required_correction_ids=frozenset())
+
+    records = with_splits(queries, dev_per_type=1, split_seed=0)
+    again = with_splits(queries, dev_per_type=1, split_seed=0)
+
+    assert {record["split"] for record in records} == {DEV_SPLIT, TEST_SPLIT}
+    assert [record["split"] for record in records] == [record["split"] for record in again]
+    # One dev query per query type, and the fixture holds four types.
+    assert sum(1 for record in records if record["split"] == DEV_SPLIT) == 4
 
 
-def test_build_dev_test_split_raises_when_a_type_is_too_small() -> None:
-    """A query_type with fewer rows than dev_per_type raises, naming that type."""
-    records = parse_query_rows(_FIXTURE_CSV, required_correction_ids=frozenset())
+def test_a_query_type_with_fewer_queries_than_the_dev_share_is_refused() -> None:
+    """A query_type too small to give up dev_per_type queries raises, naming that type."""
+    queries = parse_query_rows(_FIXTURE_CSV, required_correction_ids=frozenset())
+
     with pytest.raises(ValueError, match="Aggregation"):
-        build_dev_test_split(records, dev_per_type=2, split_seed=0)
+        with_splits(queries, dev_per_type=2, split_seed=0)
 
 
 def test_build_queries_document_sorts_by_query_id_and_carries_metadata() -> None:
     """The document carries the given commit/timestamp and sorts queries by id."""
-    records = parse_query_rows(_FIXTURE_CSV, required_correction_ids=frozenset())
+    queries = parse_query_rows(_FIXTURE_CSV, required_correction_ids=frozenset())
+    records = with_splits(queries, dev_per_type=1, split_seed=0)
+
     document = build_queries_document(
         records, source_commit="abc123", fetched_at="2026-08-18T00:00:00+00:00"
     )
+
     assert document["source_commit"] == "abc123"
     assert document["fetched_at"] == "2026-08-18T00:00:00+00:00"
-    assert [q["query_id"] for q in document["queries"]] == sorted(
+    assert [query["query_id"] for query in document["queries"]] == sorted(
         record["query_id"] for record in records
     )
