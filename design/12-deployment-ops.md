@@ -118,7 +118,7 @@ above the exported environment.
 | `BLUE_DATA_PLANNER_ENABLE_NL2TABLE` | `false` | Whether `builtin.nl2table` is registered, which writes a Python program and runs it (ADR-020) |
 | `BLUE_DATA_PLANNER_MAX_*` | The `RunLimits` defaults | One per bound, listed in [section 5](#5-request-limits) |
 | `BLUE_DATA_CLI_FORMAT` | `table` | The CLI's default output format |
-| `BLUE_DATA_CLI_LOG_LIMIT` | `80` | The characters each trace line is truncated to |
+| `BLUE_DATA_CLI_TRACE_MAX_FRAGMENT_ROWS` | `5` | The rows of a fragment's result the trace shows |
 
 One model string serves every component. `DataPlanner`'s constructor takes a client per component,
 so a deployment that wants a stronger model for logical planning than for writing parameters builds

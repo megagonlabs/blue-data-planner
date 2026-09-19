@@ -32,7 +32,7 @@ rather than a copy of the code.
 | `blue_data_planner/catalog_searcher.py` | `CatalogSearcher` |
 | `blue_data_planner/types/` | Every data class that crosses a module boundary: plans, nodes, fragments, operators, results, catalog readings, model usage, limits |
 | `blue_data_planner/plan/` | `validate_logical_plan`, `validate_physical_plan`, `candidate_fragments`, `signatures`, and the response schemas the planning stages send |
-| `blue_data_planner/execution/` | `execute_physical_operator`, `check_output_columns`, `project_answer` |
+| `blue_data_planner/execution/` | `execute_physical_operator`, `check_output_columns`, `project_answer`, `summarize_table` |
 | `blue_data_planner/operators/` | `OperatorRouter`, one adapter per outside suite (`blue_operators` over `blue-data-ops`, `lotus_operators` over LOTUS), and `builtin/`, the suite this repository owns |
 | `blue_data_planner/data/` | The `blue-data` boundary, the three catalog readings, and opening a serialized registry |
 | `blue_data_planner/llm/` | `LLMClient`, usage accounting, prompt templating, error types |
@@ -337,6 +337,10 @@ DataBundle = list[Data]  # what one fragment passes to the next (ADR-012)
 These live at the package root rather than in `operators/types.py`. Root `types/` imports nothing
 outside itself, so a type it uses cannot live below it, and `ExecutionResult` and
 `PhysicalOperator` both name a bundle. `operators/types.py` re-exports all three.
+
+`TableSummary` sits beside them: a table's row count, its column names, and its first few rows
+([10](10-data-model.md#a-tables-summary)). A prompt and the CLI's trace show one in place of a
+table.
 
 ### Budgets and limits
 
@@ -860,6 +864,9 @@ def check_output_columns(
 
 
 def project_answer(inputs: DataBundle, columns: list[str]) -> DataBundle: ...
+
+
+def summarize_table(table: Data, max_rows: int) -> TableSummary: ...
 ```
 
 `execute_physical_operator` validates the parameters against the operator's schema, bills one
@@ -892,6 +899,13 @@ and the check on that operator's result already held it to them
 
 It sits beside the operator call because both are deterministic work over a bundle of tables, and
 because the alternative is the run loop growing the only place it touches rows.
+
+`summarize_table` says what a table holds without carrying it: how many rows, which columns, and the
+first `max_rows` of them ([10](10-data-model.md#a-tables-summary)). Three places show a table rather
+than pass it on — the prompt putting a fragment's input in front of the model that writes its
+parameters, the prompt putting its result in front of the review, and the CLI's trace — and each
+renders the same summary its own way. The cap is an argument because those readers differ in how
+many rows they can spend.
 
 Three things `execution/` does not do, and each one removes an import. It does not schedule, because
 the run loop decides what is ready and hands down one call at a time. It does not resolve an

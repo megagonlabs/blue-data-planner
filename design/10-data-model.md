@@ -496,6 +496,26 @@ them.
 Each adapter converts between this shape and its own suite's at its own edge: the LOTUS adapter
 builds one data frame per table going in and flattens coming out.
 
+### A table's summary
+
+A table is summarized wherever it is shown rather than passed on: in a prompt putting a fragment's
+input or its result in front of a model, and in the CLI's trace.
+
+```python
+@dataclass(frozen=True)
+class TableSummary:
+    row_count: int
+    columns: list[str]
+    sample_rows: Data
+```
+
+`sample_rows` holds the first rows of the table, and whoever asks for the summary chooses how many.
+The cap belongs to the caller because the two readers spend rows against different things: a prompt
+against a context window, a person reading a trace against a screen.
+
+A table is as large as the data its fragment read. A summary has a fixed size, which is why it is
+what gets shown.
+
 ---
 
 ## 3. What a run produces
@@ -996,20 +1016,24 @@ belongs, or statistics that are not statistics — is a corrupt registry and rai
 
 ## 5. Shapes that leave the process
 
-The library's shapes are the reference. Each interface renders them, and the MCP server is the one
-that changes them.
+The library's shapes are the reference. A library caller holds them in memory; the CLI and the MCP
+server write documents, and a document carries a measure of whatever grows with the data a run read.
 
-| Shape | Library | MCP response |
-| --- | --- | --- |
-| `conversations` | Every turn of every exchange | A count of calls and what they cost |
-| A `DISCOVER` node's entry in `results` | Every term and every match | A count of matches |
-| `counters` | The counts and the bounds they were counted against | The counts |
-| Everything else, `pipeline` included | As above | The same, as JSON |
+| Shape | Library | CLI | MCP response |
+| --- | --- | --- | --- |
+| `answer`, `status`, `failure_reason` | The rows, the status, the reason | The same | The same |
+| `counters` | The counts and the bounds they were counted against | The same | The counts |
+| `conversations` | Every turn of every exchange | A count of calls and what they cost | The same |
+| `results`, apart from a call's rows | Every field of every entry | The same, in the trace | The same, as JSON |
+| `ExecutionResult.output` | The rows the call returned | A `TableSummary`, in the trace | A row count |
+| A `DISCOVER` node's entry in `results` | Every term and every match | The same, in the trace | A count of matches |
+| `pipeline` | Every plan the request produced | The plan a `plan query` produced, and every plan the trace walks | The same, as JSON |
 
-These differences exist because an agent reasons about the outcome, and a full transcript of every
-exchange would bloat every response ([09](09-api-interface-spec.md#planning-tools)). A library
-caller reads them in full off the returned result, and the CLI's `--log` prints what a review said
-about each attempt.
+The reductions have two reasons. A transcript and a run's intermediate tables grow with the work a
+request did rather than with its answer, so a document reduces each to a measure and stays the size
+of what a reader can act on (ADR-032). An agent's context window is tighter than a file, so the MCP
+response also reduces two things a person reading a terminal uses in full: the bounds a run obeyed
+and what a search matched ([09](09-api-interface-spec.md#planning-tools)).
 
 A run that did not finish returns the same object with its status, `answer` null, and its counters,
 in every interface. There is no separate error shape.

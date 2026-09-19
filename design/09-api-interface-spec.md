@@ -30,7 +30,7 @@ and reads its result writes one import. Everything else is reached through the m
 | `blue_data_planner.run_state` | `RunState` |
 | `blue_data_planner.types` | Plan, node, result, and limit types, the enums, and every exception this library defines, `BlueDataPlannerError` first |
 | `blue_data_planner.plan` | `validate_logical_plan`, `validate_physical_plan`, `candidate_fragments` |
-| `blue_data_planner.execution` | `execute_physical_operator`, `check_output_columns` |
+| `blue_data_planner.execution` | `execute_physical_operator`, `check_output_columns`, `summarize_table` |
 | `blue_data_planner.operators` | `OperatorRouter` |
 | `blue_data_planner.operators.adapters.blue`, `.adapters.lotus`, `.builtin` | `blue_operators`, `lotus_operators`, `builtin_operators` |
 | `blue_data_planner.data` | `DataCatalog`, `open_registry`, and the source-level reads |
@@ -258,10 +258,14 @@ so no command accepts one.
 | `--registry PATH` | The two query actions | The `blue-data` registry to plan over |
 | `--model NAME` | The two query actions | The litellm model string every component uses |
 | `--format table\|json` | Anything printing a result | How the result is written, `table` by default |
-| `--log` | The two query actions | Print the run's trace after the run |
-| `--log-limit N` | The two query actions | Truncate each trace line, 80 characters by default |
+| `--trace` | The two query actions | Report what the run did, after the run |
+| `--trace-max-fragment-rows N` | The two query actions | The rows of a fragment's result the trace shows, 5 by default |
 | `--confirm` | `profile remove` | Answer the confirmation ahead of time |
 | `--version` | The root | The package version |
+
+`--format` and `--trace` choose different things, and each is set independently of the other
+(ADR-032). The first decides how a result is written; the second decides whether the run behind it
+is reported. `--trace-max-fragment-rows` takes effect where `--trace` does.
 
 Every bound on a run is a profile parameter rather than a flag: a bound is configuration, and
 configuration belongs to a profile (ADR-028). `--registry` and `--model` are the two an operator
@@ -272,32 +276,54 @@ behavior no library operation has (ADR-029).
 
 ### Output
 
-Standard output carries the result. Standard error carries the progress indicator, the trace, the
-closing summary, and errors, so redirecting standard output captures the answer alone.
+Standard output carries the command's result: the answer for `data query`, the plan for `plan
+query`. Standard error carries the progress indicator, the trace, the closing summary, and errors,
+so redirecting standard output captures the result alone.
 
-`--format table` renders each table in the answer under its own column names. `--format json` writes
-the `RunResult` in the JSON form [10-data-model.md](10-data-model.md#3-what-a-run-produces) fixes,
-and nothing else reaches standard output. While a run is in flight, a terminal gets a progress
-indicator naming the stage that is running.
+`--format table` renders each table of the result under its own column names, and a terminal gets a
+progress indicator naming the stage that is running. `--format json` writes the same result as one
+JSON object, wrapped in the run's status, its failure reason, its counters, and what its model calls
+cost. That wrapper holds what `--format table` leaves to the closing summary on standard error: a
+JSON document is read where no terminal is attached, so it carries its own account of how the run
+ended.
 
-`--log` prints the run's trace after the run, grouped by cover: one line per fragment, naming the
-logical nodes it covered, the operator that ran it, and how it ended, as one of "ok" with a row
-count, "ok (discovery)", or "no result under this cover" — the third of those is what a fragment a
-review rejected reads as, since the trace names an outcome and not why it was reached. A run that
-failed closes the trace with one more line naming why. Under `--format json` the same trace is one
-JSON object on standard error. `--log-limit` truncates each trace line, since a failure reason has
-no fixed length.
+`--trace` reports what the run did, on standard error, walking each cover fragment by fragment. A
+fragment names the operator that ran it, the logical nodes it covered with the instruction each
+carried, the source each scan read, and how it ended: a row count with the result's columns and its
+first rows, what a search matched, or "no result under this cover" — the last of those is what a
+fragment a review rejected reads as, since the trace names an outcome and not why it was reached. A
+run that failed closes the trace with one more line naming why. Under `--format json` the same trace
+is one JSON object on standard error. `--trace-max-fragment-rows` caps the rows shown per fragment,
+since a fragment's result is as large as the data it read.
 
 ```text
-cover 1
-  f1  n2,n3   builtin.scan        ok (140 rows)
-  f2  n4,n5   lotus.sem_filter    no result under this cover
-cover 2
-  f1  n2,n3   builtin.scan        ok (140 rows)
-  f2  n4,n5   lotus.sem_filter    ok (11 rows)
+cover 1   logical plan 8c4a71d0
+  f1  builtin.scan
+      n2  SCAN    load job postings                    reads sql/jobs.postings
+      n3  FILTER  find the postings in the Bay Area
+      ok  140 rows  [title, company, location]
+          {'title': 'Senior Data Scientist', 'company': 'Corvus Health', ...}
+  f2  lotus.sem_filter
+      n4  FILTER  keep the postings at healthcare companies
+      no result under this cover
+
+cover 2   logical plan 8c4a71d0
+  f1  builtin.scan
+      n2  SCAN    load job postings                    reads sql/jobs.postings
+      n3  FILTER  find the postings in the Bay Area
+      ok  140 rows  [title, company, location]
+          {'title': 'Senior Data Scientist', 'company': 'Corvus Health', ...}
+  f2  builtin.nl2table
+      n4  FILTER  keep the postings at healthcare companies
+      ok  11 rows  [title, company, location]
+          {'title': 'Senior Data Scientist', 'company': 'Corvus Health', ...}
+
 counters  operator calls 7/30   failure replans 0/2   control replans 1/2
 model     11 calls   $0.42
 ```
+
+A cover is written whole, so every fragment of it appears. `f1` in the second cover carries the
+result the first cover already produced and spent no operator call, which the counters show.
 
 ### Errors and exit codes
 
@@ -325,7 +351,8 @@ planner, and a request that never finds a cover ends as `replan_exhausted`, whic
 ([06-library.md](06-library.md#operatorrouter)).
 
 Under `--format json`, a run that produced a result prints that result on standard output whatever
-its status, so a failed run stays machine-readable. An error outside a run — a configuration
+its status, so a failed run stays machine-readable, and the status and failure reason in the wrapper
+say how it ended. An error outside a run — a configuration
 failure, an internal error, or a declined confirmation — always prints as the plain
 `ERROR: <CODE> <description>` line on standard error; `--format` has no effect on it.
 
@@ -368,11 +395,12 @@ run may spend is a deployment decision rather than something an agent has a basi
 }
 ```
 
-Three shapes differ from the library's on purpose, and each is a count where the library carries the
-full record ([10, shapes that leave the process](10-data-model.md#5-shapes-that-leave-the-process)):
-`conversations`, a `DISCOVER` node's matches, and the bounds inside `counters`. An agent reasons
-about the outcome, and a full transcript would bloat every response. The library and the CLI carry
-them in full.
+Four shapes differ from the library's on purpose, and each is a measure where the library carries
+the whole ([10, shapes that leave the process](10-data-model.md#5-shapes-that-leave-the-process)):
+`conversations`, a `DISCOVER` node's matches, the bounds inside `counters`, and the rows a fragment
+returned. An agent reasons about the outcome, and a transcript or a run's intermediate tables would
+bloat every response. The CLI carries the bounds and a search's matches whole, and reports a
+fragment's rows as a summary in its trace (ADR-032).
 
 A run that did not finish returns the same object with its status, `answer` null, and the counters
 showing what ran out. That is a successful tool call reporting a failed run, not a tool error.
@@ -431,10 +459,12 @@ variable > profile > default** — and `profile inspect` reports the tier that s
 | `BLUE_DATA_PLANNER_MAX_FAILURE_REPLANS` | int | `2` | |
 | `BLUE_DATA_PLANNER_MAX_CONTROL_REPLANS` | int | `2` | |
 | `BLUE_DATA_CLI_FORMAT` | str | `table` | |
-| `BLUE_DATA_CLI_LOG_LIMIT` | int | `80` | |
+| `BLUE_DATA_CLI_TRACE_MAX_FRAGMENT_ROWS` | int | `5` | |
 
-The first row and the two `BLUE_DATA_CLI_` rows are family-wide parameters, declared once for every
-Blue CLI rather than by `blue-planner` alone. `BLUE_DATA_PLANNER_MODEL` reads
+The first row and `BLUE_DATA_CLI_FORMAT` are family-wide parameters, declared once for every Blue
+CLI rather than by `blue-planner` alone. `BLUE_DATA_CLI_TRACE_MAX_FRAGMENT_ROWS` takes the family's
+prefix because it governs how this CLI prints, and belongs to `blue-planner`, since a fragment is
+this component's unit of work. `BLUE_DATA_PLANNER_MODEL` reads
 `BLUE_DATA_LLM_MODEL` where it is unset, and
 `BLUE_DATA_PLANNER_LOTUS_MODEL` reads `BLUE_DATA_PLANNER_MODEL` the same way. Setting
 `BLUE_DATA_PLANNER_REASONING_EFFORT` to `off` omits the parameter from the LLM call, for a model
