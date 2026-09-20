@@ -5,6 +5,7 @@ from __future__ import annotations
 import uuid
 from typing import Any
 
+from blue_data_planner.execution import summarize_table
 from blue_data_planner.llm import Conversation, LLMClient, Turn
 from blue_data_planner.llm.templating import safe_substitute
 from blue_data_planner.operators import OperatorRouter
@@ -325,5 +326,6 @@ def _render_results(results: dict[str, NodeResult]) -> str:
 
 
 def _describe_execution(result: ExecutionResult) -> str:
-    columns = sorted(result.output[0][0]) if result.output and result.output[0] else []
+    tables = result.output or []
+    columns = summarize_table(tables[0], 0).columns if tables else []
     return f"{result.row_count} row(s) from {result.operator_id}, columns {columns}"

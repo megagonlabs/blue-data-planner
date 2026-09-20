@@ -40,6 +40,7 @@ from blue_data_planner.types.plan import (
     PhysicalPlanFragment,
     PipelineNode,
     Record,
+    TableSummary,
 )
 from blue_data_planner.types.run import (
     Conversation,
@@ -108,6 +109,7 @@ __all__ = [
     "SourceQueryError",
     "SourceRecord",
     "SourceUnreachableError",
+    "TableSummary",
     "Turn",
     "UnknownFragmentError",
     "UnknownNodeError",

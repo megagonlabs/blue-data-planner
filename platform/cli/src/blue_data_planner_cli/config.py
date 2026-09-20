@@ -87,7 +87,8 @@ class PlannerSettings:
     enable_nl2table: bool
     limits: RunLimits
     output_format: str
-    log_limit: int
+    trace_max_fragment_rows: int
+    trace_max_output_chars: int
 
 
 def _effective_reasoning_effort(value: str) -> str | None:
@@ -147,7 +148,8 @@ def resolve_settings(
             }
         ),
         output_format=output_format,
-        log_limit=int(_get(resolver, "BLUE_DATA_CLI_LOG_LIMIT")),
+        trace_max_fragment_rows=int(_get(resolver, "BLUE_DATA_CLI_TRACE_MAX_FRAGMENT_ROWS")),
+        trace_max_output_chars=int(_get(resolver, "BLUE_DATA_CLI_TRACE_MAX_OUTPUT_CHARS")),
     )
 
 

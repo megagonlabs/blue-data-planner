@@ -5,7 +5,7 @@ from __future__ import annotations
 from pydantic import BaseModel, ConfigDict
 
 from blue_data_planner.data import DataCatalog
-from blue_data_planner.execution import execute_physical_operator
+from blue_data_planner.execution import execute_physical_operator, summarize_table
 from blue_data_planner.llm import Conversation, LLMClient, Turn
 from blue_data_planner.llm.templating import safe_substitute
 from blue_data_planner.operators import OperatorRouter
@@ -81,6 +81,7 @@ class FragmentRunner:
     ) -> FragmentResult:
         last_assessment: str | None = None
         last_error: str | None = None
+        last_result: ExecutionResult | None = None
         for _spent in range(counters.limits.parameter_repairs + 1):
             parameters = self._llm_client.complete_structured(
                 conversation, operator.parameter_schema
@@ -88,12 +89,13 @@ class FragmentRunner:
             result = execute_physical_operator(
                 operator, parameters, inputs, fragment.required_output_columns, counters
             )
+            last_result = result
             if (
                 result.status is ExecutionStatus.FAILED
                 and result.error is not None
                 and result.error.kind is ErrorKind.UNRECOVERABLE
             ):
-                return _ended(RunStatus.OPERATOR_FAILED, None, result.error.message)
+                return _ended(RunStatus.OPERATOR_FAILED, result, result.error.message)
             if result.status is ExecutionStatus.FAILED and result.error is not None:
                 last_assessment = None
                 last_error = result.error.message
@@ -113,7 +115,7 @@ class FragmentRunner:
             if review.decision is FragmentReviewDecision.ACCEPT:
                 return _ended(RunStatus.OK, result, None)
             if review.decision is FragmentReviewDecision.REPLAN:
-                return _ended(RunStatus.NEEDS_REPLAN, None, review.assessment)
+                return _ended(RunStatus.NEEDS_REPLAN, result, review.assessment)
             conversation.turns.append(
                 Turn(
                     role="user",
@@ -123,7 +125,9 @@ class FragmentRunner:
                     ),
                 )
             )
-        return _ended(RunStatus.NEEDS_REPAIR, None, _escalation_reason(last_assessment, last_error))
+        return _ended(
+            RunStatus.NEEDS_REPAIR, last_result, _escalation_reason(last_assessment, last_error)
+        )
 
     def _review(
         self,
@@ -189,21 +193,24 @@ def _render_inputs(fragment: PhysicalPlanFragment, inputs: DataBundle) -> str:
         entry = fragment.input_data[index] if index < len(fragment.input_data) else None
         name = entry.name if entry is not None else f"table {index}"
         described = entry.description if entry is not None else "no description recorded"
-        columns = sorted(table[0]) if table else []
-        lines.append(f"- {name}: {described}. {len(table)} row(s), columns {columns}")
-        for row in table[:SAMPLE_ROWS]:
+        summary = summarize_table(table, SAMPLE_ROWS)
+        lines.append(
+            f"- {name}: {described}. {summary.row_count} row(s), columns {summary.columns}"
+        )
+        for row in summary.sample_rows:
             lines.append(f"    {row}")
     return "\n".join(lines)
 
 
 def _render_result(fragment: PhysicalPlanFragment, result: ExecutionResult) -> str:
     tables = result.output or []
-    rows = tables[0][:SAMPLE_ROWS] if tables else []
+    summary = summarize_table(tables[0], SAMPLE_ROWS) if tables else None
     lines = [
         "The call returned. Review it.",
         f"Instruction: {fragment.instruction}",
         f"Steps this call absorbed: {sorted(fragment.logical_node_ids)}",
         f"Rows: {result.row_count}",
     ]
-    lines.extend(f"  {row}" for row in rows)
+    if summary is not None:
+        lines.extend(f"  {row}" for row in summary.sample_rows)
     return "\n".join(lines)

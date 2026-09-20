@@ -20,15 +20,9 @@ from blue_data_planner_cli.config import (
     export_secrets,
     resolve_settings,
 )
-from blue_data_planner_cli.output import (
-    error_line,
-    print_answer,
-    print_plan,
-    summary_line,
-    trace_lines,
-    trace_payload,
-)
+from blue_data_planner_cli.output import error_line, print_answer, print_plan, summary_line
 from blue_data_planner_cli.profile import profile_group
+from blue_data_planner_cli.trace import print_trace, trace_payload
 
 RUN_STATUS_CODES: dict[RunStatus, str] = {
     RunStatus.INVALID_PLAN: "INVALID_PLAN",
@@ -69,8 +63,19 @@ def data_group() -> None:
 @click.option("--registry", default=None, help="The blue-data registry to plan over.")
 @click.option("--model", default=None, help="The litellm model string every component uses.")
 @click.option("--format", "output_format", type=click.Choice(["table", "json"]), default=None)
-@click.option("--log", is_flag=True, help="Print the run's trace after the run.")
-@click.option("--log-limit", type=int, default=None, help="Truncate each trace line.")
+@click.option("--trace", is_flag=True, help="Report what the run did, after the run.")
+@click.option(
+    "--trace-max-fragment-rows",
+    type=int,
+    default=None,
+    help="Rows of a fragment's result the trace shows.",
+)
+@click.option(
+    "--trace-max-output-chars",
+    type=int,
+    default=None,
+    help="Characters each line of a fragment's output is cut to.",
+)
 @click.pass_context
 def data_query(
     ctx: click.Context,
@@ -78,12 +83,23 @@ def data_query(
     registry: str | None,
     model: str | None,
     output_format: str | None,
-    log: bool,
-    log_limit: int | None,
+    trace: bool,
+    trace_max_fragment_rows: int | None,
+    trace_max_output_chars: int | None,
 ) -> None:
     """Plan the request, run it, and print the answer."""
     try:
-        _run_query(ctx, "run", request, registry, model, output_format, log, log_limit)
+        _run_query(
+            ctx,
+            "run",
+            request,
+            registry,
+            model,
+            output_format,
+            trace,
+            trace_max_fragment_rows,
+            trace_max_output_chars,
+        )
     except CliError as failure:
         _print_cli_error(Console(stderr=True), failure)
         ctx.exit(1)
@@ -99,8 +115,19 @@ def plan_group() -> None:
 @click.option("--registry", default=None, help="The blue-data registry to plan over.")
 @click.option("--model", default=None, help="The litellm model string every component uses.")
 @click.option("--format", "output_format", type=click.Choice(["table", "json"]), default=None)
-@click.option("--log", is_flag=True, help="Print the run's trace after the run.")
-@click.option("--log-limit", type=int, default=None, help="Truncate each trace line.")
+@click.option("--trace", is_flag=True, help="Report what the run did, after the run.")
+@click.option(
+    "--trace-max-fragment-rows",
+    type=int,
+    default=None,
+    help="Rows of a fragment's result the trace shows.",
+)
+@click.option(
+    "--trace-max-output-chars",
+    type=int,
+    default=None,
+    help="Characters each line of a fragment's output is cut to.",
+)
 @click.pass_context
 def plan_query(
     ctx: click.Context,
@@ -108,12 +135,23 @@ def plan_query(
     registry: str | None,
     model: str | None,
     output_format: str | None,
-    log: bool,
-    log_limit: int | None,
+    trace: bool,
+    trace_max_fragment_rows: int | None,
+    trace_max_output_chars: int | None,
 ) -> None:
     """Write one logical plan and one cover, and print them."""
     try:
-        _run_query(ctx, "plan", request, registry, model, output_format, log, log_limit)
+        _run_query(
+            ctx,
+            "plan",
+            request,
+            registry,
+            model,
+            output_format,
+            trace,
+            trace_max_fragment_rows,
+            trace_max_output_chars,
+        )
     except CliError as failure:
         _print_cli_error(Console(stderr=True), failure)
         ctx.exit(1)
@@ -126,8 +164,9 @@ def _run_query(
     registry: str | None,
     model: str | None,
     output_format: str | None,
-    log: bool,
-    log_limit: int | None,
+    trace: bool,
+    trace_max_fragment_rows: int | None,
+    trace_max_output_chars: int | None,
 ) -> None:
     resolver = build_resolver(ctx.obj["profile"], ctx.obj["environ"])
     # litellm and the provider SDKs read their keys from the process environment, so what a
@@ -135,7 +174,8 @@ def _run_query(
     os.environ.update(export_secrets(resolver))
     settings = resolve_settings(resolver, registry=registry, model=model)
     chosen_format = output_format or settings.output_format
-    limit = log_limit if log_limit is not None else settings.log_limit
+    max_fragment_rows = _chosen(trace_max_fragment_rows, settings.trace_max_fragment_rows)
+    max_output_chars = _chosen(trace_max_output_chars, settings.trace_max_output_chars)
     errors = Console(stderr=True)
     planner = PLANNER_FACTORY(settings)
     # The indicator is a terminal courtesy: a redirected stream gets none of it.
@@ -145,8 +185,8 @@ def _run_query(
         print_plan(result, chosen_format, Console())
     else:
         print_answer(result, chosen_format, Console())
-    if log:
-        _print_trace(errors, result, chosen_format, limit)
+    if trace:
+        _print_trace(errors, result, chosen_format, max_fragment_rows, max_output_chars)
     errors.print(summary_line(result), markup=False)
     if result.status not in (RunStatus.OK, RunStatus.PLANNED):
         code = RUN_STATUS_CODES.get(result.status, "PLANNER_FAILED")
@@ -159,12 +199,27 @@ def _run_query(
         ctx.exit(1)
 
 
-def _print_trace(errors: Console, result: RunResult, output_format: str, limit: int) -> None:
+def _chosen(given: int | None, configured: int) -> int:
+    """Return the value the command was given, letting zero stand rather than the profile's."""
+    return configured if given is None else given
+
+
+def _print_trace(
+    errors: Console,
+    result: RunResult,
+    output_format: str,
+    max_fragment_rows: int,
+    max_output_chars: int,
+) -> None:
     if output_format == "json":
-        errors.print_json(data=trace_payload(result, limit))
+        payload = trace_payload(
+            result, max_fragment_rows=max_fragment_rows, max_output_chars=max_output_chars
+        )
+        errors.print_json(data=payload)
         return
-    for line in trace_lines(result, limit):
-        errors.print(line, markup=False, highlight=False)
+    print_trace(
+        result, errors, max_fragment_rows=max_fragment_rows, max_output_chars=max_output_chars
+    )
 
 
 def _print_cli_error(errors: Console, failure: CliError) -> None:

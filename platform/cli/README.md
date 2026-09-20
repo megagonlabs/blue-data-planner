@@ -59,10 +59,11 @@ blue-planner profile config OPENAI_API_KEY
 | `BLUE_DATA_PLANNER_MAX_FAILURE_REPLANS` | int | `2` | No |
 | `BLUE_DATA_PLANNER_MAX_CONTROL_REPLANS` | int | `2` | No |
 | `BLUE_DATA_CLI_FORMAT` | str | `table` | No |
-| `BLUE_DATA_CLI_LOG_LIMIT` | int | `80` | No |
+| `BLUE_DATA_CLI_TRACE_MAX_FRAGMENT_ROWS` | int | `5` | No |
+| `BLUE_DATA_CLI_TRACE_MAX_OUTPUT_CHARS` | int | `80` | No |
 
-The first row and the two `BLUE_DATA_CLI_` rows are family-wide parameters, declared once for
-every Blue CLI rather than by `blue-planner` alone. `BLUE_DATA_PLANNER_MODEL` reads
+The first row and `BLUE_DATA_CLI_FORMAT` are family-wide parameters, declared once for every Blue
+CLI rather than by `blue-planner` alone. `BLUE_DATA_PLANNER_MODEL` reads
 `BLUE_DATA_LLM_MODEL` where it is unset, and `BLUE_DATA_PLANNER_LOTUS_MODEL` reads
 `BLUE_DATA_PLANNER_MODEL` the same way. Setting `BLUE_DATA_PLANNER_REASONING_EFFORT` to `off` omits
 the parameter from the LLM call, for a model that does not accept it; `none` is a different, real
@@ -92,8 +93,9 @@ blue-planner data query "Which Bay Area data scientist postings are at healthcar
 blue-planner plan query "Which Bay Area data scientist postings are at healthcare companies?"
 ```
 
-Both commands take `--registry PATH`, `--model NAME`, `--format table|json`, `--log`, and
-`--log-limit N`, and both read `--profile NAME` from the root command.
+Both commands take `--registry PATH`, `--model NAME`, `--format table|json`, `--trace`,
+`--trace-max-fragment-rows N`, and `--trace-max-output-chars N`, and both read `--profile NAME` from
+the root command.
 
 The six `profile` actions manage the named sets of configuration `blue-planner` reads:
 
@@ -111,28 +113,60 @@ time, which is what a script needs.
 
 ## Output and diagnostics
 
-Standard output carries the result, so redirecting it captures the answer alone. Standard error
-carries the progress indicator, the trace, the closing summary, and every error.
+`--format` and `--trace` choose different things. The first decides how the result is written; the
+second decides whether the run behind it is reported.
 
-`--format table` renders each table in the answer under its own column names. `--format json` writes
-the full result as one JSON object, and nothing else reaches standard output. While a run is in
-flight, a terminal shows a progress indicator naming the stage that is running; a redirected stream
-gets none of it.
+Standard output carries the command's result: the answer for `data query`, the plan for `plan
+query`. Redirecting it captures that alone. Standard error carries the progress indicator, the
+trace, the closing summary, and every error.
 
-`--log` prints the run's trace after the run, grouped by cover: one line per fragment, naming the
-logical nodes it covered, the operator that ran it, and how it ended, as one of "ok" with a row
-count, "ok (discovery)", or "no result under this cover". A run that failed closes the trace with
-one more line naming why. Under `--format json` the trace is one JSON object on standard error
-instead. `--log-limit` truncates each trace line, since that closing failure reason has no fixed
-length.
+`--format table` renders each table of the result under its own column names, and a terminal shows a
+progress indicator naming the stage that is running; a redirected stream gets none of it.
+`--format json` writes the same result as one JSON object, wrapped in the run's status, its failure
+reason, its counters, and what its model calls cost. That wrapper holds what `--format table` leaves
+to the closing summary on standard error, because a JSON document is read where no terminal is
+attached.
+
+`--trace` reports what the run did, on standard error, cover by cover. A cover's fragments come in
+the order a run reaches them, and each names the operator that ran it, the logical nodes it covered
+with the instruction each carried, the source each scan read, the fragments whose output it read,
+and how it ended. A fragment that ran carries its ending — a row count where the review kept the
+result, and the ending's name with the objection where it did not — and one the pass never got to
+reads as "not reached under this cover". A `DISCOVER` node leads the cover, with what its search
+matched. Work a later cover asks for again is named rather than traced twice, since an accepted
+result was not run again. A run that failed closes the trace with one more line naming why.
+
+What a narrow column cannot hold follows its cover, under the id of the fragment it belongs to: the
+source each scan read, the objection a review raised, the columns of the first table the fragment
+produced, and the first rows of it. `--trace-max-fragment-rows` caps those rows and
+`--trace-max-output-chars` cuts each line of the columns and the rows. Neither cap reaches an
+instruction, a source path, a match, or an objection, so each of those is read whole however long it
+is.
+
+`--format` decides how the trace is drawn as well as how the result is written. Under
+`--format table` each cover is one table, which is what lets an instruction wrap inside its own
+column. Under `--format json` the trace is one JSON object holding the same walk as lines.
 
 ```text
-cover 1
-  f1  n2,n3   builtin.scan        ok (140 rows)
-  f2  n4,n5   lotus.sem_filter    no result under this cover
-cover 2
-  f1  n2,n3   builtin.scan        ok (140 rows)
-  f2  n4,n5   lotus.sem_filter    ok (11 rows)
+cover 1   logical plan 8c4a71d0
+┏━━━━━━━━━━━━━━━━━━┳━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━┓
+┃ Fragment         ┃ Step   ┃ Instruction                ┃ Input   ┃ Result                ┃
+┡━━━━━━━━━━━━━━━━━━╇━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━┩
+│ f1               │ n2     │ load job postings          │         │ ok  140 rows          │
+│ builtin.scan     │ SCAN   │                            │         │                       │
+│                  │ n3     │ find the Bay Area postings │         │                       │
+│                  │ FILTER │                            │         │                       │
+├──────────────────┼────────┼────────────────────────────┼─────────┼───────────────────────┤
+│ f2               │ n4     │ keep the healthcare        │ from f1 │ needs_repair  31 rows │
+│ lotus.sem_filter │ FILTER │ postings                   │         │                       │
+└──────────────────┴────────┴────────────────────────────┴─────────┴───────────────────────┘
+  f1
+      reads  n2  /source/jobs/database/hiring/collection/public/entity/postings
+      columns  company, location, title
+      {'title': 'Senior Data Scientist', 'company': 'Corvus Health', 'location'…
+  f2
+      reason  the review said a keyword match cannot tell a healthcare employer apart
+
 counters  operator calls 7/30   failure replans 0/2   control replans 1/2
 model     11 calls   $0.42
 ```
@@ -191,5 +225,5 @@ blue-planner profile inspect
 blue-planner plan query "Among the schools with the average score in Math over 560 in the SAT test, how many schools are in counties in the bay area?"
 
 # 5. Run it.
-blue-planner data query "Among the schools with the average score in Math over 560 in the SAT test, how many schools are in counties in the bay area?" --log
+blue-planner data query "Among the schools with the average score in Math over 560 in the SAT test, how many schools are in counties in the bay area?" --trace
 ```

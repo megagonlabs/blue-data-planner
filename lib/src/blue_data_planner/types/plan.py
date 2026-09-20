@@ -333,6 +333,15 @@ class OperatorOutput:
 
 
 @dataclass(frozen=True)
+class TableSummary:
+    """What one table holds, for a reader that is shown the table rather than handed it."""
+
+    row_count: int
+    columns: list[str]
+    sample_rows: Data
+
+
+@dataclass(frozen=True)
 class PhysicalOperator:
     """One candidate implementation of one or more logical operators."""
 

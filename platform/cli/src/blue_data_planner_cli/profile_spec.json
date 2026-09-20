@@ -84,5 +84,17 @@
     "prompt": "Times a control node may trigger a replan",
     "required": false,
     "cast": "int"
+  },
+  "BLUE_DATA_CLI_TRACE_MAX_FRAGMENT_ROWS": {
+    "default": 5,
+    "prompt": "Rows of a fragment's result the trace shows",
+    "required": false,
+    "cast": "int"
+  },
+  "BLUE_DATA_CLI_TRACE_MAX_OUTPUT_CHARS": {
+    "default": 80,
+    "prompt": "Characters each line of a fragment's output is cut to",
+    "required": false,
+    "cast": "int"
   }
 }

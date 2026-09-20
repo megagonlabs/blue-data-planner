@@ -14,8 +14,11 @@ from blue_data.utils.config import (  # pyright: ignore[reportMissingTypeStubs]
     encode,
 )
 from blue_data_planner import RunResult, RunStatus
+from blue_data_planner.plan import signatures
 from blue_data_planner.types import (
     DataPipeline,
+    ExecutionResult,
+    ExecutionStatus,
     LogicalOperator,
     LogicalPlan,
     PhysicalPlan,
@@ -92,7 +95,7 @@ def test_the_trace_prints_only_when_it_is_asked_for_and_never_on_standard_output
     runner = CliRunner()
 
     quiet = runner.invoke(cli, ["data", "query", "q"], env=env)
-    logged = runner.invoke(cli, ["data", "query", "q", "--log"], env=env)
+    logged = runner.invoke(cli, ["data", "query", "q", "--trace"], env=env)
 
     assert "counters" not in quiet.stderr
     assert "counters" in logged.stderr
@@ -131,7 +134,7 @@ def test_a_failure_reason_holding_square_brackets_is_traced_whole(
     )
 
     result = CliRunner().invoke(
-        cli, ["data", "query", "q", "--log"], env=a_configured_environment(tmp_path)
+        cli, ["data", "query", "q", "--trace"], env=a_configured_environment(tmp_path)
     )
 
     assert "nope [/red] x" in result.stderr
@@ -232,18 +235,24 @@ def test_a_key_held_only_in_the_profile_reaches_the_environment_a_model_call_rea
     assert seen["OPENAI_API_KEY"] == "sk-stored"
 
 
-def test_a_log_limit_of_zero_truncates_every_trace_line(
-    tmp_path: Path, planner: FakeDataPlanner
+def test_a_row_cap_of_zero_shows_no_sample_rows_rather_than_the_profile_default(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Zero is a limit a user can ask for, and the profile's own limit must not stand in for it."""
+    """Zero is a cap a user can ask for, and the profile's own cap must not stand in for it."""
+    pipeline = a_planned_pipeline()
+    a_planner_answering(
+        monkeypatch, a_run_result(pipeline=pipeline, results=a_scan_of_one_row(pipeline))
+    )
+
     result = CliRunner().invoke(
         cli,
-        ["data", "query", "q", "--log", "--log-limit", "0"],
+        ["data", "query", "q", "--trace", "--trace-max-fragment-rows", "0"],
         env=a_configured_environment(tmp_path),
     )
 
     assert result.exit_code == 0
-    assert "counters" not in result.stderr
+    assert "blue.select" in result.stderr  # the trace itself still prints
+    assert "Lowell" not in result.stderr
 
 
 def a_process_environment(monkeypatch: pytest.MonkeyPatch, variables: dict[str, str]) -> None:
@@ -311,6 +320,19 @@ def a_planned_pipeline() -> DataPipeline:
         current_logical_plan_id="l1",
         current_physical_plan_id="p1",
     )
+
+
+def a_scan_of_one_row(pipeline: DataPipeline) -> dict[str, ExecutionResult]:
+    """Return the result the one fragment of `a_planned_pipeline` produced."""
+    signed = signatures(pipeline.logical_plans["l1"], pipeline.physical_plans["p1"])
+    return {
+        signed["n1"]: ExecutionResult(
+            status=ExecutionStatus.OK,
+            operator_id="blue.select",
+            output=[[{"school": "Lowell"}]],
+            row_count=1,
+        )
+    }
 
 
 def test_planning_prints_the_cover_and_spends_no_operator_call(
