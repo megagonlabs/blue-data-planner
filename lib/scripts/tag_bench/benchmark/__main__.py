@@ -188,16 +188,10 @@ def _settings(arguments: argparse.Namespace) -> BenchmarkSettings:
     return BenchmarkSettings(
         registry_path=registry_path,
         model=arguments.model,
-        reasoning_effort=_effort(arguments.reasoning_effort),
+        reasoning_effort=arguments.reasoning_effort,
         lotus_max_rows=arguments.lotus_max_rows,
         limits=RunLimits(),
     )
-
-
-def _effort(value: str) -> str | None:
-    # --reasoning-effort '' omits the parameter, for a model that rejects it. "none" is a real
-    # litellm value and reaches the provider.
-    return value or None
 
 
 def _query_type(value: str) -> str:

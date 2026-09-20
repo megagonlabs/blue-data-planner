@@ -2,52 +2,52 @@
 
 from __future__ import annotations
 
-from typing import Any, Literal, cast
+from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field
 
 # Unknown keys are refused so a runner cannot reach a parameter a declaration leaves out.
 # populate_by_name lets a predicate field also be set by its own name (rather than only by
 # its and/or/not alias), which is what lets model_dump() round-trip back through model_validate().
 _STRICT = ConfigDict(extra="forbid", populate_by_name=True)
 
-ComparisonOperator = Literal["eq", "ne", "lt", "lte", "gt", "gte", "in", "contains", "is_null"]
-AggregationFunction = Literal["count", "sum", "avg", "min", "max"]
 SortDirection = Literal["asc", "desc"]
 JoinKind = Literal["inner", "left"]
 
-# An explicit union rather than Any, which pydantic renders as a schema declaring no type at
-# all: a provider enforcing a schema strictly refuses one. A list is what "in" compares against.
-ComparisonValue = str | int | float | bool | list[str | int | float] | None
 
-
-class Comparison(BaseModel):
-    """One column checked against one value."""
+class ValueComparison(BaseModel):
+    """One column checked against a single value."""
 
     model_config = _STRICT
 
     column: str = Field(min_length=1)
-    operator: ComparisonOperator
-    value: ComparisonValue = None
+    operator: Literal["eq", "ne", "lt", "lte", "gt", "gte", "contains"]
+    value: str | int | float | bool | None
 
-    @model_validator(mode="before")
-    @classmethod
-    def _value_is_present_where_it_is_needed(cls, data: Any) -> Any:
-        # Checked before defaults are applied, so an omitted "value" key (a caller who forgot
-        # it) is distinguishable from one explicitly set to null (a deliberate null comparison).
-        if isinstance(data, dict):
-            fields = cast(dict[str, Any], data)
-            if fields.get("operator") != "is_null" and "value" not in fields:
-                raise ValueError(f"'{fields.get('operator')}' needs a value to compare against")
-        return cast(Any, data)
 
-    @model_validator(mode="after")
-    def _value_fits_the_operator(self) -> Comparison:
-        if self.operator == "is_null" and self.value is not None:
-            raise ValueError("'is_null' takes no value")
-        if self.operator == "in" and not isinstance(self.value, list):
-            raise ValueError("'in' takes a list of values")
-        return self
+class InComparison(BaseModel):
+    """One column checked against a list of values."""
+
+    model_config = _STRICT
+
+    column: str = Field(min_length=1)
+    operator: Literal["in"]
+    value: list[str | int | float]
+
+
+class NullComparison(BaseModel):
+    """One column checked for a missing value."""
+
+    model_config = _STRICT
+
+    column: str = Field(min_length=1)
+    operator: Literal["is_null"]
+
+
+# Three shapes rather than one model with cross-field rules a JSON Schema cannot state: whether
+# "value" is required, absent, or a list follows from which variant a call picked, not from a
+# validator pydantic can only run after a provider has already accepted the object.
+Comparison = ValueComparison | InComparison | NullComparison
 
 
 class AndPredicate(BaseModel):
@@ -75,7 +75,9 @@ class NotPredicate(BaseModel):
 
 
 # A tree rather than a flat list, so a filter node reaches one operator whole and no plan is
-# cut differently to fit what an operator's parameters can say (design/06-library.md).
+# cut differently to fit what an operator's parameters can say (design/06-library.md). Comparison
+# is itself a union, and Python flattens a union of unions, so this is the six-variant flat union
+# a provider's schema needs, not a union nested inside another.
 Predicate = Comparison | AndPredicate | OrPredicate | NotPredicate
 
 AndPredicate.model_rebuild()
@@ -92,21 +94,30 @@ class ProjectedColumn(BaseModel):
     into: str | None = Field(default=None, min_length=1)
 
 
-class Aggregation(BaseModel):
-    """One value computed over a group of rows."""
+class CountAggregation(BaseModel):
+    """Rows counted, either all of them or those with a value in one column."""
 
     model_config = _STRICT
 
-    function: AggregationFunction
+    function: Literal["count"]
     column: str | None = Field(default=None, min_length=1)
     into: str = Field(min_length=1)
 
-    @model_validator(mode="after")
-    def _column_is_given_where_it_is_needed(self) -> Aggregation:
-        # count is the one function with an answer for a group rather than for a column.
-        if self.function != "count" and self.column is None:
-            raise ValueError(f"'{self.function}' needs a column to aggregate")
-        return self
+
+class ColumnAggregation(BaseModel):
+    """One value computed over one column."""
+
+    model_config = _STRICT
+
+    function: Literal["sum", "avg", "min", "max"]
+    column: str = Field(min_length=1)
+    into: str = Field(min_length=1)
+
+
+# count is the one function with an answer for a group rather than for a column, so it is the
+# one variant whose column stays optional; the split carries that rule in the shape instead of a
+# validator run after the fact.
+Aggregation = CountAggregation | ColumnAggregation
 
 
 class SortKey(BaseModel):

@@ -10,9 +10,11 @@ from blue_data_planner.operators.builtin.schemas import (
     Aggregation,
     AndPredicate,
     Comparison,
+    InComparison,
     JoinKey,
     JoinKind,
     NotPredicate,
+    NullComparison,
     OrPredicate,
     Predicate,
     ProjectedColumn,
@@ -144,17 +146,17 @@ def _holds(row: Record, predicate: Predicate) -> bool:
 
 
 def _compares(value: Any, comparison: Comparison) -> bool:
-    if comparison.operator == "is_null":
+    if isinstance(comparison, NullComparison):
         return value is None
     # A missing value satisfies no comparison; is_null is how a plan asks about one.
     if value is None:
         return False
+    if isinstance(comparison, InComparison):
+        return value in comparison.value
     if comparison.operator == "eq":
         return bool(value == comparison.value)
     if comparison.operator == "ne":
         return bool(value != comparison.value)
-    if comparison.operator == "in":
-        return value in cast(list[Any], comparison.value)
     if comparison.operator == "contains":
         if not isinstance(value, str) or not isinstance(comparison.value, str):
             raise RecoverableOperatorError(

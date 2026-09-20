@@ -2,7 +2,7 @@
 
 Excluded from testpaths, so it runs only when named, and it calls a real provider:
 
-    uv run pytest tests/benchmarks/test_end_to_end.py
+    uv run pytest tests/end_to_end/test_end_to_end.py
 """
 
 from __future__ import annotations

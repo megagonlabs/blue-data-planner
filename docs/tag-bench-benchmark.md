@@ -11,9 +11,8 @@ twenty aggregation questions ask for a summary and carry an empty answer, so exa
 score them, and the benchmark leaves them out.
 
 None of the benchmark's input data ships in the package or is committed; a clean checkout rebuilds
-it. The harness that runs requests against it and scores the answers is not implemented yet
-(tracked under issue #4). This document covers what already works: building the input data. A
-section on running the benchmark will follow once the harness exists.
+it. Building the inputs is three scripts, and running the benchmark over them is a fourth entry
+beside them.
 
 ## Prerequisites
 
@@ -21,7 +20,7 @@ section on running the benchmark will follow once the harness exists.
 | --- | --- |
 | The library environment | `cd lib && uv sync --extra dev`, per [development.md](development.md) |
 | The `lotus` extra | Needed to run the benchmark itself, since LOTUS supplies the operators it is solved with. See [development.md](development.md#installing-the-lotus-extra) |
-| A model provider key | Needed for `--describe` below, and for running the benchmark once the harness exists. Set in `.env`, read through `python-dotenv` |
+| A model provider key | Needed for `--describe` below and for running the benchmark. Set in `.env`, read through `python-dotenv` |
 | About 1 GB of disk | `fetch_databases.py` downloads the BIRD dev set |
 
 ## Building the input data
@@ -74,9 +73,70 @@ meant to measure.
 
 ## Running the benchmark
 
-Not yet implemented. Once the harness lands, this section will cover invoking it and reading its
-report. For the shape it is expected to take, see
-[design/07-repo-organization.md](../design/07-repo-organization.md#where-the-benchmark-lives) and
-[design/11-testing-strategy.md](../design/11-testing-strategy.md#8-the-benchmark): the harness lives
-at `lib/scripts/tag_bench/benchmark/` beside the three build scripts, runs as a module rather than
-through `pytest`, and writes one record per query under `data/tag_bench/runs/`.
+The harness lives at `lib/scripts/tag_bench/benchmark/`, beside the three build scripts, and runs as
+a module rather than through `pytest`. It needs the environment carrying the `lotus` extra
+([development.md](development.md#installing-the-lotus-extra)) and a provider key:
+
+```bash
+cd lib && export UV_PROJECT_ENVIRONMENT=.venv-lotus
+uv run --extra lotus --extra dev python -m scripts.tag_bench.benchmark run --split dev --workers 4
+```
+
+A run spends paid model calls for as long as its selection takes, so it is started by a person who
+watches it. One line reaches standard error as each query finishes, and the record is written at the
+same moment, so a run that stops keeps what it finished.
+
+| Option | Default | Selects |
+| --- | --- | --- |
+| `--split` | `dev` | `dev`, `test`, or `all` |
+| `--query-type` | `Match Comparison Ranking` | The query types to score, case-insensitive |
+| `--query-id` | — | One or more query ids, which override `--split` and `--query-type` |
+| `--limit` | — | The first N of the selection, for a smoke run |
+| `--workers` | 4 | Worker processes. `1` runs in the calling process, so a breakpoint works |
+| `--run-name` | a timestamp and the model | The directory under `data/tag_bench/runs/`. One already holding records is refused |
+| `--data-dir` | `<repository>/data/tag_bench` | Where the inputs and the run directories live |
+| `--registry` | `<data-dir>/registry.json` | The registry to plan over |
+| `--model`, `--reasoning-effort` | `openai/gpt-5.6-luna`, `low` | The model every planner component calls, LOTUS included. An empty effort omits the parameter |
+| `--lotus-max-rows` | 5000 | Rows a LOTUS operation accepts before refusing the call |
+
+There is no resume: a stopped run is summarized with `report` for what it holds, and the queries
+that never ran go in a run of their own, named with `--query-id`.
+
+A first run is worth keeping small:
+
+```bash
+uv run --extra lotus --extra dev python -m scripts.tag_bench.benchmark run \
+    --split dev --limit 1 --workers 1
+```
+
+A selection covers only the queries a gold answer can score, so the twenty aggregation queries are
+never in one. Naming one with `--query-id` runs it anyway, which is how its plan is inspected; its
+record says the gold answer is empty and scores it wrong.
+
+### What a run writes
+
+```
+data/tag_bench/runs/<run-name>/
+├── config.json                     # every resolved setting, the query ids, the commit
+├── query_<id>.json                 # the scored outcome, the plans, and what the query spent
+├── query_<id>.conversations.json   # that query's model transcripts
+└── summary.json                    # exact match and the run-level measurements
+```
+
+Triage starts with `query_<id>.json`: it names the status the run ended in, the answer that was
+extracted, every plan version, and each fragment's result. The transcripts sit in their own file
+because they are large.
+
+### Reading a report
+
+`report` re-aggregates the records already on disk and reaches no model, so it costs nothing to
+repeat:
+
+```bash
+uv run --extra dev python -m scripts.tag_bench.benchmark report --run-name <run-name>
+```
+
+It rewrites `summary.json` and prints exact match overall and per query type, the operator and model
+calls a query spent, the cost, and how the runs ended. The target is 60% exact match over the Match,
+Comparison, and Ranking queries of the test split
+([design/11-testing-strategy.md](../design/11-testing-strategy.md#8-the-benchmark)).
