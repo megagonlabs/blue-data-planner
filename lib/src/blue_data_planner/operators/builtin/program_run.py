@@ -313,7 +313,7 @@ def _wrapped_join_tables(left: Data, right: Data, on: Any, how: Any = "inner") -
 
 
 def _validated(schema: Any, value: Any) -> Any:
-    # schema is a model class for most callers, Predicate's union of four for filter_rows, and
+    # schema is a model class for most callers, Predicate's union of six for filter_rows, and
     # JoinKind's two-way string literal for join_tables's how; TypeAdapter validates all three
     # shapes the same way, and raises the same way on a value such as how="outer" that fits none
     # of them, rather than letting it fall through to inner-join behavior unnoticed.

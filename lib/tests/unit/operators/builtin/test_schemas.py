@@ -12,10 +12,10 @@ from blue_data_planner.operators.builtin.schemas import (
     AndPredicate,
     BoundValues,
     Comparison,
-    ComparisonValue,
     DistinctParameters,
     ExpandParameters,
     FilterParameters,
+    InComparison,
     IndexedBoundValues,
     JoinParameters,
     Nl2TableParameters,
@@ -25,6 +25,7 @@ from blue_data_planner.operators.builtin.schemas import (
     ScanParameters,
     SortSuperlativeParameters,
     UnionParameters,
+    ValueComparison,
 )
 
 # Every schema a model fills for a built-in operator, which is what an operator declares.
@@ -74,19 +75,34 @@ def test_a_predicate_reads_back_as_the_tree_it_was_written_as() -> None:
     assert round_tripped.model_dump() == parameters.model_dump()
 
 
-@pytest.mark.parametrize(
-    "value",
-    ["CA", 4, 4.0, True, None, ["CA", "NY"], [1, 2.5]],
-)
-def test_a_comparison_keeps_the_kind_of_value_it_was_written_with(value: ComparisonValue) -> None:
-    """A value compares as a string, a number, a boolean, null, or a list, and is not coerced
-    into a neighboring type on the way in."""
-    operator = "in" if isinstance(value, list) else "is_null" if value is None else "eq"
+def _elements(value: Any) -> list[Any]:
+    """Return a list value's own elements, or a scalar value as its own one-element list."""
+    return cast(list[Any], value) if isinstance(value, list) else [value]
 
-    written = Comparison.model_validate({"column": "state", "operator": operator, "value": value})
+
+@pytest.mark.parametrize(
+    ("model", "operator", "value"),
+    [
+        (ValueComparison, "eq", "CA"),
+        (ValueComparison, "eq", 4),
+        (ValueComparison, "eq", 4.0),
+        (ValueComparison, "eq", True),
+        (ValueComparison, "eq", None),
+        (InComparison, "in", ["CA", "NY"]),
+        (InComparison, "in", [1, 2.5]),
+    ],
+)
+def test_a_comparison_keeps_the_type_of_the_value_it_was_written_with(
+    model: type[ValueComparison] | type[InComparison], operator: str, value: Any
+) -> None:
+    """A value, scalar or a list, is not coerced into a neighboring type on the way in, checked
+    element by element so an int written into a list does not read back as a float."""
+    written = model.model_validate({"column": "state", "operator": operator, "value": value})
 
     assert written.value == value
-    assert type(written.value) is type(value)
+    assert [type(element) for element in _elements(written.value)] == [
+        type(element) for element in _elements(value)
+    ]
 
 
 @pytest.mark.parametrize(
@@ -238,3 +254,61 @@ def test_a_parameter_schema_declares_a_type_for_every_value_it_takes(
 ) -> None:
     """A provider enforcing a schema during decoding refuses a field that names no type."""
     assert typeless_subschemas(schema.model_json_schema()) == []
+
+
+def _literal_values(property_schema: dict[str, Any]) -> set[Any]:
+    """Return the literal values a JSON Schema property allows, written as either a const or an
+    enum."""
+    if "const" in property_schema:
+        return {property_schema["const"]}
+    return set(property_schema["enum"])
+
+
+def test_each_comparison_variant_declares_only_the_operators_its_value_shape_supports() -> None:
+    """ "is_null" names no "value" property and forbids one, every other operator requires one,
+    and "in" alone requires it as a list — and each operator belongs to exactly one variant's
+    enum, so a provider's schema can never pair "is_null" with a value or route "in" to a variant
+    whose value is not a list."""
+    comparisons = FilterParameters.model_json_schema()["$defs"]
+    null_comparison = comparisons["NullComparison"]
+    value_comparison = comparisons["ValueComparison"]
+    in_comparison = comparisons["InComparison"]
+
+    assert _literal_values(value_comparison["properties"]["operator"]) == {
+        "eq",
+        "ne",
+        "lt",
+        "lte",
+        "gt",
+        "gte",
+        "contains",
+    }
+    assert _literal_values(in_comparison["properties"]["operator"]) == {"in"}
+    assert _literal_values(null_comparison["properties"]["operator"]) == {"is_null"}
+
+    assert "value" not in null_comparison["properties"]
+    assert null_comparison["additionalProperties"] is False
+    assert "value" in value_comparison["required"]
+    assert "value" in in_comparison["required"]
+    assert in_comparison["properties"]["value"]["type"] == "array"
+
+
+def test_each_aggregation_variant_declares_a_column_only_where_its_function_needs_one() -> None:
+    """count has an answer for a whole group and leaves its column optional; sum, avg, min, and
+    max each need one column to compute over — and each function belongs to exactly one
+    variant's enum, so a provider's schema can never route sum, avg, min, or max to the variant
+    whose column is optional."""
+    aggregations = AggregateParameters.model_json_schema()["$defs"]
+    count_aggregation = aggregations["CountAggregation"]
+    column_aggregation = aggregations["ColumnAggregation"]
+
+    assert _literal_values(count_aggregation["properties"]["function"]) == {"count"}
+    assert _literal_values(column_aggregation["properties"]["function"]) == {
+        "sum",
+        "avg",
+        "min",
+        "max",
+    }
+
+    assert "column" not in count_aggregation["required"]
+    assert "column" in column_aggregation["required"]

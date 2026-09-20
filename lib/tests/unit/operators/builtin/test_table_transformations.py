@@ -8,7 +8,8 @@ from typing import Any
 import pytest
 
 from blue_data_planner.operators.builtin.schemas import (
-    Aggregation,
+    ColumnAggregation,
+    CountAggregation,
     FilterParameters,
     JoinKey,
     ProjectedColumn,
@@ -121,8 +122,8 @@ def test_an_aggregation_writes_one_row_per_group() -> None:
         a_table_of_restaurants(),
         ["state"],
         [
-            Aggregation(function="count", into="restaurants"),
-            Aggregation(function="avg", column="rating", into="mean_rating"),
+            CountAggregation(function="count", into="restaurants"),
+            ColumnAggregation(function="avg", column="rating", into="mean_rating"),
         ],
     )
 
@@ -210,7 +211,7 @@ _TRANSFORMATIONS_NAMING_A_COLUMN: list[Callable[[Data], Data]] = [
     ),
     lambda table: project_columns(table, [ProjectedColumn(column="city")]),
     lambda table: expand_rows(table, "city", "city", None),
-    lambda table: aggregate_rows(table, ["city"], [Aggregation(function="count", into="n")]),
+    lambda table: aggregate_rows(table, ["city"], [CountAggregation(function="count", into="n")]),
     lambda table: distinct_rows(table, ["city"]),
     lambda table: sort_rows(table, [SortKey(column="city")], None),
 ]
