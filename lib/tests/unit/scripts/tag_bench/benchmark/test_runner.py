@@ -10,6 +10,7 @@ from blue_data_planner.types import (
     DataPipeline,
     ExecutionResult,
     ExecutionStatus,
+    FragmentResult,
     LLMUsage,
     LogicalPlan,
     RunConversations,
@@ -74,11 +75,15 @@ def a_finished_run(answer: Any) -> RunResult:
             current_physical_plan_id=None,
         ),
         results={
-            "f1:SCAN": ExecutionResult(
-                status=ExecutionStatus.OK,
-                operator_id="builtin.scan",
-                row_count=2,
-                report={"rows": 2},
+            "f1:SCAN": FragmentResult(
+                status=RunStatus.OK,
+                result=ExecutionResult(
+                    status=ExecutionStatus.OK,
+                    operator_id="builtin.scan",
+                    row_count=2,
+                    report={"rows": 2},
+                ),
+                failure_reason=None,
             )
         },
         counters=counters,
@@ -110,6 +115,27 @@ def test_a_record_states_what_its_query_spent_and_how_each_fragment_ended() -> N
     assert record["usage"]["cost"] == 0.5
     assert record["usage"]["by_component"]["logical_planner"]["calls"] == 1
     assert record["fragment_results"]["f1:SCAN"]["operator_id"] == "builtin.scan"
+
+
+def test_a_rejected_fragment_reaches_the_record_with_the_result_its_review_turned_down() -> None:
+    """A run's record has to say where a cover stopped, so a rejection keeps both readings."""
+    run = a_finished_run([[{"count": 2}]])
+    run.results["f1:SCAN"] = FragmentResult(
+        status=RunStatus.NEEDS_REPAIR,
+        result=ExecutionResult(
+            status=ExecutionStatus.OK,
+            operator_id="builtin.scan",
+            row_count=2,
+        ),
+        failure_reason="the rows are of the wrong city",
+    )
+    planner = PlannerAnsweringOnce(run)
+
+    filed = run_query(planner, A_QUERY).record["fragment_results"]["f1:SCAN"]  # pyright: ignore[reportArgumentType]
+
+    assert filed["status"] == "needs_repair"
+    assert filed["failure_reason"] == "the rows are of the wrong city"
+    assert (filed["operator_id"], filed["row_count"]) == ("builtin.scan", 2)
 
 
 def test_a_query_whose_run_raised_becomes_a_record_carrying_the_traceback() -> None:

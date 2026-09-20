@@ -117,6 +117,59 @@ def _a_scan_node() -> PipelineNode:
     )
 
 
+def an_ending_naming_a_column_the_rows_lack(plan_id: str) -> LogicalPlan:
+    """n1 SCAN declaring title, ended by n2 RETURN projecting a column nothing produced."""
+    plan = a_scan_and_ending(plan_id)
+    plan.node("n2").attributes["columns"] = ["posting_count"]
+    return plan
+
+
+def an_ending_reading_a_node_a_fragment_absorbed(plan_id: str) -> LogicalPlan:
+    """n1 SCAN and n2 FILTER fused into one call, ended by n3 RETURN reading both."""
+    return LogicalPlan(
+        id=plan_id,
+        parent_id=None,
+        output_node_id="n3",
+        nodes=[
+            _a_scan_node(),
+            PipelineNode(
+                id="n2",
+                kind=LogicalOperator.FILTER,
+                input_node_ids=["n1"],
+                attributes={"instruction": "keep the open postings"},
+                required_output_columns=[OutputColumn(name="title", dtype="str")],
+            ),
+            PipelineNode(
+                id="n3",
+                kind=LogicalOperator.RETURN,
+                input_node_ids=["n2", "n1"],
+                attributes={"columns": ["title"]},
+            ),
+        ],
+    )
+
+
+def a_fused_cover(cover_id: str, logical_plan_id: str) -> PhysicalPlan:
+    """One fragment over n1 and n2, rooted at n2, so n1 produces no table of its own."""
+    return PhysicalPlan(
+        id=cover_id,
+        parent_id=None,
+        logical_plan_id=logical_plan_id,
+        fragments=[
+            PhysicalPlanFragment(
+                id="f1",
+                logical_node_ids=["n1", "n2"],
+                root_logical_node_id="n2",
+                operator_id="builtin.nl2table",
+                scan_sources={},
+                instruction="read the postings and keep the open ones",
+                input_data=[],
+                required_output_columns=[OutputColumn(name="title", dtype="str")],
+            )
+        ],
+    )
+
+
 def a_cover(cover_id: str, logical_plan_id: str) -> PhysicalPlan:
     """One fragment over n1."""
     return PhysicalPlan(
@@ -227,6 +280,32 @@ def test_a_run_with_nothing_left_to_run_and_no_answer_to_project_ends_as_planner
     assert result.status is RunStatus.PLANNER_FAILED
     assert result.answer is None
     assert result.failure_reason is not None
+
+
+@pytest.mark.parametrize(
+    ("plan", "cover"),
+    [
+        (an_ending_naming_a_column_the_rows_lack, a_cover),
+        (an_ending_reading_a_node_a_fragment_absorbed, a_fused_cover),
+    ],
+    ids=["a column the rows lack", "a node a fragment absorbed"],
+)
+def test_an_ending_the_finished_rows_cannot_answer_is_written_again_rather_than_ending_the_run(
+    plan: Callable[[str], LogicalPlan],
+    cover: Callable[[str, str], PhysicalPlan],
+) -> None:
+    """Which columns hold the answer is the logical planner's, so a replan is what corrects it."""
+    logical = FakeLogicalPlanner([ok(plan("p1")), ok(a_scan_and_ending("p2"))])
+    result = a_planner(
+        logical,
+        FakePhysicalPlanner([covered(cover("c1", "p1")), covered(a_cover("c2", "p2"))]),
+        FakeFragmentRunner([an_accepted_fragment(), an_accepted_fragment()]),
+        FakeCatalogSearcher(),
+    ).run("list the job titles")
+
+    assert result.status is RunStatus.OK
+    assert result.answer == [[{"title": "SWE"}]]
+    assert logical.reasons[-1] is not None
 
 
 def test_every_control_node_ready_at_once_is_resolved_before_the_run_plans_again() -> None:

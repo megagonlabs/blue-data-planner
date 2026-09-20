@@ -17,6 +17,7 @@ from blue_data_planner.types.errors import (
     PlanFormatError,
     PlanValidationError,
     RecoverableOperatorError,
+    ReturnAnswerError,
     SourceQueryError,
     SourceUnreachableError,
     UnknownFragmentError,
@@ -64,10 +65,10 @@ from blue_data_planner.types.run import (
 
 __all__ = [
     "INPUT_ARITY",
-    "BlueDataPlannerError",
     "AttributeRecord",
     "AttributeRef",
     "AttributeView",
+    "BlueDataPlannerError",
     "BudgetExhaustedError",
     "CatalogPreview",
     "ColumnDataType",
@@ -101,6 +102,7 @@ __all__ = [
     "PlanValidationError",
     "Record",
     "RecoverableOperatorError",
+    "ReturnAnswerError",
     "RunConversations",
     "RunCounters",
     "RunLimits",

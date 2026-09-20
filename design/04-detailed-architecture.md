@@ -108,6 +108,11 @@ nothing left to run, the run loop projects the named columns off the result of t
 reads, and that projection is the answer. Applying a choice already written down costs no operator
 call and no model call.
 
+The rows the run holds can still fail to answer what the node names, because the names were written
+before anything ran: a join renames a column it collided on, or the ending reads a node a fragment
+absorbed, which produced no table of its own. Both send the run to the replan, where the planner
+names the columns again against the rows the run now holds (ADR-034).
+
 Both control nodes act as barriers. A node is only ready once every input it lists has a result, so
 one placed over three parallel paths needs no scheduling code of its own. A pass runs the fragments
 it can, then resolves every control node that is ready, and returns to the logical planner once with
@@ -547,7 +552,9 @@ one. The new version carries over every node the run has something for and drops
 that was planned but never reached is written again by the continuation. It names its parent, and
 the results the run holds move across with the nodes they belong to. Validation runs on the new
 version, exempting the carried nodes from the checks that would otherwise object to them, and
-physical planning then covers it as a whole.
+physical planning then covers it as a whole. A version that carries every operator node it holds
+asks for no work, which is what a continuation rewriting only the ending leaves behind, and its
+cover is the one the run already has (ADR-035).
 
 For an operator node, having something means belonging to a fragment whose result the run still
 holds, which includes the nodes that fragment absorbed. Those produced no table of their own, but
@@ -658,6 +665,10 @@ The run returns to the logical planner ([section 4](#4-returning-to-the-logical-
 writes a continuation covering the remaining work. This is the repair for a plan that asks for
 something no arrangement of the available operators can do, and it is where a review's `replan`
 decision goes directly, skipping the three narrower repairs.
+
+An ending the finished rows cannot answer arrives here for a different reason: every fragment ran
+and was kept, so the narrower repairs have nothing to rewrite, and what is wrong is the one thing
+only the logical planner writes.
 
 ### Failures that skip recovery
 

@@ -142,7 +142,8 @@ One pass takes what `next_ready` hands back and dispatches on it. A fragment goe
 `FragmentRunner`, and its result is recorded whatever it says. A control node is resolved together
 with every other control node ready beside it, and the pass then returns to the logical planner
 once. A plan with nothing left ends the request as `ok`, and `project_answer` takes the `RETURN`
-node's columns off the result of the node it reads. The fragment's own status then says whether the
+node's columns off the result of the node it reads; rows that cannot answer what the ending names
+send the run to the replan instead. The fragment's own status then says whether the
 pass continues, ends the request with that status, replans, or goes to a repair.
 
 `next_ready` returns the next fragment whose frontier all has results, a control node whose inputs
@@ -647,6 +648,10 @@ that candidate carries the fragment into the new cover unchanged. Reusing finish
 a decision the model takes against the same alternatives as everything else
 ([04, choosing among candidates](04-detailed-architecture.md#choosing-among-candidates)).
 
+A plan whose operator nodes all have results asks for no binding at all, and its cover is the
+previous cover's fragments under the new plan's id, written without a model call. Every candidate
+the model would weigh there is work the run already holds rows for (ADR-035).
+
 `results` answers two questions. A `DISCOVER` entry's entities are the ones a `SCAN` may be bound
 to, which is what makes rebinding a scan to a different entity one of the fixes a repair can reach
 where `previous` holds only the entity already chosen. And an operator node's entry says that node
@@ -896,10 +901,9 @@ call cost puts the figure in its report, which travels out on the result unchang
 `project_answer` turns a finished run into its answer. It takes the result of the node `RETURN`
 reads and the column names `RETURN` carries, and returns those columns and nothing else. Which
 columns hold the answer was settled by the logical planner when it wrote the node, so nothing is
-chosen here and no model is called; the choice is applied. A column the tables do not carry raises,
-which a validated plan cannot reach: the node a `RETURN` reads has to declare its output columns,
-and the check on that operator's result already held it to them
-([10](10-data-model.md#the-logical-half)).
+chosen here and no model is called; the choice is applied. A column the tables do not carry raises
+`ReturnAnswerError`, and the run loop answers it with a replan rather than with a failed request,
+because naming those columns is the logical planner's work to do again (ADR-034).
 
 It sits beside the operator call because both are deterministic work over a bundle of tables, and
 because the alternative is the run loop growing the only place it touches rows.
@@ -1412,6 +1416,7 @@ dedicated type, and a run that exhausts an allowance returns a status.
 | Raised | When | Caught by |
 | --- | --- | --- |
 | `PlanValidationError` | A generated plan fails a structural check | `LogicalPlanner`, which regenerates |
+| `ReturnAnswerError` | The rows a finished run holds do not carry a column the ending names | `DataPlanner`, which replans |
 | `RecoverableOperatorError` | An operator refuses its input in a way a different operator might not | `execute_physical_operator`, which returns a recoverable failure |
 | `UnrecoverableOperatorError` | An operator fails for a reason no other operator would avoid | `execute_physical_operator`, which returns an unrecoverable failure |
 | `SourceQueryError` | A source refuses the query a read ran against it | The operator that read the source, which raises a recoverable failure |

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from blue_data_planner.types import BlueDataPlannerError, Data, DataBundle
+from blue_data_planner.types import Data, DataBundle, ReturnAnswerError
 
 
 def project_answer(inputs: DataBundle, columns: list[str]) -> DataBundle:
@@ -15,7 +15,7 @@ def _project(table: Data, columns: list[str]) -> Data:
     for row in table:
         missing = [name for name in columns if name not in row]
         if missing:
-            raise BlueDataPlannerError(
+            raise ReturnAnswerError(
                 f"the answer projects {missing}, which the result does not carry; the row "
                 f"holds {sorted(row)}"
             )

@@ -40,6 +40,18 @@ rows, and what it produces goes to the next plan.
 
 A `RETURN` names columns the node it reads declares, and that node has to declare them.
 
+## What the ending names
+
+Name the columns holding the answer and nothing else. A column that only supports the answer — an
+id, the key a sort ordered by, the text a filter read — is not one of them, and neither is a column
+the request never asks for.
+
+| Request | The ending names |
+| --- | --- |
+| Of the top five users by views, who links social media in their AboutMe? | `["DisplayName"]` |
+| How many postings mention Python? | `["posting_count"]` |
+| Which three cities have the highest median rent, and what is it? | `["city", "median_rent"]` |
+
 ## When to stop at a control node
 
 Write a `DISCOVER` node for each thing the request needs found in the catalog. The preview

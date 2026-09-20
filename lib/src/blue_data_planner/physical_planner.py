@@ -53,6 +53,9 @@ class PhysicalPlanner:
         reason: str | None = None,
     ) -> PhysicalPlanResult:
         """Write a whole cover for this plan, appending to the conversation this cover continues."""
+        carried = _carried_cover(plan, previous, results)
+        if carried is not None:
+            return PhysicalPlanResult(plan=carried, failure_reason=None)
         return self._walk(plan, conversation, previous, results, reason)
 
     def _walk(
@@ -226,6 +229,33 @@ class PhysicalPlanner:
             f"{node.kind.value} read {readable}, and discovery found "
             f"{sorted(set(entity_source_kinds.values()))}"
         )
+
+
+def _carried_cover(
+    plan: LogicalPlan, previous: PhysicalPlan | None, results: dict[str, NodeResult]
+) -> PhysicalPlan | None:
+    """Return the previous cover under this plan's id, when every node it covers has already run."""
+    # A continuation rewriting only the ending asks for no work at all, and offering each node
+    # whose rows the run already holds back to the model costs one call per fragment to be told
+    # what the results already say.
+    if previous is None:
+        return None
+    finished = [
+        fragment
+        for fragment in previous.fragments
+        if isinstance(results.get(fragment.root_logical_node_id), ExecutionResult)
+    ]
+    covered = frozenset(node_id for fragment in finished for node_id in fragment.logical_node_ids)
+    if covered != _coverable(plan):
+        return None
+    # Nothing is validated again: these fragments passed on the cover that ran them, and a
+    # continuation may not rewrite a node it carried over, so what they cover is unchanged.
+    return PhysicalPlan(
+        id=str(uuid.uuid4()),
+        parent_id=previous.id,
+        logical_plan_id=plan.id,
+        fragments=finished,
+    )
 
 
 def _coverable(plan: LogicalPlan) -> frozenset[str]:

@@ -117,11 +117,13 @@ existing id only to read a node it carried over, and validation turns down a con
 writes one. Absorbing such a node instead would attach a carried node's name to work nobody
 planned.
 
-A `RETURN` node's `columns` name columns the node it reads declares, and that node's
-`required_output_columns` may not be empty. Validation checks the two against each other. This is
-the one place a declaration is required rather than optional, because it is the one place nothing
-downstream would catch a mismatch: the answer is projected after the last fragment has run, so a
-column nothing produces would end an otherwise finished run.
+A `RETURN` node's `columns` name the columns holding the answer and nothing else, so what a caller
+receives is the values the request asked for rather than the rows they were found in. They name
+columns the node it reads declares, and that node's `required_output_columns` may not be empty.
+Validation checks the two against each other. This is the one place a declaration is required rather
+than optional, because it is the one place nothing downstream would catch a mismatch: the answer is
+projected after the last fragment has run, so a column nothing produces costs a whole run's work
+before the planner is asked for the ending again.
 
 `output_node_id` is the id of the `RETURN` node, and is `None` only while a plan ends in control
 nodes and its ending has not been written yet. Validation accepts exactly two shapes: one `RETURN`
@@ -403,7 +405,7 @@ A `DataPipeline` serializes as its two maps and its two pointers. One version of
           "id": "n7",
           "kind": "RETURN",
           "input_node_ids": ["n2"],
-          "attributes": {"columns": ["title", "company_id", "location"]},
+          "attributes": {"columns": ["title"]},
           "required_output_columns": []
         }
       ]

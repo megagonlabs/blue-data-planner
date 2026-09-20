@@ -23,6 +23,7 @@ from blue_data_planner.types import (
     LogicalPlanResult,
     PhysicalPlanFragment,
     PhysicalPlanResult,
+    ReturnAnswerError,
     RunCounters,
     RunLimits,
     RunResult,
@@ -151,7 +152,7 @@ class DataPlanner:
         while True:
             ready = state.next_ready()
             if ready is None:
-                return _Ending(status=RunStatus.OK, answer=self._answer(state))
+                return self._answer(state)
             if not isinstance(ready, PhysicalPlanFragment):
                 return self._resolve_control_nodes(state)
             ending = self._run_fragment(state, ready)
@@ -240,8 +241,8 @@ class DataPlanner:
                 held[node.id] = result
         return held
 
-    def _answer(self, state: RunState) -> DataBundle:
-        """Project the answer the ending names, raising unless the run really produced one."""
+    def _answer(self, state: RunState) -> _Ending:
+        """End the run on the answer the RETURN names, or on a replan that names it again."""
         # A run that reaches here has nothing left to run, so the plan it ends on has to be
         # one that answers. Returning None instead would hand a caller status ok with no
         # answer, which is the one thing RunResult.answer promises cannot happen.
@@ -257,8 +258,25 @@ class DataPlanner:
                 f"plan {state.pipeline.logical_plan.id!r} names node {output_node_id!r} as its "
                 f"output, but it is of kind {ending.kind.value} where RETURN was expected"
             )
+        unfinished = [
+            node_id for node_id in ending.input_node_ids if state.result_for(node_id) is None
+        ]
+        if unfinished:
+            return _Ending(
+                failure_reason=(
+                    f"the answer reads node(s) {unfinished}, which produced no rows the run may "
+                    "read; write an ending over a node that finished"
+                ),
+                next_step=_Next.FAILURE_REPLAN,
+            )
         columns = [str(name) for name in ending.attributes.get("columns", [])]
-        return project_answer(state.inputs_for_node(ending), columns)
+        try:
+            answer = project_answer(state.inputs_for_node(ending), columns)
+        except ReturnAnswerError as error:
+            # The columns holding the answer are the logical planner's to name, so a name the
+            # rows do not carry is answered by writing the ending again rather than by failing.
+            return _Ending(failure_reason=str(error), next_step=_Next.FAILURE_REPLAN)
+        return _Ending(status=RunStatus.OK, answer=answer)
 
 
 def build_data_planner(

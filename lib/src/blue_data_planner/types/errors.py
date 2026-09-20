@@ -25,6 +25,10 @@ class PlanValidationError(BlueDataPlannerError):
     """A plan or a cover failed a structural check and must not run."""
 
 
+class ReturnAnswerError(BlueDataPlannerError):
+    """The answer names a column, or reads a node, that a finished run cannot hand it."""
+
+
 class OperatorRoutingError(BlueDataPlannerError):
     """An operator id is registered twice, or names no registered operator."""
 

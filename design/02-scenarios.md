@@ -154,7 +154,7 @@ operator should take on would never come up.
                                  {"name": "company", "dtype": "str"}]},
 
     {"id": "n9", "kind": "RETURN", "input_node_ids": ["n8"],
-     "attributes": {"columns": ["title", "company", "location"]},
+     "attributes": {"columns": ["title", "company"]},
      "required_output_columns": []}
   ]
 }
@@ -163,7 +163,8 @@ operator should take on would never come up.
 Every column name here is one the searches returned. `title`, `company_id`, and `location` are three
 of the five attributes of `postings`; the scan declares the three the rest of the plan reads and
 leaves `salary` and `description` out, since a declaration says what must be present rather than
-what may be.
+what may be. The ending names two of them and not `location`, because the question asks
+which postings, and the location is what a filter compared against on the way to them.
 
 This is a new version of the logical plan rather than an edit of the first one. It names its parent,
 and it carries over `n1` and `n2` because both produced a result. Nothing else carried over, since
@@ -247,9 +248,9 @@ cover 2
   f3  n7        tablesuite.join            ok (11 rows)
   f4  n8        textsuite.semantic_filter  ok (2 rows)
 
-title                     company        location
-Senior Data Scientist     Corvus Health  San Francisco, CA
-Data Scientist, Clinical  Meridian Bio   Palo Alto, CA
+title                     company
+Senior Data Scientist     Corvus Health
+Data Scientist, Clinical  Meridian Bio
 ```
 
 The second cover is written for the whole plan, not patched into the first, and installing it
@@ -317,8 +318,8 @@ produced.
 {
   "status": "ok",
   "answer": [
-    {"title": "Senior Data Scientist", "company": "Corvus Health", "location": "San Francisco, CA"},
-    {"title": "Data Scientist, Clinical", "company": "Meridian Bio", "location": "Palo Alto, CA"}
+    {"title": "Senior Data Scientist", "company": "Corvus Health"},
+    {"title": "Data Scientist, Clinical", "company": "Meridian Bio"}
   ],
   "pipeline": {
     "current_logical_plan_id": "8c4a71d0",

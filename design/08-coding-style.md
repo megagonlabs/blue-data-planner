@@ -283,6 +283,7 @@ whose status says why, carrying every plan version, every fragment attempt, and 
 | Outcome | Form |
 | --- | --- |
 | Bad parameters, a missing required column, an operator refusing input another operator might accept | A recoverable `ExecutionResult`, so a different operator can be tried |
+| An ending naming a column the finished rows do not carry | A `ReturnAnswerError`, which the run loop answers with a replan |
 | Out of parameter repairs, covers, replans, or operator calls; an unreachable source; a provider failing after retries | A `RunResult` with a status |
 | A plan object that is not a plan, a missing required configuration value, an unknown node id or operator id | An exception |
 

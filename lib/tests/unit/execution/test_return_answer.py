@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 
 from blue_data_planner.execution import project_answer
-from blue_data_planner.types import BlueDataPlannerError
+from blue_data_planner.types import ReturnAnswerError
 
 
 def test_the_answer_holds_the_named_columns_in_the_order_the_return_gives_them() -> None:
@@ -16,7 +16,7 @@ def test_the_answer_holds_the_named_columns_in_the_order_the_return_gives_them()
     ]
 
 
-def test_a_column_the_result_does_not_carry_raises() -> None:
-    """Validation rules this out, so reaching it means the plan or the check is broken."""
-    with pytest.raises(BlueDataPlannerError, match="posting_count"):
+def test_a_column_the_result_does_not_carry_raises_the_error_a_replan_answers() -> None:
+    """Which columns hold the answer is the logical planner's to name again, not a defect."""
+    with pytest.raises(ReturnAnswerError, match="posting_count"):
         project_answer([[{"title": "SWE"}]], ["title", "posting_count"])

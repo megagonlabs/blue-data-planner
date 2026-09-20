@@ -12,7 +12,7 @@ from blue_data_planner import DataPlanner, RunResult
 from blue_data_planner.types import (
     Conversation,
     DiscoveryResult,
-    ExecutionResult,
+    FragmentResult,
     RunConversations,
 )
 from scripts.tag_bench.benchmark.scoring import score_answer
@@ -91,21 +91,25 @@ def _failed_record(query: QueryRecord, formatted: str, elapsed: float) -> dict[s
     }
 
 
-def _outcome_payload(outcome: ExecutionResult | DiscoveryResult) -> dict[str, Any]:
-    if isinstance(outcome, ExecutionResult):
+def _outcome_payload(outcome: FragmentResult | DiscoveryResult) -> dict[str, Any]:
+    if isinstance(outcome, DiscoveryResult):
         return {
-            "status": str(outcome.status),
-            "operator_id": outcome.operator_id,
-            "row_count": outcome.row_count,
-            "error": None
-            if outcome.error is None
-            else {"kind": str(outcome.error.kind), "message": outcome.error.message},
-            "report": outcome.report,
+            "search_terms": outcome.search_terms,
+            "matches": [dataclasses.asdict(match) for match in outcome.matches],
+            "dropped_terms": outcome.dropped_terms,
         }
+    # A rejected fragment is filed with the result that was rejected (ADR-033), so the ending
+    # and the last call it made are two separate readings of one entry.
+    call = outcome.result
     return {
-        "search_terms": outcome.search_terms,
-        "matches": [dataclasses.asdict(match) for match in outcome.matches],
-        "dropped_terms": outcome.dropped_terms,
+        "status": str(outcome.status),
+        "failure_reason": outcome.failure_reason,
+        "operator_id": None if call is None else call.operator_id,
+        "row_count": None if call is None else call.row_count,
+        "error": None
+        if call is None or call.error is None
+        else {"kind": str(call.error.kind), "message": call.error.message},
+        "report": None if call is None else call.report,
     }
 
 

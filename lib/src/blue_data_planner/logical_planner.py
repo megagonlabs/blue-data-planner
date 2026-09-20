@@ -6,6 +6,7 @@ import uuid
 from typing import Any
 
 from blue_data_planner.data import DataCatalog
+from blue_data_planner.execution import summarize_table
 from blue_data_planner.llm import Conversation, LLMClient, Turn
 from blue_data_planner.llm.templating import safe_substitute
 from blue_data_planner.plan import logical_plan_schema, validate_logical_plan
@@ -27,6 +28,8 @@ from blue_data_planner.types import (
 # How many source records one prompt carries. It decides how much of a registry a prompt
 # holds rather than how much work a run may do, so it is not a RunLimits field.
 CATALOG_PREVIEW_LIMIT = 20
+# How many rows of a carried node's table one prompt shows.
+CARRIED_SAMPLE_ROWS = 1
 
 
 class LogicalPlanner:
@@ -187,8 +190,23 @@ def _render_carried(
             continue
         held = results.get(node.id)
         if isinstance(held, ExecutionResult):
-            columns = sorted(held.output[0][0]) if held.output and held.output[0] else []
-            lines.append(f"- {node.id} ({node.kind.value}): {held.row_count} row(s), {columns}")
+            lines.extend(_describe_rows(node, held))
         else:
             lines.append(f"- {node.id} ({node.kind.value})")
     return "\n".join(lines)
+
+
+def _describe_rows(node: PipelineNode, held: ExecutionResult) -> list[str]:
+    """Describe one node's rows: how many, which columns, and the first of them."""
+    tables = held.output or []
+    # One row, because the ending is written against the names and the shape of the values
+    # rather than against the data, and a carried table may hold a column of long text.
+    summary = summarize_table(tables[0], CARRIED_SAMPLE_ROWS) if tables else None
+    if summary is None:
+        return [f"- {node.id} ({node.kind.value}): {held.row_count} row(s)"]
+    lines = [f"- {node.id} ({node.kind.value}): {held.row_count} row(s), {summary.columns}"]
+    lines.extend(f"    {row}" for row in summary.sample_rows)
+    remaining = summary.row_count - len(summary.sample_rows)
+    if remaining:
+        lines.append(f"    (+{remaining} more row(s))")
+    return lines

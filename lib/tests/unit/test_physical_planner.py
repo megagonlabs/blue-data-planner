@@ -111,6 +111,37 @@ def a_scan_and_return() -> LogicalPlan:
     )
 
 
+def a_scan_a_filter_and_return() -> LogicalPlan:
+    """n1 SCAN -> n2 FILTER -> n3 RETURN, so one node can finish while another still needs one."""
+    return LogicalPlan(
+        id="p3",
+        parent_id=None,
+        output_node_id="n3",
+        nodes=[
+            PipelineNode(
+                id="n1",
+                kind=LogicalOperator.SCAN,
+                input_node_ids=[],
+                attributes={"instruction": "name the planets"},
+                required_output_columns=[OutputColumn(name="title", dtype="str")],
+            ),
+            PipelineNode(
+                id="n2",
+                kind=LogicalOperator.FILTER,
+                input_node_ids=["n1"],
+                attributes={"instruction": "keep the rocky ones"},
+                required_output_columns=[OutputColumn(name="title", dtype="str")],
+            ),
+            PipelineNode(
+                id="n3",
+                kind=LogicalOperator.RETURN,
+                input_node_ids=["n2"],
+                attributes={"columns": ["title"]},
+            ),
+        ],
+    )
+
+
 def a_discovery() -> dict[str, Any]:
     """A results map holding one resolved DISCOVER node naming the postings entity."""
     return {
@@ -269,19 +300,43 @@ def test_a_node_whose_fragment_produced_a_result_can_reuse_it_unchanged() -> Non
     """Reuse turns on the decision, so a reworded instruction cannot throw a good result away."""
     client = ScriptedLLMClient(
         [
-            a_binding("n1:op.one:[n1]", scan_source_n1=POSTINGS),
+            a_binding("n2:builtin.filter:[n2]", inputs=("n1",)),
+            a_binding("n1:builtin.scan:[n1]", scan_source_n1=POSTINGS),
+            a_binding("n2:builtin.filter:[n2]", inputs=("n1",)),
             {"choice": {"candidate": "n1:reuse:[n1]"}},
         ]
     )
-    planner = a_planner(client, a_router(an_operator("op.one", frozenset({LogicalOperator.SCAN}))))
-    plan = a_scan_and_return()
+    planner = a_planner(
+        client,
+        a_router(
+            an_operator("builtin.scan", frozenset({LogicalOperator.SCAN})),
+            an_operator("builtin.filter", frozenset({LogicalOperator.FILTER})),
+        ),
+    )
+    plan = a_scan_a_filter_and_return()
 
     first = planner.cover(plan, Conversation(), None, a_discovery())
     assert first.plan is not None
     again = planner.cover(plan, Conversation(), first.plan, a_discovery_holding_n1(), "try again")
 
     assert again.plan is not None
-    assert again.plan.fragments[0] == first.plan.fragments[0]
+    assert again.plan.fragment_for_root("n1") == first.plan.fragment_for_root("n1")
+
+
+def test_a_plan_whose_every_node_already_ran_carries_the_cover_over_unasked() -> None:
+    """An ending written again asks for no work, so no binding is worth a model call."""
+    client = ScriptedLLMClient([a_binding("n1:op.one:[n1]", scan_source_n1=POSTINGS)])
+    planner = a_planner(client, a_router(an_operator("op.one", frozenset({LogicalOperator.SCAN}))))
+    plan = a_scan_and_return()
+
+    first = planner.cover(plan, Conversation(), None, a_discovery())
+    assert first.plan is not None
+    conversation = Conversation()
+    again = planner.cover(plan, conversation, first.plan, a_discovery_holding_n1())
+
+    assert again.plan is not None
+    assert again.plan.fragments == first.plan.fragments
+    assert conversation.turns == []
 
 
 def test_a_node_with_no_result_is_offered_no_way_to_reuse_its_fragment() -> None:

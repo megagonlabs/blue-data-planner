@@ -9,7 +9,11 @@ from blue_data_planner.types import (
     CatalogPreview,
     ControlOperator,
     Conversation,
+    ExecutionResult,
+    ExecutionStatus,
+    LogicalOperator,
     LogicalPlan,
+    OutputColumn,
     PipelineNode,
     RunCounters,
     RunLimits,
@@ -132,6 +136,42 @@ def a_parent_plan() -> LogicalPlan:
     )
 
 
+def a_parent_plan_holding_a_scan() -> LogicalPlan:
+    """A one-node plan holding n1 SCAN, standing in for a version whose scan already ran."""
+    return LogicalPlan(
+        id="p0",
+        parent_id=None,
+        output_node_id=None,
+        nodes=[
+            PipelineNode(
+                id="n1",
+                kind=LogicalOperator.SCAN,
+                input_node_ids=[],
+                attributes={"instruction": "read the users"},
+                required_output_columns=[OutputColumn(name="DisplayName", dtype="str")],
+            )
+        ],
+    )
+
+
+def three_rows_from_n1() -> dict[str, Any]:
+    """What the run holds for n1: three user rows, of which the prompt shows the first."""
+    return {
+        "n1": ExecutionResult(
+            status=ExecutionStatus.OK,
+            output=[
+                [
+                    {"DisplayName": "whuber", "Views": 20932},
+                    {"DisplayName": "gung", "Views": 18022},
+                    {"DisplayName": "chl", "Views": 9421},
+                ]
+            ],
+            operator_id="builtin.scan",
+            row_count=3,
+        )
+    }
+
+
 def a_planner_over(client: ScriptedLLMClient) -> LogicalPlanner:
     """A planner whose model answers with what this client is scripted to say."""
     # ScriptedLLMClient and FakeCatalog stand in for LLMClient and DataCatalog
@@ -190,6 +230,25 @@ def test_a_continuation_carries_the_nodes_the_run_has_something_for() -> None:
     nodes_by_id = {node.id: node for node in continuation.plan.nodes}
     assert set(nodes_by_id) == {"n1", "n2", "n3"}
     assert nodes_by_id["n1"].kind is ControlOperator.DISCOVER
+
+
+def test_a_carried_node_is_shown_with_its_columns_and_the_first_of_its_rows() -> None:
+    """An ending naming the column holding the answer is written against the rows themselves."""
+    conversation = Conversation()
+    a_planner_over(ScriptedLLMClient([a_continuation_plan()])).generate(
+        "who has the most views",
+        conversation,
+        counters(),
+        parent=a_parent_plan_holding_a_scan(),
+        carried_node_ids=frozenset({"n1"}),
+        results=three_rows_from_n1(),
+        reason="the ending named a column the rows do not carry",
+    )
+
+    asked = [turn for turn in conversation.turns if turn.role == "user"][-1].content
+    assert "- n1 (SCAN): 3 row(s), ['DisplayName', 'Views']" in asked
+    assert "{'DisplayName': 'whuber', 'Views': 20932}" in asked
+    assert "(+2 more row(s))" in asked
 
 
 def test_a_plan_validation_turned_down_is_written_again_with_the_error_in_the_conversation() -> (

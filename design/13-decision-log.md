@@ -932,6 +932,49 @@ ending is filed.
 
 ---
 
+## ADR-034 — An Ending the Rows Cannot Answer Is a Replan
+
+**Decision:** The columns holding the answer are named by the logical planner and by nothing else.
+When the rows a finished run holds do not carry one of them, the run returns to the logical planner
+with the reason, and the ending is written again against the rows the run now holds. The prompt that
+writes an ending asks for the columns holding the answer and nothing else, and the planner is shown
+each carried node's columns and the first of its rows.
+
+**Rationale:** Two things go wrong with an ending, and neither is a defect. A column is named by the
+name it had when the plan was written, which a join is free to change once it collides, and an
+ending may read a node a fragment absorbed, which produced no table of its own. Both leave a run
+that did every piece of work correctly and cannot state its answer, so ending the request throws all
+of it away. The alternative that reads the rows and picks the columns at the end would answer the
+same two cases, at the price of a model call on every request that already got its ending right,
+and of moving a decision out of the one component that holds the request in view.
+
+**Consequences:** The answer step raises `ReturnAnswerError`, which the run loop turns into a
+replan, bounded by `failure_replans` like any other, so a planner that keeps naming the same wrong
+column ends the request as `replan_exhausted`. A replan that only rewrites the ending asks for no
+work, which is what ADR-035 answers. Nothing downstream of the logical planner narrows an answer, so
+a plan whose ending names a supporting column returns that column: what the prompt asks for is what
+a caller receives.
+
+---
+
+## ADR-035 — A Cover of Work Already Done Is Carried Over, Unasked
+
+**Decision:** A logical plan whose operator nodes all have results keeps the cover the run already
+has, under the new plan's id. No binding is offered to a model and no candidate is enumerated.
+
+**Rationale:** Reusing one finished fragment is a decision the model takes among candidates
+(ADR-026), because a repair may want that node run differently. A plan with nothing left to run
+offers no such choice: every candidate is a node whose rows the run already holds, and the only
+answer that does not throw work away is to keep all of them. Asking anyway costs one model call per
+fragment to be told what the results already say, on the path a replanned ending takes every time.
+
+**Consequences:** A continuation that only rewrites the ending costs one model call, the one that
+wrote it. The cover is carried over rather than rebuilt, so the run's record shows a new cover whose
+fragments are the previous cover's, and the signatures under which results sit are unchanged
+(ADR-024). Where a plan still holds work, every binding is decided afresh as before.
+
+---
+
 ## Open Questions
 
 Design questions first, then defects in code that exists today.
