@@ -124,7 +124,10 @@ def test_an_extraction_naming_undeclared_columns_is_refused(lotus_stub: Any) -> 
     result = run(
         operator("lotus.sem_extract"),
         [[{"bio": "born 1815"}]],
-        {"input_columns": ["bio"], "output_columns": {"born_year": "year of birth"}},
+        {
+            "input_columns": ["bio"],
+            "output_columns": [{"name": "born_year", "extracts": "year of birth"}],
+        },
         declared("bio", "born"),
     )
 
@@ -210,7 +213,10 @@ def test_a_column_lotus_did_not_produce_is_reported_by_name(lotus_stub: Any) -> 
     result = run(
         operator("lotus.sem_extract"),
         [[{"bio": "born 1815"}]],
-        {"input_columns": ["bio"], "output_columns": {"born": "year of birth"}},
+        {
+            "input_columns": ["bio"],
+            "output_columns": [{"name": "born", "extracts": "year of birth"}],
+        },
         declared("bio", "born"),
     )
 

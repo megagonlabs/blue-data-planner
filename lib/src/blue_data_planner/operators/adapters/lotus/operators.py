@@ -185,10 +185,13 @@ def _run_map(
 def _run_extract(
     frames: list[Any], parameters: Any, required: list[OutputColumn], operator_id: str
 ) -> tuple[Any, list[str]]:
-    named = list(parameters.output_columns)
+    named = [str(column.name) for column in parameters.output_columns]
     check_named_columns(operator_id, required, [str(name) for name in frames[0].columns], named)
     extracted = frames[0].sem_extract(
-        input_cols=parameters.input_columns, output_cols=dict(parameters.output_columns)
+        input_cols=parameters.input_columns,
+        output_cols={
+            str(column.name): str(column.extracts) for column in parameters.output_columns
+        },
     )
     return extracted, named
 

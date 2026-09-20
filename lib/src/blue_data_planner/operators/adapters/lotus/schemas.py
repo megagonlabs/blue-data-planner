@@ -39,18 +39,29 @@ class SemMapParameters(BaseModel):
     )
 
 
+class ExtractedColumn(BaseModel):
+    """One column to create, and what to pull into it."""
+
+    model_config = _STRICT
+
+    name: str = Field(
+        description=(
+            "The column to create, which has to be one the node declares that its input does "
+            "not already carry."
+        )
+    )
+    extracts: str = Field(description="What to pull out of the input columns into it")
+
+
 class SemExtractParameters(BaseModel):
     """Pull named values out of text columns into new columns."""
 
     model_config = _STRICT
 
     input_columns: list[str] = Field(description="The columns to read the values out of")
-    output_columns: dict[str, str] = Field(
-        description=(
-            "Each column to create, mapped to what to extract into it. The names have to be "
-            "the columns the node declares that its input does not already carry."
-        )
-    )
+    # A list of named columns rather than a mapping: a provider enforcing a response schema
+    # strictly refuses an object whose keys are not fixed by the schema itself.
+    output_columns: list[ExtractedColumn] = Field(description="The columns to create")
 
 
 class SemAggParameters(BaseModel):
