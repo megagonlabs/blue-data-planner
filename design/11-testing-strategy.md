@@ -293,10 +293,10 @@ The rows past the first are the reason the benchmark is part of the testing stra
 side project: they are design questions the decision log records as open, and none can be settled by
 reasoning about the code.
 
-Two measurements are absent, because a `RunResult` states neither: how often a parameter repair
-fires, and the review's accept rate, which ADR-013 flags as the risk worth watching. Both live in
-the fragment runner's conversation as turns. Open question 53 holds whether a run records each
-attempt as structured data, and the report gains both with it.
+The review's accept rate, which ADR-013 flags as the risk worth watching, is counted off `results`:
+a fragment the review turned down is filed with the rest, under its own status. How often a
+parameter repair fires is not, because the repair is a loop inside one fragment run and only its
+ending is filed; that count lives in the fragment runner's conversation as turns.
 
 ---
 

@@ -119,6 +119,7 @@ above the exported environment.
 | `BLUE_DATA_PLANNER_MAX_*` | The `RunLimits` defaults | One per bound, listed in [section 5](#5-request-limits) |
 | `BLUE_DATA_CLI_FORMAT` | `table` | The CLI's default output format |
 | `BLUE_DATA_CLI_TRACE_MAX_FRAGMENT_ROWS` | `5` | The rows of a fragment's result the trace shows |
+| `BLUE_DATA_CLI_TRACE_MAX_OUTPUT_CHARS` | `80` | The characters each line of a fragment's output is cut to |
 
 One model string serves every component. `DataPlanner`'s constructor takes a client per component,
 so a deployment that wants a stronger model for logical planning than for writing parameters builds

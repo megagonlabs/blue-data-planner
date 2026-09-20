@@ -529,7 +529,7 @@ class RunResult:
     answer: DataBundle | None
     failure_reason: str | None
     pipeline: DataPipeline
-    results: dict[str, ExecutionResult | DiscoveryResult]   # keyed by signature
+    results: dict[str, FragmentResult | DiscoveryResult]   # keyed by signature
     counters: RunCounters
     conversations: RunConversations
 ```
@@ -561,19 +561,21 @@ Four questions a reader asks, and where the answer is.
 
 | Question | Read |
 | --- | --- |
-| Did node `n3` succeed | Whether `results` holds the signature the current cover gives `n3` |
+| Did node `n3` succeed | The `status` of the entry `results` holds under the signature the current cover gives `n3` |
 | Which operator ran it | The `operator_id` of the fragment `n3` roots, in the current cover |
 | How much was pushed down | The `logical_node_ids` of each fragment, in every cover in `pipeline.physical_plans` |
 | What did discovery find | The `DiscoveryResult` under the `DISCOVER` node's signature |
 
 ### What a run holds while it runs
 
-`results` maps a signature to what the work under that signature produced. `RunState` owns it during
-a run and `to_result` hands it to the caller unchanged.
+`results` maps a signature to how the work under that signature ended. `RunState` owns it during
+a run and `to_result` hands it to the caller unchanged. A fragment the review turned down is filed
+with the rest, so the record says which step of a cover ran and what it was answered with, and not
+only which ones produced something (ADR-024).
 
 | Node | Entry |
 | --- | --- |
-| An operator node that roots a fragment | The `ExecutionResult` that was accepted |
+| An operator node that roots a fragment | The `FragmentResult` its run came to, kept or not |
 | An operator node a fragment absorbed | None. A fused call produces no intermediate table |
 | `DISCOVER` | The `DiscoveryResult` the catalog search produced |
 | `REPLAN`, `RETURN` | None. The answer belongs to `RunResult.answer` |
@@ -604,8 +606,9 @@ for different nodes, and a repair that cuts a node set again may leave the same 
 different set. An id names a position in a graph; a signature names the work.
 
 Scheduling reads the current cover's signatures. A fragment is ready when every node on its frontier
-has a result, and a fragment's input is those results' outputs. A fragment whose own signature is
-already in the map has run and is skipped.
+holds an accepted result, and a fragment's input is those results' outputs. A fragment whose own
+signature holds one has run and is skipped; one whose entry says the review turned it down is
+offered again, since nothing downstream can be built on a result nobody kept.
 
 Nothing is removed. An entry a later cover has no use for stays in the map and is never read again,
 because no signature in that cover matches it
@@ -624,9 +627,9 @@ disagree.
 
 ### What each component returns
 
-Three result types never leave the process. `DataPlanner` reads each one, records what it holds on
-the run state, and moves on. `CatalogSearcher` returns a `DiscoveryResult`, which does leave, since
-it is what the run holds under a `DISCOVER` node's signature.
+`LogicalPlanResult` and `PhysicalPlanResult` never leave the process. `DataPlanner` reads each one,
+records what it holds on the run state, and moves on. `FragmentResult` and `DiscoveryResult` do
+leave: each is what the run files under a signature.
 
 ```python
 @dataclass(frozen=True)
@@ -645,7 +648,7 @@ class PhysicalPlanResult:
 @dataclass(frozen=True)
 class FragmentResult:
     status: RunStatus
-    result: ExecutionResult | None  # what the review accepted
+    result: ExecutionResult | None  # what the last call returned, whatever the ending
     failure_reason: str | None
 ```
 
@@ -661,7 +664,8 @@ produced it. A result type carries the outcome, and the conversation carries the
 holds the objection the last correction drew. A plan validation turned down never enters
 `DataPipeline`, since nothing covered it and no version continues it.
 
-`FragmentResult.result` holds what the review accepted and is `None` on every other ending. The
+`FragmentResult.result` holds what the last call returned, whether the review kept it or not, so
+`status` alone says whether anything may read it. It is `None` only where no call was made. The
 parameter repair is a loop inside the runner: it writes the operator's parameters again, in the
 conversation it already holds, until one is accepted or `parameter_repairs` runs out
 ([04, the parameter repair](04-detailed-architecture.md#the-parameter-repair)). One call therefore
@@ -1024,8 +1028,8 @@ server write documents, and a document carries a measure of whatever grows with 
 | `answer`, `status`, `failure_reason` | The rows, the status, the reason | The same | The same |
 | `counters` | The counts and the bounds they were counted against | The same | The counts |
 | `conversations` | Every turn of every exchange | A count of calls and what they cost | The same |
-| `results`, apart from a call's rows | Every field of every entry | The same, in the trace | The same, as JSON |
-| `ExecutionResult.output` | The rows the call returned | A `TableSummary`, in the trace | A row count |
+| `results`, apart from a call's rows | How each fragment ended, with its reason | The same, in the trace | The same, as JSON |
+| `FragmentResult.result.output` | The rows the call returned | A `TableSummary`, in the trace | A row count |
 | A `DISCOVER` node's entry in `results` | Every term and every match | The same, in the trace | A count of matches |
 | `pipeline` | Every plan the request produced | The plan a `plan query` produced, and every plan the trace walks | The same, as JSON |
 

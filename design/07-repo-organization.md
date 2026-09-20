@@ -92,7 +92,8 @@ blue-data-planner/
     │   │   ├── config.py               # resolved settings, and the planner they assemble
     │   │   ├── profile.py              # the profile actions
     │   │   ├── profile_spec.json       # the parameters a profile holds
-    │   │   └── output.py               # tables, result JSON, the trace, error lines
+    │   │   ├── output.py               # tables, result JSON, error lines
+    │   │   └── trace.py                # what a run did, as records and as a table
     │   └── tests/
     └── mcp/
         ├── README.md

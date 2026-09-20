@@ -413,12 +413,12 @@ has left to do.
 `failure_reason` says why a run ended as it did, in the words of whatever ended it. Every failure
 status carries one; `ok` never does, and `planned` does only when no cover could be written.
 
-The three per-component result types never leave the process. `DataPlanner` reads each one, records
-what it holds on the run state, and moves on.
-
-They are `LogicalPlanResult`, `PhysicalPlanResult`, and `FragmentResult`, and
-[10, what each component returns](10-data-model.md#what-each-component-returns) fixes their fields.
-`CatalogSearcher` returns a `DiscoveryResult` and nothing beside it.
+`LogicalPlanResult` and `PhysicalPlanResult` never leave the process. `DataPlanner` reads each one,
+records what it holds on the run state, and moves on.
+[10, what each component returns](10-data-model.md#what-each-component-returns) fixes their fields,
+and `FragmentResult`'s beside them. A `FragmentResult` does leave: the run files one under the
+signature of the work it came from, whether the review kept its result or turned it down, and
+`CatalogSearcher`'s `DiscoveryResult` is filed the same way.
 
 Each component returns what it did instead of writing it down as it goes, so one that raises cannot
 leave a half-written record behind and the run state keeps one writer.
@@ -570,7 +570,7 @@ class LogicalPlanner:
         counters: RunCounters,
         parent: LogicalPlan | None = None,
         carried_node_ids: frozenset[str] = frozenset(),
-        results: dict[str, ExecutionResult | DiscoveryResult] | None = None,
+        results: dict[str, FragmentResult | DiscoveryResult] | None = None,
         reason: str | None = None,
     ) -> LogicalPlanResult: ...
 ```
@@ -629,7 +629,7 @@ class PhysicalPlanner:
         plan: LogicalPlan,
         conversation: Conversation,
         previous: PhysicalPlan | None,
-        results: dict[str, ExecutionResult | DiscoveryResult],
+        results: dict[str, FragmentResult | DiscoveryResult],
         reason: str | None = None,
     ) -> PhysicalPlanResult: ...
 ```
@@ -714,7 +714,8 @@ A review that accepts ends the loop with `status=ok`. One that rejects spends an
 parameters are written again; one that asks for a replan returns `status=needs_replan` with its
 assessment as the failure reason; running out of attempts returns `status=needs_repair`. An
 unrecoverable operator failure returns `status=operator_failed` and no review turn at all, since no
-other operator would avoid the same failure.
+other operator would avoid the same failure. Every ending carries the last call's result alongside
+its status, so what the review turned down is readable rather than discarded.
 
 Writing the parameters and reviewing the result are turns in one conversation, so the review sees
 what was written and why, and a rejected review is answered on top of what it rejected. One fragment
@@ -775,7 +776,7 @@ class RunState:
     counters: RunCounters
     conversations: RunConversations
     pipeline: DataPipeline
-    results: dict[str, ExecutionResult | DiscoveryResult]   # keyed by signature
+    results: dict[str, FragmentResult | DiscoveryResult]   # keyed by signature
 
     def next_ready(self) -> PhysicalPlanFragment | PipelineNode | None: ...
     def ready_control_nodes(self) -> list[PipelineNode]: ...
@@ -799,8 +800,8 @@ the conversation it was handed, and returns what it produced, which is what keep
 carrying nothing about a request between calls. The bounds reach a run through `RunCounters`, which
 carries the `RunLimits` the planner was built with, so nothing is configured per request.
 
-Five fields cover a request. Four hold what the run is working on, and `results` holds what it has
-produced, keyed by the signature of the work that produced it rather than by a node id
+Five fields cover a request. Four hold what the run is working on, and `results` holds how each
+piece of work ended, keyed by the signature of that work rather than by a node id
 ([10, reusing a result](10-data-model.md#reusing-a-result)). The current plan and the current cover
 are read off `pipeline`, which already names both, so nothing here forwards to them.
 
@@ -820,13 +821,16 @@ plan is the whole of what it was asked for.
 Three methods carry the rules that would otherwise be scattered through the loop.
 
 `next_ready` asks the current cover for signatures. A fragment is ready when every node on its
-frontier has a result and its own signature does not; a control node is ready when every node it
-lists has one. It rebuilds the runnable set on each call, so a new cover is picked up without a
+frontier holds an accepted result and its own signature does not; a control node is ready when every
+node it lists holds one. A fragment filed as rejected is offered again, which is what keeps a cover
+repair that asks for the same work from resuming on top of a result nobody kept. It rebuilds the runnable set on each call, so a new cover is picked up without a
 restart. `ready_control_nodes` answers the same question for every control node at once, because
 the loop resolves all of them before it returns to the logical planner.
 
 `result_for` is the one lookup by node id: it reads the current cover for the node's signature, then
-the results map for that signature. Everything that reads a node's output goes through it.
+the results map for that signature, and answers nothing where the entry there was not accepted.
+Everything that reads a node's output goes through it, which is what keeps a rejected result from
+reaching the next fragment.
 `signature_of` returns the signature alone, which is what a `DISCOVER` node's conversation is filed
 under ([10, conversations](10-data-model.md#conversations)).
 

@@ -182,7 +182,7 @@ Returned whichever way a request ends, and fixed in
 | `answer` | `DataBundle \| None` | The `RETURN` node's rows. `None` unless `status` is `ok` |
 | `failure_reason` | `str \| None` | Why the run ended as it did. `None` when `status` is `ok` |
 | `pipeline` | `DataPipeline` | Every logical plan and every cover the request produced, with the current pair named |
-| `results` | `dict[str, ExecutionResult \| DiscoveryResult]` | Keyed by the signature of the work that produced each one |
+| `results` | `dict[str, FragmentResult \| DiscoveryResult]` | How each fragment ended and what each search found, keyed by the signature of the work |
 | `counters` | `RunCounters` | What the run spent against the four bounds counted per request, and those bounds |
 | `conversations` | `RunConversations` | Every exchange with the model, by the component that had it |
 
@@ -191,12 +191,15 @@ status cannot mistake a failed run for an empty answer (ADR-015). `failure_reaso
 that rule: every failure status carries one, in the words of whatever ended the run. `ok` never
 carries one, and `planned` carries one only when no cover could be written.
 
-No field reports a node's outcome on its own. Whether a node succeeded is whether `results` holds the
-signature the current cover gives it, and which operator ran it is that fragment's `operator_id`
-([10](10-data-model.md#3-what-a-run-produces)).
+No field reports a node's outcome on its own. How a node's work ended is the `status` of the entry
+`results` holds under the signature the current cover gives it, and which operator ran it is that
+fragment's `operator_id` ([10](10-data-model.md#3-what-a-run-produces)). A fragment a review turned
+down is filed there too, with the objection as its `failure_reason`, so which step of a cover sent
+the run to a repair is read off the record rather than out of the transcript.
 
-`conversations` is where a run's rejected work is read: a plan validation turned down, a binding the
-physical planner replaced, parameters a review rejected. It also carries what the calls cost, for
+`conversations` is where the words of a run's rejected work are read: a plan validation turned down,
+a binding the physical planner replaced, every parameter set a review rejected and what it said
+about each. It also carries what the calls cost, for
 calls through `llm/` and nothing else. A model call an operator makes internally, as a LOTUS operator
 does, is billed as part of the one operator call that contains it. Planner spend is exact; operator
 spend is a call count.
@@ -260,12 +263,13 @@ so no command accepts one.
 | `--format table\|json` | Anything printing a result | How the result is written, `table` by default |
 | `--trace` | The two query actions | Report what the run did, after the run |
 | `--trace-max-fragment-rows N` | The two query actions | The rows of a fragment's result the trace shows, 5 by default |
+| `--trace-max-output-chars N` | The two query actions | The characters each line of a fragment's output is cut to, 80 by default |
 | `--confirm` | `profile remove` | Answer the confirmation ahead of time |
 | `--version` | The root | The package version |
 
 `--format` and `--trace` choose different things, and each is set independently of the other
 (ADR-032). The first decides how a result is written; the second decides whether the run behind it
-is reported. `--trace-max-fragment-rows` takes effect where `--trace` does.
+is reported. The two caps take effect where `--trace` does.
 
 Every bound on a run is a profile parameter rather than a flag: a bound is configuration, and
 configuration belongs to a profile (ADR-028). `--registry` and `--model` are the two an operator
@@ -287,43 +291,54 @@ cost. That wrapper holds what `--format table` leaves to the closing summary on 
 JSON document is read where no terminal is attached, so it carries its own account of how the run
 ended.
 
-`--trace` reports what the run did, on standard error, walking each cover fragment by fragment. A
-fragment names the operator that ran it, the logical nodes it covered with the instruction each
-carried, the source each scan read, and how it ended: a row count with the result's columns and its
-first rows, what a search matched, or "no result under this cover" — the last of those is what a
-fragment a review rejected reads as, since the trace names an outcome and not why it was reached. A
-run that failed closes the trace with one more line naming why. Under `--format json` the same trace
-is one JSON object on standard error. `--trace-max-fragment-rows` caps the rows shown per fragment,
-since a fragment's result is as large as the data it read.
+`--trace` reports what the run did, on standard error, cover by cover. A cover's fragments come in
+the order a run reaches them, and each names the operator that ran it, the logical nodes it covered
+with the instruction each carried, the source each scan read, the fragments whose output it read,
+and how it ended. A fragment that ran carries its ending — a row count where the review kept the
+result, and the ending's name with the objection where it did not — and one the pass never got to
+reads as "not reached under this cover" (ADR-033). A `DISCOVER` node leads the cover its plan was
+written for, with what its search matched, since a search resolves before the plan reading it
+exists. Work a later cover asks for again is named rather than traced twice, because an accepted
+result was not run again (ADR-024). A run that failed closes the trace with one more line naming
+why.
+
+What a narrow column cannot hold follows its cover, under the id of the fragment it belongs to: the
+source each scan read, the objection a review raised, the columns of the first table the fragment
+produced, and the first rows of it. `--trace-max-fragment-rows` caps those rows and
+`--trace-max-output-chars` cuts each line of the columns and the rows. Neither cap reaches an
+instruction, a source path, a match, or an objection, so each of those is read whole however long it
+is.
+
+`--format` decides how the trace is drawn as well as how the result is written. Under
+`--format table` each cover is one table, which is what lets an instruction wrap inside its own
+column. Under `--format json` the trace is one JSON object holding the same walk as lines.
 
 ```text
 cover 1   logical plan 8c4a71d0
-  f1  builtin.scan
-      n2  SCAN    load job postings                    reads sql/jobs.postings
-      n3  FILTER  find the postings in the Bay Area
-      ok  140 rows  [title, company, location]
-          {'title': 'Senior Data Scientist', 'company': 'Corvus Health', ...}
-  f2  lotus.sem_filter
-      n4  FILTER  keep the postings at healthcare companies
-      no result under this cover
-
-cover 2   logical plan 8c4a71d0
-  f1  builtin.scan
-      n2  SCAN    load job postings                    reads sql/jobs.postings
-      n3  FILTER  find the postings in the Bay Area
-      ok  140 rows  [title, company, location]
-          {'title': 'Senior Data Scientist', 'company': 'Corvus Health', ...}
-  f2  builtin.nl2table
-      n4  FILTER  keep the postings at healthcare companies
-      ok  11 rows  [title, company, location]
-          {'title': 'Senior Data Scientist', 'company': 'Corvus Health', ...}
+┏━━━━━━━━━━━━━━━━━━┳━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━┓
+┃ Fragment         ┃ Step   ┃ Instruction                ┃ Input   ┃ Result                ┃
+┡━━━━━━━━━━━━━━━━━━╇━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━┩
+│ f1               │ n2     │ load job postings          │         │ ok  140 rows          │
+│ builtin.scan     │ SCAN   │                            │         │                       │
+│                  │ n3     │ find the Bay Area postings │         │                       │
+│                  │ FILTER │                            │         │                       │
+├──────────────────┼────────┼────────────────────────────┼─────────┼───────────────────────┤
+│ f2               │ n4     │ keep the healthcare        │ from f1 │ needs_repair  31 rows │
+│ lotus.sem_filter │ FILTER │ postings                   │         │                       │
+└──────────────────┴────────┴────────────────────────────┴─────────┴───────────────────────┘
+  f1
+      reads  n2  /source/jobs/database/hiring/collection/public/entity/postings
+      columns  company, location, title
+      {'title': 'Senior Data Scientist', 'company': 'Corvus Health', 'location'…
+  f2
+      reason  the review said a keyword match cannot tell a healthcare employer apart
 
 counters  operator calls 7/30   failure replans 0/2   control replans 1/2
 model     11 calls   $0.42
 ```
 
-A cover is written whole, so every fragment of it appears. `f1` in the second cover carries the
-result the first cover already produced and spent no operator call, which the counters show.
+A cover is written whole, so every fragment of it appears, and a fragment carried into a later cover
+shows as the reuse it is.
 
 ### Errors and exit codes
 
@@ -460,10 +475,11 @@ variable > profile > default** — and `profile inspect` reports the tier that s
 | `BLUE_DATA_PLANNER_MAX_CONTROL_REPLANS` | int | `2` | |
 | `BLUE_DATA_CLI_FORMAT` | str | `table` | |
 | `BLUE_DATA_CLI_TRACE_MAX_FRAGMENT_ROWS` | int | `5` | |
+| `BLUE_DATA_CLI_TRACE_MAX_OUTPUT_CHARS` | int | `80` | |
 
 The first row and `BLUE_DATA_CLI_FORMAT` are family-wide parameters, declared once for every Blue
-CLI rather than by `blue-planner` alone. `BLUE_DATA_CLI_TRACE_MAX_FRAGMENT_ROWS` takes the family's
-prefix because it governs how this CLI prints, and belongs to `blue-planner`, since a fragment is
+CLI rather than by `blue-planner` alone. The two `BLUE_DATA_CLI_TRACE_` parameters take the family's
+prefix because they govern how this CLI prints, and belong to `blue-planner`, since a fragment is
 this component's unit of work. `BLUE_DATA_PLANNER_MODEL` reads
 `BLUE_DATA_LLM_MODEL` where it is unset, and
 `BLUE_DATA_PLANNER_LOTUS_MODEL` reads `BLUE_DATA_PLANNER_MODEL` the same way. Setting
