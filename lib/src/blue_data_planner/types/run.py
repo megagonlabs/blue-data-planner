@@ -163,7 +163,9 @@ class FragmentResult:
     """What one fragment's run came to, and what the run loop does next."""
 
     status: RunStatus
-    result: ExecutionResult | None  # what the review accepted, None on every other ending
+    # What the last call returned, whatever the ending. `status` alone says whether the review
+    # accepted it, so a rejected result stays readable instead of being dropped.
+    result: ExecutionResult | None
     failure_reason: str | None
 
 
@@ -179,7 +181,9 @@ class RunResult:
     # one; ok never does, and planned does only when no cover could be written.
     failure_reason: str | None
     pipeline: DataPipeline
-    results: dict[str, ExecutionResult | DiscoveryResult]  # keyed by signature
+    # Keyed by signature: how each fragment ended, and what each search found. A fragment
+    # the review turned down is filed here too, with the status saying so.
+    results: dict[str, FragmentResult | DiscoveryResult]
     counters: RunCounters
     conversations: RunConversations
 

@@ -123,6 +123,15 @@ def an_accepted_fragment(rows: list[dict[str, object]] | None = None) -> Fragmen
     )
 
 
+def a_rejected_fragment() -> FragmentResult:
+    """One fragment run the review turned down, carrying the result it turned down."""
+    return FragmentResult(
+        status=RunStatus.NEEDS_REPAIR,
+        result=an_ok_result([{"title": "SWE"}]),
+        failure_reason="the review said the predicate dropped the wrong rows",
+    )
+
+
 def a_cover_with_fresh_fragment_ids() -> PhysicalPlan:
     """The same three fragments over the same nodes, under a new cover and new fragment ids."""
     return PhysicalPlan(
@@ -261,6 +270,17 @@ def test_a_fragment_whose_root_already_holds_a_result_is_not_offered_again() -> 
     state.record_fragment(state.pipeline.cover.fragment("f2"), an_accepted_fragment())
     state.record_fragment(state.pipeline.cover.fragment("f3"), an_accepted_fragment())
     assert state.next_ready() is None
+
+
+def test_a_fragment_the_review_turned_down_is_filed_without_becoming_something_to_read() -> None:
+    """The rejection is part of the record, and nothing downstream may run on top of it."""
+    state = a_state()
+    state.record_fragment(state.pipeline.cover.fragment("f1"), a_rejected_fragment())
+
+    filed = state.results[state.signature_of("n1")]
+    assert getattr(filed, "status", None) is RunStatus.NEEDS_REPAIR
+    assert state.result_for("n1") is None
+    assert getattr(state.next_ready(), "id", None) == "f1"  # f1 is offered again, f2 is not ready
 
 
 def test_a_ready_fragment_is_offered_before_a_ready_control_node() -> None:

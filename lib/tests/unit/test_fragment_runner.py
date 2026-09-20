@@ -174,8 +174,9 @@ def test_running_out_of_parameter_repairs_escalates() -> None:
     )
 
     assert result.status is RunStatus.NEEDS_REPAIR
-    assert result.result is None
-    assert result.failure_reason is not None
+    # The rejected result travels with the ending, so a reader sees what the review turned down.
+    assert result.result is not None
+    assert result.failure_reason == "still no"
 
 
 def test_a_review_asking_for_a_replan_comes_back_with_its_assessment() -> None:

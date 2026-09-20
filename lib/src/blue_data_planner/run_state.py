@@ -23,7 +23,10 @@ from blue_data_planner.types import (
     RunStatus,
 )
 
+# What a node's work produced, for whoever reads it next.
 NodeResult = ExecutionResult | DiscoveryResult
+# What the run files under a signature: how a fragment ended, or what a search found.
+FiledResult = FragmentResult | DiscoveryResult
 
 
 def _empty_pipeline() -> DataPipeline:
@@ -43,14 +46,16 @@ class RunState:
     counters: RunCounters
     conversations: RunConversations = field(default_factory=RunConversations)
     pipeline: DataPipeline = field(default_factory=_empty_pipeline)
-    results: dict[str, NodeResult] = field(default_factory=dict[str, "NodeResult"])
+    results: dict[str, FiledResult] = field(default_factory=dict[str, "FiledResult"])
     # Derived from the current plan and the current cover, and rewritten with every cover.
     _signatures: dict[str, str] = field(default_factory=dict[str, str], repr=False)
 
     def next_ready(self) -> PhysicalPlanFragment | PipelineNode | None:
         """Return the next ready fragment, else a ready control node, else nothing."""
         for fragment in self.pipeline.cover.fragments:
-            if self.signature_of(fragment.root_logical_node_id) in self.results:
+            # A fragment the review turned down is filed too, so what makes one done is an
+            # accepted result rather than an entry.
+            if self.result_for(fragment.root_logical_node_id) is not None:
                 continue
             if all(
                 self.result_for(entry.logical_node_id) is not None for entry in fragment.input_data
@@ -65,16 +70,21 @@ class RunState:
             node
             for node in self.pipeline.logical_plan.nodes
             if isinstance(node.kind, ControlOperator)
-            and self.signature_of(node.id) not in self.results
+            and self.result_for(node.id) is None
             and all(self.result_for(input_id) is not None for input_id in node.input_node_ids)
         ]
 
     def result_for(self, node_id: str) -> NodeResult | None:
-        """Return what the current cover's work at this node produced, or nothing."""
+        """Return what this node produced for whoever reads it next, or nothing."""
         # A node a fragment absorbed has no signature, because a fused call produces no
         # intermediate table, so it answers None the same way an unrun node does.
         signature = self._signatures.get(node_id)
-        return None if signature is None else self.results.get(signature)
+        filed = None if signature is None else self.results.get(signature)
+        if isinstance(filed, FragmentResult):
+            # A rejected fragment is filed with its result, so the status is what says whether
+            # anything downstream may read those rows.
+            return filed.result if filed.status is RunStatus.OK else None
+        return filed
 
     def signature_of(self, node_id: str) -> str:
         """Return the signature the current cover gives this node's work."""
@@ -129,9 +139,8 @@ class RunState:
         self._signatures = signatures(self.pipeline.logical_plan, cover)
 
     def record_fragment(self, fragment: PhysicalPlanFragment, result: FragmentResult) -> None:
-        """Keep what the review accepted under the signature of the work that produced it."""
-        if result.result is not None:
-            self.results[self.signature_of(fragment.root_logical_node_id)] = result.result
+        """Keep how the fragment ended under the signature of the work that produced it."""
+        self.results[self.signature_of(fragment.root_logical_node_id)] = result
 
     def record_discovery(self, node: PipelineNode, result: DiscoveryResult) -> None:
         """Keep what one DISCOVER node's search found under that node's signature."""
