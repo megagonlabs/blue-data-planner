@@ -28,15 +28,6 @@ from blue_data_planner_cli.output import (
 from blue_data_planner_cli.profile import profile_group
 from blue_data_planner_cli.trace import print_log
 
-RUN_STATUS_CODES: dict[RunStatus, str] = {
-    RunStatus.INVALID_PLAN: "INVALID_PLAN",
-    RunStatus.REPLAN_EXHAUSTED: "REPLAN_EXHAUSTED",
-    RunStatus.BUDGET_EXHAUSTED: "BUDGET_EXHAUSTED",
-    RunStatus.OPERATOR_FAILED: "OPERATOR_FAILED",
-    RunStatus.LLM_FAILED: "LLM_FAILED",
-    RunStatus.PLANNER_FAILED: "PLANNER_FAILED",
-}
-
 
 @click.group()
 @click.option(
@@ -61,7 +52,9 @@ def data_group() -> None:
 
 @data_group.command("query")
 @click.argument("request")
-@click.option("--registry", default=None, help="The blue-data registry to plan over.")
+@click.option(
+    "--registry-path", "registry", default=None, help="The blue-data registry to plan over."
+)
 @click.option("--model", default=None, help="The litellm model string every component uses.")
 @format_option
 @click.option("--explain", is_flag=True, help="Write the plan and stop, running nothing.")
@@ -122,8 +115,9 @@ def _run_query(
         print_log(result, errors, max_output_chars=settings.log_limit)
     errors.print(summary_line(result), markup=False)
     if result.status not in (RunStatus.OK, RunStatus.PLANNED):
-        code = RUN_STATUS_CODES.get(result.status, "PLANNER_FAILED")
-        print_error(errors, code, result.failure_reason or "")
+        # A status a run ended on is its own error code, so a status added to RunStatus
+        # reports under its own name rather than under a plausible neighbor's.
+        print_error(errors, result.status.name, result.failure_reason or "")
         ctx.exit(1)
 
 

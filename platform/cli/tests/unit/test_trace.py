@@ -107,7 +107,7 @@ def test_a_fragment_that_ran_and_was_not_kept_says_so_where_one_never_reached_sa
     assert fragment_ending(traced_covers(rejected)[0].fragments[1]) == "needs_repair  1 rows"
     unvisited = traced_covers(unreached)[0].fragments[1]
     assert unvisited.status is None
-    assert fragment_ending(unvisited) == "not reached under this cover"
+    assert fragment_ending(unvisited) == "not reached under this physical plan"
 
 
 def test_a_fragment_that_was_not_kept_names_the_reason_it_went_to_a_repair() -> None:
@@ -147,7 +147,7 @@ def test_work_a_later_cover_asked_for_again_is_named_rather_than_logged_twice() 
 
     reused = covers[1].fragments[0]
     assert reused.reused_from == 1
-    assert fragment_ending(reused) == "ok  140 rows  (reused from cover 1)"
+    assert fragment_ending(reused) == "ok  140 rows  (reused from physical plan 1)"
     assert reused.rows is None
 
 

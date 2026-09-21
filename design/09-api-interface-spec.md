@@ -242,11 +242,11 @@ blue-planner data query "Which Bay Area data scientist postings are at healthcar
 | Command | Does |
 | --- | --- |
 | `data query REQUEST` | Runs `run`: plans, covers, executes, and repairs until the request ends, then prints the answer |
-| `data query REQUEST --explain` | Runs `plan`: writes one logical plan and one cover, prints them, and spends no operator call |
+| `data query REQUEST --explain` | Runs `plan`: writes one logical plan and one physical plan, prints them, and spends no operator call |
 | `profile add NAME` | Creates a profile |
 | `profile remove NAME` | Deletes a profile, after a confirmation |
 | `profile list` | Names every profile, marking the selected one |
-| `profile config [PARAM [VALUE]]` | Prompts for every parameter marked as asked, prompts for one, or sets one |
+| `profile config [PARAM [VALUE]]` | Prompts for every required parameter, prompts for one, or sets one |
 | `profile inspect` | Every parameter, the value in force, and the tier that supplied it |
 | `profile select NAME` | Makes one profile the one later commands read |
 
@@ -258,7 +258,7 @@ so no command accepts one.
 | Option | Commands | Effect |
 | --- | --- | --- |
 | `--profile NAME` | All | Which profile supplies configuration |
-| `--registry PATH` | `data query` | The `blue-data` registry to plan over |
+| `--registry-path PATH` | `data query` | The `blue-data` registry to plan over |
 | `--model NAME` | `data query` | The litellm model string every component uses |
 | `--format table\|json` | Anything printing a result | How the result is written, from `BLUE_DATA_CLI_FORMAT` where the option is absent |
 | `--explain` | `data query` | Write the plan for the request and stop, running nothing |
@@ -274,8 +274,9 @@ is reported. `--log-limit` takes effect where `--log` does.
 A bound a run reports back is a profile parameter rather than a flag: a bound is configuration,
 and configuration belongs to a profile (ADR-028). The three that reset inside a request carry no
 parameter, since no number says what a request spent against them, and a caller who needs one
-builds the planner itself. `--registry` and `--model` are the two settings an operator changes
-between one invocation and the next.
+builds the planner itself. `--registry-path` and `--model` are the two settings an operator
+changes between one invocation and the next, so each carries the name of the parameter it
+overrides.
 
 `nl` is not one of the formats. An answer is a set of rows, and phrasing rows as a sentence is
 behavior no library operation has (ADR-029).
@@ -296,30 +297,30 @@ produced is the one part it holds back, since that grows with what the request t
 where `--explain` asked for the plan as the result, or where `--log` asked for the run behind the
 answer.
 
-`--log` reports what the run did, cover by cover. A cover's fragments come in
-the order a run reaches them, and each names the operator that ran it, the logical nodes it covered
-with the instruction each carried, the source each scan read, the fragments whose output it read,
-and how it ended. A fragment that ran carries its ending — a row count where the review kept the
-result, and the ending's name with the objection where it did not — and one the pass never got to
-reads as "not reached under this cover" (ADR-033). A `DISCOVER` node leads the cover its plan was
-written for, with what its search matched, since a search resolves before the plan reading it
-exists. Work a later cover asks for again is named rather than reported twice, because an accepted
-result was not run again (ADR-024). A run that failed closes the log with one more line naming
-why.
+`--log` reports what the run did, one physical plan at a time. Its fragments come in the order the
+logical plan's dependencies put them, which is the order a run could have reached them, and each
+names the operator that ran it, the logical nodes it covered with the instruction each carried, the
+source each scan read, the fragments whose output it read, and how it ended. A fragment that ran
+carries its ending — a row count where the review kept the result, and the ending's name with the
+objection where it did not — and one the pass never got to reads as "not reached under this
+physical plan" (ADR-033). A `DISCOVER` node leads the physical plan its logical plan was written
+for, with what its search matched, since a search resolves before the plan reading it exists. Work
+a later physical plan asks for again is named rather than reported twice, because an accepted
+result was not run again (ADR-024). A run that failed closes the log with one more line naming why.
 
-What a narrow column cannot hold follows its cover, under the id of the fragment it belongs to: the
+What a narrow column cannot hold follows its table, under the id of the fragment it belongs to: the
 source each scan read, the objection a review raised, the columns of the first table the fragment
 produced, and the first rows of it. `--log-limit` cuts each line of the columns and the rows. It
 reaches neither an instruction, a source path, a match, nor an objection, so each of those is read
 whole however long it is.
 
 Where the log is drawn is what `--format` decides. Under `--format table` it is drawn on standard
-error, one table per cover, which is what lets an instruction wrap inside its own column. Under
-`--format json` it is the two keys it adds to the document on standard output, so standard error
-carries the closing summary alone.
+error, one table per physical plan, which is what lets an instruction wrap inside its own column.
+Under `--format json` it is the two keys it adds to the document on standard output, so standard
+error carries the closing summary alone.
 
 ```text
-cover 1   logical plan 8c4a71d0
+physical plan 1   logical plan 8c4a71d0
 ┏━━━━━━━━━━━━━━━━━━┳━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━┓
 ┃ Fragment         ┃ Step   ┃ Instruction                ┃ Input   ┃ Result                ┃
 ┡━━━━━━━━━━━━━━━━━━╇━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━┩
@@ -342,8 +343,8 @@ counters  operator calls 7/30   failure replans 0/2   control replans 1/2
 model     11 calls   $0.42
 ```
 
-A cover is written whole, so every fragment of it appears, and a fragment carried into a later cover
-shows as the reuse it is.
+A physical plan is written whole, so every fragment of it appears, and a fragment carried into a
+later one shows as the reuse it is.
 
 ### Errors and exit codes
 
@@ -356,7 +357,7 @@ An error reaches standard error as `ERROR: <CODE> <description>`.
 | `REGISTRY_UNREADABLE` | A registry path that does not exist or does not parse |
 | `PROFILE_NOT_FOUND` | A named profile that does not exist |
 | `ABORTED` | A confirmation prompt, such as `profile remove` without `--confirm`, declined |
-| `INVALID_PLAN`, `REPLAN_EXHAUSTED`, `BUDGET_EXHAUSTED`, `OPERATOR_FAILED`, `LLM_FAILED`, `PLANNER_FAILED` | A run that ended with that status, carrying its failure reason |
+| `INVALID_PLAN`, `REPLAN_EXHAUSTED`, `BUDGET_EXHAUSTED`, `OPERATOR_FAILED`, `LLM_FAILED`, `PLANNER_FAILED` | A run that ended with that status, carrying its failure reason. The code is the status's own name, so this list is whichever endings `RunStatus` holds |
 | `INTERNAL_ERROR` | An exception the adapter did not expect |
 
 | Exit code | Meaning |

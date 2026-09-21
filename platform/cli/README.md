@@ -27,7 +27,7 @@ profile, then default. `profile inspect` reports which tier supplied each value.
 blue-planner profile config
 ```
 
-With no argument, `profile config` prompts for every parameter marked as asked, in order. With a
+With no argument, `profile config` prompts for every required parameter, in order. With a
 parameter name, it prompts for that one parameter alone. With a parameter name and a value, it sets
 that value directly, except for a secret, which is never accepted on the command line: a value
 there would reach the shell history. A secret is always prompted, with the input hidden, and stored
@@ -85,13 +85,14 @@ ends, then prints the answer.
 blue-planner data query "Which Bay Area data scientist postings are at healthcare companies?"
 ```
 
-`--explain` writes one logical plan and one cover, prints them, and spends no operator call.
+`--explain` writes one logical plan and one physical plan, prints them, and spends no operator
+call.
 
 ```bash
 blue-planner data query "Which Bay Area data scientist postings are at healthcare companies?" --explain
 ```
 
-The command takes `--registry PATH`, `--model NAME`, `--format table|json`, `--explain`, `--log`,
+The command takes `--registry-path PATH`, `--model NAME`, `--format table|json`, `--explain`, `--log`,
 and `--log-limit N`, and reads `--profile NAME` from the root command.
 
 The six `profile` actions manage the named sets of configuration `blue-planner` reads:
@@ -100,7 +101,7 @@ The six `profile` actions manage the named sets of configuration `blue-planner` 
 blue-planner profile add staging               # create a profile
 blue-planner profile remove staging --confirm   # delete a profile and every value it holds
 blue-planner profile list                       # name every profile, marking the selected one
-blue-planner profile config                      # walk every parameter marked as asked
+blue-planner profile config                      # walk every required parameter
 blue-planner profile inspect                     # every parameter, its value, and its source
 blue-planner profile select staging              # make a profile the one later commands read
 ```
@@ -127,28 +128,29 @@ attached. Every plan version the request produced is the one part it holds back,
 where `--explain` asked for the plan as the result, or where `--log` asked for the run behind the
 answer.
 
-`--log` reports what the run did, cover by cover. A cover's fragments come in
-the order a run reaches them, and each names the operator that ran it, the logical nodes it covered
-with the instruction each carried, the source each scan read, the fragments whose output it read,
-and how it ended. A fragment that ran carries its ending — a row count where the review kept the
+`--log` reports what the run did, one physical plan at a time. Its fragments come in the order the
+logical plan's dependencies put them, which is the order a run could have reached them, and each
+names the operator that ran it, the logical nodes it covered with the instruction each carried, the
+source each scan read, the fragments whose output it read, and how it ended. A fragment that ran carries its ending — a row count where the review kept the
 result, and the ending's name with the objection where it did not — and one the pass never got to
-reads as "not reached under this cover". A `DISCOVER` node leads the cover, with what its search
-matched. Work a later cover asks for again is named rather than reported twice, since an accepted
-result was not run again. A run that failed closes the log with one more line naming why.
+reads as "not reached under this physical plan". A `DISCOVER` node leads the physical plan, with
+what its search matched. Work a later physical plan asks for again is named rather than reported
+twice, since an accepted result was not run again. A run that failed closes the log with one more line naming why.
 
-What a narrow column cannot hold follows its cover, under the id of the fragment it belongs to: the
+What a narrow column cannot hold follows its table, under the id of the fragment it belongs to: the
 source each scan read, the objection a review raised, the columns of the first table the fragment
 produced, and the first rows of it. `--log-limit` cuts each line of the columns and the rows, and
 reaches neither an instruction, a source path, a match, nor an objection, so each of those is read
 whole however long it is.
 
 Where the log is drawn is what `--format` decides. Under `--format table` it is drawn on standard
-error, one table per cover, which is what lets an instruction wrap inside its own column. Under
+error, one table per physical plan, which is what lets an instruction wrap inside its own column.
+Under
 `--format json` it is the plan versions added to the document on standard output, so standard
 error carries the closing summary alone.
 
 ```text
-cover 1   logical plan 8c4a71d0
+physical plan 1   logical plan 8c4a71d0
 ┏━━━━━━━━━━━━━━━━━━┳━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━┓
 ┃ Fragment         ┃ Step   ┃ Instruction                ┃ Input   ┃ Result                ┃
 ┡━━━━━━━━━━━━━━━━━━╇━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━┩

@@ -23,7 +23,8 @@ from rich.console import Console
 from rich.table import Table
 from rich.text import Text
 
-NOT_REACHED = "not reached under this cover"
+# Every string a user reads says "physical plan", the library's own word for a cover.
+NOT_REACHED = "not reached under this physical plan"
 
 
 @dataclass(frozen=True)
@@ -86,7 +87,7 @@ def traced_covers(result: RunResult) -> list[TracedCover]:
 def print_log(result: RunResult, console: Console, *, max_output_chars: int) -> None:
     """Print the log as one table per cover, with what a table cannot hold beneath it."""
     for cover in traced_covers(result):
-        console.print(f"cover {cover.position}   logical plan {cover.logical_plan_id}")
+        console.print(f"physical plan {cover.position}   logical plan {cover.logical_plan_id}")
         console.print(_cover_table(cover))
         for discovery in cover.discoveries:
             matched = [f"      matched  {one}" for one in discovery.matches]
@@ -137,7 +138,7 @@ def _notes(other_tables: int, reused_from: int | None) -> list[str]:
     if other_tables:
         notes.append(f"(+{other_tables} more tables)")
     if reused_from is not None:
-        notes.append(f"(reused from cover {reused_from})")
+        notes.append(f"(reused from physical plan {reused_from})")
     return notes
 
 

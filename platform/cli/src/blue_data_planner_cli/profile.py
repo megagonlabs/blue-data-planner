@@ -80,7 +80,7 @@ def profile_list(ctx: click.Context, output_format: str | None) -> None:
 @click.argument("value", required=False)
 @click.pass_context
 def profile_config(ctx: click.Context, param: str | None, value: str | None) -> None:
-    """Set one parameter, prompt for one, or walk every parameter marked as asked."""
+    """Set one parameter, prompt for one, or walk every required parameter."""
     spec = config_spec()
     store = _store(ctx)
     with _engine_errors("CONFIG_INVALID"):
