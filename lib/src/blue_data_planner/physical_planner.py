@@ -5,7 +5,6 @@ from __future__ import annotations
 import uuid
 from typing import Any
 
-from blue_data_planner.execution import summarize_table
 from blue_data_planner.llm import Conversation, LLMClient, Turn
 from blue_data_planner.llm.templating import safe_substitute
 from blue_data_planner.operators import OperatorRouter
@@ -31,6 +30,7 @@ from blue_data_planner.types import (
     PhysicalPlanFragment,
     PhysicalPlanResult,
     PipelineNode,
+    summarize_table,
 )
 
 Candidate = tuple[frozenset[str], PhysicalOperator]

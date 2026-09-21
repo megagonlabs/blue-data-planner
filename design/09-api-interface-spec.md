@@ -28,9 +28,9 @@ and reads its result writes one import. Everything else is reached through the m
 | `blue_data_planner.logical_planner`, `.physical_planner`, `.fragment_runner` | The three planning components, one module each |
 | `blue_data_planner.catalog_searcher` | `CatalogSearcher` |
 | `blue_data_planner.run_state` | `RunState` |
-| `blue_data_planner.types` | Plan, node, result, and limit types, the enums, and every exception this library defines, `BlueDataPlannerError` first |
+| `blue_data_planner.types` | Plan, node, result, and limit types, the enums, `summarize_table`, and every exception this library defines, `BlueDataPlannerError` first |
 | `blue_data_planner.plan` | `validate_logical_plan`, `validate_physical_plan`, `candidate_fragments` |
-| `blue_data_planner.execution` | `execute_physical_operator`, `check_output_columns`, `summarize_table` |
+| `blue_data_planner.execution` | `execute_physical_operator`, `check_output_columns`, `project_answer` |
 | `blue_data_planner.operators` | `OperatorRouter` |
 | `blue_data_planner.operators.adapters.blue`, `.adapters.lotus`, `.builtin` | `blue_operators`, `lotus_operators`, `builtin_operators` |
 | `blue_data_planner.data` | `DataCatalog`, `open_registry`, and the source-level reads |

@@ -42,6 +42,7 @@ from blue_data_planner.types.plan import (
     PipelineNode,
     Record,
     TableSummary,
+    summarize_table,
 )
 from blue_data_planner.types.run import (
     Conversation,
@@ -112,6 +113,7 @@ __all__ = [
     "SourceRecord",
     "SourceUnreachableError",
     "TableSummary",
+    "summarize_table",
     "Turn",
     "UnknownFragmentError",
     "UnknownNodeError",

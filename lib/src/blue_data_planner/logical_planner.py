@@ -6,7 +6,6 @@ import uuid
 from typing import Any
 
 from blue_data_planner.data import DataCatalog
-from blue_data_planner.execution import summarize_table
 from blue_data_planner.llm import Conversation, LLMClient, Turn
 from blue_data_planner.llm.templating import safe_substitute
 from blue_data_planner.plan import logical_plan_schema, validate_logical_plan
@@ -23,6 +22,7 @@ from blue_data_planner.types import (
     PlanValidationError,
     RunCounters,
     RunStatus,
+    summarize_table,
 )
 
 # How many source records one prompt carries. It decides how much of a registry a prompt

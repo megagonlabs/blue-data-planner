@@ -341,6 +341,14 @@ class TableSummary:
     sample_rows: Data
 
 
+def summarize_table(table: Data, max_rows: int) -> TableSummary:
+    """Return a table's row count, its column names, and its first `max_rows` rows."""
+    if max_rows < 0:
+        raise ValueError(f"max_rows is {max_rows}; expected zero or more")
+    columns = sorted({column for row in table for column in row})
+    return TableSummary(row_count=len(table), columns=columns, sample_rows=table[:max_rows])
+
+
 @dataclass(frozen=True)
 class PhysicalOperator:
     """One candidate implementation of one or more logical operators."""

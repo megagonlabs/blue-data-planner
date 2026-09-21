@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from blue_data_planner.execution import summarize_table
+from blue_data_planner.types import summarize_table
 
 
 def test_a_summary_names_every_column_any_row_carries() -> None:

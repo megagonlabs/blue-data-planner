@@ -181,7 +181,7 @@ Six import rules carry architectural weight, and each can be checked by reading 
 
 | Rule | Why |
 | --- | --- |
-| `types/` imports nothing outside itself, and `plan/` imports only `types/` | Everything may import them without a cycle. It also fixes what belongs there: every data class crossing a module boundary, the catalog readings and `LLMUsage` included, since a type `RunResult` names has to be nameable by everything that reads one. The modules inside `types/` may import each other, and nothing else in `blue_data_planner` |
+| `types/` imports nothing outside itself, and `plan/` imports only `types/` | Everything may import them without a cycle. It also fixes what belongs there: every data class crossing a module boundary, the catalog readings and `LLMUsage` included, since a type `RunResult` names has to be nameable by everything that reads one. The modules inside `types/` may import each other, and nothing else in `blue_data_planner`. What sits there is declarations, and a function only where it works on one of those shapes and reaches nothing else |
 | `execution/` imports only `types/`: no component, no `operators/`, no `llm/`, no `data/` | Invoking an operator needs no model, no router, and no registry (ADR-011) |
 | Within `lib/src/`, only `data/` imports `blue-data` | One place to change, one place to substitute in tests (ADR-003) |
 | Only `operators/adapters/lotus/` imports LOTUS, and only inside a callable | The package imports with LOTUS absent (ADR-004) |

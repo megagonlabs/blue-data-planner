@@ -5,7 +5,7 @@ from __future__ import annotations
 from pydantic import BaseModel, ConfigDict
 
 from blue_data_planner.data import DataCatalog
-from blue_data_planner.execution import execute_physical_operator, summarize_table
+from blue_data_planner.execution import execute_physical_operator
 from blue_data_planner.llm import Conversation, LLMClient, Turn
 from blue_data_planner.llm.templating import safe_substitute
 from blue_data_planner.operators import OperatorRouter
@@ -23,6 +23,7 @@ from blue_data_planner.types import (
     PhysicalPlanFragment,
     RunCounters,
     RunStatus,
+    summarize_table,
 )
 
 SAMPLE_ROWS = 5

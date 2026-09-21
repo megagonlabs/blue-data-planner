@@ -6,7 +6,6 @@ from dataclasses import dataclass
 from typing import Any
 
 from blue_data_planner import RunResult
-from blue_data_planner.execution import summarize_table
 from blue_data_planner.plan import signatures
 from blue_data_planner.types import (
     ControlOperator,
@@ -18,6 +17,7 @@ from blue_data_planner.types import (
     PipelineNode,
     RunStatus,
     TableSummary,
+    summarize_table,
 )
 from rich.console import Console
 from rich.table import Table

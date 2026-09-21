@@ -167,7 +167,7 @@ vocabulary without importing each other.
 versions it contains, `PipelineNode`, the physical plan and its fragments, every result type, the
 three catalog readings `data/` produces, and the `LLMUsage` records `llm/` produces. A type
 `RunResult` names has to be nameable by everything that reads a `RunResult`, so the line lands
-here: `types/` holds data, and every other module holds behavior.
+here: `types/` declares the shapes, and every other module holds the behavior over them.
 
 Inside it, `errors.py`, `plan.py`, `catalog.py`, and `run.py` split those classes by subject, and
 `__init__.py` re-exports all four. Every importer reads the one name `blue_data_planner.types`.

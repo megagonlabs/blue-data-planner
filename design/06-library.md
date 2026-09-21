@@ -30,9 +30,9 @@ rather than a copy of the code.
 | `blue_data_planner/physical_planner.py` | `PhysicalPlanner` |
 | `blue_data_planner/fragment_runner.py` | `FragmentRunner` |
 | `blue_data_planner/catalog_searcher.py` | `CatalogSearcher` |
-| `blue_data_planner/types/` | Every data class that crosses a module boundary: plans, nodes, fragments, operators, results, catalog readings, model usage, limits |
+| `blue_data_planner/types/` | Every data class that crosses a module boundary: plans, nodes, fragments, operators, results, catalog readings, model usage, limits. `summarize_table` sits there too, since it builds one of those shapes from another and reaches nothing else |
 | `blue_data_planner/plan/` | `validate_logical_plan`, `validate_physical_plan`, `candidate_fragments`, `signatures`, and the response schemas the planning stages send |
-| `blue_data_planner/execution/` | `execute_physical_operator`, `check_output_columns`, `project_answer`, `summarize_table` |
+| `blue_data_planner/execution/` | `execute_physical_operator`, `check_output_columns`, `project_answer` |
 | `blue_data_planner/operators/` | `OperatorRouter`, one adapter per outside suite (`blue_operators` over `blue-data-ops`, `lotus_operators` over LOTUS), and `builtin/`, the suite this repository owns |
 | `blue_data_planner/data/` | The `blue-data` boundary, the three catalog readings, and opening a serialized registry |
 | `blue_data_planner/llm/` | `LLMClient`, usage accounting, prompt templating, error types |
@@ -213,9 +213,10 @@ share a vocabulary without importing each other.
 That rule fixes what belongs here, because a type `RunResult` names has to be nameable by
 everything that reads a `RunResult`. Following it through reaches further than the plan types:
 `RunResult` holds `LLMUsage`, and the `DiscoveryResult` in its `results` map holds `EntityMatch`.
-So the line is drawn once and drawn wide — **`types/` holds data, and every other module holds
-behavior.** `data/` produces the catalog readings and `llm/` produces the usage records, and both
-import their shapes from here.
+So the line is drawn once and drawn wide: **every shape crossing a boundary is declared here**,
+and a function joins it only where it works on one of those shapes and reaches nothing else, as
+`summarize_table` does. `data/` produces the catalog readings and `llm/` produces the usage
+records, and both import their shapes from here.
 
 [10-data-model.md](10-data-model.md) fixes every field and every JSON form; what follows is what
 each class answers for and the methods it carries.
@@ -342,6 +343,15 @@ outside itself, so a type it uses cannot live below it, and `ExecutionResult` an
 `TableSummary` sits beside them: a table's row count, its column names, and its first few rows
 ([10](10-data-model.md#a-tables-summary)). A prompt and the CLI's trace show one in place of a
 table.
+
+```python
+def summarize_table(table: Data, max_rows: int) -> TableSummary: ...
+```
+
+`summarize_table` builds one. Three places show a table rather than pass it on — the prompt
+putting a fragment's input in front of the model that writes its parameters, the prompt putting
+its result in front of the review, and the CLI's trace — and each renders the same summary its
+own way. The cap is an argument because those readers differ in how many rows they can spend.
 
 ### Budgets and limits
 
@@ -873,9 +883,6 @@ def check_output_columns(
 
 
 def project_answer(inputs: DataBundle, columns: list[str]) -> DataBundle: ...
-
-
-def summarize_table(table: Data, max_rows: int) -> TableSummary: ...
 ```
 
 `execute_physical_operator` validates the parameters against the operator's schema, bills one
@@ -907,13 +914,6 @@ because naming those columns is the logical planner's work to do again (ADR-034)
 
 It sits beside the operator call because both are deterministic work over a bundle of tables, and
 because the alternative is the run loop growing the only place it touches rows.
-
-`summarize_table` says what a table holds without carrying it: how many rows, which columns, and the
-first `max_rows` of them ([10](10-data-model.md#a-tables-summary)). Three places show a table rather
-than pass it on — the prompt putting a fragment's input in front of the model that writes its
-parameters, the prompt putting its result in front of the review, and the CLI's trace — and each
-renders the same summary its own way. The cap is an argument because those readers differ in how
-many rows they can spend.
 
 Three things `execution/` does not do, and each one removes an import. It does not schedule, because
 the run loop decides what is ready and hands down one call at a time. It does not resolve an
