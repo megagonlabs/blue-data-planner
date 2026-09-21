@@ -71,8 +71,8 @@ Every package ships a `py.typed` marker, so public signatures are part of the re
 
 A dependency shipping no types of its own is imported behind a targeted `pyright: ignore` where it
 enters and delegates through `Any` from there. The import rules below put those imports in three
-places, so untyped values stop at `data/`, at `operators/adapters/lotus/`, and at the one benchmark
-script that imports `blue-data` directly, rather than spreading past them.
+places, so untyped values stop at `data/`, at `operators/adapters/lotus/`, and at the two scripts
+that import `blue-data` directly, rather than spreading past them.
 
 ---
 
@@ -194,10 +194,10 @@ inside one of the directories is not public, and an operator adapter is the one 
 a module its own package does not re-export.
 
 The third rule is scoped to `lib/src/` because `lib/scripts/` and `lib/tests/` ship in no package.
-`lib/scripts/tag_bench/register_databases.py` imports `blue-data` directly to build a registry,
-which is ingestion the library deliberately does not offer
-([07-repo-organization.md](07-repo-organization.md#where-the-benchmark-lives)). Nothing else outside
-`data/` imports it.
+Two scripts there import `blue-data` directly to build a registry, one for the benchmark and one
+for the demo data the examples run against, which is ingestion the library deliberately does not
+offer ([07-repo-organization.md](07-repo-organization.md#where-the-benchmark-lives)). Nothing else
+outside `data/` imports it.
 
 A signature elsewhere that has to name a registry takes the type from `blue_data_planner.data`,
 which hands the name out beside the readings. What the rule keeps in one place is every call made on

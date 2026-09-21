@@ -1,0 +1,31 @@
+LOTUS installed: False
+
+builtin: 9 operators
+  builtin.aggregate          AGGREGATE
+  builtin.distinct           DISTINCT
+  builtin.expand             EXPAND
+  builtin.filter             FILTER
+  builtin.join               JOIN
+  builtin.project            PROJECT
+  builtin.scan               SCAN
+  builtin.sort_superlative   SORT_SUPERLATIVE
+  builtin.union              UNION
+
+lotus: 0 operators
+
+blue: unavailable (ResolveError: no operator registered as 'select@2.0.0')
+
+which suites can implement each logical operator
+  SCAN               builtin.scan
+  FILTER             builtin.filter
+  PROJECT            builtin.project
+  EXPAND             builtin.expand
+  AGGREGATE          builtin.aggregate
+  DISTINCT           builtin.distinct
+  SORT_SUPERLATIVE   builtin.sort_superlative
+  JOIN               builtin.join
+  UNION              builtin.union
+  RETURN             -
+
+a DataPlanner built with suites=[BuiltinSuite()]
+  9 operators: builtin.aggregate, builtin.distinct, builtin.expand, builtin.filter, builtin.join, builtin.project, builtin.scan, builtin.sort_superlative, builtin.union

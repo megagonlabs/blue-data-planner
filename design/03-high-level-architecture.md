@@ -97,7 +97,7 @@ takes a plan: a plan is what a request produced, not something a caller hands in
 | Run a request | The rows that answer it, together with every plan and every attempt the run produced | Yes |
 | Plan a request | The same record with status `planned` and no rows: the logical plan and the cover over it, and nothing run | No |
 
-The second is what the CLI's `plan query` prints, and what a measurement of where pushdown
+The second is what the CLI's `data query --explain` prints, and what a measurement of where pushdown
 boundaries get drawn reads. Argument and return shapes are in
 [09-api-interface-spec.md](09-api-interface-spec.md).
 
@@ -242,10 +242,14 @@ Each rule is checkable by reading imports.
     Anything may import either.
 2. `execution/` imports only `types/`: no planning component, no `operators/`, no `llm/`. It runs one fragment
     against one operator it is handed.
-3. Nothing outside `data/` imports `blue-data`, and nothing outside `operators/adapters/lotus/`
-    imports LOTUS. The LOTUS import sits inside a callable, never at module import time.
+3. Within `lib/src/`, only `data/` imports `blue-data`, and only
+    `operators/adapters/lotus/` imports LOTUS. The LOTUS import sits inside a callable, never at
+    module import time. A platform package reads `blue-data`'s own configuration helper, which the
+    library does not wrap.
 4. `operators/` imports no planning component. An adapter returns physical operators; it registers none.
-5. `platform/*` imports only the public surface. No adapter reaches into a module below it.
+5. `platform/*` imports only the public surface, which
+    [09-api-interface-spec.md](09-api-interface-spec.md) defines: the package root, the modules
+    directly inside it, and each subpackage's `__init__`.
 
 ---
 

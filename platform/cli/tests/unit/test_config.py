@@ -2,40 +2,57 @@
 
 from __future__ import annotations
 
-import dataclasses
 from pathlib import Path
 from typing import Any
 
 import pytest
 from blue_data.utils.config import (  # pyright: ignore[reportMissingTypeStubs]
     ConfigResolver,
-    ProfileStore,
 )
+from blue_data_planner import RunLimits
+from blue_data_planner.operators.adapters.lotus import LotusSuite
+from blue_data_planner.operators.builtin import BuiltinSuite
 
 from blue_data_planner_cli import config
 from blue_data_planner_cli.config import (
     CliError,
-    PlannerSettings,
+    ResolvedSettings,
     assemble_planner,
     build_resolver,
     cli_home,
     config_spec,
-    export_secrets,
     resolve_settings,
+    resolved_environment,
 )
+from tests.doubles.environment import a_cli_home, a_profile_holding, a_registry_file
 
 
 def test_the_spec_declares_the_planner_parameters_beside_the_family_wide_ones() -> None:
     """One spec answers for both, so a CLI parameter and a family parameter resolve alike."""
     spec = config_spec()
 
-    assert spec["BLUE_DATA_PLANNER_MAX_OPERATOR_CALLS"].default == 30
     assert spec["BLUE_DATA_PLANNER_MAX_OPERATOR_CALLS"].cast == "int"
     assert spec["BLUE_DATA_PLANNER_LOTUS_MODEL"].inherits == ("BLUE_DATA_PLANNER_MODEL",)
     assert spec["BLUE_DATA_PLANNER_REASONING_EFFORT"].default == "low"
     assert spec["BLUE_DATA_PLANNER_LOTUS_REASONING_EFFORT"].default == "none"
     assert spec["OPENAI_API_KEY"].is_secret
     assert spec["BLUE_DATA_CLI_FORMAT"].default == "table"
+
+
+def test_every_bound_a_profile_carries_defaults_to_the_one_the_library_holds() -> None:
+    """A profile and `RunLimits` name the same bounds, so a default changed in one and not the
+    other leaves the CLI and a library caller disagreeing about the same run."""
+    limits = RunLimits()
+
+    declared = {
+        one.name.removeprefix("BLUE_DATA_PLANNER_MAX_").lower(): one.default
+        for one in config_spec()
+        if one.name.startswith("BLUE_DATA_PLANNER_MAX_")
+    }
+
+    # Three bounds a run reports back, so an empty reading would pass for the wrong reason.
+    assert len(declared) == 3
+    assert declared == {field: getattr(limits, field) for field in declared}
 
 
 def test_the_home_directory_follows_the_environment_when_it_names_one() -> None:
@@ -46,30 +63,20 @@ def test_the_home_directory_follows_the_environment_when_it_names_one() -> None:
 
 def a_resolver_over(tmp_path: Path, **values: str) -> ConfigResolver:
     """Return a resolver whose profile holds `values` and whose home is under tmp_path."""
-    home = tmp_path / "home"
-    store = ProfileStore(home)
-    store.add("default", {"BLUE_DATA_REGISTRY_PATH": str(a_registry_file(tmp_path)), **values})
-    store.select("default")
-    return build_resolver(profile=None, environ={"BLUE_DATA_PLANNER_HOME": str(home)})
+    home = a_cli_home(tmp_path)
+    a_profile_holding(home, BLUE_DATA_REGISTRY_PATH=str(a_registry_file(tmp_path)), **values)
+    return build_resolver(profile=None, environ={"BLUE_DATA_PLANNER_HOME": home})
 
 
-def a_registry_file(tmp_path: Path) -> Path:
-    """Return the path of an empty but readable registry file."""
-    path = tmp_path / "registry.json"
-    path.write_text("[]")
-    return path
-
-
-def a_captured_llm_client(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
-    """Replace LLMClient with a double that records its constructor arguments, and return them."""
+def a_captured_build(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
+    """Replace build_data_planner with a double recording what the CLI handed it."""
     captured: dict[str, Any] = {}
 
-    class _CapturingLLMClient:
-        def __init__(self, name: str, properties: dict[str, Any]) -> None:
-            captured["name"] = name
-            captured["properties"] = properties
+    def _build(data_registry: Any, **arguments: Any) -> Any:
+        captured.update(arguments)
+        return None
 
-    monkeypatch.setattr(config, "LLMClient", _CapturingLLMClient)
+    monkeypatch.setattr(config, "build_data_planner", _build)
     return captured
 
 
@@ -78,28 +85,43 @@ def test_the_bounds_a_profile_carries_reach_run_limits(tmp_path: Path) -> None:
     intact, and a bound no parameter names keeps its RunLimits default."""
     resolver = a_resolver_over(tmp_path, BLUE_DATA_PLANNER_MAX_OPERATOR_CALLS="7")
 
-    settings: PlannerSettings = resolve_settings(resolver)
+    settings: ResolvedSettings = resolve_settings(resolver)
 
     assert settings.limits.operator_calls == 7
     assert settings.limits.plan_corrections == 5  # no parameter names it, so the default stands
 
 
-def test_the_reasoning_effort_parameter_resolves_from_the_profile(tmp_path: Path) -> None:
-    """A deployment sets this the same way it sets any other bound, without being asked for it."""
-    resolver = a_resolver_over(tmp_path, BLUE_DATA_PLANNER_REASONING_EFFORT="low")
+@pytest.mark.parametrize(
+    ("configured", "resolved"), [("low", "low"), ("none", "none"), ("off", None)]
+)
+def test_off_is_the_one_spelling_that_leaves_the_reasoning_effort_out(
+    configured: str, resolved: str | None, tmp_path: Path
+) -> None:
+    """ "none" is a real litellm value the provider still receives; "off" is how a user on a model
+    that rejects the field says it must not be sent, and None is how the library reads that."""
+    resolver = a_resolver_over(tmp_path, BLUE_DATA_PLANNER_REASONING_EFFORT=configured)
 
-    settings: PlannerSettings = resolve_settings(resolver)
+    settings: ResolvedSettings = resolve_settings(resolver)
 
-    assert settings.reasoning_effort == "low"
+    assert settings.reasoning_effort == resolved
 
 
-def test_the_lotus_reasoning_effort_parameter_resolves_from_the_profile(tmp_path: Path) -> None:
-    """LOTUS's own reasoning effort is set through a profile the same way the main one is."""
-    resolver = a_resolver_over(tmp_path, BLUE_DATA_PLANNER_LOTUS_REASONING_EFFORT="low")
+@pytest.mark.parametrize(
+    "parameter",
+    ["BLUE_DATA_PLANNER_REASONING_EFFORT", "BLUE_DATA_PLANNER_LOTUS_REASONING_EFFORT"],
+)
+def test_a_reasoning_effort_outside_the_documented_values_is_a_configuration_error(
+    parameter: str, tmp_path: Path
+) -> None:
+    """A value the provider refuses fails every model call the run makes, so it is caught where
+    it is read rather than partway into a request."""
+    resolver = a_resolver_over(tmp_path, **{parameter: "maximum"})
 
-    settings: PlannerSettings = resolve_settings(resolver)
+    with pytest.raises(CliError) as raised:
+        resolve_settings(resolver)
 
-    assert settings.lotus_reasoning_effort == "low"
+    assert raised.value.code == "CONFIG_INVALID"
+    assert "maximum" in raised.value.description
 
 
 def test_an_unset_lotus_reasoning_effort_resolves_to_none_regardless_of_the_main_setting(
@@ -108,7 +130,7 @@ def test_an_unset_lotus_reasoning_effort_resolves_to_none_regardless_of_the_main
     """The default stands on its own: it does not inherit BLUE_DATA_PLANNER_REASONING_EFFORT."""
     resolver = a_resolver_over(tmp_path, BLUE_DATA_PLANNER_REASONING_EFFORT="high")
 
-    settings: PlannerSettings = resolve_settings(resolver)
+    settings: ResolvedSettings = resolve_settings(resolver)
 
     assert settings.lotus_reasoning_effort == "none"
 
@@ -119,9 +141,12 @@ def test_a_command_option_outranks_the_profile(tmp_path: Path) -> None:
     other.write_text("[]")
     resolver = a_resolver_over(tmp_path)
 
-    settings: PlannerSettings = resolve_settings(resolver, registry=str(other))
+    settings: ResolvedSettings = resolve_settings(
+        resolver, registry=str(other), output_format="json"
+    )
 
     assert settings.registry_path == other
+    assert settings.output_format == "json"
 
 
 def test_the_model_option_reaches_the_lotus_suite_as_well_as_the_planner(tmp_path: Path) -> None:
@@ -129,7 +154,7 @@ def test_the_model_option_reaches_the_lotus_suite_as_well_as_the_planner(tmp_pat
     BLUE_DATA_PLANNER_MODEL, so its own resolution never sees the option."""
     resolver = a_resolver_over(tmp_path)
 
-    settings: PlannerSettings = resolve_settings(resolver, model="openai/gpt-4o-mini")
+    settings: ResolvedSettings = resolve_settings(resolver, model="openai/gpt-4o-mini")
 
     assert settings.model == "openai/gpt-4o-mini"
     assert settings.lotus_model == "openai/gpt-4o-mini"
@@ -143,18 +168,20 @@ def test_a_profile_set_lotus_model_stands_apart_from_the_planners_own(tmp_path: 
         BLUE_DATA_PLANNER_LOTUS_MODEL="openai/gpt-4o-mini",
     )
 
-    settings: PlannerSettings = resolve_settings(resolver)
+    settings: ResolvedSettings = resolve_settings(resolver)
 
     assert settings.model == "openai/gpt-4o"
     assert settings.lotus_model == "openai/gpt-4o-mini"
 
 
 def test_an_unknown_operator_suite_is_a_configuration_error(tmp_path: Path) -> None:
-    """A name outside the three would otherwise register nothing and fail much later."""
+    """The library refuses a name no suite registers, and a configured name that no suite
+    answers to is the user's mistake to be told about rather than a planner defect."""
     resolver = a_resolver_over(tmp_path, BLUE_DATA_PLANNER_OPERATORS="builtin,sqlmagic")
+    settings = resolve_settings(resolver)
 
     with pytest.raises(CliError) as raised:
-        resolve_settings(resolver)
+        assemble_planner(settings)
 
     assert raised.value.code == "CONFIG_INVALID"
     assert "sqlmagic" in raised.value.description
@@ -194,70 +221,31 @@ def test_a_registry_that_does_not_parse_fails_before_a_planner_is_built(tmp_path
     assert raised.value.code == "REGISTRY_UNREADABLE"
 
 
-def test_the_assembled_planners_llm_client_names_its_model_under_the_clients_own_prefix(
+def test_what_a_profile_resolved_is_what_the_library_is_handed(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """A bare "model" key never matches api_properties' <prefix>.* filter, so every LLM call
-    the assembled planner makes would fail with "no model configured"."""
-    captured = a_captured_llm_client(monkeypatch)
-    resolver = a_resolver_over(
-        tmp_path, BLUE_DATA_PLANNER_OPERATORS="builtin", BLUE_DATA_PLANNER_MODEL="gpt-4o"
-    )
-    settings = resolve_settings(resolver)
-
-    assemble_planner(settings)
-
-    assert captured["properties"][f"{captured['name']}.model"] == "gpt-4o"
-
-
-def test_the_assembled_planners_llm_client_carries_a_set_reasoning_effort_under_the_same_prefix(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """reasoning_effort reaches litellm.completion() only through the <prefix>.* extraction, the
-    same route settings.model already takes."""
-    captured = a_captured_llm_client(monkeypatch)
+    """The adapter resolves and translates, so every value a run is built on has to arrive as the
+    profile left it, the suites and their own options included."""
+    captured = a_captured_build(monkeypatch)
     resolver = a_resolver_over(
         tmp_path,
-        BLUE_DATA_PLANNER_OPERATORS="builtin",
-        BLUE_DATA_PLANNER_MODEL="gpt-4o",
-        BLUE_DATA_PLANNER_REASONING_EFFORT="low",
+        BLUE_DATA_PLANNER_OPERATORS="builtin,lotus",
+        BLUE_DATA_PLANNER_MODEL="openai/gpt-4o",
+        BLUE_DATA_PLANNER_REASONING_EFFORT="off",
+        BLUE_DATA_PLANNER_ENABLE_NL2TABLE="true",
+        BLUE_DATA_PLANNER_LOTUS_MAX_ROWS="10",
     )
     settings = resolve_settings(resolver)
 
     assemble_planner(settings)
 
-    assert captured["properties"][f"{captured['name']}.reasoning_effort"] == "low"
-
-
-def test_the_off_sentinel_set_through_a_profile_omits_reasoning_effort_from_the_llm_client(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """A user switching to a model that rejects the field sets "off" through `profile config`,
-    and that value, unlike an empty string, survives ConfigResolver and reaches assemble_planner."""
-    captured = a_captured_llm_client(monkeypatch)
-    resolver = a_resolver_over(
-        tmp_path, BLUE_DATA_PLANNER_OPERATORS="builtin", BLUE_DATA_PLANNER_REASONING_EFFORT="off"
-    )
-    settings = resolve_settings(resolver)
-
-    assemble_planner(settings)
-
-    assert settings.reasoning_effort == "off"
-    assert f"{captured['name']}.reasoning_effort" not in captured["properties"]
-
-
-def test_a_blank_reasoning_effort_is_left_out_of_the_llm_clients_properties(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """Unit-level check of assemble_planner's own conditional: an empty string, which no real
-    profile or environment value can produce, still has to drop the key rather than forward it."""
-    captured = a_captured_llm_client(monkeypatch)
-    resolver = a_resolver_over(tmp_path, BLUE_DATA_PLANNER_OPERATORS="builtin")
-    settings = dataclasses.replace(resolve_settings(resolver), reasoning_effort="")
-
-    assemble_planner(settings)
-
-    assert f"{captured['name']}.reasoning_effort" not in captured["properties"]
+    assert captured["model"] == "openai/gpt-4o"
+    assert captured["reasoning_effort"] is None
+    assert captured["limits"] == settings.limits
+    assert captured["suites"] == [
+        BuiltinSuite(with_nl2table=True),
+        LotusSuite(model="openai/gpt-4o", max_rows=10, reasoning_effort="none"),
+    ]
 
 
 def test_a_missing_required_parameter_names_what_to_set(tmp_path: Path) -> None:
@@ -280,7 +268,7 @@ def test_a_stored_value_that_fails_its_cast_is_a_configuration_error_when_the_pr
     resolver = a_resolver_over(tmp_path, BLUE_DATA_PLANNER_MAX_OPERATOR_CALLS="many")
 
     with pytest.raises(CliError) as raised:
-        export_secrets(resolver)
+        resolved_environment(resolver)
 
     assert raised.value.code == "CONFIG_INVALID"
     assert "BLUE_DATA_PLANNER_MAX_OPERATOR_CALLS" in raised.value.description

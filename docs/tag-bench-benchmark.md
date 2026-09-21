@@ -18,8 +18,8 @@ beside them.
 
 | Requirement | Notes |
 | --- | --- |
-| The library environment | `cd lib && uv sync --extra dev`, per [development.md](development.md) |
-| The `lotus` extra | Needed to run the benchmark itself, since LOTUS supplies the operators it is solved with. See [development.md](development.md#installing-the-lotus-extra) |
+| The library environment | `cd lib && uv sync --extra dev`, per [lib/README.md](../lib/README.md#development-setup) |
+| The `lotus` extra | Needed to run the benchmark itself, since LOTUS supplies the operators it is solved with. See [lib/README.md](../lib/README.md#the-lotus-environment) |
 | A model provider key | Needed for `--describe` below and for running the benchmark. Set in `.env`, read through `python-dotenv` |
 | About 1 GB of disk | `fetch_databases.py` downloads the BIRD dev set |
 
@@ -75,7 +75,7 @@ meant to measure.
 
 The harness lives at `lib/scripts/tag_bench/benchmark/`, beside the three build scripts, and runs as
 a module rather than through `pytest`. It needs the environment carrying the `lotus` extra
-([development.md](development.md#installing-the-lotus-extra)) and a provider key:
+([lib/README.md](../lib/README.md#the-lotus-environment)) and a provider key:
 
 ```bash
 cd lib && export UV_PROJECT_ENVIRONMENT=.venv-lotus

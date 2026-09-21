@@ -2,26 +2,19 @@
 
 from __future__ import annotations
 
-import io
 import json
 
+import pytest
 from blue_data_planner import RunStatus
-from rich.console import Console
 
 from blue_data_planner_cli.output import (
-    answer_payload,
     error_line,
-    plan_payload,
     print_answer,
+    run_json,
     summary_line,
 )
 from tests.doubles.components import a_run_over_one_cover_of_two_fragments, a_run_result
-
-
-def a_console() -> tuple[Console, io.StringIO]:
-    """Return a console writing into a buffer, and the buffer."""
-    buffer = io.StringIO()
-    return Console(file=buffer, width=200), buffer
+from tests.doubles.environment import a_console
 
 
 def test_a_table_carries_the_column_names_the_rows_came_with() -> None:
@@ -56,34 +49,43 @@ def test_the_json_format_prints_the_payload_rather_than_a_table() -> None:
     assert json.loads(buffer.getvalue())["answer"] == [[{"school": "Lowell"}]]
 
 
-def test_the_answer_payload_wraps_the_answer_in_how_the_run_ended_and_nothing_it_read() -> None:
-    """A JSON document is read with no terminal attached, so it carries its own account."""
-    payload = answer_payload(a_run_over_one_cover_of_two_fragments())
+def test_the_json_document_carries_how_the_run_ended_and_how_each_fragment_did() -> None:
+    """A JSON document is read with no terminal attached, so it carries its own account of the
+    run as well as the answer, and a reader asking nothing more gets no plan versions."""
+    document = run_json(a_run_over_one_cover_of_two_fragments(), explain=False, log=False)
 
-    assert payload["status"] == "ok"
-    assert payload["counters"]["limits"]["operator_calls"] == 30  # the default RunLimits ceiling
-    assert set(payload) == {"status", "answer", "failure_reason", "counters", "conversations"}
-    json.dumps(payload)  # the payload has to survive encoding
+    assert document["status"] == "ok"
+    assert document["counters"]["limits"]["operator_calls"] == 30  # the default RunLimits ceiling
+    assert [one["status"] for one in document["results"].values()] == ["ok"]
+    assert set(document) == {
+        "status",
+        "answer",
+        "failure_reason",
+        "results",
+        "counters",
+        "conversations",
+    }
+    json.dumps(document)  # a document that will not encode is not a document
 
 
-def test_the_plan_payload_carries_the_plan_where_the_answer_payload_carries_rows() -> None:
-    """A plan is what `plan query` was asked for, so it is what standard output carries."""
-    payload = plan_payload(a_run_over_one_cover_of_two_fragments())
+@pytest.mark.parametrize(("explain", "log"), [(True, False), (False, True)])
+def test_the_plans_travel_where_they_are_asked_for(explain: bool, log: bool) -> None:
+    """Every plan version the request produced sits under one key, so it travels where it is the
+    result --explain asked for, or where --log asked for the run behind the answer."""
+    document = run_json(a_run_over_one_cover_of_two_fragments(), explain=explain, log=log)
 
-    assert payload["pipeline"]["current_logical_plan_id"] == "lp1"
-    assert set(payload) == {"status", "pipeline", "failure_reason", "counters", "conversations"}
-    json.dumps(payload)  # the payload has to survive encoding
+    assert document["pipeline"]["current_logical_plan_id"] == "lp1"
 
 
 def test_a_failed_run_carries_its_status_and_reason_rather_than_an_empty_answer() -> None:
     """A caller who ignores the status must not read a failure as an empty result."""
     result = a_run_result(status=RunStatus.BUDGET_EXHAUSTED, failure_reason="30 calls spent")
 
-    payload = answer_payload(result)
+    document = run_json(result, explain=False, log=False)
 
-    assert payload["status"] == "budget_exhausted"
-    assert payload["answer"] is None
-    assert payload["failure_reason"] == "30 calls spent"
+    assert document["status"] == "budget_exhausted"
+    assert document["answer"] is None
+    assert document["failure_reason"] == "30 calls spent"
 
 
 def test_an_error_line_names_its_code_first() -> None:

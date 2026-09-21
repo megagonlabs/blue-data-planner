@@ -10,38 +10,32 @@ from typing import Any
 
 import pytest
 from blue_data.utils.config import (  # pyright: ignore[reportMissingTypeStubs]
-    ProfileStore,
     encode,
 )
 from blue_data_planner import RunResult, RunStatus
-from blue_data_planner.plan import signatures
-from blue_data_planner.types import (
-    DataPipeline,
-    ExecutionResult,
-    ExecutionStatus,
-    FragmentResult,
-    LogicalOperator,
-    LogicalPlan,
-    PhysicalPlan,
-    PhysicalPlanFragment,
-    PipelineNode,
-)
 from click.testing import CliRunner
 
 from blue_data_planner_cli import commands
 from blue_data_planner_cli.commands import cli
-from blue_data_planner_cli.config import PlannerSettings
-from tests.doubles.components import FakeDataPlanner, a_run_result
+from blue_data_planner_cli.config import ResolvedSettings
+from tests.doubles.components import (
+    FakeDataPlanner,
+    a_planning_run,
+    a_run_over_one_cover_of_two_fragments,
+    a_run_result,
+)
+from tests.doubles.environment import a_configured_environment, a_profile_holding
 
 
 def a_planner_answering(monkeypatch: pytest.MonkeyPatch, result: RunResult) -> FakeDataPlanner:
-    """Replace the assembled planner with a double returning `result`."""
+    """Replace the assembled planner with a double returning `result`, so no test reaches a
+    model or assembles a planner over a real registry."""
     double = FakeDataPlanner(result)
 
-    def _factory(settings: PlannerSettings) -> FakeDataPlanner:
+    def _assemble(settings: ResolvedSettings) -> FakeDataPlanner:
         return double
 
-    monkeypatch.setattr(commands, "PLANNER_FACTORY", _factory)
+    monkeypatch.setattr(commands, "assemble_planner", _assemble)
     return double
 
 
@@ -49,17 +43,6 @@ def a_planner_answering(monkeypatch: pytest.MonkeyPatch, result: RunResult) -> F
 def planner(monkeypatch: pytest.MonkeyPatch) -> FakeDataPlanner:
     """Replace the assembled planner with a double, so no command reaches a model."""
     return a_planner_answering(monkeypatch, a_run_result(answer=[[{"school": "Lowell"}]]))
-
-
-def a_configured_environment(tmp_path: Path) -> dict[str, str]:
-    """Return an environment with a home directory and a readable registry."""
-    registry = tmp_path / "registry.json"
-    registry.write_text("[]")
-    return {
-        "BLUE_DATA_PLANNER_HOME": str(tmp_path / "home"),
-        "BLUE_DATA_REGISTRY_PATH": str(registry),
-        "OPENAI_API_KEY": "sk-not-used",
-    }
 
 
 def test_the_question_reaches_the_planner_and_the_answer_reaches_standard_output(
@@ -88,7 +71,7 @@ def test_json_output_holds_nothing_but_the_result(tmp_path: Path, planner: FakeD
     assert payload["status"] == "ok"
 
 
-def test_the_trace_prints_only_when_it_is_asked_for_and_never_on_standard_output(
+def test_the_log_prints_only_when_it_is_asked_for_and_never_on_standard_output(
     tmp_path: Path, planner: FakeDataPlanner
 ) -> None:
     """Diagnostics are opt-in, and they stay out of what a pipe carries."""
@@ -96,7 +79,7 @@ def test_the_trace_prints_only_when_it_is_asked_for_and_never_on_standard_output
     runner = CliRunner()
 
     quiet = runner.invoke(cli, ["data", "query", "q"], env=env)
-    logged = runner.invoke(cli, ["data", "query", "q", "--trace"], env=env)
+    logged = runner.invoke(cli, ["data", "query", "q", "--log"], env=env)
 
     assert "counters" not in quiet.stderr
     assert "counters" in logged.stderr
@@ -125,7 +108,7 @@ def test_a_run_that_did_not_reach_an_answer_exits_one(
     assert result.exit_code == 1
 
 
-def test_a_failure_reason_holding_square_brackets_is_traced_whole(
+def test_a_failure_reason_holding_square_brackets_is_logged_whole(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """A model writes the reason, so a bracket in it must neither be read nor eaten as markup."""
@@ -135,11 +118,11 @@ def test_a_failure_reason_holding_square_brackets_is_traced_whole(
     )
 
     result = CliRunner().invoke(
-        cli, ["data", "query", "q", "--trace"], env=a_configured_environment(tmp_path)
+        cli, ["data", "query", "q", "--log"], env=a_configured_environment(tmp_path)
     )
 
     assert "nope [/red] x" in result.stderr
-    assert "operator_failed" in result.stderr  # the summary still follows the trace
+    assert "operator_failed" in result.stderr  # the summary still follows the log
 
 
 def test_a_run_that_did_not_finish_reports_its_status_as_the_error_code(
@@ -200,22 +183,15 @@ def test_a_long_failure_reason_prints_as_one_unbroken_error_line(
     assert f"ERROR: BUDGET_EXHAUSTED {reason}" in result.stderr
 
 
-def a_profile_holding(home: str, **values: str) -> None:
-    """Write `values` into the default profile under `home`, the way `profile config` does."""
-    store = ProfileStore(home)
-    store.add("default", dict(values))
-    store.select("default")
-
-
 def an_environment_seen_by_the_planner(monkeypatch: pytest.MonkeyPatch) -> dict[str, str]:
     """Return the mapping the process environment held when the planner was assembled."""
     seen: dict[str, str] = {}
 
-    def _factory(settings: PlannerSettings) -> FakeDataPlanner:
+    def _assemble(settings: ResolvedSettings) -> FakeDataPlanner:
         seen.update(os.environ)
         return FakeDataPlanner(a_run_result())
 
-    monkeypatch.setattr(commands, "PLANNER_FACTORY", _factory)
+    monkeypatch.setattr(commands, "assemble_planner", _assemble)
     return seen
 
 
@@ -236,25 +212,22 @@ def test_a_key_held_only_in_the_profile_reaches_the_environment_a_model_call_rea
     assert seen["OPENAI_API_KEY"] == "sk-stored"
 
 
-@pytest.mark.parametrize(("cap", "shows_the_row"), [("0", False), ("5", True)])
-def test_the_row_cap_the_command_was_given_decides_the_sample_rows_the_trace_shows(
-    cap: str, shows_the_row: bool, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+def test_the_log_limit_on_the_command_line_outranks_the_profile(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Zero is a cap a user can ask for, and the profile's own cap must not stand in for it."""
-    pipeline = a_planned_pipeline()
-    a_planner_answering(
-        monkeypatch, a_run_result(pipeline=pipeline, results=a_scan_of_one_row(pipeline))
-    )
+    """Every setting follows one order — option, environment, profile, default — and the cap on
+    the log's own lines is a setting like any other."""
+    a_planner_answering(monkeypatch, a_run_over_one_cover_of_two_fragments())
+    env = a_configured_environment(tmp_path)
+    a_profile_holding(env["BLUE_DATA_PLANNER_HOME"], BLUE_DATA_CLI_LOG_LIMIT="200")
+    runner = CliRunner()
 
-    result = CliRunner().invoke(
-        cli,
-        ["data", "query", "q", "--trace", "--trace-max-fragment-rows", cap],
-        env=a_configured_environment(tmp_path),
-    )
+    profiled = runner.invoke(cli, ["data", "query", "q", "--log"], env=env)
+    overridden = runner.invoke(cli, ["data", "query", "q", "--log", "--log-limit", "20"], env=env)
 
-    assert result.exit_code == 0
-    assert "blue.select" in result.stderr  # the trace itself still prints
-    assert ("Lowell" in result.stderr) is shows_the_row
+    assert "physical plan 1" in profiled.stderr  # the log itself still prints
+    assert "Alameda" in profiled.stderr
+    assert "Alameda" not in overridden.stderr
 
 
 def a_process_environment(monkeypatch: pytest.MonkeyPatch, variables: dict[str, str]) -> None:
@@ -291,69 +264,19 @@ def test_main_exits_zero_after_a_successful_run(
     assert excinfo.value.code == 0
 
 
-def a_planned_pipeline() -> DataPipeline:
-    """Return a pipeline with one logical plan and one matching cover, each holding one step."""
-    logical_plan = LogicalPlan(
-        id="l1",
-        parent_id=None,
-        nodes=[PipelineNode(id="n1", kind=LogicalOperator.SCAN)],
-        output_node_id="n1",
-    )
-    physical_plan = PhysicalPlan(
-        id="p1",
-        parent_id=None,
-        logical_plan_id="l1",
-        fragments=[
-            PhysicalPlanFragment(
-                id="f1",
-                logical_node_ids=["n1"],
-                root_logical_node_id="n1",
-                operator_id="blue.select",
-                scan_sources={},
-                instruction="scan the stores table",
-                input_data=[],
-                required_output_columns=[],
-            )
-        ],
-    )
-    return DataPipeline(
-        logical_plans={"l1": logical_plan},
-        physical_plans={"p1": physical_plan},
-        current_logical_plan_id="l1",
-        current_physical_plan_id="p1",
-    )
-
-
-def a_scan_of_one_row(pipeline: DataPipeline) -> dict[str, FragmentResult]:
-    """Return how the one fragment of `a_planned_pipeline` ended, and the row it returned."""
-    signed = signatures(pipeline.logical_plans["l1"], pipeline.physical_plans["p1"])
-    return {
-        signed["n1"]: FragmentResult(
-            status=RunStatus.OK,
-            result=ExecutionResult(
-                status=ExecutionStatus.OK,
-                operator_id="blue.select",
-                output=[[{"school": "Lowell"}]],
-                row_count=1,
-            ),
-            failure_reason=None,
-        )
-    }
-
-
-def test_planning_prints_the_cover_and_spends_no_operator_call(
+def test_explaining_prints_the_cover_and_spends_no_operator_call(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """The point of this command is seeing the boundary before paying for it."""
-    double = a_planner_answering(
-        monkeypatch, a_run_result(status=RunStatus.PLANNED, pipeline=a_planned_pipeline())
-    )
+    """The point of --explain is seeing the boundary before paying for it."""
+    double = a_planner_answering(monkeypatch, a_planning_run())
 
     result = CliRunner().invoke(
-        cli, ["plan", "query", "which cities have stores"], env=a_configured_environment(tmp_path)
+        cli,
+        ["data", "query", "which cities have stores", "--explain"],
+        env=a_configured_environment(tmp_path),
     )
 
     assert result.exit_code == 0
     assert double.operations == ["plan"]
     assert "n1" in result.stdout
-    assert "blue.select" in result.stdout
+    assert "builtin.source_scan" in result.stdout

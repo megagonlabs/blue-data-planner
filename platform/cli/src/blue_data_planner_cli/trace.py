@@ -1,13 +1,13 @@
-"""What a run did: the records behind the trace, and the two ways the CLI shows them."""
+"""What a run did: the records behind the log, and the table the CLI draws them in."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any
 
 from blue_data_planner import RunResult
 from blue_data_planner.plan import signatures
 from blue_data_planner.types import (
+    SUMMARY_SAMPLE_ROWS,
     ControlOperator,
     DiscoveryResult,
     FragmentResult,
@@ -23,7 +23,8 @@ from rich.console import Console
 from rich.table import Table
 from rich.text import Text
 
-NOT_REACHED = "not reached under this cover"
+# Every string a user reads says "physical plan", the library's own word for a cover.
+NOT_REACHED = "not reached under this physical plan"
 
 
 @dataclass(frozen=True)
@@ -33,7 +34,7 @@ class TracedNode:
     id: str
     kind: str
     instruction: str
-    reads: str | None
+    scan_source: str | None
 
 
 @dataclass(frozen=True)
@@ -44,8 +45,14 @@ class TracedFragment:
     operator_id: str
     nodes: list[TracedNode]
     input_fragment_ids: list[str]
-    outcome: str
-    reason: str | None
+    # None where the pass never reached this fragment under this cover.
+    status: RunStatus | None
+    row_count: int | None
+    # Tables past the first, which the log counts rather than summarizing.
+    other_tables: int
+    # The cover that first ran this work, where a later cover asked for it again.
+    reused_from: int | None
+    failure_reason: str | None
     rows: TableSummary | None
 
 
@@ -54,7 +61,11 @@ class TracedDiscovery:
     """One DISCOVER node the cover's plan carries, and what its search matched."""
 
     node: TracedNode
-    outcome: str
+    # None where the search was not run under this cover.
+    match_count: int | None
+    dropped_terms: int
+    reused_from: int | None
+    # Empty where the result was reused, since the cover that ran it already listed them.
     matches: list[str]
 
 
@@ -68,40 +79,15 @@ class TracedCover:
     fragments: list[TracedFragment]
 
 
-def traced_covers(result: RunResult, max_fragment_rows: int) -> list[TracedCover]:
+def traced_covers(result: RunResult) -> list[TracedCover]:
     """Return one record per cover the request produced."""
-    return _Walk(result, max_fragment_rows).covers()
+    return _CoverWalk(result).covers()
 
 
-def trace_lines(result: RunResult, *, max_fragment_rows: int, max_output_chars: int) -> list[str]:
-    """Return the run's trace as lines, for a run whose result is written as JSON."""
-    lines: list[str] = []
-    for cover in traced_covers(result, max_fragment_rows):
-        lines.extend(["", f"cover {cover.position}   logical plan {cover.logical_plan_id}"])
-        for discovery in cover.discoveries:
-            lines.extend(["", *_discovery_lines(discovery)])
-        for fragment in cover.fragments:
-            lines.extend(["", *_fragment_lines(fragment, max_output_chars)])
-    lines.extend(["", *spend_lines(result)])
-    return lines[1:]
-
-
-def trace_payload(
-    result: RunResult, *, max_fragment_rows: int, max_output_chars: int
-) -> dict[str, Any]:
-    """Return the trace as one object, for a run printing JSON on standard output."""
-    lines = trace_lines(
-        result, max_fragment_rows=max_fragment_rows, max_output_chars=max_output_chars
-    )
-    return {"trace": lines}
-
-
-def print_trace(
-    result: RunResult, console: Console, *, max_fragment_rows: int, max_output_chars: int
-) -> None:
-    """Print the trace as one table per cover, with what a table cannot hold beneath it."""
-    for cover in traced_covers(result, max_fragment_rows):
-        console.print(f"cover {cover.position}   logical plan {cover.logical_plan_id}")
+def print_log(result: RunResult, console: Console, *, max_output_chars: int) -> None:
+    """Print the log as one table per cover, with what a table cannot hold beneath it."""
+    for cover in traced_covers(result):
+        console.print(f"physical plan {cover.position}   logical plan {cover.logical_plan_id}")
         console.print(_cover_table(cover))
         for discovery in cover.discoveries:
             matched = [f"      matched  {one}" for one in discovery.matches]
@@ -128,118 +114,152 @@ def spend_lines(result: RunResult) -> list[str]:
     return lines
 
 
-class _Walk:
-    """One pass over the covers, remembering which work an earlier cover already traced."""
+def fragment_ending(fragment: TracedFragment) -> str:
+    """Return how one fragment ended, as its row of the table reads."""
+    if fragment.status is None:
+        return NOT_REACHED
+    parts = [str(fragment.status)]
+    if fragment.row_count is not None:
+        parts.append(f"{fragment.row_count} rows")
+    return "  ".join([*parts, *_notes(fragment.other_tables, fragment.reused_from)])
 
-    def __init__(self, result: RunResult, max_fragment_rows: int) -> None:
+
+def discovery_ending(discovery: TracedDiscovery) -> str:
+    """Return how one search ended, as its row of the table reads."""
+    if discovery.match_count is None:
+        return NOT_REACHED
+    dropped = f"({discovery.dropped_terms} terms dropped)" if discovery.dropped_terms else ""
+    parts = ["ok", f"{discovery.match_count} matches", dropped]
+    return "  ".join([one for one in parts if one] + _notes(0, discovery.reused_from))
+
+
+def _notes(other_tables: int, reused_from: int | None) -> list[str]:
+    notes: list[str] = []
+    if other_tables:
+        notes.append(f"(+{other_tables} more tables)")
+    if reused_from is not None:
+        notes.append(f"(reused from physical plan {reused_from})")
+    return notes
+
+
+class _CoverWalk:
+    """One pass over the covers, remembering which work an earlier cover already showed."""
+
+    def __init__(self, result: RunResult) -> None:
         self.result = result
-        self.max_fragment_rows = max_fragment_rows
-        self.shown: dict[str, int] = {}
+        # Signature -> the position of the cover that first ran that work.
+        self.first_seen: dict[str, int] = {}
 
     def covers(self) -> list[TracedCover]:
         traced: list[TracedCover] = []
         for position, cover in enumerate(self.result.pipeline.physical_plans.values(), start=1):
             plan = self.result.pipeline.logical_plans.get(cover.logical_plan_id)
+            if plan is None:
+                traced.append(TracedCover(position, cover.logical_plan_id, [], []))
+                continue
+            # Signing a cover walks the whole plan, so it is done once and read twice.
+            signature_by_node_id = signatures(plan, cover)
             traced.append(
                 TracedCover(
                     position=position,
                     logical_plan_id=cover.logical_plan_id,
-                    discoveries=[] if plan is None else self._discoveries(plan, cover, position),
-                    fragments=[] if plan is None else self._fragments(plan, cover, position),
+                    discoveries=self._discoveries(plan, signature_by_node_id, position),
+                    fragments=self._fragments(plan, cover, signature_by_node_id, position),
                 )
             )
         return traced
 
     def _discoveries(
-        self, plan: LogicalPlan, cover: PhysicalPlan, position: int
+        self, plan: LogicalPlan, signature_by_node_id: dict[str, str], position: int
     ) -> list[TracedDiscovery]:
         # A search resolves before the plan reading it is written, so discovery leads the cover.
-        signed = signatures(plan, cover)
         return [
-            self._discovery(node, signed.get(node.id, ""), position)
+            self._discovery(node, signature_by_node_id.get(node.id, ""), position)
             for node in plan.nodes
             if node.kind is ControlOperator.DISCOVER
         ]
 
     def _fragments(
-        self, plan: LogicalPlan, cover: PhysicalPlan, position: int
+        self,
+        plan: LogicalPlan,
+        cover: PhysicalPlan,
+        signature_by_node_id: dict[str, str],
+        position: int,
     ) -> list[TracedFragment]:
-        signed = signatures(plan, cover)
-        nodes = {node.id: node for node in plan.nodes}
         roots = {one.root_logical_node_id: one.id for one in cover.fragments}
         return [
             self._fragment(
-                fragment, nodes, roots, signed.get(fragment.root_logical_node_id, ""), position
+                plan,
+                fragment,
+                roots,
+                signature_by_node_id.get(fragment.root_logical_node_id, ""),
+                position,
             )
             for fragment in _in_run_order(plan, cover)
         ]
 
     def _discovery(self, node: PipelineNode, signature: str, position: int) -> TracedDiscovery:
-        traced = TracedNode(node.id, str(node.kind), _instruction(node), None)
+        traced = _traced_discover_node(node)
         found = self.result.results.get(signature)
         if not isinstance(found, DiscoveryResult):
-            return TracedDiscovery(traced, NOT_REACHED, [])
-        reused = self._reused(signature, position)
-        dropped = f"  ({found.dropped_terms} terms dropped)" if found.dropped_terms else ""
-        matches = [] if reused else [match.path for match in found.matches]
-        outcome = f"ok  {len(found.matches)} matches{dropped}{reused}"
-        return TracedDiscovery(traced, outcome, matches)
+            return TracedDiscovery(traced, None, 0, None, [])
+        reused_from = self._first_seen_in(signature, position)
+        return TracedDiscovery(
+            node=traced,
+            match_count=len(found.matches),
+            dropped_terms=found.dropped_terms,
+            reused_from=reused_from,
+            matches=[] if reused_from is not None else [match.path for match in found.matches],
+        )
 
     def _fragment(
         self,
+        plan: LogicalPlan,
         fragment: PhysicalPlanFragment,
-        nodes: dict[str, PipelineNode],
         roots: dict[str, str],
         signature: str,
         position: int,
     ) -> TracedFragment:
-        traced = [_traced_node(node_id, nodes, fragment) for node_id in fragment.logical_node_ids]
+        traced = [_traced_node(plan, node_id, fragment) for node_id in fragment.logical_node_ids]
         inputs = [
             roots.get(one.logical_node_id, one.logical_node_id) for one in fragment.input_data
         ]
-        found = self._filed(signature)
+        found = self._fragment_result(signature)
         if found is None:
             return TracedFragment(
-                fragment.id, fragment.operator_id, traced, inputs, NOT_REACHED, None, None
+                fragment.id, fragment.operator_id, traced, inputs, None, None, 0, None, None, None
             )
         call = found.result
-        # A call that failed reports no rows, so the outcome names the ending alone.
-        counted = "" if call is None or call.row_count is None else f"  {call.row_count} rows"
         tables = [] if call is None else call.output or []
-        extra = f"  (+{len(tables) - 1} more tables)" if len(tables) > 1 else ""
-        if found.status is not RunStatus.OK:
-            return TracedFragment(
-                fragment.id,
-                fragment.operator_id,
-                traced,
-                inputs,
-                f"{found.status}{counted}{extra}",
-                found.failure_reason,
-                None,
-            )
         # Only an accepted result is reused: a rejected one is offered again, so naming it as
         # reuse would say a call was saved that was not.
-        reused = self._reused(signature, position)
-        # A bundle almost always holds one table, so the trace shows the first and says how
-        # many others there were rather than nesting a block per table.
-        rows = None if reused or not tables else summarize_table(tables[0], self.max_fragment_rows)
+        reused_from = (
+            self._first_seen_in(signature, position) if found.status is RunStatus.OK else None
+        )
+        # A bundle almost always holds one table, so the log shows the first and counts the
+        # others rather than nesting a block per table.
+        shows_rows = found.status is RunStatus.OK and reused_from is None and bool(tables)
         return TracedFragment(
-            fragment.id,
-            fragment.operator_id,
-            traced,
-            inputs,
-            f"ok{counted}{extra}{reused}",
-            None,
-            rows,
+            id=fragment.id,
+            operator_id=fragment.operator_id,
+            nodes=traced,
+            input_fragment_ids=inputs,
+            status=found.status,
+            row_count=None if call is None else call.row_count,
+            other_tables=max(len(tables) - 1, 0),
+            reused_from=reused_from,
+            failure_reason=found.failure_reason,
+            rows=summarize_table(tables[0], SUMMARY_SAMPLE_ROWS) if shows_rows else None,
         )
 
-    def _filed(self, signature: str) -> FragmentResult | None:
+    def _fragment_result(self, signature: str) -> FragmentResult | None:
         found = self.result.results.get(signature)
         return found if isinstance(found, FragmentResult) else None
 
-    def _reused(self, signature: str, position: int) -> str:
-        first = self.shown.setdefault(signature, position)
-        return f"  (reused from cover {first})" if first != position else ""
+    def _first_seen_in(self, signature: str, position: int) -> int | None:
+        """Return the cover that first ran this work, or None where this cover is that one."""
+        first = self.first_seen.setdefault(signature, position)
+        return None if first == position else first
 
 
 def _in_run_order(plan: LogicalPlan, cover: PhysicalPlan) -> list[PhysicalPlanFragment]:
@@ -250,52 +270,31 @@ def _in_run_order(plan: LogicalPlan, cover: PhysicalPlan) -> list[PhysicalPlanFr
     )
 
 
-def _traced_node(
-    node_id: str, nodes: dict[str, PipelineNode], fragment: PhysicalPlanFragment
-) -> TracedNode:
-    node = nodes.get(node_id)
+def _traced_node(plan: LogicalPlan, node_id: str, fragment: PhysicalPlanFragment) -> TracedNode:
+    node = plan.node(node_id)
     return TracedNode(
         id=node_id,
-        kind=str(node.kind) if node is not None else "?",
-        instruction=_instruction(node) if node is not None else "",
-        reads=fragment.scan_sources.get(node_id),
+        kind=str(node.kind),
+        instruction=node.instruction,
+        scan_source=fragment.scan_sources.get(node_id),
     )
 
 
-def _instruction(node: PipelineNode) -> str:
-    return str(node.attributes.get("instruction", ""))
-
-
-def _discovery_lines(discovery: TracedDiscovery) -> list[str]:
-    node = discovery.node
-    lines = [f"  {node.id}  {node.kind}  {node.instruction}", f"      {discovery.outcome}"]
-    lines.extend(f"          {path}" for path in discovery.matches)
-    return lines
-
-
-def _fragment_lines(fragment: TracedFragment, max_output_chars: int) -> list[str]:
-    heading = f"  {fragment.id}  {fragment.operator_id}"
-    if fragment.input_fragment_ids:
-        heading = f"{heading}  from {', '.join(fragment.input_fragment_ids)}"
-    lines = [heading]
-    for node in fragment.nodes:
-        lines.append(f"      {node.id}  {node.kind}  {node.instruction}")
-        if node.reads is not None:
-            lines.append(f"          reads {node.reads}")
-    lines.append(f"      {fragment.outcome}")
-    if fragment.reason is not None:
-        lines.append(f"          reason  {fragment.reason}")
-    lines.extend(_output_lines(fragment, max_output_chars, "          "))
-    return lines
+def _traced_discover_node(node: PipelineNode) -> TracedNode:
+    return TracedNode(
+        id=node.id, kind=str(node.kind), instruction=node.instruction, scan_source=None
+    )
 
 
 def _fragment_detail(fragment: TracedFragment, max_output_chars: int) -> list[str]:
     """Return the lines a narrow column cannot hold: a scan's source, then the output."""
     lines = [
-        f"      reads  {node.id}  {node.reads}" for node in fragment.nodes if node.reads is not None
+        f"      reads  {node.id}  {node.scan_source}"
+        for node in fragment.nodes
+        if node.scan_source is not None
     ]
-    if fragment.reason is not None:
-        lines.append(f"      reason  {fragment.reason}")
+    if fragment.failure_reason is not None:
+        lines.append(f"      reason  {fragment.failure_reason}")
     return [*lines, *_output_lines(fragment, max_output_chars, "      ")]
 
 
@@ -322,7 +321,7 @@ def _print_block(console: Console, name: str, lines: list[str]) -> None:
 
 
 def _cover_table(cover: TracedCover) -> Table:
-    table = Table("Fragment", "Step", "Instruction", "Input", "Result")
+    table = Table("Fragment", "Node", "Instruction", "Input", "Result")
     sections = 0
     for discovery in cover.discoveries:
         if sections:
@@ -334,7 +333,7 @@ def _cover_table(cover: TracedCover) -> Table:
             Text(f"{node.id}\n{node.kind}"),
             Text(node.instruction),
             Text(""),
-            Text(discovery.outcome),
+            Text(discovery_ending(discovery)),
         )
     for fragment in cover.fragments:
         if sections:
@@ -349,12 +348,12 @@ def _add_fragment(table: Table, fragment: TracedFragment) -> None:
     # read a square bracket in one as markup.
     name = Text(f"{fragment.id}\n{fragment.operator_id}")
     inputs = Text("\n".join(f"from {one}" for one in fragment.input_fragment_ids))
-    outcome = Text(fragment.outcome)
+    ending = Text(fragment_ending(fragment))
     for place, node in enumerate(fragment.nodes):
         table.add_row(
             name if place == 0 else Text(""),
             Text(f"{node.id}\n{node.kind}"),
             Text(node.instruction),
             inputs if place == 0 else Text(""),
-            outcome if place == 0 else Text(""),
+            ending if place == 0 else Text(""),
         )

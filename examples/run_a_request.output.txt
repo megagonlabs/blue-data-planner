@@ -1,0 +1,8 @@
+request: Which three countries do the most customers come from?
+status:  ok
+{'country': 'Mexico', 'customer_count': 3}
+{'country': 'Germany', 'customer_count': 2}
+{'country': 'UK', 'customer_count': 2}
+
+operator calls: 3
+model calls:    12

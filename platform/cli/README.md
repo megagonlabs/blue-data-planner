@@ -27,7 +27,7 @@ profile, then default. `profile inspect` reports which tier supplied each value.
 blue-planner profile config
 ```
 
-With no argument, `profile config` prompts for every parameter marked as asked, in order. With a
+With no argument, `profile config` prompts for every required parameter, in order. With a
 parameter name, it prompts for that one parameter alone. With a parameter name and a value, it sets
 that value directly, except for a secret, which is never accepted on the command line: a value
 there would reach the shell history. A secret is always prompted, with the input hidden, and stored
@@ -56,16 +56,15 @@ blue-planner profile config OPENAI_API_KEY
 | `BLUE_DATA_PLANNER_MAX_FAILURE_REPLANS` | int | `2` | No |
 | `BLUE_DATA_PLANNER_MAX_CONTROL_REPLANS` | int | `5` | No |
 | `BLUE_DATA_CLI_FORMAT` | str | `table` | No |
-| `BLUE_DATA_CLI_TRACE_MAX_FRAGMENT_ROWS` | int | `5` | No |
-| `BLUE_DATA_CLI_TRACE_MAX_OUTPUT_CHARS` | int | `80` | No |
+| `BLUE_DATA_CLI_LOG_LIMIT` | int | `80` | No |
 
 The first row and `BLUE_DATA_CLI_FORMAT` are family-wide parameters, declared once for every Blue
 CLI rather than by `blue-planner` alone. `BLUE_DATA_PLANNER_MODEL` reads
 `BLUE_DATA_LLM_MODEL` where it is unset, and `BLUE_DATA_PLANNER_LOTUS_MODEL` reads
-`BLUE_DATA_PLANNER_MODEL` the same way. Setting `BLUE_DATA_PLANNER_REASONING_EFFORT` to `off` omits
-the parameter from the LLM call, for a model that does not accept it; `none` is a different, real
-value that litellm still forwards to the provider, disabling reasoning rather than omitting the
-parameter. `BLUE_DATA_PLANNER_LOTUS_REASONING_EFFORT` does not inherit from
+`BLUE_DATA_PLANNER_MODEL` the same way. Either reasoning effort takes `minimal`, `low`,
+`medium`, `high`, `none`, or `off`, and anything else is refused where it is read. `off` omits the parameter from the LLM call, for a model that
+does not accept it; `none` is a different, real value that litellm still forwards to the provider,
+disabling reasoning rather than omitting the parameter. `BLUE_DATA_PLANNER_LOTUS_REASONING_EFFORT` does not inherit from
 `BLUE_DATA_PLANNER_REASONING_EFFORT`: it defaults to `none` on its own, since a LOTUS operation
 spends many calls per row and gains little from added reasoning. A `MAX_` name is a bound on one
 run, and the three that carry one are the three a run reports back in its counters; the bounds that
@@ -86,15 +85,15 @@ ends, then prints the answer.
 blue-planner data query "Which Bay Area data scientist postings are at healthcare companies?"
 ```
 
-`plan query` writes one logical plan and one cover, prints them, and spends no operator call.
+`--explain` writes one logical plan and one physical plan, prints them, and spends no operator
+call.
 
 ```bash
-blue-planner plan query "Which Bay Area data scientist postings are at healthcare companies?"
+blue-planner data query "Which Bay Area data scientist postings are at healthcare companies?" --explain
 ```
 
-Both commands take `--registry PATH`, `--model NAME`, `--format table|json`, `--trace`,
-`--trace-max-fragment-rows N`, and `--trace-max-output-chars N`, and both read `--profile NAME` from
-the root command.
+The command takes `--registry-path PATH`, `--model NAME`, `--format table|json`, `--explain`, `--log`,
+and `--log-limit N`, and reads `--profile NAME` from the root command.
 
 The six `profile` actions manage the named sets of configuration `blue-planner` reads:
 
@@ -102,7 +101,7 @@ The six `profile` actions manage the named sets of configuration `blue-planner` 
 blue-planner profile add staging               # create a profile
 blue-planner profile remove staging --confirm   # delete a profile and every value it holds
 blue-planner profile list                       # name every profile, marking the selected one
-blue-planner profile config                      # walk every parameter marked as asked
+blue-planner profile config                      # walk every required parameter
 blue-planner profile inspect                     # every parameter, its value, and its source
 blue-planner profile select staging              # make a profile the one later commands read
 ```
@@ -112,44 +111,48 @@ time, which is what a script needs.
 
 ## Output and diagnostics
 
-`--format` and `--trace` choose different things. The first decides how the result is written; the
-second decides whether the run behind it is reported.
+`--format` and `--log` choose different things. The first decides how the result is written; the
+second decides whether the run behind it is reported. Every command that prints a result takes
+`--format`, and reads `BLUE_DATA_CLI_FORMAT` where the option is absent.
 
-Standard output carries the command's result: the answer for `data query`, the plan for `plan
-query`. Redirecting it captures that alone. Standard error carries the progress indicator, the
-trace, the closing summary, and every error.
+Standard output carries the command's result: the answer, or the plan where `--explain` asked for
+one. Redirecting it captures that alone. Standard error carries the progress indicator, the log,
+the closing summary, and every error.
 
 `--format table` renders each table of the result under its own column names, and a terminal shows a
 progress indicator naming the stage that is running; a redirected stream gets none of it.
-`--format json` writes the same result as one JSON object, wrapped in the run's status, its failure
-reason, its counters, and what its model calls cost. That wrapper holds what `--format table` leaves
-to the closing summary on standard error, because a JSON document is read where no terminal is
-attached.
+`--format json` writes one document: the result asked for, how the run ended, how each fragment
+ended, what the run spent, and what its model calls cost. It holds what `--format table` leaves to
+the closing summary on standard error, because a JSON document is read where no terminal is
+attached. Every plan version the request produced is the one part it holds back, and that travels
+where `--explain` asked for the plan as the result, or where `--log` asked for the run behind the
+answer.
 
-`--trace` reports what the run did, on standard error, cover by cover. A cover's fragments come in
-the order a run reaches them, and each names the operator that ran it, the logical nodes it covered
-with the instruction each carried, the source each scan read, the fragments whose output it read,
-and how it ended. A fragment that ran carries its ending — a row count where the review kept the
+`--log` reports what the run did, one physical plan at a time. Its fragments come in the order the
+logical plan's dependencies put them, which is the order a run could have reached them, and each
+names the operator that ran it, the logical nodes it covered with the instruction each carried, the
+source each scan read, the fragments whose output it read, and how it ended. A fragment that ran carries its ending — a row count where the review kept the
 result, and the ending's name with the objection where it did not — and one the pass never got to
-reads as "not reached under this cover". A `DISCOVER` node leads the cover, with what its search
-matched. Work a later cover asks for again is named rather than traced twice, since an accepted
-result was not run again. A run that failed closes the trace with one more line naming why.
+reads as "not reached under this physical plan". A `DISCOVER` node leads the physical plan, with
+what its search matched. Work a later physical plan asks for again is named rather than reported
+twice, since an accepted result was not run again. A run that failed closes the log with one more line naming why.
 
-What a narrow column cannot hold follows its cover, under the id of the fragment it belongs to: the
+What a narrow column cannot hold follows its table, under the id of the fragment it belongs to: the
 source each scan read, the objection a review raised, the columns of the first table the fragment
-produced, and the first rows of it. `--trace-max-fragment-rows` caps those rows and
-`--trace-max-output-chars` cuts each line of the columns and the rows. Neither cap reaches an
-instruction, a source path, a match, or an objection, so each of those is read whole however long it
-is.
+produced, and the first rows of it. `--log-limit` cuts each line of the columns and the rows, and
+reaches neither an instruction, a source path, a match, nor an objection, so each of those is read
+whole however long it is.
 
-`--format` decides how the trace is drawn as well as how the result is written. Under
-`--format table` each cover is one table, which is what lets an instruction wrap inside its own
-column. Under `--format json` the trace is one JSON object holding the same walk as lines.
+Where the log is drawn is what `--format` decides. Under `--format table` it is drawn on standard
+error, one table per physical plan, which is what lets an instruction wrap inside its own column.
+Under
+`--format json` it is the plan versions added to the document on standard output, so standard
+error carries the closing summary alone.
 
 ```text
-cover 1   logical plan 8c4a71d0
+physical plan 1   logical plan 8c4a71d0
 ┏━━━━━━━━━━━━━━━━━━┳━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━┓
-┃ Fragment         ┃ Step   ┃ Instruction                ┃ Input   ┃ Result                ┃
+┃ Fragment         ┃ Node   ┃ Instruction                ┃ Input   ┃ Result                ┃
 ┡━━━━━━━━━━━━━━━━━━╇━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━┩
 │ f1               │ n2     │ load job postings          │         │ ok  140 rows          │
 │ builtin.scan     │ SCAN   │                            │         │                       │
@@ -221,8 +224,8 @@ blue-planner profile config OPENAI_API_KEY
 blue-planner profile inspect
 
 # 4. Write a plan without running it.
-blue-planner plan query "Among the schools with the average score in Math over 560 in the SAT test, how many schools are in counties in the bay area?"
+blue-planner data query "Among the schools with the average score in Math over 560 in the SAT test, how many schools are in counties in the bay area?" --explain
 
 # 5. Run it.
-blue-planner data query "Among the schools with the average score in Math over 560 in the SAT test, how many schools are in counties in the bay area?" --trace
+blue-planner data query "Among the schools with the average score in Math over 560 in the SAT test, how many schools are in counties in the bay area?" --log
 ```

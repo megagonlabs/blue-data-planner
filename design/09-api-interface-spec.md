@@ -63,50 +63,46 @@ is to add one rather than to import a private module.
 
 ### Assembly
 
-Nothing is constructed in place and nothing reads the environment, so a caller builds the parts and
-passes them in.
+Nothing reads the environment: every value a planner runs on is resolved by whoever builds it. What
+building it takes is one call.
 
 ```python
 from pathlib import Path
 
 from blue_data_planner import RunLimits, build_data_planner
-from blue_data_planner.data import DataCatalog, open_registry
-from blue_data_planner.llm import LLMClient
-from blue_data_planner.operators import OperatorRouter
-from blue_data_planner.operators.adapters.blue import blue_operators
-from blue_data_planner.operators.adapters.lotus import lotus_operators
-from blue_data_planner.operators.builtin import builtin_operators
-
-data_registry = open_registry(Path("registry.json"))
-llm_client = LLMClient(name="planner", properties={"planner.model": "openai/gpt-4o"})
-
-router = OperatorRouter()
-# operator_registry is a blue-data-ops OperatorRegistry, built the way that package documents
-for operator in blue_operators(operator_registry, data_registry):
-    router.register(operator)
-for operator in lotus_operators("openai/gpt-4o"):  # empty when LOTUS is not installed
-    router.register(operator)
-# with_nl2table enables the entry that writes and runs a Python program (ADR-020)
-for operator in builtin_operators(data_registry, llm_client, with_nl2table=True):
-    router.register(operator)
+from blue_data_planner.data import open_registry
+from blue_data_planner.operators.adapters.blue import BlueSuite
+from blue_data_planner.operators.adapters.lotus import LotusSuite
+from blue_data_planner.operators.builtin import BuiltinSuite
 
 planner = build_data_planner(
-    router=router,
-    catalog=DataCatalog(data_registry),
-    llm_client=llm_client,
-    limits=RunLimits(...),
+    open_registry(Path("registry.json")),
+    suites=[
+        BlueSuite(),
+        LotusSuite(),  # registers nothing where LOTUS is not installed
+        # with_nl2table enables the entry that writes and runs a Python program (ADR-020)
+        BuiltinSuite(with_nl2table=True),
+    ],
+    model="openai/gpt-4o",
+    limits=RunLimits(),
 )
 ```
 
-`data_registry` is a `blue-data` registry, obtained from `data/` and passed back into it. A caller
-reads nothing off it and constructs no source from it. `open_registry` is the one way in: a registry
-is populated by `blue-data` before it reaches this package (ADR-003), so a caller that assembled one
-itself passes that one in place of this call. It reaches a suite adapter unchanged, because a suite
-that reads data takes a registry of its own (ADR-004).
+The first argument is a `blue-data` registry, obtained from `data/` and passed back into it. A
+caller reads nothing off it and constructs no source from it. `open_registry` is the one way in: a
+registry is populated by `blue-data` before it reaches this package (ADR-003), so a caller that
+assembled one itself passes that one in place of this call. It reaches a suite adapter unchanged,
+because a suite that reads data takes a registry of its own (ADR-004).
 
-`build_data_planner` is the default wiring, and what every adapter calls. It constructs the three
-planning components and the discovery step, and hands `DataPlanner` the limits. A caller who wants a
-different model per component, or a fake component in a test, builds them and calls the constructor:
+A suite arrives as an object rather than a name, and each one holds the options that suite takes, so
+this signature names no suite and grows no argument when one is added
+([06-library.md](06-library.md#what-each-suite-offers)). A caller holding configured names calls
+`operator_suite` for each, which raises `UnknownOperatorSuiteError` on a name no suite answers to.
+
+`build_data_planner` constructs the model client from `model` and `reasoning_effort`, registers what
+each suite returns, wraps the registry in a `DataCatalog`, and hands `DataPlanner` its four
+components and the limits. A caller who wants a different model per component, or a fake component
+in a test, builds the four and calls the constructor:
 
 ```python
 from blue_data_planner import DataPlanner
@@ -246,11 +242,11 @@ blue-planner data query "Which Bay Area data scientist postings are at healthcar
 | Command | Does |
 | --- | --- |
 | `data query REQUEST` | Runs `run`: plans, covers, executes, and repairs until the request ends, then prints the answer |
-| `plan query REQUEST` | Runs `plan`: writes one logical plan and one cover, prints them, and spends no operator call |
+| `data query REQUEST --explain` | Runs `plan`: writes one logical plan and one physical plan, prints them, and spends no operator call |
 | `profile add NAME` | Creates a profile |
 | `profile remove NAME` | Deletes a profile, after a confirmation |
 | `profile list` | Names every profile, marking the selected one |
-| `profile config [PARAM [VALUE]]` | Prompts for every parameter marked as asked, prompts for one, or sets one |
+| `profile config [PARAM [VALUE]]` | Prompts for every required parameter, prompts for one, or sets one |
 | `profile inspect` | Every parameter, the value in force, and the tier that supplied it |
 | `profile select NAME` | Makes one profile the one later commands read |
 
@@ -262,67 +258,71 @@ so no command accepts one.
 | Option | Commands | Effect |
 | --- | --- | --- |
 | `--profile NAME` | All | Which profile supplies configuration |
-| `--registry PATH` | The two query actions | The `blue-data` registry to plan over |
-| `--model NAME` | The two query actions | The litellm model string every component uses |
-| `--format table\|json` | Anything printing a result | How the result is written, `table` by default |
-| `--trace` | The two query actions | Report what the run did, after the run |
-| `--trace-max-fragment-rows N` | The two query actions | The rows of a fragment's result the trace shows, 5 by default |
-| `--trace-max-output-chars N` | The two query actions | The characters each line of a fragment's output is cut to, 80 by default |
+| `--registry-path PATH` | `data query` | The `blue-data` registry to plan over |
+| `--model NAME` | `data query` | The litellm model string every component uses |
+| `--format table\|json` | Anything printing a result | How the result is written, from `BLUE_DATA_CLI_FORMAT` where the option is absent |
+| `--explain` | `data query` | Write the plan for the request and stop, running nothing |
+| `--log` | `data query` | Report what the run did, after the run |
+| `--log-limit N` | `data query` | The characters each line of the log is cut to, 80 by default |
 | `--confirm` | `profile remove` | Answer the confirmation ahead of time |
 | `--version` | The root | The package version |
 
-`--format` and `--trace` choose different things, and each is set independently of the other
+`--format` and `--log` choose different things, and each is set independently of the other
 (ADR-032). The first decides how a result is written; the second decides whether the run behind it
-is reported. The two caps take effect where `--trace` does.
+is reported. `--log-limit` takes effect where `--log` does.
 
 A bound a run reports back is a profile parameter rather than a flag: a bound is configuration,
 and configuration belongs to a profile (ADR-028). The three that reset inside a request carry no
 parameter, since no number says what a request spent against them, and a caller who needs one
-builds the planner itself. `--registry` and `--model` are the two settings an operator changes
-between one invocation and the next.
+builds the planner itself. `--registry-path` and `--model` are the two settings an operator
+changes between one invocation and the next, so each carries the name of the parameter it
+overrides.
 
 `nl` is not one of the formats. An answer is a set of rows, and phrasing rows as a sentence is
 behavior no library operation has (ADR-029).
 
 ### Output
 
-Standard output carries the command's result: the answer for `data query`, the plan for `plan
-query`. Standard error carries the progress indicator, the trace, the closing summary, and errors,
-so redirecting standard output captures the result alone.
+Standard output carries the command's result: the answer, or the plan where `--explain` asked for
+one. Standard error carries the progress indicator, the log, the closing summary, and errors, so
+redirecting standard output captures the result alone.
 
 `--format table` renders each table of the result under its own column names, and a terminal gets a
-progress indicator naming the stage that is running. `--format json` writes the same result as one
-JSON object, wrapped in the run's status, its failure reason, its counters, and what its model calls
-cost. That wrapper holds what `--format table` leaves to the closing summary on standard error: a
-JSON document is read where no terminal is attached, so it carries its own account of how the run
-ended.
+progress indicator naming the stage that is running. `--format json` writes one document, and it is
+`RunResult.to_dict` ([10](10-data-model.md#5-shapes-that-leave-the-process)): the result asked
+for, how the run ended, how each fragment ended, what the run spent, and what its model calls
+cost. A JSON document is read where no terminal is attached, so it carries in the document what
+`--format table` leaves to the closing summary on standard error. Every plan version the request
+produced is the one part it holds back, since that grows with what the request tried: it travels
+where `--explain` asked for the plan as the result, or where `--log` asked for the run behind the
+answer.
 
-`--trace` reports what the run did, on standard error, cover by cover. A cover's fragments come in
-the order a run reaches them, and each names the operator that ran it, the logical nodes it covered
-with the instruction each carried, the source each scan read, the fragments whose output it read,
-and how it ended. A fragment that ran carries its ending — a row count where the review kept the
-result, and the ending's name with the objection where it did not — and one the pass never got to
-reads as "not reached under this cover" (ADR-033). A `DISCOVER` node leads the cover its plan was
-written for, with what its search matched, since a search resolves before the plan reading it
-exists. Work a later cover asks for again is named rather than traced twice, because an accepted
-result was not run again (ADR-024). A run that failed closes the trace with one more line naming
-why.
+`--log` reports what the run did, one physical plan at a time. Its fragments come in the order the
+logical plan's dependencies put them, which is the order a run could have reached them, and each
+names the operator that ran it, the logical nodes it covered with the instruction each carried, the
+source each scan read, the fragments whose output it read, and how it ended. A fragment that ran
+carries its ending — a row count where the review kept the result, and the ending's name with the
+objection where it did not — and one the pass never got to reads as "not reached under this
+physical plan" (ADR-033). A `DISCOVER` node leads the physical plan its logical plan was written
+for, with what its search matched, since a search resolves before the plan reading it exists. Work
+a later physical plan asks for again is named rather than reported twice, because an accepted
+result was not run again (ADR-024). A run that failed closes the log with one more line naming why.
 
-What a narrow column cannot hold follows its cover, under the id of the fragment it belongs to: the
+What a narrow column cannot hold follows its table, under the id of the fragment it belongs to: the
 source each scan read, the objection a review raised, the columns of the first table the fragment
-produced, and the first rows of it. `--trace-max-fragment-rows` caps those rows and
-`--trace-max-output-chars` cuts each line of the columns and the rows. Neither cap reaches an
-instruction, a source path, a match, or an objection, so each of those is read whole however long it
-is.
+produced, and the first rows of it. `--log-limit` cuts each line of the columns and the rows. It
+reaches neither an instruction, a source path, a match, nor an objection, so each of those is read
+whole however long it is.
 
-`--format` decides how the trace is drawn as well as how the result is written. Under
-`--format table` each cover is one table, which is what lets an instruction wrap inside its own
-column. Under `--format json` the trace is one JSON object holding the same walk as lines.
+Where the log is drawn is what `--format` decides. Under `--format table` it is drawn on standard
+error, one table per physical plan, which is what lets an instruction wrap inside its own column.
+Under `--format json` it is the two keys it adds to the document on standard output, so standard
+error carries the closing summary alone.
 
 ```text
-cover 1   logical plan 8c4a71d0
+physical plan 1   logical plan 8c4a71d0
 ┏━━━━━━━━━━━━━━━━━━┳━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━┓
-┃ Fragment         ┃ Step   ┃ Instruction                ┃ Input   ┃ Result                ┃
+┃ Fragment         ┃ Node   ┃ Instruction                ┃ Input   ┃ Result                ┃
 ┡━━━━━━━━━━━━━━━━━━╇━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━┩
 │ f1               │ n2     │ load job postings          │         │ ok  140 rows          │
 │ builtin.scan     │ SCAN   │                            │         │                       │
@@ -343,8 +343,8 @@ counters  operator calls 7/30   failure replans 0/2   control replans 1/2
 model     11 calls   $0.42
 ```
 
-A cover is written whole, so every fragment of it appears, and a fragment carried into a later cover
-shows as the reuse it is.
+A physical plan is written whole, so every fragment of it appears, and a fragment carried into a
+later one shows as the reuse it is.
 
 ### Errors and exit codes
 
@@ -357,7 +357,7 @@ An error reaches standard error as `ERROR: <CODE> <description>`.
 | `REGISTRY_UNREADABLE` | A registry path that does not exist or does not parse |
 | `PROFILE_NOT_FOUND` | A named profile that does not exist |
 | `ABORTED` | A confirmation prompt, such as `profile remove` without `--confirm`, declined |
-| `INVALID_PLAN`, `REPLAN_EXHAUSTED`, `BUDGET_EXHAUSTED`, `OPERATOR_FAILED`, `LLM_FAILED`, `PLANNER_FAILED` | A run that ended with that status, carrying its failure reason |
+| `INVALID_PLAN`, `REPLAN_EXHAUSTED`, `BUDGET_EXHAUSTED`, `OPERATOR_FAILED`, `LLM_FAILED`, `PLANNER_FAILED` | A run that ended with that status, carrying its failure reason. The code is the status's own name, so this list is whichever endings `RunStatus` holds |
 | `INTERNAL_ERROR` | An exception the adapter did not expect |
 
 | Exit code | Meaning |
@@ -479,13 +479,11 @@ variable > profile > default** — and `profile inspect` reports the tier that s
 | `BLUE_DATA_PLANNER_MAX_FAILURE_REPLANS` | int | `2` | |
 | `BLUE_DATA_PLANNER_MAX_CONTROL_REPLANS` | int | `2` | |
 | `BLUE_DATA_CLI_FORMAT` | str | `table` | |
-| `BLUE_DATA_CLI_TRACE_MAX_FRAGMENT_ROWS` | int | `5` | |
-| `BLUE_DATA_CLI_TRACE_MAX_OUTPUT_CHARS` | int | `80` | |
+| `BLUE_DATA_CLI_LOG_LIMIT` | int | `80` | |
 
-The first row and `BLUE_DATA_CLI_FORMAT` are family-wide parameters, declared once for every Blue
-CLI rather than by `blue-planner` alone. The two `BLUE_DATA_CLI_TRACE_` parameters take the family's
-prefix because they govern how this CLI prints, and belong to `blue-planner`, since a fragment is
-this component's unit of work. `BLUE_DATA_PLANNER_MODEL` reads
+The first row, `BLUE_DATA_CLI_FORMAT`, and `BLUE_DATA_CLI_LOG_LIMIT` are family-wide parameters,
+declared once for every Blue CLI rather than by `blue-planner` alone.
+`BLUE_DATA_PLANNER_MODEL` reads
 `BLUE_DATA_LLM_MODEL` where it is unset, and
 `BLUE_DATA_PLANNER_LOTUS_MODEL` reads `BLUE_DATA_PLANNER_MODEL` the same way. Setting
 `BLUE_DATA_PLANNER_REASONING_EFFORT` to `off` omits the parameter from the LLM call, for a model

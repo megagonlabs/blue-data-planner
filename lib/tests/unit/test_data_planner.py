@@ -1,14 +1,17 @@
-"""How one request is scheduled, repaired, and ended."""
+"""How a planner is assembled, and how one request is scheduled, repaired, and ended."""
 
 from __future__ import annotations
 
 from collections.abc import Callable
-from typing import Any
+from dataclasses import dataclass
+from typing import Any, ClassVar
 
 import pytest
 from pydantic import BaseModel
 
-from blue_data_planner.data_planner import DataPlanner
+from blue_data_planner import data_planner as data_planner_module
+from blue_data_planner.data import DataRegistry
+from blue_data_planner.data_planner import DataPlanner, build_data_planner
 from blue_data_planner.llm import LLMError
 from blue_data_planner.operators import OperatorRouter
 from blue_data_planner.physical_planner import PhysicalPlanner
@@ -603,3 +606,72 @@ def test_a_plan_the_planner_could_not_write_ends_as_invalid_plan() -> None:
         FakeCatalogSearcher(),
     ).run("list the job titles")
     assert result.status is RunStatus.INVALID_PLAN
+
+
+@dataclass(frozen=True)
+class _RegistersOneOperator:
+    """A suite standing in for a real one, so assembly is tested without an operator library."""
+
+    name: ClassVar[str] = "one"
+    seen: dict[str, Any] | None = None
+
+    def operators(
+        self, *, data_registry: DataRegistry, llm_client: Any, model: str
+    ) -> list[PhysicalOperator]:
+        if self.seen is not None:
+            self.seen.update({"data_registry": data_registry, "model": model})
+        return [a_single_kind_operator("suite.filter", LogicalOperator.FILTER)]
+
+
+def an_empty_registry() -> DataRegistry:
+    """A registry holding no records, for an assembly that reads none."""
+    registry: Any = DataRegistry(name="assembly_test", rebuild=True)
+    registry.loads("[]")
+    return registry
+
+
+def a_captured_llm_client(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
+    """Replace the client an assembled planner builds with a double recording its arguments."""
+    captured: dict[str, Any] = {}
+
+    class _Capturing:
+        def __init__(self, name: str, properties: dict[str, Any]) -> None:
+            captured["name"] = name
+            captured["properties"] = properties
+
+    monkeypatch.setattr(data_planner_module, "LLMClient", _Capturing)
+    return captured
+
+
+@pytest.mark.parametrize("reasoning_effort", ["low", None])
+def test_an_assembled_planners_model_client_names_its_values_under_its_own_prefix(
+    reasoning_effort: str | None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A bare "model" key never matches the client's own <prefix>.* filter, so every call the
+    planner made would fail with "no model configured"; None leaves the effort out entirely."""
+    captured = a_captured_llm_client(monkeypatch)
+
+    build_data_planner(
+        an_empty_registry(),
+        suites=[_RegistersOneOperator()],
+        model="gpt-4o",
+        reasoning_effort=reasoning_effort,
+        llm_client_name="a_planner",
+    )
+
+    assert captured["name"] == "a_planner"
+    assert captured["properties"]["a_planner.model"] == "gpt-4o"
+    assert captured["properties"].get("a_planner.reasoning_effort") == reasoning_effort
+
+
+def test_each_suite_is_built_over_the_registry_and_the_model_the_planner_was_given() -> None:
+    """A suite reads the registry it will scan and follows the planner's model unless it holds
+    one of its own, so both have to reach it."""
+    seen: dict[str, Any] = {}
+    registry = an_empty_registry()
+
+    build_data_planner(
+        registry, suites=[_RegistersOneOperator(seen=seen)], model="gpt-4o", limits=RunLimits()
+    )
+
+    assert seen == {"data_registry": registry, "model": "gpt-4o"}

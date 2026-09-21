@@ -2,16 +2,18 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 from enum import StrEnum
+from typing import Any
 
 from blue_data_planner.catalog_searcher import CatalogSearcher
-from blue_data_planner.data import DataCatalog
+from blue_data_planner.data import DataCatalog, DataRegistry
 from blue_data_planner.execution import project_answer
 from blue_data_planner.fragment_runner import FragmentRunner
 from blue_data_planner.llm import LLMClient, LLMError
 from blue_data_planner.logical_planner import LogicalPlanner
-from blue_data_planner.operators import OperatorRouter
+from blue_data_planner.operators import OperatorRouter, OperatorSuite
 from blue_data_planner.physical_planner import PhysicalPlanner
 from blue_data_planner.run_state import NodeResult, RunState
 from blue_data_planner.types import (
@@ -29,6 +31,10 @@ from blue_data_planner.types import (
     RunResult,
     RunStatus,
 )
+
+# What an assembled planner calls its model client, which prefixes every property the
+# client reads. A deployment naming its own keeps one process's clients apart in a log.
+DEFAULT_LLM_CLIENT_NAME: str = "blue_data_planner"
 
 
 class _Next(StrEnum):
@@ -183,7 +189,7 @@ class DataPlanner:
         """Resolve every control node ready at once, then return to the logical planner."""
         reasons: list[str] = []
         for node in state.ready_control_nodes():
-            reasons.append(str(node.attributes.get("instruction", "")))
+            reasons.append(node.instruction)
             if node.kind is not ControlOperator.DISCOVER:
                 continue
             found = self._catalog_searcher.search(
@@ -280,12 +286,23 @@ class DataPlanner:
 
 
 def build_data_planner(
-    router: OperatorRouter,
-    catalog: DataCatalog,
-    llm_client: LLMClient,
+    data_registry: DataRegistry,
+    *,
+    suites: Sequence[OperatorSuite],
+    model: str,
+    reasoning_effort: str | None = None,
     limits: RunLimits | None = None,
+    llm_client_name: str = DEFAULT_LLM_CLIENT_NAME,
 ) -> DataPlanner:
-    """Assemble the four components over one router, one catalog, and one model client."""
+    """Assemble a planner over these suites, on one model, reading one registry."""
+    llm_client = _llm_client(llm_client_name, model, reasoning_effort)
+    router = OperatorRouter()
+    for suite in suites:
+        for operator in suite.operators(
+            data_registry=data_registry, llm_client=llm_client, model=model
+        ):
+            router.register(operator)
+    catalog = DataCatalog(data_registry)
     return DataPlanner(
         logical_planner=LogicalPlanner(llm_client, catalog),
         physical_planner=PhysicalPlanner(llm_client, router),
@@ -293,3 +310,11 @@ def build_data_planner(
         catalog_searcher=CatalogSearcher(llm_client, catalog),
         limits=limits or RunLimits(),
     )
+
+
+def _llm_client(name: str, model: str, reasoning_effort: str | None) -> LLMClient:
+    # The name prefixes every property the client reads, which is how blue-data keys them.
+    properties: dict[str, Any] = {f"{name}.model": model}
+    if reasoning_effort is not None:
+        properties[f"{name}.reasoning_effort"] = reasoning_effort
+    return LLMClient(name=name, properties=properties)

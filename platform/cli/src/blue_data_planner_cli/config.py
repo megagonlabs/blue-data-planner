@@ -17,30 +17,25 @@ from blue_data.utils.config import (  # pyright: ignore[reportMissingTypeStubs] 
 from blue_data.utils.config import (  # pyright: ignore[reportMissingTypeStubs]
     build_resolver as build_config_resolver,
 )
-from blue_data_ops.operators.registry import (  # pyright: ignore[reportMissingTypeStubs]
-    default_registry,
-)
 from blue_data_planner import DataPlanner, RunLimits, build_data_planner
-from blue_data_planner.data import DataCatalog, open_registry
-from blue_data_planner.llm import LLMClient
-from blue_data_planner.operators import OperatorRouter
-from blue_data_planner.operators.adapters.blue import blue_operators
-from blue_data_planner.operators.adapters.lotus import lotus_operators
-from blue_data_planner.operators.builtin import builtin_operators
-from blue_data_planner.types import PhysicalOperator
+from blue_data_planner.data import open_registry
+from blue_data_planner.operators import OperatorSuite, operator_suite
+from blue_data_planner.operators.adapters.lotus import LotusSuite
+from blue_data_planner.operators.builtin import BuiltinSuite
+from blue_data_planner.types import UnknownOperatorSuiteError
 
 CLI_HOME_VARIABLE: str = "BLUE_DATA_PLANNER_HOME"
 DEFAULT_CLI_HOME: str = "~/.blue-planner"
 
-OPERATOR_SUITES: tuple[str, ...] = ("builtin", "lotus", "blue")
-
 _LLM_CLIENT_NAME: str = "blue_planner"
+
+OUTPUT_FORMATS: tuple[str, ...] = ("table", "json")
+
+REASONING_EFFORTS: tuple[str, ...] = ("minimal", "low", "medium", "high", "none", "off")
 
 # The one value that means "omit this parameter," for a model that rejects it. Distinct from
 # "none", a real litellm reasoning_effort value that still has to reach the provider.
 _REASONING_EFFORT_OFF: str = "off"
-
-OUTPUT_FORMATS: tuple[str, ...] = ("table", "json")
 
 _SPEC_PATH: Path = Path(__file__).with_name("profile_spec.json")
 
@@ -65,26 +60,20 @@ class CliError(Exception):
 
 
 @dataclass(frozen=True)
-class PlannerSettings:
-    """Every value one invocation resolved, before anything is built from them."""
+class ResolvedSettings:
+    """Every value one invocation resolved, before anything is built or printed from them."""
 
     registry_path: Path
     model: str
-    reasoning_effort: str
+    reasoning_effort: str | None
     operator_suites: tuple[str, ...]
     lotus_model: str
-    lotus_reasoning_effort: str
+    lotus_reasoning_effort: str | None
     lotus_max_rows: int
     enable_nl2table: bool
     limits: RunLimits
     output_format: str
-    trace_max_fragment_rows: int
-    trace_max_output_chars: int
-
-
-def _effective_reasoning_effort(value: str) -> str | None:
-    """Return the value litellm should receive, or None to omit the parameter."""
-    return value if value and value != _REASONING_EFFORT_OFF else None
+    log_limit: int
 
 
 def build_resolver(profile: str | None, environ: dict[str, str]) -> ConfigResolver:
@@ -93,8 +82,12 @@ def build_resolver(profile: str | None, environ: dict[str, str]) -> ConfigResolv
 
 
 def resolve_settings(
-    resolver: ConfigResolver, registry: str | None = None, model: str | None = None
-) -> PlannerSettings:
+    resolver: ConfigResolver,
+    registry: str | None = None,
+    model: str | None = None,
+    output_format: str | None = None,
+    log_limit: int | None = None,
+) -> ResolvedSettings:
     """Resolve every setting one invocation needs, raising CliError on the first that fails."""
     registry_path = Path(str(_require(resolver, "BLUE_DATA_REGISTRY_PATH", registry)))
     if not registry_path.is_file():
@@ -104,31 +97,16 @@ def resolve_settings(
         for name in str(_require(resolver, "BLUE_DATA_PLANNER_OPERATORS")).split(",")
         if name.strip()
     )
-    unknown = [name for name in suites if name not in OPERATOR_SUITES]
-    if unknown:
-        raise CliError(
-            "CONFIG_INVALID",
-            f"BLUE_DATA_PLANNER_OPERATORS names {', '.join(unknown)}; "
-            f"expected one or more of {', '.join(OPERATOR_SUITES)}",
-        )
     planner_model = str(_require(resolver, "BLUE_DATA_PLANNER_MODEL", model))
-    output_format = str(_get(resolver, "BLUE_DATA_CLI_FORMAT"))
-    if output_format not in OUTPUT_FORMATS:
-        raise CliError(
-            "CONFIG_INVALID",
-            f"BLUE_DATA_CLI_FORMAT names {output_format}; "
-            f"expected one of {', '.join(OUTPUT_FORMATS)}",
-        )
-    return PlannerSettings(
+    chosen_format = resolve_output_format(resolver, output_format)
+    return ResolvedSettings(
         registry_path=registry_path,
         model=planner_model,
-        reasoning_effort=str(_get(resolver, "BLUE_DATA_PLANNER_REASONING_EFFORT") or ""),
+        reasoning_effort=_reasoning_effort(resolver, "BLUE_DATA_PLANNER_REASONING_EFFORT"),
         operator_suites=suites,
-        # --model names the model every component uses, and LOTUS_MODEL inherits
-        # BLUE_DATA_PLANNER_MODEL, so its own resolution never sees the override.
-        lotus_model=str(model or _get(resolver, "BLUE_DATA_PLANNER_LOTUS_MODEL") or planner_model),
-        lotus_reasoning_effort=str(
-            _get(resolver, "BLUE_DATA_PLANNER_LOTUS_REASONING_EFFORT") or ""
+        lotus_model=str(_require(resolver, "BLUE_DATA_PLANNER_LOTUS_MODEL", model)),
+        lotus_reasoning_effort=_reasoning_effort(
+            resolver, "BLUE_DATA_PLANNER_LOTUS_REASONING_EFFORT"
         ),
         lotus_max_rows=int(_get(resolver, "BLUE_DATA_PLANNER_LOTUS_MAX_ROWS")),
         enable_nl2table=bool(_get(resolver, "BLUE_DATA_PLANNER_ENABLE_NL2TABLE")),
@@ -140,14 +118,36 @@ def resolve_settings(
             failure_replans=int(_get(resolver, "BLUE_DATA_PLANNER_MAX_FAILURE_REPLANS")),
             control_replans=int(_get(resolver, "BLUE_DATA_PLANNER_MAX_CONTROL_REPLANS")),
         ),
-        output_format=output_format,
-        trace_max_fragment_rows=int(_get(resolver, "BLUE_DATA_CLI_TRACE_MAX_FRAGMENT_ROWS")),
-        trace_max_output_chars=int(_get(resolver, "BLUE_DATA_CLI_TRACE_MAX_OUTPUT_CHARS")),
+        output_format=chosen_format,
+        log_limit=int(_get(resolver, "BLUE_DATA_CLI_LOG_LIMIT", log_limit)),
     )
 
 
-def assemble_planner(settings: PlannerSettings) -> DataPlanner:
-    """Open the registry, register the listed suites, and build the planner over them."""
+def _reasoning_effort(resolver: ConfigResolver, name: str) -> str | None:
+    """Return the effort litellm should receive, or None where the parameter is left out."""
+    configured = str(_require(resolver, name))
+    if configured not in REASONING_EFFORTS:
+        raise CliError(
+            "CONFIG_INVALID",
+            f"{name} names {configured}; expected one of {', '.join(REASONING_EFFORTS)}",
+        )
+    return None if configured == _REASONING_EFFORT_OFF else configured
+
+
+def resolve_output_format(resolver: ConfigResolver, override: str | None = None) -> str:
+    """Return the format in force for a command that prints a result."""
+    chosen = str(_get(resolver, "BLUE_DATA_CLI_FORMAT", override))
+    if chosen not in OUTPUT_FORMATS:
+        raise CliError(
+            "CONFIG_INVALID",
+            f"BLUE_DATA_CLI_FORMAT names {chosen}; expected one of {', '.join(OUTPUT_FORMATS)}",
+        )
+    return chosen
+
+
+def assemble_planner(settings: ResolvedSettings) -> DataPlanner:
+    """Open the registry and build the planner over the suites this profile named."""
+    suites = _suites(settings)
     try:
         data_registry = open_registry(settings.registry_path)
     except Exception as error:
@@ -156,41 +156,37 @@ def assemble_planner(settings: PlannerSettings) -> DataPlanner:
             "REGISTRY_UNREADABLE",
             f"cannot read the registry at {settings.registry_path}: {error}",
         ) from error
-    llm_properties: dict[str, Any] = {f"{_LLM_CLIENT_NAME}.model": settings.model}
-    effort = _effective_reasoning_effort(settings.reasoning_effort)
-    if effort is not None:
-        llm_properties[f"{_LLM_CLIENT_NAME}.reasoning_effort"] = effort
-    llm_client = LLMClient(name=_LLM_CLIENT_NAME, properties=llm_properties)
-    router = OperatorRouter()
-    for operator in _operators(settings, data_registry, llm_client):
-        router.register(operator)
-    return build_data_planner(router, DataCatalog(data_registry), llm_client, settings.limits)
+    return build_data_planner(
+        data_registry,
+        suites=suites,
+        model=settings.model,
+        reasoning_effort=settings.reasoning_effort,
+        limits=settings.limits,
+        llm_client_name=_LLM_CLIENT_NAME,
+    )
 
 
-def _operators(
-    settings: PlannerSettings, data_registry: Any, llm_client: LLMClient
-) -> list[PhysicalOperator]:
-    operators: list[PhysicalOperator] = []
-    for suite in settings.operator_suites:
-        if suite == "builtin":
-            operators.extend(
-                builtin_operators(data_registry, llm_client, with_nl2table=settings.enable_nl2table)
-            )
-        elif suite == "lotus":
-            # An empty list where LOTUS is not installed, which is how the extra is optional.
-            operators.extend(
-                lotus_operators(
-                    settings.lotus_model,
-                    settings.lotus_max_rows,
-                    reasoning_effort=_effective_reasoning_effort(settings.lotus_reasoning_effort),
-                )
-            )
-        elif suite == "blue":
-            operators.extend(blue_operators(default_registry(), data_registry))
-    return operators
+def _suites(settings: ResolvedSettings) -> list[OperatorSuite]:
+    """Return one suite per configured name, holding the values this profile resolved."""
+    try:
+        return [_configured(name, settings) for name in settings.operator_suites]
+    except UnknownOperatorSuiteError as error:
+        raise CliError("CONFIG_INVALID", str(error)) from error
 
 
-def _get(resolver: ConfigResolver, name: str, override: str | None = None) -> Any:
+def _configured(name: str, settings: ResolvedSettings) -> OperatorSuite:
+    if name == "builtin":
+        return BuiltinSuite(with_nl2table=settings.enable_nl2table)
+    if name == "lotus":
+        return LotusSuite(
+            model=settings.lotus_model,
+            max_rows=settings.lotus_max_rows,
+            reasoning_effort=settings.lotus_reasoning_effort,
+        )
+    return operator_suite(name)
+
+
+def _get(resolver: ConfigResolver, name: str, override: str | int | None = None) -> Any:
     # An override is resolved rather than returned, so a command-line path is expanded
     # the same way a profile one is.
     try:
@@ -199,16 +195,16 @@ def _get(resolver: ConfigResolver, name: str, override: str | None = None) -> An
         raise CliError("CONFIG_INVALID", str(error)) from error
 
 
-def export_secrets(resolver: ConfigResolver) -> dict[str, str]:
-    """Write every resolved parameter into the real process environment, raising CliError on
-    a stored value that fails to resolve."""
+def resolved_environment(resolver: ConfigResolver) -> dict[str, str]:
+    """Return every resolved parameter as environment variables, raising CliError on a stored
+    value that fails to resolve."""
     try:
         return resolver.export()
     except (ConfigError, SecretError) as error:
         raise CliError("CONFIG_INVALID", str(error)) from error
 
 
-def _require(resolver: ConfigResolver, name: str, override: str | None = None) -> Any:
+def _require(resolver: ConfigResolver, name: str, override: str | int | None = None) -> Any:
     value = _get(resolver, name, override)
     if value is None:
         raise CliError(

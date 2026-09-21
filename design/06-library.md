@@ -58,10 +58,13 @@ class DataPlanner:
 
 
 def build_data_planner(
-    router: OperatorRouter,
-    catalog: DataCatalog,
-    llm_client: LLMClient,
+    data_registry: DataRegistry,
+    *,
+    suites: Sequence[OperatorSuite],
+    model: str,
+    reasoning_effort: str | None = None,
     limits: RunLimits | None = None,
+    llm_client_name: str = "blue_data_planner",
 ) -> DataPlanner: ...
 ```
 
@@ -77,9 +80,10 @@ owns is the loop.
 | `CatalogSearcher` | `llm_client`, `catalog`, `max_search_terms` | Turns an instruction into search terms and searches the registry for entities |
 | `DataPlanner` | The four above, and `limits` | Creates the run state, schedules, chooses repairs, and assembles the result |
 
-Injecting the components is what lets a caller give the three planning components different models, and what lets
-the run loop be tested against four fakes and no provider. Everything a caller injects arrives
-through a constructor; nothing is constructed in place, and nothing reads the environment.
+Injecting the components is what lets a caller give the three planning components different
+models, and what lets the run loop be tested against four fakes and no provider. Everything arrives
+through a constructor, and nothing reads the environment: every value a planner runs on is resolved
+by whoever built it.
 
 Limits are fixed when the planner is built, so `run` and `plan` take a request and nothing else.
 `DataPlanner` is the only object holding `RunLimits`. It builds one `RunCounters` per request, and
@@ -90,9 +94,15 @@ A number in a component's constructor is therefore a number that is not a bound 
 `CatalogSearcher`'s cap on one `DISCOVER` node's search terms is the only one, which is what the
 signature says about it.
 
-`build_data_planner` is the default wiring, and the only thing an adapter needs. Without it the CLI,
-the MCP server, and a future REST API would each repeat the same assembly, and wiring is not
-translation ([07-repo-organization.md](07-repo-organization.md)).
+`build_data_planner` takes values a caller has already resolved and returns a planner ready to
+run. It opens no configuration and reads no environment variable; what it does is construct — the
+model client, the router, the operators each named suite registers, the catalog, and the four
+components — so the CLI, the MCP server, the benchmark harness, and a future REST API each write
+the same five lines instead of the same forty. Wiring is not translation
+([07-repo-organization.md](07-repo-organization.md)).
+
+A caller who wants a different model per component, or a fake component in a test, builds the four
+and calls `DataPlanner` directly.
 
 ### Two operations
 
@@ -105,7 +115,7 @@ rather than feeding one back in.
 | `run` | Plans, covers, executes, repairs, until the request ends | A `RunResult` whose status says how it ended |
 | `plan` | Writes one logical plan and one cover, then stops | A `RunResult` with status `planned` and `answer` set to `None` |
 
-`plan` is what the CLI's `plan query` prints and what a measurement of where pushdown boundaries get
+`plan` is what the CLI's `data query --explain` prints and what a measurement of where pushdown boundaries get
 drawn reads. It spends no operator call. A plan whose first pass ends in a `DISCOVER` node comes
 back as it stands, with no search run, since resolving one would start the second pass.
 
@@ -243,6 +253,9 @@ than its arity has reference inputs, whose rows its instruction mentions without
 @dataclass(frozen=True)
 class PipelineNode:
     ...
+
+    @property
+    def instruction(self) -> str: ...
 
     @property
     def is_operator_node(self) -> bool: ...

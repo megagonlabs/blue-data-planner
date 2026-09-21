@@ -7,24 +7,22 @@ Excluded from testpaths, so it runs only when named, and it calls a real provide
 
 from __future__ import annotations
 
+import os
+
 from blue_data_planner import RunStatus, build_data_planner
-from blue_data_planner.data import DataCatalog, DataRegistry
-from blue_data_planner.llm import resolve_llm_client
-from blue_data_planner.operators import OperatorRouter
-from blue_data_planner.operators.builtin import builtin_operators
+from blue_data_planner.data import DataRegistry
+from blue_data_planner.operators.builtin import BuiltinSuite
+
+MODEL = os.environ.get("BLUE_DATA_PLANNER_MODEL", "openai/gpt-4o-mini")
 
 
 def test_a_request_over_a_registered_source_plans_twice_and_answers(
     sqlite_registry: DataRegistry,
 ) -> None:
     """The first pass only asks the catalog; the second is written against what it found."""
-    client = resolve_llm_client(None)
-    router = OperatorRouter()
     # with_nl2table stays off: the atomic entries answer this request, and the compound one
     # runs a generated program, which open questions 49 and 50 have not settled.
-    for operator in builtin_operators(sqlite_registry, client, with_nl2table=False):
-        router.register(operator)
-    planner = build_data_planner(router, DataCatalog(sqlite_registry), client)
+    planner = build_data_planner(sqlite_registry, suites=[BuiltinSuite()], model=MODEL)
 
     result = planner.run("which cities have stores")
 

@@ -75,7 +75,7 @@ class CatalogSearcher:
     def _ask(self, node: PipelineNode, inputs: DataBundle) -> str:
         return safe_substitute(
             prompt_text("catalog_searcher_turn.md"),
-            instruction=node.attributes.get("instruction", ""),
+            instruction=node.instruction,
             input_tables=_render_tables(inputs),
         )
 
