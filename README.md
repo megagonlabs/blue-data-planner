@@ -31,11 +31,28 @@ read back afterwards and repaired at the level that was actually wrong.
 Agents and UI are out of scope; they come from other Blue repositories or from third-party
 frameworks such as LangChain.
 
+## Documentation
+
+- [`docs/`](docs/README.md) — the documentation set, and what to read when
+- [`docs/quickstart.md`](docs/quickstart.md) — a clean checkout to an answered question
+- [`examples/`](examples/README.md) — four runnable scripts with captured output
+
 ## Layout
 
-| Path | Holds |
-| --- | --- |
-| [`design/`](design/) | The numbered design documents and the decision log |
-| [`lib/`](lib/) | The `blue_data_planner` package and its tests |
-| `platform/cli/`, `platform/mcp/` | Thin adapters over the library's public entry point |
-| `examples/` | Runnable examples that use `lib/` |
+```text
+blue-data-planner/
+├── design/        # the numbered design documents and the decision log
+├── docs/          # documentation for readers outside the project
+├── examples/      # runnable examples over the demo registry
+├── lib/           # the blue_data_planner package, its tests, and its scripts
+├── platform/      # one thin adapter per interface
+└── data/          # benchmark and demo inputs, fetched and built, not committed
+```
+
+## Packages
+
+| Package | Path | Provides |
+| --- | --- | --- |
+| `blue-data-planner` | [`lib/`](lib/README.md) | The planner library |
+| `blue-data-planner-cli` | [`platform/cli/`](platform/cli/README.md) | The `blue-planner` command |
+| `blue-data-planner-mcp` | [`platform/mcp/`](platform/mcp/README.md) | Not built |

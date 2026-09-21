@@ -1,0 +1,11 @@
+request: From the products and suppliers tables, list the supplier company name for every product whose units_in_stock is zero.
+status:  planned
+answer:  None
+
+logical plan
+  discover_product_supplier_data DISCOVER   reads -
+
+cover
+
+operator calls: 0
+failure reason: None
