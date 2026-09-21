@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import os
 import sys
-from collections.abc import Callable, Generator
-from contextlib import contextmanager
+from collections.abc import Callable
+from contextlib import nullcontext
 
 import click
 from blue_data_planner import BlueDataPlannerError, DataPlanner, RunStatus
@@ -21,7 +21,7 @@ from blue_data_planner_cli.config import (
     export_secrets,
     resolve_settings,
 )
-from blue_data_planner_cli.output import error_line, print_answer, print_plan, summary_line
+from blue_data_planner_cli.output import print_answer, print_error, print_plan, summary_line
 from blue_data_planner_cli.profile import profile_group
 from blue_data_planner_cli.trace import print_log
 
@@ -84,7 +84,7 @@ def data_query(
     try:
         _run_query(ctx, request, registry, model, output_format, explain, log, log_limit)
     except CliError as failure:
-        _print_cli_error(Console(stderr=True), failure)
+        print_error(Console(stderr=True), failure.code, failure.description)
         ctx.exit(1)
 
 
@@ -112,7 +112,7 @@ def _run_query(
     errors = Console(stderr=True)
     planner = PLANNER_FACTORY(settings)
     # The indicator is a terminal courtesy: a redirected stream gets none of it.
-    with errors.status(f"Planning {request[:40]}…") if errors.is_terminal else _nothing():
+    with errors.status(f"Planning {request[:40]}…") if errors.is_terminal else nullcontext():
         result = planner.plan(request) if explain else planner.run(request)
     printer = print_plan if explain else print_answer
     printer(result, settings.output_format, Console(), log=log)
@@ -123,25 +123,8 @@ def _run_query(
     errors.print(summary_line(result), markup=False)
     if result.status not in (RunStatus.OK, RunStatus.PLANNED):
         code = RUN_STATUS_CODES.get(result.status, "PLANNER_FAILED")
-        errors.print(
-            error_line(code, result.failure_reason or ""),
-            markup=False,
-            highlight=False,
-            soft_wrap=True,
-        )
+        print_error(errors, code, result.failure_reason or "")
         ctx.exit(1)
-
-
-def _print_cli_error(errors: Console, failure: CliError) -> None:
-    """Print one CliError in the one shape every Blue CLI reports a failure in."""
-    errors.print(
-        error_line(failure.code, failure.description), markup=False, highlight=False, soft_wrap=True
-    )
-
-
-@contextmanager
-def _nothing() -> Generator[None]:
-    yield
 
 
 def main() -> None:
@@ -155,18 +138,11 @@ def main() -> None:
         usage.show()
         sys.exit(2)
     except click.Abort:  # a confirmation the user declined
-        errors.print(
-            error_line("ABORTED", "the command was not confirmed"),
-            markup=False,
-            highlight=False,
-            soft_wrap=True,
-        )
+        print_error(errors, "ABORTED", "the command was not confirmed")
         sys.exit(1)
     except CliError as failure:
-        _print_cli_error(errors, failure)
+        print_error(errors, failure.code, failure.description)
         sys.exit(1)
     except BlueDataPlannerError as defect:
-        errors.print(
-            error_line("INTERNAL_ERROR", str(defect)), markup=False, highlight=False, soft_wrap=True
-        )
+        print_error(errors, "INTERNAL_ERROR", str(defect))
         sys.exit(1)
