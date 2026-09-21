@@ -19,8 +19,9 @@ blue-data-planner/
 ├── design/                            # numbered design documents and the decision log
 ├── docs/
 │   └── internal/                      # background notes, git-ignored
-├── data/
-│   └── tag_bench/                     # benchmark inputs, downloaded and built, not committed
+├── data/                              # benchmark and demo inputs, fetched and built, not committed
+│   ├── tag_bench/
+│   └── demo/                          # Northwind, fetched from blue-data, and the registry over it
 ├── examples/                          # runnable examples that use lib/
 ├── lib/
 │   ├── pyproject.toml
@@ -28,11 +29,14 @@ blue-data-planner/
 │   │   ├── build.sh
 │   │   ├── install.sh              # installs the package into a local environment
 │   │   ├── publish.sh
-│   │   └── tag_bench/
-│   │       ├── fetch_queries.py       # reads a release and writes corrected queries
-│   │       ├── fetch_databases.py     # downloads the five BIRD databases
-│   │       ├── register_databases.py  # builds one registry over them and serializes it
-│   │       └── benchmark/             # runs the queries, scores the answers, reports a run
+│   │   ├── tag_bench/
+│   │   │   ├── fetch_queries.py       # reads a release and writes corrected queries
+│   │   │   ├── fetch_databases.py     # downloads the five BIRD databases
+│   │   │   ├── register_databases.py  # builds one registry over them and serializes it
+│   │   │   └── benchmark/             # runs the queries, scores the answers, reports a run
+│   │   └── demo/
+│   │       ├── fetch_northwind.py     # reads blue-data's pinned revision and fetches its seed
+│   │       └── register_northwind.py  # builds the database and the registry the examples use
 │   ├── src/blue_data_planner/
 │   │   ├── __init__.py                # __version__ and the run path
 │   │   ├── data_planner.py            # DataPlanner, build_data_planner
@@ -130,7 +134,7 @@ selection, and execution never live in an adapter, and an adapter imports only t
 
 A second division cuts through `lib/` itself. Only `lib/src/` is packaged, so `lib/scripts/` and
 `lib/tests/` are build steps and measurements rather than shipped code, which is what lets the
-benchmark scripts hold an import the library does not allow itself.
+benchmark and demo scripts hold an import the library does not allow itself.
 
 ---
 

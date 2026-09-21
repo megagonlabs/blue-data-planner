@@ -1,0 +1,43 @@
+request: Which product categories have the most products?
+status:  ok
+
+discovery
+  searched for: ['products and categories', 'product categories', 'products', 'categories', 'product catalog', 'product-category associations']
+  matched:      /source/northwind/database/northwind/collection/public/entity/products
+  matched:      /source/northwind/database/northwind/collection/public/entity/categories
+  matched:      /source/northwind/database/northwind/collection/public/entity/customers
+  matched:      /source/northwind/database/northwind/collection/public/entity/order_details
+
+the plan that ran
+  find_product_categories      DISCOVER   reads -
+  scan_products                SCAN       reads -
+  count_products_by_category   AGGREGATE  reads scan_products
+  scan_categories              SCAN       reads -
+  attach_category_names        JOIN       reads count_products_by_category, scan_categories
+  find_max_product_count       AGGREGATE  reads attach_category_names
+  keep_categories_with_maximum_count JOIN       reads attach_category_names, find_max_product_count
+  return_categories            RETURN     reads keep_categories_with_maximum_count
+
+per fragment
+  ffe17f70e builtin.join -> ok
+    reads attach_category_names as category_counts_with_names
+    reads find_max_product_count as maximum_product_count
+    rows: 1
+  f58d048fc builtin.aggregate -> ok
+    reads attach_category_names as category_counts_with_names
+    rows: 1
+  f2f51f6de builtin.join -> ok
+    reads count_products_by_category as product_count_rows
+    reads scan_categories as category_rows
+    rows: 7
+  f3d32597f builtin.aggregate -> ok
+    reads scan_products as product_rows
+    rows: 7
+  f0b1a0313 builtin.scan -> ok
+    rows: 8
+  fcc5e546a builtin.scan -> ok
+    rows: 20
+
+logical plans written: 3
+covers written:        3
+operator calls:        9
