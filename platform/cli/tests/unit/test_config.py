@@ -9,6 +9,7 @@ import pytest
 from blue_data.utils.config import (  # pyright: ignore[reportMissingTypeStubs]
     ConfigResolver,
 )
+from blue_data_planner import RunLimits
 from blue_data_planner.operators.adapters.lotus import LotusSuite
 from blue_data_planner.operators.builtin import BuiltinSuite
 
@@ -30,13 +31,28 @@ def test_the_spec_declares_the_planner_parameters_beside_the_family_wide_ones() 
     """One spec answers for both, so a CLI parameter and a family parameter resolve alike."""
     spec = config_spec()
 
-    assert spec["BLUE_DATA_PLANNER_MAX_OPERATOR_CALLS"].default == 30
     assert spec["BLUE_DATA_PLANNER_MAX_OPERATOR_CALLS"].cast == "int"
     assert spec["BLUE_DATA_PLANNER_LOTUS_MODEL"].inherits == ("BLUE_DATA_PLANNER_MODEL",)
     assert spec["BLUE_DATA_PLANNER_REASONING_EFFORT"].default == "low"
     assert spec["BLUE_DATA_PLANNER_LOTUS_REASONING_EFFORT"].default == "none"
     assert spec["OPENAI_API_KEY"].is_secret
     assert spec["BLUE_DATA_CLI_FORMAT"].default == "table"
+
+
+def test_every_bound_a_profile_carries_defaults_to_the_one_the_library_holds() -> None:
+    """A profile and `RunLimits` name the same bounds, so a default changed in one and not the
+    other leaves the CLI and a library caller disagreeing about the same run."""
+    limits = RunLimits()
+
+    declared = {
+        one.name.removeprefix("BLUE_DATA_PLANNER_MAX_").lower(): one.default
+        for one in config_spec()
+        if one.name.startswith("BLUE_DATA_PLANNER_MAX_")
+    }
+
+    # Three bounds a run reports back, so an empty reading would pass for the wrong reason.
+    assert len(declared) == 3
+    assert declared == {field: getattr(limits, field) for field in declared}
 
 
 def test_the_home_directory_follows_the_environment_when_it_names_one() -> None:
