@@ -178,7 +178,8 @@ and `headquarters`. `keep_openings_at_fast_hiring_companies` already holds rows 
 ### How to use `DISCOVER` and `REPLAN`
 
 - Write a `DISCOVER` node for each thing the request needs found in the catalog. Most first passes
-  do only this, because a `SCAN` needs a data path and `DISCOVER` is what reveals it.
+  do only this, because a `SCAN` can only declare columns an entity really holds, and `DISCOVER`
+  is what reveals them.
 - Write a `REPLAN` node when the shape of the remaining work depends on an intermediate result,
   such as a branch you can only choose once you have seen what an earlier step returned.
 

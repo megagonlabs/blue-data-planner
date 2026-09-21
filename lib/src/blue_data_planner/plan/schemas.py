@@ -205,8 +205,9 @@ def _candidate_model(
             Field(
                 default=None,
                 description=(
-                    "Set this only when the fragment cannot produce the columns its root node "
-                    "declares. Leave it unset otherwise."
+                    "Leave this unset, and the fragment owes what its root node declares. Set "
+                    "it only when the operator's stated limitations mean it cannot produce that, "
+                    "naming what it does produce instead."
                 ),
             ),
         ),

@@ -440,8 +440,8 @@ the call succeeded or failed.
 
 Only the fragment's root node has its declaration checked. The declarations on the nodes the
 fragment absorbed are not checked against anything, because a fused call produces no intermediate
-tables to check them against. They are still read twice: the physical planner uses them to write the
-fused instruction, and one of them is checked again if the fragment is later split.
+tables to check them against. One becomes a checked declaration again as soon as a smaller fragment
+makes that node its root.
 
 Neither a zero-row table nor an empty bundle is a failure. Both go on to review like any other
 result.

@@ -18,5 +18,6 @@ the operator that could run it. Pick one, and write:
   target from an auxiliary table without them.
 - An entity path for each `SCAN` the candidate holds, chosen from the entities below.
 
-Leave `required_output_columns` unset unless the fusion cannot produce what the root node
-declares. Setting it is an exception, not the default.
+Leave `required_output_columns` unset, and the fragment owes exactly what its root node
+declares. Set it only when the operator's stated limitations mean it cannot produce that, and
+then name what it does produce.
