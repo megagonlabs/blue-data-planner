@@ -55,7 +55,7 @@ def test_the_limits_carry_the_defaults_a_deployment_documents() -> None:
     assert limits.parameter_repairs == 3
     assert limits.cover_repairs == 2
     assert limits.failure_replans == 2
-    assert limits.control_replans == 2
+    assert limits.control_replans == 5
     assert not hasattr(limits, "fragment_repairs")
 
 

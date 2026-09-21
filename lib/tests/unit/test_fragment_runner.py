@@ -179,6 +179,55 @@ def test_running_out_of_parameter_repairs_escalates() -> None:
     assert result.failure_reason == "still no"
 
 
+def test_a_repeated_parameter_attempt_does_not_spend_a_second_operator_call() -> None:
+    """The budget only bills the two distinct parameter sets a run of three attempts wrote,
+    not the repeat written in between them."""
+    client = ScriptedLLMClient(
+        [
+            {"predicate": "a"},
+            a_review("reject", "no"),
+            {"predicate": "a"},
+            {"predicate": "b"},
+            a_review("accept"),
+        ]
+    )
+    run_counters = counters(repairs=2)
+
+    result = a_runner_over(client, keeps_everything).run(
+        a_fragment(), Conversation(), ROWS, run_counters
+    )
+
+    assert result.status is RunStatus.OK
+    assert run_counters.operator_calls == 2
+    # The repeat stays visible in what the model is shown next, rather than being handled
+    # silently: the third parameter call sees the refusal among its prior turns.
+    assert any(
+        "repeat an earlier attempt" in content
+        for conversation_snapshot in client.conversations
+        for _, content in conversation_snapshot
+    )
+
+
+def test_a_fragment_exhausted_by_repeated_parameters_ends_in_repair_rather_than_accepted() -> None:
+    """The q45 regression: a rejection followed by identical parameters must not let a stale
+    review of the same output launder into an acceptance."""
+    client = ScriptedLLMClient(
+        [
+            {"predicate": "a"},
+            a_review("reject", "no"),
+            {"predicate": "a"},
+            a_review("accept"),
+        ]
+    )
+
+    result = a_runner_over(client, keeps_everything).run(
+        a_fragment(), Conversation(), ROWS, counters(repairs=1)
+    )
+
+    assert result.status is RunStatus.NEEDS_REPAIR
+    assert "repeat" in (result.failure_reason or "")
+
+
 def test_a_review_asking_for_a_replan_comes_back_with_its_assessment() -> None:
     """No arrangement of operators will do this, so the reason is what the planner reads."""
     runner = a_runner(

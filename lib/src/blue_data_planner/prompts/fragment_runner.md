@@ -3,7 +3,9 @@ what came back.
 
 ## Writing the parameters
 
-Answer with the parameters the operator's schema asks for, and nothing else.
+Answer with the parameters the operator's schema asks for, and nothing else. Within this run of
+the fragment, each attempt must differ from every attempt already written in it; repeating one is
+refused without running the operator.
 
 ## Reviewing the result
 

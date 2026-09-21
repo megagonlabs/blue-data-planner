@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 from pydantic import BaseModel, ConfigDict, Field
 
 from blue_data_planner.data import DataCatalog
@@ -27,6 +29,13 @@ from blue_data_planner.types import (
 )
 
 SAMPLE_ROWS = 5
+
+_REPEAT_MESSAGE = (
+    "Those parameters repeat an earlier attempt for this fragment. The operator was not "
+    "called: a repeat is not worth spending one of the run's scarce operator calls on the "
+    "chance the operator answers differently this time. Write a set that differs from every "
+    "attempt tried so far."
+)
 
 
 class Review(BaseModel):
@@ -96,12 +105,22 @@ class FragmentRunner:
         last_assessment: str | None = None
         last_error: str | None = None
         last_result: ExecutionResult | None = None
+        attempted_parameters: list[dict[str, Any]] = []
+        repeated_last_attempt = False
         for _spent in range(counters.limits.parameter_repairs + 1):
             # by_alias=True: belt-and-braces alongside schemas.py's serialize_by_alias, which
             # is what actually makes a predicate's and/or/not survive this dump.
             parameters = self._llm_client.complete_structured(
                 conversation, operator.parameter_schema
             ).model_dump(by_alias=True)
+            # Unhashable (a predicate's and/or/not nests further dicts), so `in` over the list
+            # of dicts already tried, rather than a set, is the check.
+            if parameters in attempted_parameters:
+                repeated_last_attempt = True
+                conversation.turns.append(Turn(role="user", content=_REPEAT_MESSAGE))
+                continue
+            attempted_parameters.append(parameters)
+            repeated_last_attempt = False
             result = execute_physical_operator(
                 operator, parameters, inputs, fragment.required_output_columns, counters
             )
@@ -119,8 +138,9 @@ class FragmentRunner:
                     Turn(
                         role="user",
                         content=(
-                            "That call failed. Write the parameters again, fixing this and "
-                            f"nothing else.\n\n{result.error.message}"
+                            "That call failed. Write different parameters that fix this "
+                            "problem, changing nothing beyond what fixing it requires.\n\n"
+                            f"{result.error.message}"
                         ),
                     )
                 )
@@ -136,14 +156,21 @@ class FragmentRunner:
                 Turn(
                     role="user",
                     content=(
-                        "Write the parameters again, answering what the review said and "
-                        "nothing else."
+                        "Write different parameters that answer what the review said, "
+                        "changing nothing beyond what answering it requires."
                     ),
                 )
             )
-        return _ended(
-            RunStatus.NEEDS_REPAIR, last_result, _escalation_reason(last_assessment, last_error)
-        )
+        reason = _escalation_reason(last_assessment, last_error)
+        if repeated_last_attempt:
+            # Append rather than replace: the cover repair has none of these turns in front
+            # of it, so the last real assessment or error is what it rebinds an operator on.
+            # Naming the repeat on top says why no later attempt improved on it.
+            reason = (
+                f"{reason}; the last attempt repeated parameters already tried, so it never "
+                "reached the operator"
+            )
+        return _ended(RunStatus.NEEDS_REPAIR, last_result, reason)
 
     def _review(
         self,

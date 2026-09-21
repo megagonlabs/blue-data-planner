@@ -250,7 +250,7 @@ class RunLimits:
     # How many times an operator failure may trigger a replan before the run gives up.
     failure_replans: int = 2
     # How many times a control node may trigger a replan before the run gives up.
-    control_replans: int = 2
+    control_replans: int = 5
 
 
 @dataclass

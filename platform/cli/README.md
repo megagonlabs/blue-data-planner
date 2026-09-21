@@ -54,7 +54,7 @@ blue-planner profile config OPENAI_API_KEY
 | `BLUE_DATA_PLANNER_ENABLE_NL2TABLE` | bool | `false` | No |
 | `BLUE_DATA_PLANNER_MAX_OPERATOR_CALLS` | int | `30` | No |
 | `BLUE_DATA_PLANNER_MAX_FAILURE_REPLANS` | int | `2` | No |
-| `BLUE_DATA_PLANNER_MAX_CONTROL_REPLANS` | int | `2` | No |
+| `BLUE_DATA_PLANNER_MAX_CONTROL_REPLANS` | int | `5` | No |
 | `BLUE_DATA_CLI_FORMAT` | str | `table` | No |
 | `BLUE_DATA_CLI_TRACE_MAX_FRAGMENT_ROWS` | int | `5` | No |
 | `BLUE_DATA_CLI_TRACE_MAX_OUTPUT_CHARS` | int | `80` | No |
@@ -166,7 +166,7 @@ cover 1   logical plan 8c4a71d0
   f2
       reason  the review said a keyword match cannot tell a healthcare employer apart
 
-counters  operator calls 7/30   failure replans 0/2   control replans 1/2
+counters  operator calls 7/30   failure replans 0/2   control replans 1/5
 model     11 calls   $0.42
 ```
 

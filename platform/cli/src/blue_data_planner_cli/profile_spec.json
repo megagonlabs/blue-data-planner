@@ -62,7 +62,7 @@
     "cast": "int"
   },
   "BLUE_DATA_PLANNER_MAX_CONTROL_REPLANS": {
-    "default": 2,
+    "default": 5,
     "prompt": "Times a control node may trigger a replan",
     "required": false,
     "cast": "int"
