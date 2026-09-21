@@ -55,24 +55,6 @@
     "required": false,
     "cast": "int"
   },
-  "BLUE_DATA_PLANNER_MAX_PLAN_CORRECTIONS": {
-    "default": 5,
-    "prompt": "Times a plan may be written again after validation turned one down",
-    "required": false,
-    "cast": "int"
-  },
-  "BLUE_DATA_PLANNER_MAX_PARAMETER_REPAIRS": {
-    "default": 3,
-    "prompt": "Times one fragment may write its parameters again",
-    "required": false,
-    "cast": "int"
-  },
-  "BLUE_DATA_PLANNER_MAX_COVER_REPAIRS": {
-    "default": 2,
-    "prompt": "Times one logical plan may be covered again",
-    "required": false,
-    "cast": "int"
-  },
   "BLUE_DATA_PLANNER_MAX_FAILURE_REPLANS": {
     "default": 2,
     "prompt": "Times an operator failure may trigger a replan",

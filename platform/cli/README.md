@@ -53,9 +53,6 @@ blue-planner profile config OPENAI_API_KEY
 | `BLUE_DATA_PLANNER_LOTUS_MAX_ROWS` | int | `5000` | No |
 | `BLUE_DATA_PLANNER_ENABLE_NL2TABLE` | bool | `false` | No |
 | `BLUE_DATA_PLANNER_MAX_OPERATOR_CALLS` | int | `30` | No |
-| `BLUE_DATA_PLANNER_MAX_PLAN_CORRECTIONS` | int | `5` | No |
-| `BLUE_DATA_PLANNER_MAX_PARAMETER_REPAIRS` | int | `3` | No |
-| `BLUE_DATA_PLANNER_MAX_COVER_REPAIRS` | int | `2` | No |
 | `BLUE_DATA_PLANNER_MAX_FAILURE_REPLANS` | int | `2` | No |
 | `BLUE_DATA_PLANNER_MAX_CONTROL_REPLANS` | int | `2` | No |
 | `BLUE_DATA_CLI_FORMAT` | str | `table` | No |
@@ -71,8 +68,10 @@ value that litellm still forwards to the provider, disabling reasoning rather th
 parameter. `BLUE_DATA_PLANNER_LOTUS_REASONING_EFFORT` does not inherit from
 `BLUE_DATA_PLANNER_REASONING_EFFORT`: it defaults to `none` on its own, since a LOTUS operation
 spends many calls per row and gains little from added reasoning. A `MAX_` name is a bound on one
-run; `--registry` and `--model` are the two settings an operator changes between one invocation and
-the next, so each has its own command option in addition to its profile parameter.
+run, and the three that carry one are the three a run reports back in its counters; the bounds that
+reset inside a request reach a run from a caller that builds the planner itself.
+`--registry` and `--model` are the two settings an operator changes between one invocation and the
+next, so each has its own command option in addition to its profile parameter.
 
 The family-wide spec also contributes `ANTHROPIC_API_KEY`, `BLUE_DATA_LLM_PROVIDER`, and
 `BLUE_DATA_LLM_MODEL`, all visible through `profile inspect`; `BLUE_DATA_LLM_MODEL` is required, so

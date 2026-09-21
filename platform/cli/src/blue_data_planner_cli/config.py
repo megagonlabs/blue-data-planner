@@ -42,15 +42,6 @@ _REASONING_EFFORT_OFF: str = "off"
 
 OUTPUT_FORMATS: tuple[str, ...] = ("table", "json")
 
-_LIMIT_FIELDS: tuple[str, ...] = (
-    "operator_calls",
-    "plan_corrections",
-    "parameter_repairs",
-    "cover_repairs",
-    "failure_replans",
-    "control_replans",
-)
-
 _SPEC_PATH: Path = Path(__file__).with_name("profile_spec.json")
 
 
@@ -141,11 +132,13 @@ def resolve_settings(
         ),
         lotus_max_rows=int(_get(resolver, "BLUE_DATA_PLANNER_LOTUS_MAX_ROWS")),
         enable_nl2table=bool(_get(resolver, "BLUE_DATA_PLANNER_ENABLE_NL2TABLE")),
+        # The three bounds a run reports back are the three a profile sets. The rest reset
+        # inside a request, so nothing reports what one spent against them, and they keep the
+        # RunLimits defaults unless a library caller sets them.
         limits=RunLimits(
-            **{
-                field: int(_get(resolver, f"BLUE_DATA_PLANNER_MAX_{field.upper()}"))
-                for field in _LIMIT_FIELDS
-            }
+            operator_calls=int(_get(resolver, "BLUE_DATA_PLANNER_MAX_OPERATOR_CALLS")),
+            failure_replans=int(_get(resolver, "BLUE_DATA_PLANNER_MAX_FAILURE_REPLANS")),
+            control_replans=int(_get(resolver, "BLUE_DATA_PLANNER_MAX_CONTROL_REPLANS")),
         ),
         output_format=output_format,
         trace_max_fragment_rows=int(_get(resolver, "BLUE_DATA_CLI_TRACE_MAX_FRAGMENT_ROWS")),

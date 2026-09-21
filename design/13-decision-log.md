@@ -818,8 +818,8 @@ no interactive user to configure a profile, and a client that launches it as a s
 environment, so the file stays useful there.
 
 **Consequences:** The CLI package depends on `blue-data` directly, which the library reaches only
-through `data/`. Every bound on a run is a profile parameter rather than a flag, so a request that
-needs a different budget selects a different profile. A demonstration configures itself with
+through `data/`. A bound a run reports back is a profile parameter rather than a flag, so a
+request that needs a different budget selects a different profile. A demonstration configures itself with
 `profile config` rather than with a `.env` file in the checkout.
 
 ---

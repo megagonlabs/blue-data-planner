@@ -116,7 +116,7 @@ above the exported environment.
 | `BLUE_DATA_PLANNER_LOTUS_REASONING_EFFORT` | `none` | The reasoning effort LOTUS's own model spends per call, passed to `lotus_operators`, and independent of `BLUE_DATA_PLANNER_REASONING_EFFORT` |
 | `BLUE_DATA_PLANNER_LOTUS_MAX_ROWS` | `5000` | The rows a LOTUS operation accepts before refusing the call, passed to `lotus_operators` |
 | `BLUE_DATA_PLANNER_ENABLE_NL2TABLE` | `false` | Whether `builtin.nl2table` is registered, which writes a Python program and runs it (ADR-020) |
-| `BLUE_DATA_PLANNER_MAX_*` | The `RunLimits` defaults | One per bound, listed in [section 5](#5-request-limits) |
+| `BLUE_DATA_PLANNER_MAX_*` | The `RunLimits` defaults | One per bound a run reports back, listed in [section 5](#5-request-limits) |
 | `BLUE_DATA_CLI_FORMAT` | `table` | The CLI's default output format |
 | `BLUE_DATA_CLI_TRACE_MAX_FRAGMENT_ROWS` | `5` | The rows of a fragment's result the trace shows |
 | `BLUE_DATA_CLI_TRACE_MAX_OUTPUT_CHARS` | `80` | The characters each line of a fragment's output is cut to |
@@ -152,8 +152,10 @@ directory it names.
 `RunLimits` holds every bound the run loop obeys, and it is set once, when the planner is built
 (ADR-014). Nothing overrides one per request. An operator enforcing a bound on work it repeats
 inside a single call holds that number itself, and a deployment does not set it. The values in force
-are the defaults on `RunLimits`, and a deployment raises or lowers one by setting
-`BLUE_DATA_PLANNER_MAX_` plus the field's name ([section 4](#4-configuration)).
+are the defaults on `RunLimits`. A deployment raises or lowers one of the three a run reports
+back by setting `BLUE_DATA_PLANNER_MAX_` plus the field's name
+([section 4](#4-configuration)); the other three reach a run from a caller that builds the
+planner itself.
 
 Where a bound is counted decides whether a result can report it. Three are counted across a whole
 request and are the fields of `RunCounters`. The other three are spent inside a loop and start again

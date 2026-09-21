@@ -73,14 +73,15 @@ def a_captured_llm_client(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
     return captured
 
 
-def test_the_six_bounds_reach_run_limits(tmp_path: Path) -> None:
-    """A profile is where a deployment raises a bound, so each one has to arrive intact."""
+def test_the_bounds_a_profile_carries_reach_run_limits(tmp_path: Path) -> None:
+    """A profile is where a deployment raises a bound a run reports back, so each has to arrive
+    intact, and a bound no parameter names keeps its RunLimits default."""
     resolver = a_resolver_over(tmp_path, BLUE_DATA_PLANNER_MAX_OPERATOR_CALLS="7")
 
     settings: PlannerSettings = resolve_settings(resolver)
 
     assert settings.limits.operator_calls == 7
-    assert settings.limits.plan_corrections == 5  # the unset bounds keep the RunLimits default
+    assert settings.limits.plan_corrections == 5  # no parameter names it, so the default stands
 
 
 def test_the_reasoning_effort_parameter_resolves_from_the_profile(tmp_path: Path) -> None:

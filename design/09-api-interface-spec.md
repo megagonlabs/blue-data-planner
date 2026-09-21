@@ -271,9 +271,11 @@ so no command accepts one.
 (ADR-032). The first decides how a result is written; the second decides whether the run behind it
 is reported. The two caps take effect where `--trace` does.
 
-Every bound on a run is a profile parameter rather than a flag: a bound is configuration, and
-configuration belongs to a profile (ADR-028). `--registry` and `--model` are the two an operator
-changes between one invocation and the next.
+A bound a run reports back is a profile parameter rather than a flag: a bound is configuration,
+and configuration belongs to a profile (ADR-028). The three that reset inside a request carry no
+parameter, since no number says what a request spent against them, and a caller who needs one
+builds the planner itself. `--registry` and `--model` are the two settings an operator changes
+between one invocation and the next.
 
 `nl` is not one of the formats. An answer is a set of rows, and phrasing rows as a sentence is
 behavior no library operation has (ADR-029).
@@ -468,9 +470,6 @@ variable > profile > default** — and `profile inspect` reports the tier that s
 | `BLUE_DATA_PLANNER_LOTUS_MAX_ROWS` | int | `5000` | |
 | `BLUE_DATA_PLANNER_ENABLE_NL2TABLE` | bool | `false` | |
 | `BLUE_DATA_PLANNER_MAX_OPERATOR_CALLS` | int | `30` | |
-| `BLUE_DATA_PLANNER_MAX_PLAN_CORRECTIONS` | int | `5` | |
-| `BLUE_DATA_PLANNER_MAX_PARAMETER_REPAIRS` | int | `3` | |
-| `BLUE_DATA_PLANNER_MAX_COVER_REPAIRS` | int | `2` | |
 | `BLUE_DATA_PLANNER_MAX_FAILURE_REPLANS` | int | `2` | |
 | `BLUE_DATA_PLANNER_MAX_CONTROL_REPLANS` | int | `2` | |
 | `BLUE_DATA_CLI_FORMAT` | str | `table` | |
