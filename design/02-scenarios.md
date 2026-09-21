@@ -365,8 +365,12 @@ wrong instead of guessing at why a model answered the way it did.
 
 ```python
 from blue_data_planner import build_data_planner
+from blue_data_planner.data import open_registry
+from blue_data_planner.operators.builtin import BuiltinSuite
 
-planner = build_data_planner(router=router, catalog=catalog, llm_client=client, limits=limits)
+planner = build_data_planner(
+    open_registry(registry_path), suites=[BuiltinSuite()], model=model, limits=limits
+)
 result = planner.run("Which Bay Area data scientist postings are at healthcare companies?")
 
 result.answer                       # the final rows

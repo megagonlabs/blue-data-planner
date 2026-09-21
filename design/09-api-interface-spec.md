@@ -63,50 +63,46 @@ is to add one rather than to import a private module.
 
 ### Assembly
 
-Nothing is constructed in place and nothing reads the environment, so a caller builds the parts and
-passes them in.
+Nothing reads the environment: every value a planner runs on is resolved by whoever builds it. What
+building it takes is one call.
 
 ```python
 from pathlib import Path
 
 from blue_data_planner import RunLimits, build_data_planner
-from blue_data_planner.data import DataCatalog, open_registry
-from blue_data_planner.llm import LLMClient
-from blue_data_planner.operators import OperatorRouter
-from blue_data_planner.operators.adapters.blue import blue_operators
-from blue_data_planner.operators.adapters.lotus import lotus_operators
-from blue_data_planner.operators.builtin import builtin_operators
-
-data_registry = open_registry(Path("registry.json"))
-llm_client = LLMClient(name="planner", properties={"planner.model": "openai/gpt-4o"})
-
-router = OperatorRouter()
-# operator_registry is a blue-data-ops OperatorRegistry, built the way that package documents
-for operator in blue_operators(operator_registry, data_registry):
-    router.register(operator)
-for operator in lotus_operators("openai/gpt-4o"):  # empty when LOTUS is not installed
-    router.register(operator)
-# with_nl2table enables the entry that writes and runs a Python program (ADR-020)
-for operator in builtin_operators(data_registry, llm_client, with_nl2table=True):
-    router.register(operator)
+from blue_data_planner.data import open_registry
+from blue_data_planner.operators.adapters.blue import BlueSuite
+from blue_data_planner.operators.adapters.lotus import LotusSuite
+from blue_data_planner.operators.builtin import BuiltinSuite
 
 planner = build_data_planner(
-    router=router,
-    catalog=DataCatalog(data_registry),
-    llm_client=llm_client,
-    limits=RunLimits(...),
+    open_registry(Path("registry.json")),
+    suites=[
+        BlueSuite(),
+        LotusSuite(),  # registers nothing where LOTUS is not installed
+        # with_nl2table enables the entry that writes and runs a Python program (ADR-020)
+        BuiltinSuite(with_nl2table=True),
+    ],
+    model="openai/gpt-4o",
+    limits=RunLimits(),
 )
 ```
 
-`data_registry` is a `blue-data` registry, obtained from `data/` and passed back into it. A caller
-reads nothing off it and constructs no source from it. `open_registry` is the one way in: a registry
-is populated by `blue-data` before it reaches this package (ADR-003), so a caller that assembled one
-itself passes that one in place of this call. It reaches a suite adapter unchanged, because a suite
-that reads data takes a registry of its own (ADR-004).
+The first argument is a `blue-data` registry, obtained from `data/` and passed back into it. A
+caller reads nothing off it and constructs no source from it. `open_registry` is the one way in: a
+registry is populated by `blue-data` before it reaches this package (ADR-003), so a caller that
+assembled one itself passes that one in place of this call. It reaches a suite adapter unchanged,
+because a suite that reads data takes a registry of its own (ADR-004).
 
-`build_data_planner` is the default wiring, and what every adapter calls. It constructs the three
-planning components and the discovery step, and hands `DataPlanner` the limits. A caller who wants a
-different model per component, or a fake component in a test, builds them and calls the constructor:
+A suite arrives as an object rather than a name, and each one holds the options that suite takes, so
+this signature names no suite and grows no argument when one is added
+([06-library.md](06-library.md#what-each-suite-offers)). A caller holding configured names calls
+`operator_suite` for each, which raises `UnknownOperatorSuiteError` on a name no suite answers to.
+
+`build_data_planner` constructs the model client from `model` and `reasoning_effort`, registers what
+each suite returns, wraps the registry in a `DataCatalog`, and hands `DataPlanner` its four
+components and the limits. A caller who wants a different model per component, or a fake component
+in a test, builds the four and calls the constructor:
 
 ```python
 from blue_data_planner import DataPlanner

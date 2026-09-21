@@ -11,6 +11,8 @@ from blue_data.utils.config import (  # pyright: ignore[reportMissingTypeStubs]
     ConfigResolver,
     ProfileStore,
 )
+from blue_data_planner.operators.adapters.lotus import LotusSuite
+from blue_data_planner.operators.builtin import BuiltinSuite
 
 from blue_data_planner_cli import config
 from blue_data_planner_cli.config import (
@@ -60,16 +62,15 @@ def a_registry_file(tmp_path: Path) -> Path:
     return path
 
 
-def a_captured_llm_client(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
-    """Replace LLMClient with a double that records its constructor arguments, and return them."""
+def a_captured_build(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
+    """Replace build_data_planner with a double recording what the CLI handed it."""
     captured: dict[str, Any] = {}
 
-    class _CapturingLLMClient:
-        def __init__(self, name: str, properties: dict[str, Any]) -> None:
-            captured["name"] = name
-            captured["properties"] = properties
+    def _build(data_registry: Any, **arguments: Any) -> Any:
+        captured.update(arguments)
+        return None
 
-    monkeypatch.setattr(config, "LLMClient", _CapturingLLMClient)
+    monkeypatch.setattr(config, "build_data_planner", _build)
     return captured
 
 
@@ -150,11 +151,13 @@ def test_a_profile_set_lotus_model_stands_apart_from_the_planners_own(tmp_path: 
 
 
 def test_an_unknown_operator_suite_is_a_configuration_error(tmp_path: Path) -> None:
-    """A name outside the three would otherwise register nothing and fail much later."""
+    """The library refuses a name no suite registers, and a configured name that no suite
+    answers to is the user's mistake to be told about rather than a planner defect."""
     resolver = a_resolver_over(tmp_path, BLUE_DATA_PLANNER_OPERATORS="builtin,sqlmagic")
+    settings = resolve_settings(resolver)
 
     with pytest.raises(CliError) as raised:
-        resolve_settings(resolver)
+        assemble_planner(settings)
 
     assert raised.value.code == "CONFIG_INVALID"
     assert "sqlmagic" in raised.value.description
@@ -194,70 +197,41 @@ def test_a_registry_that_does_not_parse_fails_before_a_planner_is_built(tmp_path
     assert raised.value.code == "REGISTRY_UNREADABLE"
 
 
-def test_the_assembled_planners_llm_client_names_its_model_under_the_clients_own_prefix(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+@pytest.mark.parametrize(("configured", "handed_over"), [("low", "low"), ("off", None), ("", None)])
+def test_the_reasoning_effort_a_profile_carries_reaches_the_library_or_is_dropped(
+    configured: str, handed_over: str | None, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """A bare "model" key never matches api_properties' <prefix>.* filter, so every LLM call
-    the assembled planner makes would fail with "no model configured"."""
-    captured = a_captured_llm_client(monkeypatch)
-    resolver = a_resolver_over(
-        tmp_path, BLUE_DATA_PLANNER_OPERATORS="builtin", BLUE_DATA_PLANNER_MODEL="gpt-4o"
-    )
-    settings = resolve_settings(resolver)
+    """A user on a model that rejects the field configures "off", and the library reads None as
+    the instruction to leave the parameter out."""
+    captured = a_captured_build(monkeypatch)
+    resolver = a_resolver_over(tmp_path, BLUE_DATA_PLANNER_OPERATORS="builtin")
+    settings = dataclasses.replace(resolve_settings(resolver), reasoning_effort=configured)
 
     assemble_planner(settings)
 
-    assert captured["properties"][f"{captured['name']}.model"] == "gpt-4o"
+    assert captured["reasoning_effort"] == handed_over
 
 
-def test_the_assembled_planners_llm_client_carries_a_set_reasoning_effort_under_the_same_prefix(
+def test_the_suites_a_profile_names_reach_the_library_holding_the_values_it_resolved(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """reasoning_effort reaches litellm.completion() only through the <prefix>.* extraction, the
-    same route settings.model already takes."""
-    captured = a_captured_llm_client(monkeypatch)
+    """Which suites a deployment registers, and the options each takes, are profile values, so
+    the objects the library is handed are where those values land."""
+    captured = a_captured_build(monkeypatch)
     resolver = a_resolver_over(
         tmp_path,
-        BLUE_DATA_PLANNER_OPERATORS="builtin",
-        BLUE_DATA_PLANNER_MODEL="gpt-4o",
-        BLUE_DATA_PLANNER_REASONING_EFFORT="low",
+        BLUE_DATA_PLANNER_OPERATORS="builtin,lotus",
+        BLUE_DATA_PLANNER_ENABLE_NL2TABLE="true",
+        BLUE_DATA_PLANNER_LOTUS_MAX_ROWS="10",
     )
     settings = resolve_settings(resolver)
 
     assemble_planner(settings)
 
-    assert captured["properties"][f"{captured['name']}.reasoning_effort"] == "low"
-
-
-def test_the_off_sentinel_set_through_a_profile_omits_reasoning_effort_from_the_llm_client(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """A user switching to a model that rejects the field sets "off" through `profile config`,
-    and that value, unlike an empty string, survives ConfigResolver and reaches assemble_planner."""
-    captured = a_captured_llm_client(monkeypatch)
-    resolver = a_resolver_over(
-        tmp_path, BLUE_DATA_PLANNER_OPERATORS="builtin", BLUE_DATA_PLANNER_REASONING_EFFORT="off"
-    )
-    settings = resolve_settings(resolver)
-
-    assemble_planner(settings)
-
-    assert settings.reasoning_effort == "off"
-    assert f"{captured['name']}.reasoning_effort" not in captured["properties"]
-
-
-def test_a_blank_reasoning_effort_is_left_out_of_the_llm_clients_properties(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """Unit-level check of assemble_planner's own conditional: an empty string, which no real
-    profile or environment value can produce, still has to drop the key rather than forward it."""
-    captured = a_captured_llm_client(monkeypatch)
-    resolver = a_resolver_over(tmp_path, BLUE_DATA_PLANNER_OPERATORS="builtin")
-    settings = dataclasses.replace(resolve_settings(resolver), reasoning_effort="")
-
-    assemble_planner(settings)
-
-    assert f"{captured['name']}.reasoning_effort" not in captured["properties"]
+    assert captured["suites"] == [
+        BuiltinSuite(with_nl2table=True),
+        LotusSuite(model=settings.model, max_rows=10, reasoning_effort="none"),
+    ]
 
 
 def test_a_missing_required_parameter_names_what_to_set(tmp_path: Path) -> None:

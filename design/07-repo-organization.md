@@ -161,9 +161,10 @@ none of them from any other. The five directories that remain each name somethin
 tell apart from the rest — a data shape, a plan checked without running it, one operator call, an
 operator suite, a data source, a model provider.
 
-Wiring has no module of its own for the same reason. `build_data_planner` receives the router, the
-catalog, and the model client and constructs only the three planning components and the discovery step, so it
-names the same things `DataPlanner` does and belongs in the same file (ADR-002).
+Wiring has no module of its own for the same reason. `build_data_planner` takes resolved values
+and constructs what a run needs — the model client, the router, each suite's operators, the catalog,
+the three planning components, and the discovery step — so it names the same things `DataPlanner`
+does and belongs in the same file (ADR-002).
 
 ### What the root exports
 

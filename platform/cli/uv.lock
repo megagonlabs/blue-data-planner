@@ -247,7 +247,6 @@ version = "0.1.0"
 source = { editable = "." }
 dependencies = [
     { name = "blue-data" },
-    { name = "blue-data-ops" },
     { name = "blue-data-planner" },
     { name = "click" },
     { name = "rich" },
@@ -263,7 +262,6 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "blue-data", git = "ssh://git@github.com/megagon-internal/blue-data.git?subdirectory=lib&rev=b2ca35214114156bdef50143d1ee7c05f42b6451" },
-    { name = "blue-data-ops", git = "ssh://git@github.com/megagon-internal/blue-data-ops.git?subdirectory=lib&rev=a161d9eaf8511fab3820b50a6dd00cba235ec8a8" },
     { name = "blue-data-planner", editable = "../../lib" },
     { name = "click", specifier = ">=8" },
     { name = "pyright", marker = "extra == 'dev'" },

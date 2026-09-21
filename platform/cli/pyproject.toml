@@ -10,9 +10,6 @@ readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
     "blue-data-planner==0.1.0",
-    # Pinned exactly, matching lib/: the Blue operator adapter binds against what each
-    # operator declares, so a floating version would change which suites a profile can name.
-    "blue-data-ops==2.10.0",
     "blue-data>=0.1.0",
     "click>=8",
     "rich>=13",
@@ -27,6 +24,8 @@ blue-planner = "blue_data_planner_cli.commands:main"
 [tool.uv.sources]
 # Local development installs. Replace with a package index at release, the way lib/ documents.
 blue-data-planner = { path = "../../lib", editable = true }
+# blue-data-ops reaches this environment through blue-data-planner, which is the only package
+# that imports it, and the source stays here because uv resolves a path dependency's own.
 blue-data-ops = { git = "ssh://git@github.com/megagon-internal/blue-data-ops.git", subdirectory = "lib", rev = "a161d9eaf8511fab3820b50a6dd00cba235ec8a8" }
 blue-data = { git = "ssh://git@github.com/megagon-internal/blue-data.git", subdirectory = "lib", rev = "b2ca35214114156bdef50143d1ee7c05f42b6451" }
 
