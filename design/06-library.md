@@ -255,6 +255,9 @@ class PipelineNode:
     ...
 
     @property
+    def instruction(self) -> str: ...
+
+    @property
     def is_operator_node(self) -> bool: ...
 
 

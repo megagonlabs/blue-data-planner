@@ -48,10 +48,9 @@ def print_plan(
     for plan in result.pipeline.logical_plans.values():
         nodes = Table("Node", "Kind", "Instruction")
         for node in plan.nodes:
-            # The instruction is model-authored, so it goes through Text like every other
-            # cell in _as_table: a plain string with square brackets would be read as markup.
-            instruction = str(node.attributes.get("instruction", ""))
-            nodes.add_row(Text(node.id), Text(str(node.kind)), Text(instruction))
+            # Every cell goes through Text like the ones in _as_table: the instruction is
+            # model-authored, and a plain string with square brackets would read as markup.
+            nodes.add_row(Text(node.id), Text(str(node.kind)), Text(node.instruction))
         console.print(nodes)
     for cover in result.pipeline.physical_plans.values():
         fragments = Table("Fragment", "Nodes", "Operator")

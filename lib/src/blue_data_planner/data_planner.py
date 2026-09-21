@@ -189,7 +189,7 @@ class DataPlanner:
         """Resolve every control node ready at once, then return to the logical planner."""
         reasons: list[str] = []
         for node in state.ready_control_nodes():
-            reasons.append(str(node.attributes.get("instruction", "")))
+            reasons.append(node.instruction)
             if node.kind is not ControlOperator.DISCOVER:
                 continue
             found = self._catalog_searcher.search(

@@ -58,8 +58,8 @@ class CliError(Exception):
 
 
 @dataclass(frozen=True)
-class PlannerSettings:
-    """Every value one invocation resolved, before anything is built from them."""
+class ResolvedSettings:
+    """Every value one invocation resolved, before anything is built or printed from them."""
 
     registry_path: Path
     model: str
@@ -90,7 +90,7 @@ def resolve_settings(
     model: str | None = None,
     output_format: str | None = None,
     log_limit: int | None = None,
-) -> PlannerSettings:
+) -> ResolvedSettings:
     """Resolve every setting one invocation needs, raising CliError on the first that fails."""
     registry_path = Path(str(_require(resolver, "BLUE_DATA_REGISTRY_PATH", registry)))
     if not registry_path.is_file():
@@ -102,7 +102,7 @@ def resolve_settings(
     )
     planner_model = str(_require(resolver, "BLUE_DATA_PLANNER_MODEL", model))
     chosen_format = resolve_output_format(resolver, output_format)
-    return PlannerSettings(
+    return ResolvedSettings(
         registry_path=registry_path,
         model=planner_model,
         reasoning_effort=str(_get(resolver, "BLUE_DATA_PLANNER_REASONING_EFFORT") or ""),
@@ -139,7 +139,7 @@ def resolve_output_format(resolver: ConfigResolver, override: str | None = None)
     return chosen
 
 
-def assemble_planner(settings: PlannerSettings) -> DataPlanner:
+def assemble_planner(settings: ResolvedSettings) -> DataPlanner:
     """Open the registry and build the planner over the suites this profile named."""
     suites = _suites(settings)
     try:
@@ -160,7 +160,7 @@ def assemble_planner(settings: PlannerSettings) -> DataPlanner:
     )
 
 
-def _suites(settings: PlannerSettings) -> list[OperatorSuite]:
+def _suites(settings: ResolvedSettings) -> list[OperatorSuite]:
     """Return one suite per configured name, holding the values this profile resolved."""
     try:
         return [_configured(name, settings) for name in settings.operator_suites]
@@ -168,7 +168,7 @@ def _suites(settings: PlannerSettings) -> list[OperatorSuite]:
         raise CliError("CONFIG_INVALID", str(error)) from error
 
 
-def _configured(name: str, settings: PlannerSettings) -> OperatorSuite:
+def _configured(name: str, settings: ResolvedSettings) -> OperatorSuite:
     if name == "builtin":
         return BuiltinSuite(with_nl2table=settings.enable_nl2table)
     if name == "lotus":

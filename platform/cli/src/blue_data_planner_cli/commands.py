@@ -4,17 +4,15 @@ from __future__ import annotations
 
 import os
 import sys
-from collections.abc import Callable
 from contextlib import nullcontext
 
 import click
-from blue_data_planner import BlueDataPlannerError, DataPlanner, RunStatus
+from blue_data_planner import BlueDataPlannerError, RunStatus
 from rich.console import Console
 
 from blue_data_planner_cli import __version__
 from blue_data_planner_cli.config import (
     CliError,
-    PlannerSettings,
     assemble_planner,
     build_resolver,
     export_secrets,
@@ -54,9 +52,6 @@ def cli(ctx: click.Context, profile_name: str | None) -> None:
 
 
 cli.add_command(profile_group)
-
-# The one name a test replaces, so no test assembles a planner over a real registry.
-PLANNER_FACTORY: Callable[[PlannerSettings], DataPlanner] = assemble_planner
 
 
 @cli.group("data")
@@ -115,7 +110,7 @@ def _run_query(
         log_limit=log_limit,
     )
     errors = Console(stderr=True)
-    planner = PLANNER_FACTORY(settings)
+    planner = assemble_planner(settings)
     # The indicator is a terminal courtesy: a redirected stream gets none of it.
     with errors.status(f"Planning {request[:40]}…") if errors.is_terminal else nullcontext():
         result = planner.plan(request) if explain else planner.run(request)

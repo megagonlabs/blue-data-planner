@@ -266,19 +266,15 @@ def _traced_node(plan: LogicalPlan, node_id: str, fragment: PhysicalPlanFragment
     return TracedNode(
         id=node_id,
         kind=str(node.kind),
-        instruction=_instruction(node),
+        instruction=node.instruction,
         scan_source=fragment.scan_sources.get(node_id),
     )
 
 
 def _traced_discover_node(node: PipelineNode) -> TracedNode:
     return TracedNode(
-        id=node.id, kind=str(node.kind), instruction=_instruction(node), scan_source=None
+        id=node.id, kind=str(node.kind), instruction=node.instruction, scan_source=None
     )
-
-
-def _instruction(node: PipelineNode) -> str:
-    return str(node.attributes.get("instruction", ""))
 
 
 def _fragment_detail(fragment: TracedFragment, max_output_chars: int) -> list[str]:

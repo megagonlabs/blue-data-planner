@@ -17,7 +17,7 @@ from blue_data_planner.operators.builtin import BuiltinSuite
 from blue_data_planner_cli import config
 from blue_data_planner_cli.config import (
     CliError,
-    PlannerSettings,
+    ResolvedSettings,
     assemble_planner,
     build_resolver,
     cli_home,
@@ -79,7 +79,7 @@ def test_the_bounds_a_profile_carries_reach_run_limits(tmp_path: Path) -> None:
     intact, and a bound no parameter names keeps its RunLimits default."""
     resolver = a_resolver_over(tmp_path, BLUE_DATA_PLANNER_MAX_OPERATOR_CALLS="7")
 
-    settings: PlannerSettings = resolve_settings(resolver)
+    settings: ResolvedSettings = resolve_settings(resolver)
 
     assert settings.limits.operator_calls == 7
     assert settings.limits.plan_corrections == 5  # no parameter names it, so the default stands
@@ -89,7 +89,7 @@ def test_the_reasoning_effort_parameter_resolves_from_the_profile(tmp_path: Path
     """A deployment sets this the same way it sets any other bound, without being asked for it."""
     resolver = a_resolver_over(tmp_path, BLUE_DATA_PLANNER_REASONING_EFFORT="low")
 
-    settings: PlannerSettings = resolve_settings(resolver)
+    settings: ResolvedSettings = resolve_settings(resolver)
 
     assert settings.reasoning_effort == "low"
 
@@ -98,7 +98,7 @@ def test_the_lotus_reasoning_effort_parameter_resolves_from_the_profile(tmp_path
     """LOTUS's own reasoning effort is set through a profile the same way the main one is."""
     resolver = a_resolver_over(tmp_path, BLUE_DATA_PLANNER_LOTUS_REASONING_EFFORT="low")
 
-    settings: PlannerSettings = resolve_settings(resolver)
+    settings: ResolvedSettings = resolve_settings(resolver)
 
     assert settings.lotus_reasoning_effort == "low"
 
@@ -109,7 +109,7 @@ def test_an_unset_lotus_reasoning_effort_resolves_to_none_regardless_of_the_main
     """The default stands on its own: it does not inherit BLUE_DATA_PLANNER_REASONING_EFFORT."""
     resolver = a_resolver_over(tmp_path, BLUE_DATA_PLANNER_REASONING_EFFORT="high")
 
-    settings: PlannerSettings = resolve_settings(resolver)
+    settings: ResolvedSettings = resolve_settings(resolver)
 
     assert settings.lotus_reasoning_effort == "none"
 
@@ -120,7 +120,7 @@ def test_a_command_option_outranks_the_profile(tmp_path: Path) -> None:
     other.write_text("[]")
     resolver = a_resolver_over(tmp_path)
 
-    settings: PlannerSettings = resolve_settings(
+    settings: ResolvedSettings = resolve_settings(
         resolver, registry=str(other), output_format="json"
     )
 
@@ -133,7 +133,7 @@ def test_the_model_option_reaches_the_lotus_suite_as_well_as_the_planner(tmp_pat
     BLUE_DATA_PLANNER_MODEL, so its own resolution never sees the option."""
     resolver = a_resolver_over(tmp_path)
 
-    settings: PlannerSettings = resolve_settings(resolver, model="openai/gpt-4o-mini")
+    settings: ResolvedSettings = resolve_settings(resolver, model="openai/gpt-4o-mini")
 
     assert settings.model == "openai/gpt-4o-mini"
     assert settings.lotus_model == "openai/gpt-4o-mini"
@@ -147,7 +147,7 @@ def test_a_profile_set_lotus_model_stands_apart_from_the_planners_own(tmp_path: 
         BLUE_DATA_PLANNER_LOTUS_MODEL="openai/gpt-4o-mini",
     )
 
-    settings: PlannerSettings = resolve_settings(resolver)
+    settings: ResolvedSettings = resolve_settings(resolver)
 
     assert settings.model == "openai/gpt-4o"
     assert settings.lotus_model == "openai/gpt-4o-mini"

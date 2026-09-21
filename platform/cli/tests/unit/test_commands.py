@@ -30,18 +30,19 @@ from click.testing import CliRunner
 
 from blue_data_planner_cli import commands
 from blue_data_planner_cli.commands import cli
-from blue_data_planner_cli.config import PlannerSettings
+from blue_data_planner_cli.config import ResolvedSettings
 from tests.doubles.components import FakeDataPlanner, a_run_result
 
 
 def a_planner_answering(monkeypatch: pytest.MonkeyPatch, result: RunResult) -> FakeDataPlanner:
-    """Replace the assembled planner with a double returning `result`."""
+    """Replace the assembled planner with a double returning `result`, so no test reaches a
+    model or assembles a planner over a real registry."""
     double = FakeDataPlanner(result)
 
-    def _factory(settings: PlannerSettings) -> FakeDataPlanner:
+    def _assemble(settings: ResolvedSettings) -> FakeDataPlanner:
         return double
 
-    monkeypatch.setattr(commands, "PLANNER_FACTORY", _factory)
+    monkeypatch.setattr(commands, "assemble_planner", _assemble)
     return double
 
 
@@ -211,11 +212,11 @@ def an_environment_seen_by_the_planner(monkeypatch: pytest.MonkeyPatch) -> dict[
     """Return the mapping the process environment held when the planner was assembled."""
     seen: dict[str, str] = {}
 
-    def _factory(settings: PlannerSettings) -> FakeDataPlanner:
+    def _assemble(settings: ResolvedSettings) -> FakeDataPlanner:
         seen.update(os.environ)
         return FakeDataPlanner(a_run_result())
 
-    monkeypatch.setattr(commands, "PLANNER_FACTORY", _factory)
+    monkeypatch.setattr(commands, "assemble_planner", _assemble)
     return seen
 
 

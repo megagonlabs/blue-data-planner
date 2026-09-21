@@ -85,6 +85,11 @@ class PipelineNode:
     required_output_columns: list[OutputColumn] = field(default_factory=list[OutputColumn])
 
     @property
+    def instruction(self) -> str:
+        # A RETURN node carries `columns` instead, so it has no instruction to read.
+        return str(self.attributes.get("instruction", ""))
+
+    @property
     def is_operator_node(self) -> bool:
         # RETURN is a member of LogicalOperator, but it names the columns the answer carries
         # rather than a step an operator runs, so it is excluded even though the isinstance
