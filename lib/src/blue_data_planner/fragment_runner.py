@@ -221,7 +221,6 @@ def _render_result(fragment: PhysicalPlanFragment, result: ExecutionResult) -> s
     lines = [
         "The call returned. Review it.",
         f"Instruction: {fragment.instruction}",
-        f"Steps this call absorbed: {sorted(fragment.logical_node_ids)}",
         f"Rows: {result.row_count}",
     ]
     if summary is not None:
