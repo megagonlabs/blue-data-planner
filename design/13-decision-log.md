@@ -886,29 +886,37 @@ the opt-in tier that remains there is `end_to_end/`, one real request through a 
 
 ## ADR-032 — Format and Detail Are Separate Options
 
-**Decision:** `--format` decides how the CLI writes a result, and `--trace` decides whether the run
-behind it is reported. Without `--trace`, both formats write the result alone — the answer, or the plan where
-`--explain` asked for one — and `--format json` wraps it in the run's status, failure reason,
-counters, and model spend. With `--trace`, the run is reported on standard error, walking each cover
-fragment by fragment, and a fragment's result appears as a `TableSummary` capped by
-`--trace-max-fragment-rows`. A fragment's rows leave the process as that summary
+**Decision:** `--format` decides how the CLI writes a result, and `--log` decides whether the run
+behind it is reported. Without `--log`, both formats write the result alone — the answer, or the
+plan where `--explain` asked for one — and `--format json` writes it as `RunResult.to_dict`, which
+carries the run's status, failure reason, how each fragment ended, counters, and model spend with
+it. With `--log`, the run is reported cover by cover: on standard error as one table per cover under
+`--format table`, and under `--format json` as the plan versions added to the document standard
+output already carries. A fragment's rows leave the process as a `TableSummary` either way
 ([10-data-model.md](10-data-model.md#5-shapes-that-leave-the-process)).
 
-**Rationale:** The trace is there so a person can judge whether to believe the answer. A planner's
+**Rationale:** The log is there so a person can judge whether to believe the answer. A planner's
 answer is the end of a chain of model decisions, and a row count does not say whether that chain was
 sound, while the source that was read, the instruction each step carried, and the shape that came
 back do. How much of a run is reported is a different question from how a result is written, which
 is what `--format` answers, and tying the two together makes a caller who wants a machine-readable
-answer take every intermediate table with it.
+answer take every plan version with it.
 
 A summary answers that question at a size both a screen and a context window hold. A fragment's
 result is as large as the data that fragment read, while the answer is already on standard output,
 so carrying those rows a second time adds nothing the summary has not said.
 
-**Consequences:** `RunResult` reaches a caller in full only through the library, so a consumer
-needing every intermediate table embeds it rather than parsing CLI output. A fragment's failure is
-read from its summary and its error, and what a review said about it from the conversation the
-library returns. Open question 56 asks whether the CLI should be able to write the whole record to a
+A JSON document says all of this in structured fields rather than in the lines a table is drawn
+from. A reader parsing indented English to find out how a fragment ended has a worse path to it
+than the person reading the table, which is backwards, so the document carries the records and the
+table is the one place they are rendered.
+
+**Consequences:** `--log` and `--log-limit` are the family's own names for the option and its cap,
+so `BLUE_DATA_CLI_LOG_LIMIT` is what the cap resolves from and this CLI declares no parameter of its
+own for it. The rows a fragment's summary shows are a fixed sample rather than an option, since a
+sample shows the shape of a result and nobody tunes five. `RunResult` reaches a caller in full only
+through the library, so a consumer needing every intermediate table embeds it rather than parsing
+CLI output. Open question 56 asks whether the CLI should be able to write the whole record to a
 file.
 
 ---

@@ -1,4 +1,4 @@
-"""The answer, the plan, the JSON a run prints, and the one line an error prints as."""
+"""The answer, the plan, the JSON document a run prints, and the one line an error prints as."""
 
 from __future__ import annotations
 
@@ -10,10 +10,12 @@ from rich.table import Column, Table
 from rich.text import Text
 
 
-def print_answer(result: RunResult, output_format: str, console: Console) -> None:
-    """Print the answer as a table, or the run's answer payload as JSON."""
+def print_answer(
+    result: RunResult, output_format: str, console: Console, *, log: bool = False
+) -> None:
+    """Print the answer as a table, or the whole run as one JSON document."""
     if output_format == "json":
-        console.print_json(data=answer_payload(result))
+        console.print_json(data=run_json(result, explain=False, log=log))
         return
     for position, table_rows in enumerate(result.answer or [], start=1):
         if len(result.answer or []) > 1:
@@ -21,10 +23,12 @@ def print_answer(result: RunResult, output_format: str, console: Console) -> Non
         console.print(_as_table(table_rows))
 
 
-def print_plan(result: RunResult, output_format: str, console: Console) -> None:
+def print_plan(
+    result: RunResult, output_format: str, console: Console, *, log: bool = False
+) -> None:
     """Print the logical plan and the cover a planning run produced."""
     if output_format == "json":
-        console.print_json(data=plan_payload(result))
+        console.print_json(data=run_json(result, explain=True, log=log))
         return
     for plan in result.pipeline.logical_plans.values():
         nodes = Table("Node", "Kind", "Instruction")
@@ -45,14 +49,14 @@ def print_plan(result: RunResult, output_format: str, console: Console) -> None:
         console.print(fragments)
 
 
-def answer_payload(result: RunResult) -> dict[str, Any]:
-    """Return the JSON form of a run asked for an answer."""
-    return _without(result.to_dict(), "pipeline", "results")
-
-
-def plan_payload(result: RunResult) -> dict[str, Any]:
-    """Return the JSON form of a run asked for a plan."""
-    return _without(result.to_dict(), "answer", "results")
+def run_json(result: RunResult, *, explain: bool, log: bool) -> dict[str, Any]:
+    """Return the JSON document standard output carries."""
+    payload = result.to_dict()
+    # Every plan version the request produced sits under `pipeline`, so it grows with what the
+    # request tried. It travels where it is the result asked for, or where the log was.
+    if not (explain or log):
+        del payload["pipeline"]
+    return payload
 
 
 def summary_line(result: RunResult) -> str:
@@ -67,10 +71,6 @@ def summary_line(result: RunResult) -> str:
 def error_line(code: str, description: str) -> str:
     """Return the one shape every Blue CLI reports a failure in."""
     return f"ERROR: {code} {description}"
-
-
-def _without(payload: dict[str, Any], *keys: str) -> dict[str, Any]:
-    return {key: value for key, value in payload.items() if key not in keys}
 
 
 def _as_table(rows: list[dict[str, Any]]) -> Table:

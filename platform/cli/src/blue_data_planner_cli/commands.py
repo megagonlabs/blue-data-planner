@@ -8,7 +8,7 @@ from collections.abc import Callable, Generator
 from contextlib import contextmanager
 
 import click
-from blue_data_planner import BlueDataPlannerError, DataPlanner, RunResult, RunStatus
+from blue_data_planner import BlueDataPlannerError, DataPlanner, RunStatus
 from rich.console import Console
 
 from blue_data_planner_cli import __version__
@@ -23,7 +23,7 @@ from blue_data_planner_cli.config import (
 )
 from blue_data_planner_cli.output import error_line, print_answer, print_plan, summary_line
 from blue_data_planner_cli.profile import profile_group
-from blue_data_planner_cli.trace import print_trace, trace_payload
+from blue_data_planner_cli.trace import print_log
 
 RUN_STATUS_CODES: dict[RunStatus, str] = {
     RunStatus.INVALID_PLAN: "INVALID_PLAN",
@@ -65,18 +65,9 @@ def data_group() -> None:
 @click.option("--model", default=None, help="The litellm model string every component uses.")
 @click.option("--format", "output_format", type=click.Choice(OUTPUT_FORMATS), default=None)
 @click.option("--explain", is_flag=True, help="Write the plan and stop, running nothing.")
-@click.option("--trace", is_flag=True, help="Report what the run did, after the run.")
+@click.option("--log", is_flag=True, help="Report what the run did, after the run.")
 @click.option(
-    "--trace-max-fragment-rows",
-    type=int,
-    default=None,
-    help="Rows of a fragment's result the trace shows.",
-)
-@click.option(
-    "--trace-max-output-chars",
-    type=int,
-    default=None,
-    help="Characters each line of a fragment's output is cut to.",
+    "--log-limit", type=int, default=None, help="Characters each line of the log is cut to."
 )
 @click.pass_context
 def data_query(
@@ -86,23 +77,12 @@ def data_query(
     model: str | None,
     output_format: str | None,
     explain: bool,
-    trace: bool,
-    trace_max_fragment_rows: int | None,
-    trace_max_output_chars: int | None,
+    log: bool,
+    log_limit: int | None,
 ) -> None:
     """Plan the request, run it, and print the answer. With --explain, print the plan instead."""
     try:
-        _run_query(
-            ctx,
-            request,
-            registry,
-            model,
-            output_format,
-            explain,
-            trace,
-            trace_max_fragment_rows,
-            trace_max_output_chars,
-        )
+        _run_query(ctx, request, registry, model, output_format, explain, log, log_limit)
     except CliError as failure:
         _print_cli_error(Console(stderr=True), failure)
         ctx.exit(1)
@@ -115,28 +95,31 @@ def _run_query(
     model: str | None,
     output_format: str | None,
     explain: bool,
-    trace: bool,
-    trace_max_fragment_rows: int | None,
-    trace_max_output_chars: int | None,
+    log: bool,
+    log_limit: int | None,
 ) -> None:
     resolver = build_resolver(ctx.obj["profile"], ctx.obj["environ"])
     # litellm and the provider SDKs read their keys from the process environment, so what a
     # profile resolved has to be applied to it before a planner makes its first call.
     os.environ.update(export_secrets(resolver))
     settings = resolve_settings(
-        resolver, registry=registry, model=model, output_format=output_format
+        resolver,
+        registry=registry,
+        model=model,
+        output_format=output_format,
+        log_limit=log_limit,
     )
-    max_fragment_rows = _chosen(trace_max_fragment_rows, settings.trace_max_fragment_rows)
-    max_output_chars = _chosen(trace_max_output_chars, settings.trace_max_output_chars)
     errors = Console(stderr=True)
     planner = PLANNER_FACTORY(settings)
     # The indicator is a terminal courtesy: a redirected stream gets none of it.
     with errors.status(f"Planning {request[:40]}…") if errors.is_terminal else _nothing():
         result = planner.plan(request) if explain else planner.run(request)
     printer = print_plan if explain else print_answer
-    printer(result, settings.output_format, Console())
-    if trace:
-        _print_trace(errors, result, settings.output_format, max_fragment_rows, max_output_chars)
+    printer(result, settings.output_format, Console(), log=log)
+    # Under --format json the log is two more keys in the document on standard output, so
+    # there is nothing left to draw here.
+    if log and settings.output_format == "table":
+        print_log(result, errors, max_output_chars=settings.log_limit)
     errors.print(summary_line(result), markup=False)
     if result.status not in (RunStatus.OK, RunStatus.PLANNED):
         code = RUN_STATUS_CODES.get(result.status, "PLANNER_FAILED")
@@ -147,29 +130,6 @@ def _run_query(
             soft_wrap=True,
         )
         ctx.exit(1)
-
-
-def _chosen(given: int | None, configured: int) -> int:
-    """Return the value the command was given, letting zero stand rather than the profile's."""
-    return configured if given is None else given
-
-
-def _print_trace(
-    errors: Console,
-    result: RunResult,
-    output_format: str,
-    max_fragment_rows: int,
-    max_output_chars: int,
-) -> None:
-    if output_format == "json":
-        payload = trace_payload(
-            result, max_fragment_rows=max_fragment_rows, max_output_chars=max_output_chars
-        )
-        errors.print_json(data=payload)
-        return
-    print_trace(
-        result, errors, max_fragment_rows=max_fragment_rows, max_output_chars=max_output_chars
-    )
 
 
 def _print_cli_error(errors: Console, failure: CliError) -> None:

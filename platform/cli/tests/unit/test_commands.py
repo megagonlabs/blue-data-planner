@@ -88,7 +88,7 @@ def test_json_output_holds_nothing_but_the_result(tmp_path: Path, planner: FakeD
     assert payload["status"] == "ok"
 
 
-def test_the_trace_prints_only_when_it_is_asked_for_and_never_on_standard_output(
+def test_the_log_prints_only_when_it_is_asked_for_and_never_on_standard_output(
     tmp_path: Path, planner: FakeDataPlanner
 ) -> None:
     """Diagnostics are opt-in, and they stay out of what a pipe carries."""
@@ -96,7 +96,7 @@ def test_the_trace_prints_only_when_it_is_asked_for_and_never_on_standard_output
     runner = CliRunner()
 
     quiet = runner.invoke(cli, ["data", "query", "q"], env=env)
-    logged = runner.invoke(cli, ["data", "query", "q", "--trace"], env=env)
+    logged = runner.invoke(cli, ["data", "query", "q", "--log"], env=env)
 
     assert "counters" not in quiet.stderr
     assert "counters" in logged.stderr
@@ -125,7 +125,7 @@ def test_a_run_that_did_not_reach_an_answer_exits_one(
     assert result.exit_code == 1
 
 
-def test_a_failure_reason_holding_square_brackets_is_traced_whole(
+def test_a_failure_reason_holding_square_brackets_is_logged_whole(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """A model writes the reason, so a bracket in it must neither be read nor eaten as markup."""
@@ -135,11 +135,11 @@ def test_a_failure_reason_holding_square_brackets_is_traced_whole(
     )
 
     result = CliRunner().invoke(
-        cli, ["data", "query", "q", "--trace"], env=a_configured_environment(tmp_path)
+        cli, ["data", "query", "q", "--log"], env=a_configured_environment(tmp_path)
     )
 
     assert "nope [/red] x" in result.stderr
-    assert "operator_failed" in result.stderr  # the summary still follows the trace
+    assert "operator_failed" in result.stderr  # the summary still follows the log
 
 
 def test_a_run_that_did_not_finish_reports_its_status_as_the_error_code(
@@ -236,25 +236,25 @@ def test_a_key_held_only_in_the_profile_reaches_the_environment_a_model_call_rea
     assert seen["OPENAI_API_KEY"] == "sk-stored"
 
 
-@pytest.mark.parametrize(("cap", "shows_the_row"), [("0", False), ("5", True)])
-def test_the_row_cap_the_command_was_given_decides_the_sample_rows_the_trace_shows(
-    cap: str, shows_the_row: bool, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+def test_the_log_limit_on_the_command_line_outranks_the_profile(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Zero is a cap a user can ask for, and the profile's own cap must not stand in for it."""
+    """Every setting follows one order — option, environment, profile, default — and the cap on
+    the log's own lines is a setting like any other."""
     pipeline = a_planned_pipeline()
     a_planner_answering(
         monkeypatch, a_run_result(pipeline=pipeline, results=a_scan_of_one_row(pipeline))
     )
+    env = a_configured_environment(tmp_path)
+    a_profile_holding(env["BLUE_DATA_PLANNER_HOME"], BLUE_DATA_CLI_LOG_LIMIT="200")
+    runner = CliRunner()
 
-    result = CliRunner().invoke(
-        cli,
-        ["data", "query", "q", "--trace", "--trace-max-fragment-rows", cap],
-        env=a_configured_environment(tmp_path),
-    )
+    profiled = runner.invoke(cli, ["data", "query", "q", "--log"], env=env)
+    overridden = runner.invoke(cli, ["data", "query", "q", "--log", "--log-limit", "20"], env=env)
 
-    assert result.exit_code == 0
-    assert "blue.select" in result.stderr  # the trace itself still prints
-    assert ("Lowell" in result.stderr) is shows_the_row
+    assert "blue.select" in profiled.stderr  # the log itself still prints
+    assert "Lowell" in profiled.stderr
+    assert "Lowell" not in overridden.stderr
 
 
 def a_process_environment(monkeypatch: pytest.MonkeyPatch, variables: dict[str, str]) -> None:

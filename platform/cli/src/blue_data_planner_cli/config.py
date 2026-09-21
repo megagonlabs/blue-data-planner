@@ -71,8 +71,7 @@ class PlannerSettings:
     enable_nl2table: bool
     limits: RunLimits
     output_format: str
-    trace_max_fragment_rows: int
-    trace_max_output_chars: int
+    log_limit: int
 
 
 def _effective_reasoning_effort(value: str) -> str | None:
@@ -90,6 +89,7 @@ def resolve_settings(
     registry: str | None = None,
     model: str | None = None,
     output_format: str | None = None,
+    log_limit: int | None = None,
 ) -> PlannerSettings:
     """Resolve every setting one invocation needs, raising CliError on the first that fails."""
     registry_path = Path(str(_require(resolver, "BLUE_DATA_REGISTRY_PATH", registry)))
@@ -130,8 +130,7 @@ def resolve_settings(
             control_replans=int(_get(resolver, "BLUE_DATA_PLANNER_MAX_CONTROL_REPLANS")),
         ),
         output_format=chosen_format,
-        trace_max_fragment_rows=int(_get(resolver, "BLUE_DATA_CLI_TRACE_MAX_FRAGMENT_ROWS")),
-        trace_max_output_chars=int(_get(resolver, "BLUE_DATA_CLI_TRACE_MAX_OUTPUT_CHARS")),
+        log_limit=int(_get(resolver, "BLUE_DATA_CLI_LOG_LIMIT", log_limit)),
     )
 
 
@@ -176,7 +175,7 @@ def _configured(name: str, settings: PlannerSettings) -> OperatorSuite:
     return operator_suite(name)
 
 
-def _get(resolver: ConfigResolver, name: str, override: str | None = None) -> Any:
+def _get(resolver: ConfigResolver, name: str, override: str | int | None = None) -> Any:
     # An override is resolved rather than returned, so a command-line path is expanded
     # the same way a profile one is.
     try:
@@ -194,7 +193,7 @@ def export_secrets(resolver: ConfigResolver) -> dict[str, str]:
         raise CliError("CONFIG_INVALID", str(error)) from error
 
 
-def _require(resolver: ConfigResolver, name: str, override: str | None = None) -> Any:
+def _require(resolver: ConfigResolver, name: str, override: str | int | None = None) -> Any:
     value = _get(resolver, name, override)
     if value is None:
         raise CliError(

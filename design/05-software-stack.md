@@ -174,7 +174,7 @@ its behavior needs, not an install.
 | Profiles, configuration resolution, and secret storage | `blue-data` |
 
 Click matches `platform/cli/` in the sibling Blue repositories, and Rich renders the progress
-indicator, the trace, and the result rows that [02-scenarios.md](02-scenarios.md) shows.
+indicator, the log, and the result rows that [02-scenarios.md](02-scenarios.md) shows.
 `blue-data` carries the configuration engine every Blue CLI resolves its profile through, so one
 set of rules governs precedence and secret handling across the family (ADR-028). The CLI resolves
 values and hands them to `build_data_planner`, so which operator suites exist and how each is

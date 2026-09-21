@@ -251,7 +251,7 @@ mapping, exit codes. Planning and execution are the library's tests, not repeate
 | --- | --- |
 | MCP | Each tool's argument schema; the response shape, including `conversations` collapsed to calls and cost; a run that did not finish returning success with a status in the payload; an unknown tool and a malformed argument returning `isError` |
 | MCP threading | A tool that runs a plan goes through `asyncio.to_thread` rather than blocking the event loop |
-| CLI | Argument and option parsing through Click's `CliRunner`; a profile's parameters resolved in the documented order, with a secret masked rather than printed; the result on standard output and everything else on standard error, with `--format` deciding how the result is written and `--trace` what is reported about the run; each error code and each of the three exit codes |
+| CLI | Argument and option parsing through Click's `CliRunner`; a profile's parameters resolved in the documented order, with a secret masked rather than printed; the result on standard output and everything else on standard error, with `--format` deciding how the result is written and `--log` what is reported about the run; each error code and each of the three exit codes |
 
 Each platform package keeps its own doubles under `tests/doubles/`: `lib/tests/` ships in no
 package, and a platform package's tests resolve imports against its own root. An adapter test

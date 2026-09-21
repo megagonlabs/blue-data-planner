@@ -262,15 +262,14 @@ so no command accepts one.
 | `--model NAME` | `data query` | The litellm model string every component uses |
 | `--format table\|json` | Anything printing a result | How the result is written, `table` by default |
 | `--explain` | `data query` | Write the plan for the request and stop, running nothing |
-| `--trace` | `data query` | Report what the run did, after the run |
-| `--trace-max-fragment-rows N` | `data query` | The rows of a fragment's result the trace shows, 5 by default |
-| `--trace-max-output-chars N` | `data query` | The characters each line of a fragment's output is cut to, 80 by default |
+| `--log` | `data query` | Report what the run did, after the run |
+| `--log-limit N` | `data query` | The characters each line of the log is cut to, 80 by default |
 | `--confirm` | `profile remove` | Answer the confirmation ahead of time |
 | `--version` | The root | The package version |
 
-`--format` and `--trace` choose different things, and each is set independently of the other
+`--format` and `--log` choose different things, and each is set independently of the other
 (ADR-032). The first decides how a result is written; the second decides whether the run behind it
-is reported. The two caps take effect where `--trace` does.
+is reported. `--log-limit` takes effect where `--log` does.
 
 A bound a run reports back is a profile parameter rather than a flag: a bound is configuration,
 and configuration belongs to a profile (ADR-028). The three that reset inside a request carry no
@@ -284,37 +283,40 @@ behavior no library operation has (ADR-029).
 ### Output
 
 Standard output carries the command's result: the answer, or the plan where `--explain` asked for
-one. Standard error carries the progress indicator, the trace, the closing summary, and errors,
-so redirecting standard output captures the result alone.
+one. Standard error carries the progress indicator, the log, the closing summary, and errors, so
+redirecting standard output captures the result alone.
 
 `--format table` renders each table of the result under its own column names, and a terminal gets a
-progress indicator naming the stage that is running. `--format json` writes the same result as one
-JSON object, wrapped in the run's status, its failure reason, its counters, and what its model calls
-cost. That wrapper holds what `--format table` leaves to the closing summary on standard error: a
-JSON document is read where no terminal is attached, so it carries its own account of how the run
-ended.
+progress indicator naming the stage that is running. `--format json` writes one document, and it is
+`RunResult.to_dict` ([10](10-data-model.md#5-shapes-that-leave-the-process)): the result asked
+for, how the run ended, how each fragment ended, what the run spent, and what its model calls
+cost. A JSON document is read where no terminal is attached, so it carries in the document what
+`--format table` leaves to the closing summary on standard error. Every plan version the request
+produced is the one part it holds back, since that grows with what the request tried: it travels
+where `--explain` asked for the plan as the result, or where `--log` asked for the run behind the
+answer.
 
-`--trace` reports what the run did, on standard error, cover by cover. A cover's fragments come in
+`--log` reports what the run did, cover by cover. A cover's fragments come in
 the order a run reaches them, and each names the operator that ran it, the logical nodes it covered
 with the instruction each carried, the source each scan read, the fragments whose output it read,
 and how it ended. A fragment that ran carries its ending — a row count where the review kept the
 result, and the ending's name with the objection where it did not — and one the pass never got to
 reads as "not reached under this cover" (ADR-033). A `DISCOVER` node leads the cover its plan was
 written for, with what its search matched, since a search resolves before the plan reading it
-exists. Work a later cover asks for again is named rather than traced twice, because an accepted
-result was not run again (ADR-024). A run that failed closes the trace with one more line naming
+exists. Work a later cover asks for again is named rather than reported twice, because an accepted
+result was not run again (ADR-024). A run that failed closes the log with one more line naming
 why.
 
 What a narrow column cannot hold follows its cover, under the id of the fragment it belongs to: the
 source each scan read, the objection a review raised, the columns of the first table the fragment
-produced, and the first rows of it. `--trace-max-fragment-rows` caps those rows and
-`--trace-max-output-chars` cuts each line of the columns and the rows. Neither cap reaches an
-instruction, a source path, a match, or an objection, so each of those is read whole however long it
-is.
+produced, and the first rows of it. `--log-limit` cuts each line of the columns and the rows. It
+reaches neither an instruction, a source path, a match, nor an objection, so each of those is read
+whole however long it is.
 
-`--format` decides how the trace is drawn as well as how the result is written. Under
-`--format table` each cover is one table, which is what lets an instruction wrap inside its own
-column. Under `--format json` the trace is one JSON object holding the same walk as lines.
+Where the log is drawn is what `--format` decides. Under `--format table` it is drawn on standard
+error, one table per cover, which is what lets an instruction wrap inside its own column. Under
+`--format json` it is the two keys it adds to the document on standard output, so standard error
+carries the closing summary alone.
 
 ```text
 cover 1   logical plan 8c4a71d0
@@ -476,13 +478,11 @@ variable > profile > default** — and `profile inspect` reports the tier that s
 | `BLUE_DATA_PLANNER_MAX_FAILURE_REPLANS` | int | `2` | |
 | `BLUE_DATA_PLANNER_MAX_CONTROL_REPLANS` | int | `2` | |
 | `BLUE_DATA_CLI_FORMAT` | str | `table` | |
-| `BLUE_DATA_CLI_TRACE_MAX_FRAGMENT_ROWS` | int | `5` | |
-| `BLUE_DATA_CLI_TRACE_MAX_OUTPUT_CHARS` | int | `80` | |
+| `BLUE_DATA_CLI_LOG_LIMIT` | int | `80` | |
 
-The first row and `BLUE_DATA_CLI_FORMAT` are family-wide parameters, declared once for every Blue
-CLI rather than by `blue-planner` alone. The two `BLUE_DATA_CLI_TRACE_` parameters take the family's
-prefix because they govern how this CLI prints, and belong to `blue-planner`, since a fragment is
-this component's unit of work. `BLUE_DATA_PLANNER_MODEL` reads
+The first row, `BLUE_DATA_CLI_FORMAT`, and `BLUE_DATA_CLI_LOG_LIMIT` are family-wide parameters,
+declared once for every Blue CLI rather than by `blue-planner` alone.
+`BLUE_DATA_PLANNER_MODEL` reads
 `BLUE_DATA_LLM_MODEL` where it is unset, and
 `BLUE_DATA_PLANNER_LOTUS_MODEL` reads `BLUE_DATA_PLANNER_MODEL` the same way. Setting
 `BLUE_DATA_PLANNER_REASONING_EFFORT` to `off` omits the parameter from the LLM call, for a model

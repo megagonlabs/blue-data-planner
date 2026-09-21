@@ -1,13 +1,13 @@
-"""What a run did: the records behind the trace, and the two ways the CLI shows them."""
+"""What a run did: the records behind the log, and the table the CLI draws them in."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any
 
 from blue_data_planner import RunResult
 from blue_data_planner.plan import signatures
 from blue_data_planner.types import (
+    SUMMARY_SAMPLE_ROWS,
     ControlOperator,
     DiscoveryResult,
     FragmentResult,
@@ -68,39 +68,14 @@ class TracedCover:
     fragments: list[TracedFragment]
 
 
-def traced_covers(result: RunResult, max_fragment_rows: int) -> list[TracedCover]:
+def traced_covers(result: RunResult) -> list[TracedCover]:
     """Return one record per cover the request produced."""
-    return _Walk(result, max_fragment_rows).covers()
+    return _Walk(result).covers()
 
 
-def trace_lines(result: RunResult, *, max_fragment_rows: int, max_output_chars: int) -> list[str]:
-    """Return the run's trace as lines, for a run whose result is written as JSON."""
-    lines: list[str] = []
-    for cover in traced_covers(result, max_fragment_rows):
-        lines.extend(["", f"cover {cover.position}   logical plan {cover.logical_plan_id}"])
-        for discovery in cover.discoveries:
-            lines.extend(["", *_discovery_lines(discovery)])
-        for fragment in cover.fragments:
-            lines.extend(["", *_fragment_lines(fragment, max_output_chars)])
-    lines.extend(["", *spend_lines(result)])
-    return lines[1:]
-
-
-def trace_payload(
-    result: RunResult, *, max_fragment_rows: int, max_output_chars: int
-) -> dict[str, Any]:
-    """Return the trace as one object, for a run printing JSON on standard output."""
-    lines = trace_lines(
-        result, max_fragment_rows=max_fragment_rows, max_output_chars=max_output_chars
-    )
-    return {"trace": lines}
-
-
-def print_trace(
-    result: RunResult, console: Console, *, max_fragment_rows: int, max_output_chars: int
-) -> None:
-    """Print the trace as one table per cover, with what a table cannot hold beneath it."""
-    for cover in traced_covers(result, max_fragment_rows):
+def print_log(result: RunResult, console: Console, *, max_output_chars: int) -> None:
+    """Print the log as one table per cover, with what a table cannot hold beneath it."""
+    for cover in traced_covers(result):
         console.print(f"cover {cover.position}   logical plan {cover.logical_plan_id}")
         console.print(_cover_table(cover))
         for discovery in cover.discoveries:
@@ -131,9 +106,8 @@ def spend_lines(result: RunResult) -> list[str]:
 class _Walk:
     """One pass over the covers, remembering which work an earlier cover already traced."""
 
-    def __init__(self, result: RunResult, max_fragment_rows: int) -> None:
+    def __init__(self, result: RunResult) -> None:
         self.result = result
-        self.max_fragment_rows = max_fragment_rows
         self.shown: dict[str, int] = {}
 
     def covers(self) -> list[TracedCover]:
@@ -222,7 +196,7 @@ class _Walk:
         reused = self._reused(signature, position)
         # A bundle almost always holds one table, so the trace shows the first and says how
         # many others there were rather than nesting a block per table.
-        rows = None if reused or not tables else summarize_table(tables[0], self.max_fragment_rows)
+        rows = None if reused or not tables else summarize_table(tables[0], SUMMARY_SAMPLE_ROWS)
         return TracedFragment(
             fragment.id,
             fragment.operator_id,
@@ -264,29 +238,6 @@ def _traced_node(
 
 def _instruction(node: PipelineNode) -> str:
     return str(node.attributes.get("instruction", ""))
-
-
-def _discovery_lines(discovery: TracedDiscovery) -> list[str]:
-    node = discovery.node
-    lines = [f"  {node.id}  {node.kind}  {node.instruction}", f"      {discovery.outcome}"]
-    lines.extend(f"          {path}" for path in discovery.matches)
-    return lines
-
-
-def _fragment_lines(fragment: TracedFragment, max_output_chars: int) -> list[str]:
-    heading = f"  {fragment.id}  {fragment.operator_id}"
-    if fragment.input_fragment_ids:
-        heading = f"{heading}  from {', '.join(fragment.input_fragment_ids)}"
-    lines = [heading]
-    for node in fragment.nodes:
-        lines.append(f"      {node.id}  {node.kind}  {node.instruction}")
-        if node.reads is not None:
-            lines.append(f"          reads {node.reads}")
-    lines.append(f"      {fragment.outcome}")
-    if fragment.reason is not None:
-        lines.append(f"          reason  {fragment.reason}")
-    lines.extend(_output_lines(fragment, max_output_chars, "          "))
-    return lines
 
 
 def _fragment_detail(fragment: TracedFragment, max_output_chars: int) -> list[str]:
