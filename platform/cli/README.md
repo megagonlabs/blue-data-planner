@@ -61,10 +61,10 @@ blue-planner profile config OPENAI_API_KEY
 The first row and `BLUE_DATA_CLI_FORMAT` are family-wide parameters, declared once for every Blue
 CLI rather than by `blue-planner` alone. `BLUE_DATA_PLANNER_MODEL` reads
 `BLUE_DATA_LLM_MODEL` where it is unset, and `BLUE_DATA_PLANNER_LOTUS_MODEL` reads
-`BLUE_DATA_PLANNER_MODEL` the same way. Setting `BLUE_DATA_PLANNER_REASONING_EFFORT` to `off` omits
-the parameter from the LLM call, for a model that does not accept it; `none` is a different, real
-value that litellm still forwards to the provider, disabling reasoning rather than omitting the
-parameter. `BLUE_DATA_PLANNER_LOTUS_REASONING_EFFORT` does not inherit from
+`BLUE_DATA_PLANNER_MODEL` the same way. Either reasoning effort takes `minimal`, `low`,
+`medium`, `high`, `none`, or `off`, and anything else is refused where it is read. `off` omits the parameter from the LLM call, for a model that
+does not accept it; `none` is a different, real value that litellm still forwards to the provider,
+disabling reasoning rather than omitting the parameter. `BLUE_DATA_PLANNER_LOTUS_REASONING_EFFORT` does not inherit from
 `BLUE_DATA_PLANNER_REASONING_EFFORT`: it defaults to `none` on its own, since a LOTUS operation
 spends many calls per row and gains little from added reasoning. A `MAX_` name is a bound on one
 run, and the three that carry one are the three a run reports back in its counters; the bounds that

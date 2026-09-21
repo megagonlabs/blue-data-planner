@@ -29,11 +29,13 @@ DEFAULT_CLI_HOME: str = "~/.blue-planner"
 
 _LLM_CLIENT_NAME: str = "blue_planner"
 
+OUTPUT_FORMATS: tuple[str, ...] = ("table", "json")
+
+REASONING_EFFORTS: tuple[str, ...] = ("minimal", "low", "medium", "high", "none", "off")
+
 # The one value that means "omit this parameter," for a model that rejects it. Distinct from
 # "none", a real litellm reasoning_effort value that still has to reach the provider.
 _REASONING_EFFORT_OFF: str = "off"
-
-OUTPUT_FORMATS: tuple[str, ...] = ("table", "json")
 
 _SPEC_PATH: Path = Path(__file__).with_name("profile_spec.json")
 
@@ -63,20 +65,15 @@ class ResolvedSettings:
 
     registry_path: Path
     model: str
-    reasoning_effort: str
+    reasoning_effort: str | None
     operator_suites: tuple[str, ...]
     lotus_model: str
-    lotus_reasoning_effort: str
+    lotus_reasoning_effort: str | None
     lotus_max_rows: int
     enable_nl2table: bool
     limits: RunLimits
     output_format: str
     log_limit: int
-
-
-def _effective_reasoning_effort(value: str) -> str | None:
-    """Return the value litellm should receive, or None to omit the parameter."""
-    return value if value and value != _REASONING_EFFORT_OFF else None
 
 
 def build_resolver(profile: str | None, environ: dict[str, str]) -> ConfigResolver:
@@ -105,13 +102,11 @@ def resolve_settings(
     return ResolvedSettings(
         registry_path=registry_path,
         model=planner_model,
-        reasoning_effort=str(_get(resolver, "BLUE_DATA_PLANNER_REASONING_EFFORT") or ""),
+        reasoning_effort=_reasoning_effort(resolver, "BLUE_DATA_PLANNER_REASONING_EFFORT"),
         operator_suites=suites,
-        # --model names the model every component uses, and LOTUS_MODEL inherits
-        # BLUE_DATA_PLANNER_MODEL, so its own resolution never sees the override.
-        lotus_model=str(model or _get(resolver, "BLUE_DATA_PLANNER_LOTUS_MODEL") or planner_model),
-        lotus_reasoning_effort=str(
-            _get(resolver, "BLUE_DATA_PLANNER_LOTUS_REASONING_EFFORT") or ""
+        lotus_model=str(_require(resolver, "BLUE_DATA_PLANNER_LOTUS_MODEL", model)),
+        lotus_reasoning_effort=_reasoning_effort(
+            resolver, "BLUE_DATA_PLANNER_LOTUS_REASONING_EFFORT"
         ),
         lotus_max_rows=int(_get(resolver, "BLUE_DATA_PLANNER_LOTUS_MAX_ROWS")),
         enable_nl2table=bool(_get(resolver, "BLUE_DATA_PLANNER_ENABLE_NL2TABLE")),
@@ -126,6 +121,17 @@ def resolve_settings(
         output_format=chosen_format,
         log_limit=int(_get(resolver, "BLUE_DATA_CLI_LOG_LIMIT", log_limit)),
     )
+
+
+def _reasoning_effort(resolver: ConfigResolver, name: str) -> str | None:
+    """Return the effort litellm should receive, or None where the parameter is left out."""
+    configured = str(_require(resolver, name))
+    if configured not in REASONING_EFFORTS:
+        raise CliError(
+            "CONFIG_INVALID",
+            f"{name} names {configured}; expected one of {', '.join(REASONING_EFFORTS)}",
+        )
+    return None if configured == _REASONING_EFFORT_OFF else configured
 
 
 def resolve_output_format(resolver: ConfigResolver, override: str | None = None) -> str:
@@ -154,7 +160,7 @@ def assemble_planner(settings: ResolvedSettings) -> DataPlanner:
         data_registry,
         suites=suites,
         model=settings.model,
-        reasoning_effort=_effective_reasoning_effort(settings.reasoning_effort),
+        reasoning_effort=settings.reasoning_effort,
         limits=settings.limits,
         llm_client_name=_LLM_CLIENT_NAME,
     )
@@ -175,7 +181,7 @@ def _configured(name: str, settings: ResolvedSettings) -> OperatorSuite:
         return LotusSuite(
             model=settings.lotus_model,
             max_rows=settings.lotus_max_rows,
-            reasoning_effort=_effective_reasoning_effort(settings.lotus_reasoning_effort),
+            reasoning_effort=settings.lotus_reasoning_effort,
         )
     return operator_suite(name)
 

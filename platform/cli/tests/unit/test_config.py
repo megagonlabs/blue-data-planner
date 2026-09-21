@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import dataclasses
 from pathlib import Path
 from typing import Any
 
@@ -85,22 +84,37 @@ def test_the_bounds_a_profile_carries_reach_run_limits(tmp_path: Path) -> None:
     assert settings.limits.plan_corrections == 5  # no parameter names it, so the default stands
 
 
-def test_the_reasoning_effort_parameter_resolves_from_the_profile(tmp_path: Path) -> None:
-    """A deployment sets this the same way it sets any other bound, without being asked for it."""
-    resolver = a_resolver_over(tmp_path, BLUE_DATA_PLANNER_REASONING_EFFORT="low")
+@pytest.mark.parametrize(
+    ("configured", "resolved"), [("low", "low"), ("none", "none"), ("off", None)]
+)
+def test_off_is_the_one_spelling_that_leaves_the_reasoning_effort_out(
+    configured: str, resolved: str | None, tmp_path: Path
+) -> None:
+    """ "none" is a real litellm value the provider still receives; "off" is how a user on a model
+    that rejects the field says it must not be sent, and None is how the library reads that."""
+    resolver = a_resolver_over(tmp_path, BLUE_DATA_PLANNER_REASONING_EFFORT=configured)
 
     settings: ResolvedSettings = resolve_settings(resolver)
 
-    assert settings.reasoning_effort == "low"
+    assert settings.reasoning_effort == resolved
 
 
-def test_the_lotus_reasoning_effort_parameter_resolves_from_the_profile(tmp_path: Path) -> None:
-    """LOTUS's own reasoning effort is set through a profile the same way the main one is."""
-    resolver = a_resolver_over(tmp_path, BLUE_DATA_PLANNER_LOTUS_REASONING_EFFORT="low")
+@pytest.mark.parametrize(
+    "parameter",
+    ["BLUE_DATA_PLANNER_REASONING_EFFORT", "BLUE_DATA_PLANNER_LOTUS_REASONING_EFFORT"],
+)
+def test_a_reasoning_effort_outside_the_documented_values_is_a_configuration_error(
+    parameter: str, tmp_path: Path
+) -> None:
+    """A value the provider refuses fails every model call the run makes, so it is caught where
+    it is read rather than partway into a request."""
+    resolver = a_resolver_over(tmp_path, **{parameter: "maximum"})
 
-    settings: ResolvedSettings = resolve_settings(resolver)
+    with pytest.raises(CliError) as raised:
+        resolve_settings(resolver)
 
-    assert settings.lotus_reasoning_effort == "low"
+    assert raised.value.code == "CONFIG_INVALID"
+    assert "maximum" in raised.value.description
 
 
 def test_an_unset_lotus_reasoning_effort_resolves_to_none_regardless_of_the_main_setting(
@@ -200,30 +214,17 @@ def test_a_registry_that_does_not_parse_fails_before_a_planner_is_built(tmp_path
     assert raised.value.code == "REGISTRY_UNREADABLE"
 
 
-@pytest.mark.parametrize(("configured", "handed_over"), [("low", "low"), ("off", None), ("", None)])
-def test_the_reasoning_effort_a_profile_carries_reaches_the_library_or_is_dropped(
-    configured: str, handed_over: str | None, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """A user on a model that rejects the field configures "off", and the library reads None as
-    the instruction to leave the parameter out."""
-    captured = a_captured_build(monkeypatch)
-    resolver = a_resolver_over(tmp_path, BLUE_DATA_PLANNER_OPERATORS="builtin")
-    settings = dataclasses.replace(resolve_settings(resolver), reasoning_effort=configured)
-
-    assemble_planner(settings)
-
-    assert captured["reasoning_effort"] == handed_over
-
-
-def test_the_suites_a_profile_names_reach_the_library_holding_the_values_it_resolved(
+def test_what_a_profile_resolved_is_what_the_library_is_handed(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Which suites a deployment registers, and the options each takes, are profile values, so
-    the objects the library is handed are where those values land."""
+    """The adapter resolves and translates, so every value a run is built on has to arrive as the
+    profile left it, the suites and their own options included."""
     captured = a_captured_build(monkeypatch)
     resolver = a_resolver_over(
         tmp_path,
         BLUE_DATA_PLANNER_OPERATORS="builtin,lotus",
+        BLUE_DATA_PLANNER_MODEL="openai/gpt-4o",
+        BLUE_DATA_PLANNER_REASONING_EFFORT="off",
         BLUE_DATA_PLANNER_ENABLE_NL2TABLE="true",
         BLUE_DATA_PLANNER_LOTUS_MAX_ROWS="10",
     )
@@ -231,9 +232,12 @@ def test_the_suites_a_profile_names_reach_the_library_holding_the_values_it_reso
 
     assemble_planner(settings)
 
+    assert captured["model"] == "openai/gpt-4o"
+    assert captured["reasoning_effort"] is None
+    assert captured["limits"] == settings.limits
     assert captured["suites"] == [
         BuiltinSuite(with_nl2table=True),
-        LotusSuite(model=settings.model, max_rows=10, reasoning_effort="none"),
+        LotusSuite(model="openai/gpt-4o", max_rows=10, reasoning_effort="none"),
     ]
 
 
