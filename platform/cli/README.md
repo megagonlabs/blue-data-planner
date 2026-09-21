@@ -111,7 +111,8 @@ time, which is what a script needs.
 ## Output and diagnostics
 
 `--format` and `--log` choose different things. The first decides how the result is written; the
-second decides whether the run behind it is reported.
+second decides whether the run behind it is reported. Every command that prints a result takes
+`--format`, and reads `BLUE_DATA_CLI_FORMAT` where the option is absent.
 
 Standard output carries the command's result: the answer, or the plan where `--explain` asked for
 one. Redirecting it captures that alone. Standard error carries the progress indicator, the log,

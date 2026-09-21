@@ -260,7 +260,7 @@ so no command accepts one.
 | `--profile NAME` | All | Which profile supplies configuration |
 | `--registry PATH` | `data query` | The `blue-data` registry to plan over |
 | `--model NAME` | `data query` | The litellm model string every component uses |
-| `--format table\|json` | Anything printing a result | How the result is written, `table` by default |
+| `--format table\|json` | Anything printing a result | How the result is written, from `BLUE_DATA_CLI_FORMAT` where the option is absent |
 | `--explain` | `data query` | Write the plan for the request and stop, running nothing |
 | `--log` | `data query` | Report what the run did, after the run |
 | `--log-limit N` | `data query` | The characters each line of the log is cut to, 80 by default |

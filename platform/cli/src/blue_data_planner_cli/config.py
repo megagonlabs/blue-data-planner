@@ -101,13 +101,7 @@ def resolve_settings(
         if name.strip()
     )
     planner_model = str(_require(resolver, "BLUE_DATA_PLANNER_MODEL", model))
-    chosen_format = str(_get(resolver, "BLUE_DATA_CLI_FORMAT", output_format))
-    if chosen_format not in OUTPUT_FORMATS:
-        raise CliError(
-            "CONFIG_INVALID",
-            f"BLUE_DATA_CLI_FORMAT names {chosen_format}; "
-            f"expected one of {', '.join(OUTPUT_FORMATS)}",
-        )
+    chosen_format = resolve_output_format(resolver, output_format)
     return PlannerSettings(
         registry_path=registry_path,
         model=planner_model,
@@ -132,6 +126,17 @@ def resolve_settings(
         output_format=chosen_format,
         log_limit=int(_get(resolver, "BLUE_DATA_CLI_LOG_LIMIT", log_limit)),
     )
+
+
+def resolve_output_format(resolver: ConfigResolver, override: str | None = None) -> str:
+    """Return the format in force for a command that prints a result."""
+    chosen = str(_get(resolver, "BLUE_DATA_CLI_FORMAT", override))
+    if chosen not in OUTPUT_FORMATS:
+        raise CliError(
+            "CONFIG_INVALID",
+            f"BLUE_DATA_CLI_FORMAT names {chosen}; expected one of {', '.join(OUTPUT_FORMATS)}",
+        )
+    return chosen
 
 
 def assemble_planner(settings: PlannerSettings) -> DataPlanner:

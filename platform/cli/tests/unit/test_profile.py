@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 from click.testing import CliRunner
@@ -101,6 +102,17 @@ def test_configuring_a_profile_that_does_not_exist_reports_it_as_not_found(tmp_p
     assert isinstance(result.exception, CliError)
     assert result.exception.code == "PROFILE_NOT_FOUND"
     assert "profile add ghost" in result.exception.description
+
+
+def test_a_configured_format_reaches_every_command_that_prints_a_result(tmp_path: Path) -> None:
+    """`--format` carries one meaning across the family, so a profile setting it has to reach
+    the profile actions as well as the query that made the family declare it."""
+    runner, env = a_runner(tmp_path)
+    runner.invoke(cli, ["profile", "config", "BLUE_DATA_CLI_FORMAT", "json"], env=env)
+
+    listed = runner.invoke(cli, ["profile", "list"], env=env)
+
+    assert json.loads(listed.output)["selected"] == "default"
 
 
 def test_a_value_the_cast_refuses_reports_it_as_invalid(tmp_path: Path) -> None:

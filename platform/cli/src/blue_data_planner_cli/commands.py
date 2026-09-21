@@ -13,7 +13,6 @@ from rich.console import Console
 
 from blue_data_planner_cli import __version__
 from blue_data_planner_cli.config import (
-    OUTPUT_FORMATS,
     CliError,
     PlannerSettings,
     assemble_planner,
@@ -21,7 +20,13 @@ from blue_data_planner_cli.config import (
     export_secrets,
     resolve_settings,
 )
-from blue_data_planner_cli.output import print_answer, print_error, print_plan, summary_line
+from blue_data_planner_cli.output import (
+    format_option,
+    print_answer,
+    print_error,
+    print_plan,
+    summary_line,
+)
 from blue_data_planner_cli.profile import profile_group
 from blue_data_planner_cli.trace import print_log
 
@@ -63,7 +68,7 @@ def data_group() -> None:
 @click.argument("request")
 @click.option("--registry", default=None, help="The blue-data registry to plan over.")
 @click.option("--model", default=None, help="The litellm model string every component uses.")
-@click.option("--format", "output_format", type=click.Choice(OUTPUT_FORMATS), default=None)
+@format_option
 @click.option("--explain", is_flag=True, help="Write the plan and stop, running nothing.")
 @click.option("--log", is_flag=True, help="Report what the run did, after the run.")
 @click.option(

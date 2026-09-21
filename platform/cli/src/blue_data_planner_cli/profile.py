@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 from collections.abc import Generator
 from contextlib import contextmanager
 
@@ -19,9 +18,15 @@ from blue_data.utils.config import (  # pyright: ignore[reportMissingTypeStubs] 
     encode,
 )
 from rich.console import Console
-from rich.table import Table
 
-from blue_data_planner_cli.config import CliError, build_resolver, cli_home, config_spec
+from blue_data_planner_cli.config import (
+    CliError,
+    build_resolver,
+    cli_home,
+    config_spec,
+    resolve_output_format,
+)
+from blue_data_planner_cli.output import format_option, print_json, print_table
 
 
 @click.group("profile")
@@ -53,20 +58,21 @@ def profile_remove(ctx: click.Context, name: str, confirm: bool) -> None:
 
 
 @profile_group.command("list")
-@click.option("--format", "output_format", type=click.Choice(["table", "json"]), default="table")
+@format_option
 @click.pass_context
-def profile_list(ctx: click.Context, output_format: str) -> None:
+def profile_list(ctx: click.Context, output_format: str | None) -> None:
     """Name every profile, marking the selected one."""
     store = _store(ctx)
     selected = store.selected()
     names = store.list_profiles() or [DEFAULT_PROFILE]
-    if output_format == "json":
-        click.echo(json.dumps({"profiles": names, "selected": selected}, indent=2))
+    if resolve_output_format(_resolver(ctx), output_format) == "json":
+        print_json({"profiles": names, "selected": selected}, Console())
         return
-    table = Table("Profile", "Selected")
-    for name in names:
-        table.add_row(name, "*" if name == selected else "")
-    Console().print(table)
+    print_table(
+        ("Profile", "Selected"),
+        ((name, "*" if name == selected else "") for name in names),
+        Console(),
+    )
 
 
 @profile_group.command("config")
@@ -95,23 +101,20 @@ def profile_config(ctx: click.Context, param: str | None, value: str | None) -> 
 
 
 @profile_group.command("inspect")
-@click.option("--format", "output_format", type=click.Choice(["table", "json"]), default="table")
+@format_option
 @click.pass_context
-def profile_inspect(ctx: click.Context, output_format: str) -> None:
+def profile_inspect(ctx: click.Context, output_format: str | None) -> None:
     """Every parameter, the value in force, and the tier that supplied it."""
     resolver = _resolver(ctx)
     with _engine_errors():
         rows = [
             (one.name, _shown(resolver, one), resolver.source_of(one.name)) for one in config_spec()
         ]
-    if output_format == "json":
+    if resolve_output_format(resolver, output_format) == "json":
         keys = ("parameter", "value", "source")
-        click.echo(json.dumps([dict(zip(keys, row)) for row in rows], indent=2))
+        print_json([dict(zip(keys, row)) for row in rows], Console())
         return
-    table = Table("Parameter", "Value", "Source")
-    for row in rows:
-        table.add_row(*row)
-    Console().print(table)
+    print_table(("Parameter", "Value", "Source"), rows, Console())
 
 
 @profile_group.command("select")
