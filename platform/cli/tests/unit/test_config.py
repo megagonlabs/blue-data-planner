@@ -8,7 +8,6 @@ from typing import Any
 import pytest
 from blue_data.utils.config import (  # pyright: ignore[reportMissingTypeStubs]
     ConfigResolver,
-    ProfileStore,
 )
 from blue_data_planner.operators.adapters.lotus import LotusSuite
 from blue_data_planner.operators.builtin import BuiltinSuite
@@ -21,9 +20,10 @@ from blue_data_planner_cli.config import (
     build_resolver,
     cli_home,
     config_spec,
-    export_secrets,
     resolve_settings,
+    resolved_environment,
 )
+from tests.doubles.environment import a_cli_home, a_profile_holding, a_registry_file
 
 
 def test_the_spec_declares_the_planner_parameters_beside_the_family_wide_ones() -> None:
@@ -47,18 +47,9 @@ def test_the_home_directory_follows_the_environment_when_it_names_one() -> None:
 
 def a_resolver_over(tmp_path: Path, **values: str) -> ConfigResolver:
     """Return a resolver whose profile holds `values` and whose home is under tmp_path."""
-    home = tmp_path / "home"
-    store = ProfileStore(home)
-    store.add("default", {"BLUE_DATA_REGISTRY_PATH": str(a_registry_file(tmp_path)), **values})
-    store.select("default")
-    return build_resolver(profile=None, environ={"BLUE_DATA_PLANNER_HOME": str(home)})
-
-
-def a_registry_file(tmp_path: Path) -> Path:
-    """Return the path of an empty but readable registry file."""
-    path = tmp_path / "registry.json"
-    path.write_text("[]")
-    return path
+    home = a_cli_home(tmp_path)
+    a_profile_holding(home, BLUE_DATA_REGISTRY_PATH=str(a_registry_file(tmp_path)), **values)
+    return build_resolver(profile=None, environ={"BLUE_DATA_PLANNER_HOME": home})
 
 
 def a_captured_build(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
@@ -261,7 +252,7 @@ def test_a_stored_value_that_fails_its_cast_is_a_configuration_error_when_the_pr
     resolver = a_resolver_over(tmp_path, BLUE_DATA_PLANNER_MAX_OPERATOR_CALLS="many")
 
     with pytest.raises(CliError) as raised:
-        export_secrets(resolver)
+        resolved_environment(resolver)
 
     assert raised.value.code == "CONFIG_INVALID"
     assert "BLUE_DATA_PLANNER_MAX_OPERATOR_CALLS" in raised.value.description

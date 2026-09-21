@@ -195,9 +195,9 @@ def _get(resolver: ConfigResolver, name: str, override: str | int | None = None)
         raise CliError("CONFIG_INVALID", str(error)) from error
 
 
-def export_secrets(resolver: ConfigResolver) -> dict[str, str]:
-    """Write every resolved parameter into the real process environment, raising CliError on
-    a stored value that fails to resolve."""
+def resolved_environment(resolver: ConfigResolver) -> dict[str, str]:
+    """Return every resolved parameter as environment variables, raising CliError on a stored
+    value that fails to resolve."""
     try:
         return resolver.export()
     except (ConfigError, SecretError) as error:

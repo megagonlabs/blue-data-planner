@@ -2,12 +2,10 @@
 
 from __future__ import annotations
 
-import io
 import json
 
 import pytest
 from blue_data_planner import RunStatus
-from rich.console import Console
 
 from blue_data_planner_cli.output import (
     error_line,
@@ -16,12 +14,7 @@ from blue_data_planner_cli.output import (
     summary_line,
 )
 from tests.doubles.components import a_run_over_one_cover_of_two_fragments, a_run_result
-
-
-def a_console() -> tuple[Console, io.StringIO]:
-    """Return a console writing into a buffer, and the buffer."""
-    buffer = io.StringIO()
-    return Console(file=buffer, width=200), buffer
+from tests.doubles.environment import a_console
 
 
 def test_a_table_carries_the_column_names_the_rows_came_with() -> None:

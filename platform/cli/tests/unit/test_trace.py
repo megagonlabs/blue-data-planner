@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import dataclasses
-import io
 
 import pytest
 from blue_data_planner import RunResult, RunStatus
@@ -16,7 +15,6 @@ from blue_data_planner.types import (
     FragmentResult,
     UnknownNodeError,
 )
-from rich.console import Console
 
 from blue_data_planner_cli.trace import (
     discovery_ending,
@@ -31,16 +29,17 @@ from tests.doubles.components import (
     a_run_over_one_cover_of_two_fragments,
     a_run_result,
 )
+from tests.doubles.environment import a_console
 
 
 def a_printed_log(result: RunResult, width: int = 200, chars: int = 200) -> str:
     """Return what the log writes to a console of a fixed width, at a cap nothing hits."""
-    buffer = io.StringIO()
-    print_log(result, Console(file=buffer, width=width), max_output_chars=chars)
+    console, buffer = a_console(width)
+    print_log(result, console, max_output_chars=chars)
     return buffer.getvalue()
 
 
-def a_refused_filter() -> FragmentResult:
+def a_filter_the_operator_refused() -> FragmentResult:
     """Return a fragment whose operator would not take the input it was handed."""
     return FragmentResult(
         status=RunStatus.OPERATOR_FAILED,
@@ -53,7 +52,7 @@ def a_refused_filter() -> FragmentResult:
     )
 
 
-def a_rejected_filter() -> FragmentResult:
+def a_filter_the_review_turned_down() -> FragmentResult:
     """Return a fragment whose result the review turned down."""
     return FragmentResult(
         status=RunStatus.NEEDS_REPAIR,
@@ -101,7 +100,9 @@ def test_a_fragment_that_ran_and_was_not_kept_says_so_where_one_never_reached_sa
     None
 ):
     """A rejected fragment and one the pass never got to are what a reader must tell apart."""
-    rejected = a_run_over_one_cover_of_two_fragments(filter_result=a_rejected_filter())
+    rejected = a_run_over_one_cover_of_two_fragments(
+        filter_result=a_filter_the_review_turned_down()
+    )
     unreached = a_run_over_one_cover_of_two_fragments()
 
     assert fragment_ending(traced_covers(rejected)[0].fragments[1]) == "needs_repair  1 rows"
@@ -112,7 +113,7 @@ def test_a_fragment_that_ran_and_was_not_kept_says_so_where_one_never_reached_sa
 
 def test_a_fragment_that_was_not_kept_names_the_reason_it_went_to_a_repair() -> None:
     """What the review objected to is what says which repair the run moved on to, and why."""
-    result = a_run_over_one_cover_of_two_fragments(filter_result=a_rejected_filter())
+    result = a_run_over_one_cover_of_two_fragments(filter_result=a_filter_the_review_turned_down())
 
     assert traced_covers(result)[0].fragments[1].failure_reason == (
         "the review said Fresno is not in the bay area"
@@ -123,7 +124,7 @@ def test_a_fragment_that_was_not_kept_names_the_reason_it_went_to_a_repair() -> 
 def test_a_failed_fragment_names_the_objection_the_operator_raised() -> None:
     """An operator failure ends the run, and its own message is what names the cause."""
     filtered = traced_covers(
-        a_run_over_one_cover_of_two_fragments(filter_result=a_refused_filter())
+        a_run_over_one_cover_of_two_fragments(filter_result=a_filter_the_operator_refused())
     )[0].fragments[1]
 
     assert fragment_ending(filtered) == "operator_failed"

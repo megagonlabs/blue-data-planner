@@ -158,34 +158,42 @@ class _CoverWalk:
                 traced.append(TracedCover(position, cover.logical_plan_id, [], []))
                 continue
             # Signing a cover walks the whole plan, so it is done once and read twice.
-            signed = signatures(plan, cover)
+            signature_by_node_id = signatures(plan, cover)
             traced.append(
                 TracedCover(
                     position=position,
                     logical_plan_id=cover.logical_plan_id,
-                    discoveries=self._discoveries(plan, signed, position),
-                    fragments=self._fragments(plan, cover, signed, position),
+                    discoveries=self._discoveries(plan, signature_by_node_id, position),
+                    fragments=self._fragments(plan, cover, signature_by_node_id, position),
                 )
             )
         return traced
 
     def _discoveries(
-        self, plan: LogicalPlan, signed: dict[str, str], position: int
+        self, plan: LogicalPlan, signature_by_node_id: dict[str, str], position: int
     ) -> list[TracedDiscovery]:
         # A search resolves before the plan reading it is written, so discovery leads the cover.
         return [
-            self._discovery(node, signed.get(node.id, ""), position)
+            self._discovery(node, signature_by_node_id.get(node.id, ""), position)
             for node in plan.nodes
             if node.kind is ControlOperator.DISCOVER
         ]
 
     def _fragments(
-        self, plan: LogicalPlan, cover: PhysicalPlan, signed: dict[str, str], position: int
+        self,
+        plan: LogicalPlan,
+        cover: PhysicalPlan,
+        signature_by_node_id: dict[str, str],
+        position: int,
     ) -> list[TracedFragment]:
         roots = {one.root_logical_node_id: one.id for one in cover.fragments}
         return [
             self._fragment(
-                plan, fragment, roots, signed.get(fragment.root_logical_node_id, ""), position
+                plan,
+                fragment,
+                roots,
+                signature_by_node_id.get(fragment.root_logical_node_id, ""),
+                position,
             )
             for fragment in _in_run_order(plan, cover)
         ]
@@ -313,7 +321,7 @@ def _print_block(console: Console, name: str, lines: list[str]) -> None:
 
 
 def _cover_table(cover: TracedCover) -> Table:
-    table = Table("Fragment", "Step", "Instruction", "Input", "Result")
+    table = Table("Fragment", "Node", "Instruction", "Input", "Result")
     sections = 0
     for discovery in cover.discoveries:
         if sections:

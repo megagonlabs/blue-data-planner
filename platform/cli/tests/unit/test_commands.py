@@ -10,28 +10,21 @@ from typing import Any
 
 import pytest
 from blue_data.utils.config import (  # pyright: ignore[reportMissingTypeStubs]
-    ProfileStore,
     encode,
 )
 from blue_data_planner import RunResult, RunStatus
-from blue_data_planner.plan import signatures
-from blue_data_planner.types import (
-    DataPipeline,
-    ExecutionResult,
-    ExecutionStatus,
-    FragmentResult,
-    LogicalOperator,
-    LogicalPlan,
-    PhysicalPlan,
-    PhysicalPlanFragment,
-    PipelineNode,
-)
 from click.testing import CliRunner
 
 from blue_data_planner_cli import commands
 from blue_data_planner_cli.commands import cli
 from blue_data_planner_cli.config import ResolvedSettings
-from tests.doubles.components import FakeDataPlanner, a_run_result
+from tests.doubles.components import (
+    FakeDataPlanner,
+    a_planning_run,
+    a_run_over_one_cover_of_two_fragments,
+    a_run_result,
+)
+from tests.doubles.environment import a_configured_environment, a_profile_holding
 
 
 def a_planner_answering(monkeypatch: pytest.MonkeyPatch, result: RunResult) -> FakeDataPlanner:
@@ -50,17 +43,6 @@ def a_planner_answering(monkeypatch: pytest.MonkeyPatch, result: RunResult) -> F
 def planner(monkeypatch: pytest.MonkeyPatch) -> FakeDataPlanner:
     """Replace the assembled planner with a double, so no command reaches a model."""
     return a_planner_answering(monkeypatch, a_run_result(answer=[[{"school": "Lowell"}]]))
-
-
-def a_configured_environment(tmp_path: Path) -> dict[str, str]:
-    """Return an environment with a home directory and a readable registry."""
-    registry = tmp_path / "registry.json"
-    registry.write_text("[]")
-    return {
-        "BLUE_DATA_PLANNER_HOME": str(tmp_path / "home"),
-        "BLUE_DATA_REGISTRY_PATH": str(registry),
-        "OPENAI_API_KEY": "sk-not-used",
-    }
 
 
 def test_the_question_reaches_the_planner_and_the_answer_reaches_standard_output(
@@ -201,13 +183,6 @@ def test_a_long_failure_reason_prints_as_one_unbroken_error_line(
     assert f"ERROR: BUDGET_EXHAUSTED {reason}" in result.stderr
 
 
-def a_profile_holding(home: str, **values: str) -> None:
-    """Write `values` into the default profile under `home`, the way `profile config` does."""
-    store = ProfileStore(home)
-    store.add("default", dict(values))
-    store.select("default")
-
-
 def an_environment_seen_by_the_planner(monkeypatch: pytest.MonkeyPatch) -> dict[str, str]:
     """Return the mapping the process environment held when the planner was assembled."""
     seen: dict[str, str] = {}
@@ -242,10 +217,7 @@ def test_the_log_limit_on_the_command_line_outranks_the_profile(
 ) -> None:
     """Every setting follows one order — option, environment, profile, default — and the cap on
     the log's own lines is a setting like any other."""
-    pipeline = a_planned_pipeline()
-    a_planner_answering(
-        monkeypatch, a_run_result(pipeline=pipeline, results=a_scan_of_one_row(pipeline))
-    )
+    a_planner_answering(monkeypatch, a_run_over_one_cover_of_two_fragments())
     env = a_configured_environment(tmp_path)
     a_profile_holding(env["BLUE_DATA_PLANNER_HOME"], BLUE_DATA_CLI_LOG_LIMIT="200")
     runner = CliRunner()
@@ -253,9 +225,9 @@ def test_the_log_limit_on_the_command_line_outranks_the_profile(
     profiled = runner.invoke(cli, ["data", "query", "q", "--log"], env=env)
     overridden = runner.invoke(cli, ["data", "query", "q", "--log", "--log-limit", "20"], env=env)
 
-    assert "blue.select" in profiled.stderr  # the log itself still prints
-    assert "Lowell" in profiled.stderr
-    assert "Lowell" not in overridden.stderr
+    assert "physical plan 1" in profiled.stderr  # the log itself still prints
+    assert "Alameda" in profiled.stderr
+    assert "Alameda" not in overridden.stderr
 
 
 def a_process_environment(monkeypatch: pytest.MonkeyPatch, variables: dict[str, str]) -> None:
@@ -292,63 +264,11 @@ def test_main_exits_zero_after_a_successful_run(
     assert excinfo.value.code == 0
 
 
-def a_planned_pipeline() -> DataPipeline:
-    """Return a pipeline with one logical plan and one matching cover, each holding one step."""
-    logical_plan = LogicalPlan(
-        id="l1",
-        parent_id=None,
-        nodes=[PipelineNode(id="n1", kind=LogicalOperator.SCAN)],
-        output_node_id="n1",
-    )
-    physical_plan = PhysicalPlan(
-        id="p1",
-        parent_id=None,
-        logical_plan_id="l1",
-        fragments=[
-            PhysicalPlanFragment(
-                id="f1",
-                logical_node_ids=["n1"],
-                root_logical_node_id="n1",
-                operator_id="blue.select",
-                scan_sources={},
-                instruction="scan the stores table",
-                input_data=[],
-                required_output_columns=[],
-            )
-        ],
-    )
-    return DataPipeline(
-        logical_plans={"l1": logical_plan},
-        physical_plans={"p1": physical_plan},
-        current_logical_plan_id="l1",
-        current_physical_plan_id="p1",
-    )
-
-
-def a_scan_of_one_row(pipeline: DataPipeline) -> dict[str, FragmentResult]:
-    """Return how the one fragment of `a_planned_pipeline` ended, and the row it returned."""
-    signed = signatures(pipeline.logical_plans["l1"], pipeline.physical_plans["p1"])
-    return {
-        signed["n1"]: FragmentResult(
-            status=RunStatus.OK,
-            result=ExecutionResult(
-                status=ExecutionStatus.OK,
-                operator_id="blue.select",
-                output=[[{"school": "Lowell"}]],
-                row_count=1,
-            ),
-            failure_reason=None,
-        )
-    }
-
-
 def test_explaining_prints_the_cover_and_spends_no_operator_call(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """The point of --explain is seeing the boundary before paying for it."""
-    double = a_planner_answering(
-        monkeypatch, a_run_result(status=RunStatus.PLANNED, pipeline=a_planned_pipeline())
-    )
+    double = a_planner_answering(monkeypatch, a_planning_run())
 
     result = CliRunner().invoke(
         cli,
@@ -359,4 +279,4 @@ def test_explaining_prints_the_cover_and_spends_no_operator_call(
     assert result.exit_code == 0
     assert double.operations == ["plan"]
     assert "n1" in result.stdout
-    assert "blue.select" in result.stdout
+    assert "builtin.source_scan" in result.stdout

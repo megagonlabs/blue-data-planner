@@ -322,7 +322,7 @@ error carries the closing summary alone.
 ```text
 physical plan 1   logical plan 8c4a71d0
 ┏━━━━━━━━━━━━━━━━━━┳━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━┓
-┃ Fragment         ┃ Step   ┃ Instruction                ┃ Input   ┃ Result                ┃
+┃ Fragment         ┃ Node   ┃ Instruction                ┃ Input   ┃ Result                ┃
 ┡━━━━━━━━━━━━━━━━━━╇━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━┩
 │ f1               │ n2     │ load job postings          │         │ ok  140 rows          │
 │ builtin.scan     │ SCAN   │                            │         │                       │

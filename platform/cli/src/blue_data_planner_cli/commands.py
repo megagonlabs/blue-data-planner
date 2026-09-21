@@ -15,8 +15,8 @@ from blue_data_planner_cli.config import (
     CliError,
     assemble_planner,
     build_resolver,
-    export_secrets,
     resolve_settings,
+    resolved_environment,
 )
 from blue_data_planner_cli.output import (
     format_option,
@@ -76,8 +76,8 @@ def data_query(
     """Plan the request, run it, and print the answer. With --explain, print the plan instead."""
     try:
         _run_query(ctx, request, registry, model, output_format, explain, log, log_limit)
-    except CliError as failure:
-        print_error(Console(stderr=True), failure.code, failure.description)
+    except CliError as error:
+        print_error(Console(stderr=True), error.code, error.description)
         ctx.exit(1)
 
 
@@ -94,7 +94,7 @@ def _run_query(
     resolver = build_resolver(ctx.obj["profile"], ctx.obj["environ"])
     # litellm and the provider SDKs read their keys from the process environment, so what a
     # profile resolved has to be applied to it before a planner makes its first call.
-    os.environ.update(export_secrets(resolver))
+    os.environ.update(resolved_environment(resolver))
     settings = resolve_settings(
         resolver,
         registry=registry,
@@ -102,41 +102,45 @@ def _run_query(
         output_format=output_format,
         log_limit=log_limit,
     )
-    errors = Console(stderr=True)
+    stderr_console = Console(stderr=True)
     planner = assemble_planner(settings)
     # The indicator is a terminal courtesy: a redirected stream gets none of it.
-    with errors.status(f"Planning {request[:40]}…") if errors.is_terminal else nullcontext():
+    with (
+        stderr_console.status(f"Planning {request[:40]}…")
+        if stderr_console.is_terminal
+        else nullcontext()
+    ):
         result = planner.plan(request) if explain else planner.run(request)
     printer = print_plan if explain else print_answer
     printer(result, settings.output_format, Console(), log=log)
     # Under --format json the log is two more keys in the document on standard output, so
     # there is nothing left to draw here.
     if log and settings.output_format == "table":
-        print_log(result, errors, max_output_chars=settings.log_limit)
-    errors.print(summary_line(result), markup=False)
+        print_log(result, stderr_console, max_output_chars=settings.log_limit)
+    stderr_console.print(summary_line(result), markup=False)
     if result.status not in (RunStatus.OK, RunStatus.PLANNED):
         # A status a run ended on is its own error code, so a status added to RunStatus
         # reports under its own name rather than under a plausible neighbor's.
-        print_error(errors, result.status.name, result.failure_reason or "")
+        print_error(stderr_console, result.status.name, result.failure_reason or "")
         ctx.exit(1)
 
 
 def main() -> None:
     """Run the command line, reporting a failure as one ERROR line and exit code 1."""
-    errors = Console(stderr=True)
+    stderr_console = Console(stderr=True)
     try:
         # Non-standalone mode returns the exit code instead of calling sys.exit itself,
         # so the return value has to be propagated explicitly.
         sys.exit(cli.main(standalone_mode=False) or 0)
-    except click.UsageError as usage:  # Click's own exit code 2
-        usage.show()
+    except click.UsageError as error:  # Click's own exit code 2
+        error.show()
         sys.exit(2)
     except click.Abort:  # a confirmation the user declined
-        print_error(errors, "ABORTED", "the command was not confirmed")
+        print_error(stderr_console, "ABORTED", "the command was not confirmed")
         sys.exit(1)
-    except CliError as failure:
-        print_error(errors, failure.code, failure.description)
+    except CliError as error:
+        print_error(stderr_console, error.code, error.description)
         sys.exit(1)
-    except BlueDataPlannerError as defect:
-        print_error(errors, "INTERNAL_ERROR", str(defect))
+    except BlueDataPlannerError as error:
+        print_error(stderr_console, "INTERNAL_ERROR", str(error))
         sys.exit(1)

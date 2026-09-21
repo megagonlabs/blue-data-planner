@@ -9,11 +9,12 @@ from click.testing import CliRunner
 
 from blue_data_planner_cli.commands import cli
 from blue_data_planner_cli.config import CliError
+from tests.doubles.environment import a_cli_home
 
 
 def a_runner(tmp_path: Path) -> tuple[CliRunner, dict[str, str]]:
     """Return a runner and the environment that points this CLI's home at tmp_path."""
-    return CliRunner(), {"BLUE_DATA_PLANNER_HOME": str(tmp_path / "home")}
+    return CliRunner(), {"BLUE_DATA_PLANNER_HOME": a_cli_home(tmp_path)}
 
 
 def test_a_profile_is_added_listed_and_selected(tmp_path: Path) -> None:

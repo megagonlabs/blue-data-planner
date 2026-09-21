@@ -39,7 +39,7 @@ def profile_group() -> None:
 @click.pass_context
 def profile_add(ctx: click.Context, name: str) -> None:
     """Create a profile."""
-    with _engine_errors("CONFIG_INVALID"):
+    with _as_cli_error("CONFIG_INVALID"):
         _store(ctx).add(name)
     click.echo(f"Added profile: {name}")
 
@@ -52,7 +52,7 @@ def profile_remove(ctx: click.Context, name: str, confirm: bool) -> None:
     """Delete a profile and the values it holds."""
     if not confirm:
         click.confirm(f"Remove profile {name!r} and every value it holds?", abort=True)
-    with _engine_errors():
+    with _as_cli_error():
         _store(ctx).remove(name)
     click.echo(f"Removed profile: {name}")
 
@@ -83,7 +83,7 @@ def profile_config(ctx: click.Context, param: str | None, value: str | None) -> 
     """Set one parameter, prompt for one, or walk every required parameter."""
     spec = config_spec()
     store = _store(ctx)
-    with _engine_errors("CONFIG_INVALID"):
+    with _as_cli_error("CONFIG_INVALID"):
         # The resolver decides which profile a read sees, so a write follows it.
         profile = _resolver(ctx).profile
         # Keyed on the file rather than the section, so a fresh install has a profile to
@@ -96,7 +96,7 @@ def profile_config(ctx: click.Context, param: str | None, value: str | None) -> 
             f"no such profile: {profile!r}. Create it with `profile add {profile}`.",
         )
     for one in asked:
-        stored = _set_one(store, profile, one, value if param else None)
+        stored = _store_parameter(store, profile, one, value if param else None)
         click.echo(f"{one.name}: {'set' if stored else 'left unchanged'}")
 
 
@@ -106,9 +106,10 @@ def profile_config(ctx: click.Context, param: str | None, value: str | None) -> 
 def profile_inspect(ctx: click.Context, output_format: str | None) -> None:
     """Every parameter, the value in force, and the tier that supplied it."""
     resolver = _resolver(ctx)
-    with _engine_errors():
+    with _as_cli_error():
         rows = [
-            (one.name, _shown(resolver, one), resolver.source_of(one.name)) for one in config_spec()
+            (one.name, _displayed_value(resolver, one), resolver.source_of(one.name))
+            for one in config_spec()
         ]
     if resolve_output_format(resolver, output_format) == "json":
         keys = ("parameter", "value", "source")
@@ -128,13 +129,13 @@ def profile_select(ctx: click.Context, name: str) -> None:
             "PROFILE_NOT_FOUND",
             f"no such profile: {name!r}. Create it with `profile add {name}`.",
         )
-    with _engine_errors():
+    with _as_cli_error():
         store.select(name)
     click.echo(f"Selected profile: {name}")
 
 
 @contextmanager
-def _engine_errors(profile_code: str = "PROFILE_NOT_FOUND") -> Generator[None]:
+def _as_cli_error(profile_code: str = "PROFILE_NOT_FOUND") -> Generator[None]:
     """Report the configuration engine's own failures under this CLI's error codes."""
     try:
         yield
@@ -152,7 +153,9 @@ def _resolver(ctx: click.Context) -> ConfigResolver:
     return build_resolver(ctx.obj["profile"], ctx.obj["environ"])
 
 
-def _set_one(store: ProfileStore, profile: str, param: ParamSpec, value: str | None) -> bool:
+def _store_parameter(
+    store: ProfileStore, profile: str, param: ParamSpec, value: str | None
+) -> bool:
     """Store one parameter, prompting where no value was given, and say whether it was written."""
     if param.is_secret:
         # A secret on the command line reaches the shell history, so it is always prompted.
@@ -161,7 +164,7 @@ def _set_one(store: ProfileStore, profile: str, param: ParamSpec, value: str | N
         )
         if not given:
             return False
-        with _engine_errors():
+        with _as_cli_error():
             store.set_value(profile, param.name, encode(given))
         return True
     given = (
@@ -173,13 +176,13 @@ def _set_one(store: ProfileStore, profile: str, param: ParamSpec, value: str | N
     )
     if given == "":
         return False
-    with _engine_errors():
+    with _as_cli_error():
         param.cast_value(given)  # raises ConfigError on a value the cast refuses
         store.set_value(profile, param.name, given)
     return True
 
 
-def _shown(resolver: ConfigResolver, param: ParamSpec) -> str:
+def _displayed_value(resolver: ConfigResolver, param: ParamSpec) -> str:
     """The value inspect prints, masked where the parameter is a secret."""
     if param.is_secret:
         if resolver.source_of(param.name) == "environment":
