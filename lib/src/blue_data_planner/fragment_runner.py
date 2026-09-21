@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 from blue_data_planner.data import DataCatalog
 from blue_data_planner.execution import execute_physical_operator, summarize_table
@@ -33,8 +33,21 @@ class Review(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    decision: FragmentReviewDecision
-    assessment: str
+    decision: FragmentReviewDecision = Field(
+        description=(
+            "Whether the rows do what the fragment's instruction asked: accept, reject when a "
+            "different attempt could fix it, replan when no arrangement of operators will do it."
+        )
+    )
+    # A rejection's assessment is read again by the cover repair, which has none of these turns
+    # in front of it, so it has to stand on its own.
+    assessment: str = Field(
+        description=(
+            "For accept, one short sentence saying the result answers the instruction. For "
+            "reject and replan, what is wrong and what a different attempt has to do, written "
+            "so it reads on its own."
+        )
+    )
 
 
 class FragmentRunner:
