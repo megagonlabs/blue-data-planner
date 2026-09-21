@@ -19,6 +19,7 @@ from blue_data_planner.types import (
     DataPipeline,
     ExecutionResult,
     ExecutionStatus,
+    FragmentResult,
     LogicalOperator,
     LogicalPlan,
     PhysicalPlan,
@@ -235,8 +236,9 @@ def test_a_key_held_only_in_the_profile_reaches_the_environment_a_model_call_rea
     assert seen["OPENAI_API_KEY"] == "sk-stored"
 
 
-def test_a_row_cap_of_zero_shows_no_sample_rows_rather_than_the_profile_default(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+@pytest.mark.parametrize(("cap", "shows_the_row"), [("0", False), ("5", True)])
+def test_the_row_cap_the_command_was_given_decides_the_sample_rows_the_trace_shows(
+    cap: str, shows_the_row: bool, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Zero is a cap a user can ask for, and the profile's own cap must not stand in for it."""
     pipeline = a_planned_pipeline()
@@ -246,13 +248,13 @@ def test_a_row_cap_of_zero_shows_no_sample_rows_rather_than_the_profile_default(
 
     result = CliRunner().invoke(
         cli,
-        ["data", "query", "q", "--trace", "--trace-max-fragment-rows", "0"],
+        ["data", "query", "q", "--trace", "--trace-max-fragment-rows", cap],
         env=a_configured_environment(tmp_path),
     )
 
     assert result.exit_code == 0
     assert "blue.select" in result.stderr  # the trace itself still prints
-    assert "Lowell" not in result.stderr
+    assert ("Lowell" in result.stderr) is shows_the_row
 
 
 def a_process_environment(monkeypatch: pytest.MonkeyPatch, variables: dict[str, str]) -> None:
@@ -322,15 +324,19 @@ def a_planned_pipeline() -> DataPipeline:
     )
 
 
-def a_scan_of_one_row(pipeline: DataPipeline) -> dict[str, ExecutionResult]:
-    """Return the result the one fragment of `a_planned_pipeline` produced."""
+def a_scan_of_one_row(pipeline: DataPipeline) -> dict[str, FragmentResult]:
+    """Return how the one fragment of `a_planned_pipeline` ended, and the row it returned."""
     signed = signatures(pipeline.logical_plans["l1"], pipeline.physical_plans["p1"])
     return {
-        signed["n1"]: ExecutionResult(
-            status=ExecutionStatus.OK,
-            operator_id="blue.select",
-            output=[[{"school": "Lowell"}]],
-            row_count=1,
+        signed["n1"]: FragmentResult(
+            status=RunStatus.OK,
+            result=ExecutionResult(
+                status=ExecutionStatus.OK,
+                operator_id="blue.select",
+                output=[[{"school": "Lowell"}]],
+                row_count=1,
+            ),
+            failure_reason=None,
         )
     }
 

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import dataclasses
-from typing import Any
+from collections.abc import Mapping
 
 from blue_data_planner import RunResult, RunStatus
 from blue_data_planner.plan import signatures
@@ -53,7 +53,7 @@ def a_run_result(
     answer: DataBundle | None = None,
     failure_reason: str | None = None,
     pipeline: DataPipeline | None = None,
-    results: dict[str, Any] | None = None,
+    results: Mapping[str, FragmentResult | DiscoveryResult] | None = None,
     counters: RunCounters | None = None,
     conversations: RunConversations | None = None,
 ) -> RunResult:
@@ -69,7 +69,7 @@ def a_run_result(
             current_logical_plan_id=None,
             current_physical_plan_id=None,
         ),
-        results=results or {},
+        results=dict(results or {}),
         counters=counters or RunCounters(limits=RunLimits()),
         conversations=conversations or RunConversations(),
     )
