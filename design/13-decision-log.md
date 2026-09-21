@@ -354,20 +354,24 @@ output indexes a table before a row, so the rows of a single-output fragment are
 fragment root's `required_output_columns`, coercing each column to its declared type and failing the
 call as a recoverable error when it cannot. A result clearing that check goes to a model review turn
 returning an assessment and one of accept, reject, or replan. The review sees the fused instruction,
-the operator's description, the instruction of every node the fragment absorbed, and a sample of the
-result. Only the root is checked, since a fused call produces no intermediate tables.
+the operator's description, and a sample of the result, and judges the rows against the instruction.
+Which columns the result carries is settled by the check, and the review is not asked about it. Only
+the root is checked, since a fused call produces no intermediate tables.
 
 **Rationale:** The column check is cheap, deterministic, and catches the mistakes with an obvious
 right answer. It cannot catch a result that is well shaped and wrong, which is the failure that
-matters most for a semantic operator. The absorbed nodes' instructions are what make a fused call
-checkable at all: one call asked to scan, filter, and join returns one table and no evidence of the
-steps inside it, and a call handed a semantic predicate SQL cannot express tends to return rows that
-ignore it.
+matters most for a semantic operator. The fused instruction is what makes a fused call checkable:
+the physical planner writes one instruction covering every node in the fragment, so a call asked to
+scan, filter, and join has a single statement of what it owes, and a call handed a semantic
+predicate SQL cannot express tends to return rows that ignore it. The column rule stays with the
+check alone because a review that is told which columns were required reads the requirement as an
+exclusive list and turns down a correct result for carrying more.
 
 **Consequences:** One extra model call per fragment in the normal case. Writing parameters and
 reviewing the result are turns in one conversation, so the review sees what was written and why. The
 review is a place the system can talk itself into accepting a bad result, so its prompt and its
-accept rate need measuring rather than assuming.
+accept rate need measuring rather than assuming. A fragment's instruction is the only record of what
+it owes, so an incomplete one leaves the review nothing to catch a bad call with.
 
 ---
 

@@ -744,9 +744,9 @@ by the caller, so a reduction one attempt achieved cannot compound into the next
 `budget_exhausted` rather than as a planner defect. What the runner was doing when the budget ran out
 is already in the conversation, which the run state holds.
 
-The absorbed nodes' instructions are what make a fused call checkable. A single call asked to scan,
-filter, and join returns one table and no evidence of the steps inside it, so the review asks
-whether each absorbed step is reflected in the result ([04, reviewing the
+The fused instruction is what makes a fused call checkable. A single call asked to scan, filter, and
+join returns one table and no evidence of the steps inside it, so the review asks whether the rows
+answer the one instruction the fragment carries ([04, reviewing the
 result](04-detailed-architecture.md#reviewing-the-result)).
 
 ### `CatalogSearcher`

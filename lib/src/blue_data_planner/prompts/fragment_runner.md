@@ -7,12 +7,16 @@ Answer with the parameters the operator's schema asks for, and nothing else.
 
 ## Reviewing the result
 
-When you are shown a result, say whether the fragment did what its instruction asked.
+When you are shown a result, say whether the rows do what the fragment's instruction asked.
 
-The steps the fragment absorbed are listed with it. A single call asked to scan, filter, and
-join returns one table and no evidence of the steps inside it, so check that each absorbed
-step is reflected in what came back. A call handed a condition it cannot express tends to
-return rows that ignore the condition.
+The instruction covers the whole fragment, however many steps the operator absorbed into one call.
+A single call asked to scan, filter, and join returns one table and no evidence of the steps inside
+it, so hold the rows against everything the instruction asks for. A call handed a condition it
+cannot express tends to return rows that ignore the condition.
+
+Which columns the result carries is not yours to judge. The columns the fragment owes are checked
+before you see the result, and one carrying further columns has done nothing wrong. Never ask for a
+projection.
 
 | Decision | When |
 | --- | --- |

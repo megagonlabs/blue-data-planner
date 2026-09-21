@@ -213,14 +213,15 @@ fragment's root node declares: every named column has to be present, and every v
 coerce to the declared type. A missing column, or a value spelling no such type, fails the call as a
 recoverable error, so the fragment is planned again
 ([04, failures that skip recovery](04-detailed-architecture.md#failures-that-skip-recovery)).
+A column the list does not name travels on unchanged: the declaration is a floor the result has to
+carry, not a projection.
 An empty list means no check, and a `RETURN` node carries none, since it names input columns to
 project instead of promising output. The node a `RETURN` reads is the one exception to the list
 being optional ([the logical half](#the-logical-half)).
 
 The declarations on absorbed nodes are checked against nothing, because a fused call produces no
-intermediate tables. They are still written and still read: the physical planner uses them to
-describe what a fragment must produce, and one of them becomes a checked declaration again as soon
-as that node is the root of a smaller fragment.
+intermediate tables. Every node still declares its columns, because any of them becomes a checked
+declaration as soon as that node is the root of a smaller fragment.
 
 The check exists because semantic operators return text for everything. A LOTUS operator that
 extracts a year gives back `"1815"`, and the numeric operator downstream rejects it. Coercing at the
