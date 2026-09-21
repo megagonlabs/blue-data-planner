@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import dataclasses
 import io
 
+import pytest
 from blue_data_planner import RunResult, RunStatus
 from blue_data_planner.types import (
     SUMMARY_SAMPLE_ROWS,
@@ -12,10 +14,17 @@ from blue_data_planner.types import (
     ExecutionResult,
     ExecutionStatus,
     FragmentResult,
+    UnknownNodeError,
 )
 from rich.console import Console
 
-from blue_data_planner_cli.trace import print_log, spend_lines, traced_covers
+from blue_data_planner_cli.trace import (
+    discovery_ending,
+    fragment_ending,
+    print_log,
+    spend_lines,
+    traced_covers,
+)
 from tests.doubles.components import (
     a_discovery_of_one_match,
     a_rerun_whose_second_cover_keeps_the_scan,
@@ -66,8 +75,9 @@ def test_a_fragment_logs_its_operator_its_steps_and_a_summary_of_what_it_returne
     assert [(node.id, node.kind, node.instruction) for node in scan.nodes] == [
         ("n1", "SCAN", "read every posting")
     ]
-    assert scan.nodes[0].reads == "postings"
-    assert scan.outcome == "ok  140 rows"
+    assert scan.nodes[0].scan_source == "postings"
+    assert (scan.status, scan.row_count) == (RunStatus.OK, 140)
+    assert fragment_ending(scan) == "ok  140 rows"
     assert scan.rows is not None
     assert scan.rows.row_count == 140
     assert scan.rows.columns == ["county", "title"]
@@ -94,15 +104,17 @@ def test_a_fragment_that_ran_and_was_not_kept_says_so_where_one_never_reached_sa
     rejected = a_run_over_one_cover_of_two_fragments(filter_result=a_rejected_filter())
     unreached = a_run_over_one_cover_of_two_fragments()
 
-    assert traced_covers(rejected)[0].fragments[1].outcome == "needs_repair  1 rows"
-    assert traced_covers(unreached)[0].fragments[1].outcome == "not reached under this cover"
+    assert fragment_ending(traced_covers(rejected)[0].fragments[1]) == "needs_repair  1 rows"
+    unvisited = traced_covers(unreached)[0].fragments[1]
+    assert unvisited.status is None
+    assert fragment_ending(unvisited) == "not reached under this cover"
 
 
 def test_a_fragment_that_was_not_kept_names_the_reason_it_went_to_a_repair() -> None:
     """What the review objected to is what says which repair the run moved on to, and why."""
     result = a_run_over_one_cover_of_two_fragments(filter_result=a_rejected_filter())
 
-    assert traced_covers(result)[0].fragments[1].reason == (
+    assert traced_covers(result)[0].fragments[1].failure_reason == (
         "the review said Fresno is not in the bay area"
     )
     assert "reason  the review said Fresno is not in the bay area" in a_printed_log(result)
@@ -114,8 +126,8 @@ def test_a_failed_fragment_names_the_objection_the_operator_raised() -> None:
         a_run_over_one_cover_of_two_fragments(filter_result=a_refused_filter())
     )[0].fragments[1]
 
-    assert filtered.outcome == "operator_failed"
-    assert filtered.reason == "the column 'county' is missing"
+    assert fragment_ending(filtered) == "operator_failed"
+    assert filtered.failure_reason == "the column 'county' is missing"
 
 
 def test_a_discover_node_leads_the_cover_reading_it_with_what_its_search_matched() -> None:
@@ -125,7 +137,7 @@ def test_a_discover_node_leads_the_cover_reading_it_with_what_its_search_matched
     )[0]
 
     assert [one.node.id for one in cover.discoveries] == ["n3"]
-    assert cover.discoveries[0].outcome == "ok  1 matches  (1 terms dropped)"
+    assert discovery_ending(cover.discoveries[0]) == "ok  1 matches  (1 terms dropped)"
     assert cover.discoveries[0].matches == ["california_schools/schools"]
 
 
@@ -134,7 +146,8 @@ def test_work_a_later_cover_asked_for_again_is_named_rather_than_logged_twice() 
     covers = traced_covers(a_rerun_whose_second_cover_keeps_the_scan())
 
     reused = covers[1].fragments[0]
-    assert reused.outcome == "ok  140 rows  (reused from cover 1)"
+    assert reused.reused_from == 1
+    assert fragment_ending(reused) == "ok  140 rows  (reused from cover 1)"
     assert reused.rows is None
 
 
@@ -186,3 +199,27 @@ def test_a_printed_instruction_holding_square_brackets_reaches_the_table_whole()
     result = a_run_over_one_cover_of_two_fragments(instruction="keep [red, blue] rows")
 
     assert "keep [red, blue] rows" in a_printed_log(result)
+
+
+def a_cover_naming_a_node_the_plan_lacks() -> RunResult:
+    """A run whose cover claims a node id its own logical plan never held."""
+    result = a_run_over_one_cover_of_two_fragments()
+    cover = result.pipeline.physical_plans["pp1"]
+    scan = next(one for one in cover.fragments if one.root_logical_node_id == "n1")
+    broken = dataclasses.replace(
+        cover,
+        fragments=[
+            dataclasses.replace(scan, logical_node_ids=["n1", "n9"]),
+            *(one for one in cover.fragments if one is not scan),
+        ],
+    )
+    return dataclasses.replace(
+        result,
+        pipeline=dataclasses.replace(result.pipeline, physical_plans={"pp1": broken}),
+    )
+
+
+def test_a_cover_naming_a_node_its_plan_does_not_hold_is_raised_rather_than_drawn() -> None:
+    """Drawing a placeholder step would put malformed state in front of a reader as a fact."""
+    with pytest.raises(UnknownNodeError):
+        traced_covers(a_cover_naming_a_node_the_plan_lacks())
