@@ -80,9 +80,15 @@ def profile_config(ctx: click.Context, param: str | None, value: str | None) -> 
     with _engine_errors("CONFIG_INVALID"):
         # The resolver decides which profile a read sees, so a write follows it.
         profile = _resolver(ctx).profile
-        if not store.exists(profile):
-            store.add(profile)
+        # Keyed on the file rather than the section, so a fresh install has a profile to
+        # configure while one the user removed stays removed.
+        store.initialize()
         asked = [spec[param]] if param else spec.required()
+    if not store.exists(profile):
+        raise CliError(
+            "PROFILE_NOT_FOUND",
+            f"no such profile: {profile!r}. Create it with `profile add {profile}`.",
+        )
     for one in asked:
         stored = _set_one(store, profile, one, value if param else None)
         click.echo(f"{one.name}: {'set' if stored else 'left unchanged'}")

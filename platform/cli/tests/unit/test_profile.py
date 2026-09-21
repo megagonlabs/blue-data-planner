@@ -91,6 +91,18 @@ def test_selecting_a_profile_that_does_not_exist_reports_it_as_not_found(tmp_pat
     assert result.exception.code == "PROFILE_NOT_FOUND"
 
 
+def test_configuring_a_profile_that_does_not_exist_reports_it_as_not_found(tmp_path: Path) -> None:
+    """`profile config` writes, so a name nobody added is the typo `profile select` already
+    refuses, and a profile the user removed has to stay removed."""
+    runner, env = a_runner(tmp_path)
+
+    result = runner.invoke(cli, ["--profile", "ghost", "profile", "config"], env=env, input="")
+
+    assert isinstance(result.exception, CliError)
+    assert result.exception.code == "PROFILE_NOT_FOUND"
+    assert "profile add ghost" in result.exception.description
+
+
 def test_a_value_the_cast_refuses_reports_it_as_invalid(tmp_path: Path) -> None:
     """A parameter is declared with a cast, and a value that fails it is never stored."""
     runner, env = a_runner(tmp_path)
