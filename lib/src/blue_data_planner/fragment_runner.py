@@ -97,9 +97,11 @@ class FragmentRunner:
         last_error: str | None = None
         last_result: ExecutionResult | None = None
         for _spent in range(counters.limits.parameter_repairs + 1):
+            # by_alias=True: belt-and-braces alongside schemas.py's serialize_by_alias, which
+            # is what actually makes a predicate's and/or/not survive this dump.
             parameters = self._llm_client.complete_structured(
                 conversation, operator.parameter_schema
-            ).model_dump()
+            ).model_dump(by_alias=True)
             result = execute_physical_operator(
                 operator, parameters, inputs, fragment.required_output_columns, counters
             )

@@ -239,3 +239,140 @@ def test_an_expansion_refuses_a_column_it_cannot_take_apart() -> None:
     """A value that is neither a list nor a string with a separator is refused."""
     with pytest.raises(RecoverableOperatorError, match="rating"):
         expand_rows(a_table_of_restaurants(), "rating", "rating", None)
+
+
+@pytest.mark.parametrize(
+    ("operator", "column_value", "predicate_value"),
+    [
+        ("eq", "1234", 1234),
+        ("ne", "1234", 1234),
+        ("in", "1234", [1234]),
+        ("eq", 1234, "1234"),
+        ("eq", True, 1),
+        ("eq", 1, True),
+        ("eq", True, "true"),
+    ],
+)
+def test_a_cross_category_comparison_refuses_the_table(
+    operator: str, column_value: Any, predicate_value: Any
+) -> None:
+    """A string, a number, and a bool are separate categories, so eq, ne, and in refuse a
+    comparison the whole column crosses them on, rather than silently answering that no rows
+    match."""
+    with pytest.raises(RecoverableOperatorError, match="code"):
+        filter_rows(
+            [{"code": column_value}],
+            a_predicate({"column": "code", "operator": operator, "value": predicate_value}),
+        )
+
+
+def test_an_equality_comparison_between_two_numbers_answers_no_rows_rather_than_refusing() -> None:
+    """An int compared against a float, both numbers, is an ordinary unequal comparison, not
+    the category mismatch a string compared against a number is."""
+    kept = filter_rows(
+        [{"rating": 182.88}], a_predicate({"column": "rating", "operator": "eq", "value": 182})
+    )
+
+    assert kept == []
+
+
+@pytest.mark.parametrize(
+    "table",
+    [[{"id": 5}, {"id": "5"}], [{"id": "N/A"}, {"id": 5}]],
+)
+def test_a_stray_dirty_cell_does_not_abort_a_comparison_the_column_otherwise_answers(
+    table: Data,
+) -> None:
+    """A column that is a number except for one stray string still answers eq against a
+    number literal, since some row shares its category; the refusal is for a column with no
+    row left to compare against, not for one dirty cell in an otherwise numeric column."""
+    kept = filter_rows(table, a_predicate({"column": "id", "operator": "eq", "value": 5}))
+
+    assert [row["id"] for row in kept] == [5]
+
+
+def test_an_in_comparison_matches_a_bool_column_against_a_bool_option() -> None:
+    """A bool column checked with 'in' against a list holding that same bool matches, the way
+    an ordinary equality check would, rather than being refused as a category mismatch."""
+    kept = filter_rows(
+        [{"active": True}], a_predicate({"column": "active", "operator": "in", "value": [True]})
+    )
+
+    assert kept == [{"active": True}]
+
+
+def _sorted_by_n(table: Data) -> Data:
+    return sort_rows(table, [SortKey(column="n", direction="desc")], None)
+
+
+def _max_of_n(table: Data) -> Data:
+    return aggregate_rows(table, [], [ColumnAggregation(function="max", column="n", into="top")])
+
+
+@pytest.mark.parametrize("transformation", [_sorted_by_n, _max_of_n])
+def test_ordering_a_column_of_numeric_strings_is_refused_rather_than_read_as_text(
+    transformation: Callable[[Data], Data],
+) -> None:
+    """A column whose values are all strings that parse as numbers, of differing lengths,
+    cannot be ordered lexicographically, whether sort_rows or an aggregation's min/max does
+    the ordering."""
+    with pytest.raises(RecoverableOperatorError, match="numeric strings"):
+        transformation([{"n": "9"}, {"n": "10"}, {"n": "100"}])
+
+
+@pytest.mark.parametrize(
+    ("transformation", "expected"),
+    [(_sorted_by_n, [{"n": "42"}]), (_max_of_n, [{"top": "42"}])],
+)
+def test_ordering_a_single_value_is_a_no_op_even_if_it_looks_numeric(
+    transformation: Callable[[Data], Data], expected: Data
+) -> None:
+    """A column with one present value has nothing to misorder, so a lone numeric string is
+    not refused, and the one row passes through unchanged."""
+    assert transformation([{"n": "42"}]) == expected
+
+
+def test_sorting_equal_width_digit_strings_is_not_refused_because_order_coincides() -> None:
+    """Zip codes or four-digit years, all the same length and made of digits alone, sort the
+    same way whether compared as text or as numbers, so the numeric-string refusal would only
+    cost a repair loop and does not fire."""
+    sorted_rows = sort_rows([{"zip": "94104"}, {"zip": "94103"}], [SortKey(column="zip")], None)
+
+    assert [row["zip"] for row in sorted_rows] == ["94103", "94104"]
+
+
+@pytest.mark.parametrize(
+    "values",
+    [["10.5", "9.25"], ["-9", "-8"], ["+5", "-5"], ["1e3", "999"]],
+)
+def test_sorting_equal_width_numeric_strings_with_a_sign_or_point_is_still_refused(
+    values: list[str],
+) -> None:
+    """Equal width alone does not make lexicographic and numeric order agree: a decimal point,
+    a sign, or exponent notation breaks the digit-by-digit correspondence plain zip codes or
+    years have, so the refusal still fires."""
+    with pytest.raises(RecoverableOperatorError, match="numeric strings"):
+        sort_rows([{"n": value} for value in values], [SortKey(column="n")], None)
+
+
+def test_sorting_a_column_mixing_numeric_and_non_numeric_strings_sorts_as_text() -> None:
+    """A column where not every value parses as a number is plain text, even when some values
+    happen to look numeric, so it sorts lexicographically rather than being refused."""
+    sorted_rows = sort_rows(
+        [{"tag": "banana"}, {"tag": "9"}, {"tag": "apple"}], [SortKey(column="tag")], None
+    )
+
+    assert [row["tag"] for row in sorted_rows] == ["9", "apple", "banana"]
+
+
+def test_a_groups_max_still_refuses_a_group_whose_own_values_are_all_numeric_strings() -> None:
+    """A group-by max is judged per group, not over the whole column: a sentinel like "N/A" in
+    a different group must not disable the refusal for a group whose own values are all
+    numeric strings, since that group's max would otherwise read lexicographically ("9" over
+    the numeric maximum "10") with nothing to say so."""
+    with pytest.raises(RecoverableOperatorError, match="numeric strings"):
+        aggregate_rows(
+            [{"g": "a", "n": "9"}, {"g": "a", "n": "10"}, {"g": "b", "n": "N/A"}],
+            ["g"],
+            [ColumnAggregation(function="max", column="n", into="top")],
+        )

@@ -8,8 +8,11 @@ from pydantic import BaseModel, ConfigDict, Field
 
 # Unknown keys are refused so a runner cannot reach a parameter a declaration leaves out.
 # populate_by_name lets a predicate field also be set by its own name (rather than only by
-# its and/or/not alias), which is what lets model_dump() round-trip back through model_validate().
-_STRICT = ConfigDict(extra="forbid", populate_by_name=True)
+# its and/or/not alias) when something builds one of these models directly.
+# serialize_by_alias makes model_dump() write "and"/"or"/"not" by default: AndPredicate and
+# OrPredicate share the field name "conditions" and differ only by alias, so a plain dump
+# without it loses which one this was, and the untagged union resolves the wrong type back in.
+_STRICT = ConfigDict(extra="forbid", populate_by_name=True, serialize_by_alias=True)
 
 SortDirection = Literal["asc", "desc"]
 JoinKind = Literal["inner", "left"]

@@ -28,6 +28,7 @@ _ORDERINGS: dict[str, Callable[[Any, Any], bool]] = {"lt": lt, "lte": le, "gt": 
 def filter_rows(table: Data, predicate: Predicate) -> Data:
     """Return the rows the predicate accepts."""
     _require_columns(table, _predicate_columns(predicate))
+    _require_comparable_predicate(table, predicate)
     return [row for row in table if _holds(row, predicate)]
 
 
@@ -98,6 +99,9 @@ def sort_rows(table: Data, keys: list[SortKey], limit: int | None) -> Data:
     # Sorted once per key, last key first, because Python's sort is stable and the first key
     # has to win.
     for key in reversed(keys):
+        _require_not_numeric_strings(
+            [row[key.column] for row in table if row.get(key.column) is not None], key.column
+        )
         descending = key.direction == "desc"
         try:
             ordered.sort(
@@ -151,6 +155,9 @@ def _compares(value: Any, comparison: Comparison) -> bool:
     # A missing value satisfies no comparison; is_null is how a plan asks about one.
     if value is None:
         return False
+    # eq, ne, and in are checked once per column, over every row, before filtering starts
+    # (_require_comparable_predicate): a per-row check here would abort a filter that a
+    # column mostly of one category was answering correctly, on one dirty cell.
     if isinstance(comparison, InComparison):
         return value in comparison.value
     if comparison.operator == "eq":
@@ -171,6 +178,83 @@ def _compares(value: Any, comparison: Comparison) -> bool:
             f"column {comparison.column!r} holds {type(value).__name__}, which cannot be "
             f"ordered against the {type(comparison.value).__name__} the predicate compares it with"
         ) from None
+
+
+def _category(value: Any) -> type | None:
+    # A category groups the shapes a plan should never treat as interchangeable: a string, a
+    # number, or a bool, matching _numbers, which already refuses a bool where a number is
+    # expected. None is excluded rather than its own category: comparing against a literal
+    # None is what "eq value=None" means, not a category mismatch is_null already covers.
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        return bool
+    if isinstance(value, str):
+        return str
+    if isinstance(value, int | float):
+        return float
+    return type(value)  # pyright: ignore[reportUnknownVariableType]
+
+
+def _membership_category(value: Any) -> type | None:
+    # InComparison's schema (list[str | int | float]) has no bool option: pydantic already
+    # turned True/False into 1/0 before this runs, so a row's bool value has to be folded into
+    # the number category here to match the membership Python itself would find (True == 1),
+    # rather than refusing a check the comparison would actually answer.
+    if isinstance(value, bool):
+        return float
+    return _category(value)
+
+
+def _require_comparable_predicate(table: Data, predicate: Predicate) -> None:
+    # Checked once per column, over every row, before filtering starts: a per-row check would
+    # abort a filter that a column mostly of one category was answering correctly, on one
+    # dirty cell (an occasional "N/A" in an otherwise numeric column, say).
+    if isinstance(predicate, AndPredicate | OrPredicate):
+        for condition in predicate.conditions:
+            _require_comparable_predicate(table, condition)
+        return
+    if isinstance(predicate, NotPredicate):
+        _require_comparable_predicate(table, predicate.condition)
+        return
+    _require_comparable_comparison(table, predicate)
+
+
+def _require_comparable_comparison(table: Data, comparison: Comparison) -> None:
+    if isinstance(comparison, NullComparison):
+        return
+    present = [row[comparison.column] for row in table if row.get(comparison.column) is not None]
+    if isinstance(comparison, InComparison):
+        _require_comparable_membership(present, comparison.value, comparison.column)
+        return
+    if comparison.operator in ("eq", "ne"):
+        _require_comparable_category(present, comparison.value, comparison.column)
+
+
+def _require_comparable_category(present: list[Any], other: Any, column: str) -> None:
+    other_category = _category(other)
+    if other_category is None or not present:
+        return
+    if not any(_category(value) == other_category for value in present):
+        raise RecoverableOperatorError(
+            f"column {column!r} holds {_type_names(present)}, which cannot be compared for "
+            f"equality against the {type(other).__name__} the predicate compares it with"
+        )
+
+
+def _require_comparable_membership(present: list[Any], options: list[Any], column: str) -> None:
+    if not present or not options:
+        return
+    option_categories = {_membership_category(option) for option in options}
+    if not any(_membership_category(value) in option_categories for value in present):
+        raise RecoverableOperatorError(
+            f"column {column!r} holds {_type_names(present)}, which cannot be compared for "
+            f"membership against a list holding {_type_names(options)}"
+        )
+
+
+def _type_names(values: list[Any]) -> list[str]:
+    return sorted({type(value).__name__ for value in values})
 
 
 def _predicate_columns(predicate: Predicate) -> list[str]:
@@ -216,6 +300,11 @@ def _aggregate(rows: Data, aggregation: Aggregation) -> Any:
         return sum(numbers) / len(numbers) if numbers else None
     if not present:
         return None
+    # Judged per group, not over the whole column: a column that also holds a sentinel like
+    # "N/A" in another group must not disable this check for a group whose own values are all
+    # numeric strings, or a group-by max reads lexicographically ("9" over "10") with nothing
+    # to say so.
+    _require_not_numeric_strings(present, column)
     try:
         return min(present) if aggregation.function == "min" else max(present)
     except TypeError:
@@ -233,6 +322,39 @@ def _numbers(values: list[Any], column: str) -> list[float]:
                 f"column {column!r} holds {type(value).__name__}, which cannot be summed"
             )
     return [float(value) for value in values]
+
+
+def _require_not_numeric_strings(values: list[Any], column: str) -> None:
+    # A column that came out of a LOTUS sem_map or sem_extract call is always text, so a column
+    # of numeric strings shows up whenever such a column is sorted or ranked before anything
+    # declares it a number. Python orders those lexicographically ("10" before "9"), which is
+    # never what an order over numbers means; a column mixing numeric and non-numeric strings
+    # still sorts as text, since that is a plain text column doing what it should.
+    #
+    # Below two values, there is nothing to misorder. And when every value is the same length
+    # of digits only (zip codes, four-digit years), lexicographic and numeric order agree, so
+    # refusing would only cost a repair loop without preventing a wrong answer. Equal width
+    # alone is not enough: "10.5"/"9.25", "-9"/"-8", and "1e3"/"999" are the same length and
+    # still sort wrong as text, since a decimal point, a sign, or exponent notation breaks the
+    # digit-by-digit correspondence equal width otherwise guarantees.
+    if len(values) < 2:
+        return
+    if not all(isinstance(value, str) and _parses_as_number(value) for value in values):
+        return
+    if len({len(value) for value in values}) == 1 and all(value.isdigit() for value in values):
+        return
+    raise RecoverableOperatorError(
+        f"column {column!r} holds numeric strings, which sort lexicographically as text; "
+        "declare the column numeric before ordering it"
+    )
+
+
+def _parses_as_number(value: str) -> bool:
+    try:
+        float(value)
+    except ValueError:
+        return False
+    return True
 
 
 def _column_names(table: Data) -> set[str]:

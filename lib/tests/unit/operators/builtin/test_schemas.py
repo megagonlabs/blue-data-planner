@@ -21,6 +21,7 @@ from blue_data_planner.operators.builtin.schemas import (
     Nl2TableParameters,
     NotPredicate,
     OrPredicate,
+    Predicate,
     ProjectParameters,
     ScanParameters,
     SortSuperlativeParameters,
@@ -45,7 +46,8 @@ BUILTIN_PARAMETER_SCHEMAS = [
 
 def test_a_predicate_reads_back_as_the_tree_it_was_written_as() -> None:
     """A filter's predicate nests and, or, and not to whatever depth a plan asks for, and
-    survives a round trip through model_dump() and back."""
+    survives a plain model_dump() and back, by default and not because a caller remembered
+    an option."""
     parameters = FilterParameters.model_validate(
         {
             "predicate": {
@@ -69,10 +71,24 @@ def test_a_predicate_reads_back_as_the_tree_it_was_written_as() -> None:
     assert isinstance(negation, NotPredicate)
     assert isinstance(negation.condition, Comparison)
 
-    # model_dump() writes each field's own name ("conditions", "condition"), not its and/or/not
-    # alias, so the tree has to accept its own field names back to survive the round trip.
+    # And/Or/Not share their field names ("conditions", "condition") and differ only by alias,
+    # so comparing dumps was never enough to prove a round trip: an Or dumped without its
+    # alias reads back as an And, and the two dumps still match because both hold
+    # "conditions". Only the reconstructed tree's own types show that.
     round_tripped = FilterParameters.model_validate(parameters.model_dump())
-    assert round_tripped.model_dump() == parameters.model_dump()
+    assert _predicate_shape(round_tripped.predicate) == _predicate_shape(parameters.predicate)
+
+
+def _predicate_shape(predicate: Predicate) -> tuple[type, object]:
+    """Return a predicate tree's node types and leaf comparisons, recursively."""
+    if isinstance(predicate, AndPredicate | OrPredicate):
+        return (
+            type(predicate),
+            [_predicate_shape(condition) for condition in predicate.conditions],
+        )
+    if isinstance(predicate, NotPredicate):
+        return (type(predicate), _predicate_shape(predicate.condition))
+    return (type(predicate), predicate.model_dump())
 
 
 def _elements(value: Any) -> list[Any]:
