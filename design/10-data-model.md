@@ -213,6 +213,8 @@ fragment's root node declares: every named column has to be present, and every v
 coerce to the declared type. A missing column, or a value spelling no such type, fails the call as a
 recoverable error, so the fragment is planned again
 ([04, failures that skip recovery](04-detailed-architecture.md#failures-that-skip-recovery)).
+A column the list does not name travels on unchanged: the declaration is a floor the result has to
+carry, not a projection.
 An empty list means no check, and a `RETURN` node carries none, since it names input columns to
 project instead of promising output. The node a `RETURN` reads is the one exception to the list
 being optional ([the logical half](#the-logical-half)).

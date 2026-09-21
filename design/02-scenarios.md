@@ -225,10 +225,10 @@ The first cover is wrong, and the run finds out by running it. `nl2sql` writes a
 on location and quietly ignores the rest, because "is a data scientist role" is not a predicate SQL
 can express. The result has the right number of rows to look plausible.
 
-What catches it is the instruction of the node that was absorbed. A fused call returns one table and
-no evidence of the steps inside it, so the review checks the result against each absorbed
-instruction, and `n5` is the reason there is anything to check. Titles such as "Data Engineer" and
-"Research Scientist" do not answer it.
+What catches it is the fragment's instruction. The physical planner wrote one instruction covering
+every node it fused, `n5` among them, so the instruction asks for data scientists and the review has
+something to hold the rows against. Titles such as "Data Engineer" and "Research Scientist" do not
+answer it.
 
 The parameter repair goes first, because it is the cheapest and the most often right: the same
 operator over the same nodes, with the instruction written again. Here it does not help, since no

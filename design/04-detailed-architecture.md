@@ -450,13 +450,16 @@ result.
 
 A result that clears the column check goes to a review turn in the runner's conversation with the
 model, which keeps the earlier turns. The review sees the fused instruction, the description of the
-operator that ran, the instructions of every node the fragment absorbed, and a sample of the result.
+operator that ran, and a sample of the result.
 
-The absorbed nodes' instructions are what make a fused call checkable. A single call asked to scan,
-filter, and join returns one table and no evidence of the steps inside it, so the review asks
-whether each absorbed step is reflected in the result. A Text-to-SQL call handed a semantic
-predicate it cannot express in SQL tends to return rows that ignore the predicate, and the node that
-carried that predicate is the reason there is anything to notice.
+The fused instruction is what makes a fused call checkable. The physical planner writes one
+instruction covering every node in the fragment, so a call asked to scan, filter, and join has a
+single statement of what it owes, and the review asks whether the rows answer it. A Text-to-SQL call
+handed a semantic predicate it cannot express in SQL tends to return rows that ignore the predicate,
+and the instruction carrying that predicate is the reason there is anything to notice.
+
+The rows are what the review judges. Which columns they carry is settled before the review sees
+them, by the check against the fragment's declared columns.
 
 | Decision | Means |
 | --- | --- |
