@@ -62,7 +62,7 @@ def test_the_answer_payload_wraps_the_answer_in_how_the_run_ended_and_nothing_it
 
     assert payload["status"] == "ok"
     assert payload["counters"]["limits"]["operator_calls"] == 30  # the default RunLimits ceiling
-    assert set(payload) == {"status", "answer", "failure_reason", "counters", "usage"}
+    assert set(payload) == {"status", "answer", "failure_reason", "counters", "conversations"}
     json.dumps(payload)  # the payload has to survive encoding
 
 
@@ -71,7 +71,7 @@ def test_the_plan_payload_carries_the_plan_where_the_answer_payload_carries_rows
     payload = plan_payload(a_run_over_one_cover_of_two_fragments())
 
     assert payload["pipeline"]["current_logical_plan_id"] == "lp1"
-    assert set(payload) == {"status", "pipeline", "failure_reason", "counters", "usage"}
+    assert set(payload) == {"status", "pipeline", "failure_reason", "counters", "conversations"}
     json.dumps(payload)  # the payload has to survive encoding
 
 

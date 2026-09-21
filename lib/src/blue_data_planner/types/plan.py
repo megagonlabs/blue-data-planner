@@ -340,6 +340,14 @@ class TableSummary:
     columns: list[str]
     sample_rows: Data
 
+    def to_dict(self) -> dict[str, Any]:
+        """Return the JSON form."""
+        return {
+            "row_count": self.row_count,
+            "columns": list(self.columns),
+            "sample_rows": list(self.sample_rows),
+        }
+
 
 def summarize_table(table: Data, max_rows: int) -> TableSummary:
     """Return a table's row count, its column names, and its first `max_rows` rows."""

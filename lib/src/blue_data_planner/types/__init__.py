@@ -45,6 +45,7 @@ from blue_data_planner.types.plan import (
     summarize_table,
 )
 from blue_data_planner.types.run import (
+    SUMMARY_SAMPLE_ROWS,
     Conversation,
     DiscoveryResult,
     ErrorInfo,
@@ -65,6 +66,7 @@ from blue_data_planner.types.run import (
 )
 
 __all__ = [
+    "SUMMARY_SAMPLE_ROWS",
     "INPUT_ARITY",
     "AttributeRecord",
     "AttributeRef",

@@ -410,7 +410,9 @@ enums that travel in them are fixed in
 [10, what a run produces](10-data-model.md#3-what-a-run-produces). Every request returns a
 `RunResult` whether it worked or not: exhaustion, operator failure, and provider failure are
 statuses rather than exceptions, so a failed run is as inspectable as a successful one and one
-structure serves every adapter (ADR-015).
+structure serves every adapter (ADR-015). `to_dict` writes the JSON form, and every interface
+sends that one shape: rows a fragment returned as a table summary, an exchange as a call count
+and a cost, everything else whole.
 
 `RunStatus` has one member per way a request can end and one per way a fragment can end short of
 an answer, and [09-api-interface-spec.md](09-api-interface-spec.md#errors) lists the request endings

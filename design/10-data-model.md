@@ -1025,21 +1025,22 @@ belongs, or statistics that are not statistics — is a corrupt registry and rai
 The library's shapes are the reference. A library caller holds them in memory; the CLI and the MCP
 server write documents, and a document carries a measure of whatever grows with the data a run read.
 
-| Shape | Library | CLI | MCP response |
-| --- | --- | --- | --- |
-| `answer`, `status`, `failure_reason` | The rows, the status, the reason | The same | The same |
-| `counters` | The counts and the bounds they were counted against | The same | The counts |
-| `conversations` | Every turn of every exchange | A count of calls and what they cost | The same |
-| `results`, apart from a call's rows | How each fragment ended, with its reason | The same, in the trace | The same, as JSON |
-| `FragmentResult.result.output` | The rows the call returned | A `TableSummary`, in the trace | A row count |
-| A `DISCOVER` node's entry in `results` | Every term and every match | The same, in the trace | A count of matches |
-| `pipeline` | Every plan the request produced | The plan a `plan query` produced, and every plan the trace walks | The same, as JSON |
+| Shape | Library | The JSON form |
+| --- | --- | --- |
+| `answer`, `status`, `failure_reason` | The rows, the status, the reason | The same |
+| `counters` | The counts and the bounds they were counted against | The same |
+| `conversations` | Every turn of every exchange | A count of calls and what they cost |
+| `results`, apart from a call's rows | How each fragment ended, with its reason | The same |
+| `FragmentResult.result.output` | The rows the call returned | One `TableSummary` per table, carrying the first five rows |
+| A `DISCOVER` node's entry in `results` | Every term and every match | The same |
+| `pipeline` | Every plan the request produced | The same |
 
-The reductions have two reasons. A transcript and a run's intermediate tables grow with the work a
-request did rather than with its answer, so a document reduces each to a measure and stays the size
-of what a reader can act on (ADR-032). An agent's context window is tighter than a file, so the MCP
-response also reduces two things a person reading a terminal uses in full: the bounds a run obeyed
-and what a search matched ([09](09-api-interface-spec.md#planning-tools)).
+`RunResult.to_dict` writes that form, and every interface sends it, so one serialization answers for
+all of them. Two shapes are reduced because both grow with the work a request did rather than with
+its answer: a transcript and a run's intermediate tables. Each becomes a measure, which keeps a
+document the size of what a reader can act on (ADR-032). The CLI sends the plans only where a run's
+log was asked for, since what a person reads in a terminal is the answer
+([09](09-api-interface-spec.md#output)).
 
 A run that did not finish returns the same object with its status, `answer` null, and its counters,
 in every interface. There is no separate error shape.

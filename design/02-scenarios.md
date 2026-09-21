@@ -328,23 +328,23 @@ produced.
     "physical_plans": {"d19f5b3c": {"...": {}}, "a6e02f77": {"...": {}}}
   },
   "results": {
-    "8c4a71d0": {
-      "n1": {"matches": 3},
-      "n2": {"matches": 3},
-      "n4": {"status": "ok", "row_count": 48},
-      "...": {}
-    }
+    "a3f1c208": {"search_terms": ["job postings"], "matches": [{"...": {}}], "dropped_terms": 0},
+    "7b40de91": {"status": "ok", "failure_reason": null, "operator_id": "builtin.scan",
+                 "row_count": 48, "output": [{"row_count": 48, "columns": ["..."],
+                                              "sample_rows": [{"...": {}}]}]}
   },
-  "counters": {"operator_calls": 7, "failure_replans": 0,
-               "control_replans": 1},
+  "counters": {"operator_calls": 7, "failure_replans": 0, "control_replans": 1,
+               "limits": {"...": {}}},
   "conversations": {"calls": 11, "cost": 0.42}
 }
 ```
 
-The MCP response collapses what an agent reasons about into counts. The exchanges with the model are
-a call count and a cost rather than eleven transcripts, and the discovery node reports how many
-records matched rather than listing them, because the full record would bloat every response. A
-library caller reads both in full off the returned result.
+`results` is keyed by the signature of the work, which is what lets a later cover read a result the
+run already has (ADR-024). Two of its shapes are reduced, and each grows with the work the request
+did rather than with its answer: the exchanges with the model are a call count and a cost rather
+than eleven transcripts, and a fragment's rows are a summary — how many, which columns, and the
+first few — rather than the table itself. A library caller reads both in full off the returned
+result.
 
 The agent does not have to know that the run discovered a source, ended a pass, and took a pushdown
 boundary back, since the tool call still reads as one request and one answer. The record is there if

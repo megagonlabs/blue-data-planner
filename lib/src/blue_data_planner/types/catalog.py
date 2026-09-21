@@ -47,6 +47,10 @@ class AttributeRecord:
     dtype: str | None
     description: str | None
 
+    def to_dict(self) -> dict[str, Any]:
+        """Return the JSON form."""
+        return {"name": self.name, "dtype": self.dtype, "description": self.description}
+
 
 @dataclass(frozen=True)
 class EntityMatch:
@@ -61,6 +65,18 @@ class EntityMatch:
     attributes: list[AttributeRecord]
     score: float
     search_term: str
+
+    def to_dict(self) -> dict[str, Any]:
+        """Return the JSON form."""
+        return {
+            "path": self.path,
+            "name": self.name,
+            "description": self.description,
+            "source_kind": self.source_kind,
+            "attributes": [one.to_dict() for one in self.attributes],
+            "score": self.score,
+            "search_term": self.search_term,
+        }
 
 
 @dataclass(frozen=True)

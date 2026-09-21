@@ -1,15 +1,24 @@
-"""The bounds a run obeys and the counts it spends against them."""
+"""The bounds a run obeys, the counts it spends against them, and the form it leaves in."""
 
 from __future__ import annotations
+
+import json
 
 import pytest
 
 from blue_data_planner.types import (
+    SUMMARY_SAMPLE_ROWS,
     BudgetExhaustedError,
+    DataPipeline,
+    ExecutionResult,
+    ExecutionStatus,
+    FragmentResult,
     LLMUsage,
     RunConversations,
     RunCounters,
     RunLimits,
+    RunResult,
+    RunStatus,
     Turn,
 )
 
@@ -79,3 +88,47 @@ def test_asking_twice_for_one_scope_returns_the_exchange_already_open(accessor: 
 
     assert getattr(conversations, accessor)("k1").turns == opened.turns
     assert getattr(conversations, accessor)("k2").turns == []
+
+
+def a_run_that_scanned(rows: int) -> RunResult:
+    """A finished run whose one fragment returned `rows` rows, after one model call."""
+    conversations = RunConversations()
+    conversations.logical_planner.turns.append(Turn(role="system", content="a whole prompt"))
+    conversations.logical_planner.usage.append(a_usage_record(cost=0.5))
+    return RunResult(
+        status=RunStatus.OK,
+        answer=[[{"school": "Lowell"}]],
+        failure_reason=None,
+        pipeline=DataPipeline(
+            logical_plans={},
+            physical_plans={},
+            current_logical_plan_id=None,
+            current_physical_plan_id=None,
+        ),
+        results={
+            "a1": FragmentResult(
+                status=RunStatus.OK,
+                result=ExecutionResult(
+                    status=ExecutionStatus.OK,
+                    operator_id="builtin.scan",
+                    output=[[{"n": index} for index in range(rows)]],
+                    row_count=rows,
+                ),
+                failure_reason=None,
+            )
+        },
+        counters=RunCounters(limits=RunLimits()),
+        conversations=conversations,
+    )
+
+
+def test_the_json_form_of_a_run_reduces_its_rows_and_its_transcript_to_a_measure() -> None:
+    """A document leaves the process, so whatever grows with the data a run read travels as a
+    measure of itself rather than whole."""
+    payload = a_run_that_scanned(rows=140).to_dict()
+
+    scanned = payload["results"]["a1"]["output"][0]
+    assert scanned["row_count"] == 140
+    assert len(scanned["sample_rows"]) == SUMMARY_SAMPLE_ROWS
+    assert payload["conversations"] == {"calls": 1, "cost": 0.5}
+    json.dumps(payload)  # a document that will not encode is not a document

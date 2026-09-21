@@ -2,13 +2,23 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from enum import StrEnum
 from typing import Any, Literal
 
 from blue_data_planner.types.catalog import EntityMatch
 from blue_data_planner.types.errors import BudgetExhaustedError
-from blue_data_planner.types.plan import DataBundle, DataPipeline, LogicalPlan, PhysicalPlan
+from blue_data_planner.types.plan import (
+    DataBundle,
+    DataPipeline,
+    LogicalPlan,
+    PhysicalPlan,
+    summarize_table,
+)
+
+# The rows a table's summary carries when a result leaves the process. A sample shows the
+# shape of what a fragment produced; a reader wanting the rows themselves embeds the library.
+SUMMARY_SAMPLE_ROWS: int = 5
 
 
 class ExecutionStatus(StrEnum):
@@ -80,6 +90,14 @@ class DiscoveryResult:
     # Terms cut by the per-node cap, reported so a reader knows the search was capped.
     dropped_terms: int
 
+    def to_dict(self) -> dict[str, Any]:
+        """Return the JSON form."""
+        return {
+            "search_terms": list(self.search_terms),
+            "matches": [one.to_dict() for one in self.matches],
+            "dropped_terms": self.dropped_terms,
+        }
+
 
 @dataclass(frozen=True)
 class LLMUsage:
@@ -140,6 +158,11 @@ class RunConversations:
         """Return this discovery's exchange, opening one the first time."""
         return self.catalog_searcher.setdefault(signature, Conversation())
 
+    def to_dict(self) -> dict[str, Any]:
+        """Return the JSON form: what the model calls cost, not what was said."""
+        usage = self.usage
+        return {"calls": len(usage), "cost": sum(one.cost for one in usage)}
+
 
 @dataclass(frozen=True)
 class LogicalPlanResult:
@@ -168,6 +191,18 @@ class FragmentResult:
     result: ExecutionResult | None
     failure_reason: str | None
 
+    def to_dict(self) -> dict[str, Any]:
+        """Return the JSON form: how the fragment ended, and a summary of each table it returned."""
+        call = self.result
+        tables = [] if call is None or call.output is None else call.output
+        return {
+            "status": str(self.status),
+            "failure_reason": self.failure_reason,
+            "operator_id": None if call is None else call.operator_id,
+            "row_count": None if call is None else call.row_count,
+            "output": [summarize_table(one, SUMMARY_SAMPLE_ROWS).to_dict() for one in tables],
+        }
+
 
 @dataclass(frozen=True)
 class RunResult:
@@ -186,6 +221,18 @@ class RunResult:
     results: dict[str, FragmentResult | DiscoveryResult]
     counters: RunCounters
     conversations: RunConversations
+
+    def to_dict(self) -> dict[str, Any]:
+        """Return the JSON form every interface writes a run in."""
+        return {
+            "status": str(self.status),
+            "answer": self.answer,
+            "failure_reason": self.failure_reason,
+            "pipeline": self.pipeline.to_dict(),
+            "results": {signature: found.to_dict() for signature, found in self.results.items()},
+            "counters": self.counters.to_dict(),
+            "conversations": self.conversations.to_dict(),
+        }
 
 
 @dataclass(frozen=True)
@@ -214,6 +261,15 @@ class RunCounters:
     operator_calls: int = 0
     failure_replans: int = 0
     control_replans: int = 0
+
+    def to_dict(self) -> dict[str, Any]:
+        """Return the JSON form: what the run spent, and the bounds it was spent against."""
+        return {
+            "operator_calls": self.operator_calls,
+            "failure_replans": self.failure_replans,
+            "control_replans": self.control_replans,
+            "limits": asdict(self.limits),
+        }
 
     def spend_operator_call(self) -> None:
         """Bill one operator call, raising when the cap leaves no room."""

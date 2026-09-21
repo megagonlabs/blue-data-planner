@@ -174,7 +174,8 @@ The three recovery bounds are one repair each, tried narrowest first
 ### `RunResult`
 
 Returned whichever way a request ends, and fixed in
-[10, what a run produces](10-data-model.md#3-what-a-run-produces).
+[10, what a run produces](10-data-model.md#3-what-a-run-produces). `to_dict` writes the JSON
+form the CLI and the MCP server both send.
 
 | Field | Type | Holds |
 | --- | --- | --- |
@@ -403,21 +404,23 @@ run may spend is a deployment decision rather than something an agent has a basi
     "physical_plans": {"d19f5b3c": {"...": {}}, "a6e02f77": {"...": {}}}
   },
   "results": {
-    "a3f1c208": {"matches": 4},
-    "7b40de91": {"status": "ok", "row_count": 48}
+    "a3f1c208": {"search_terms": ["job postings"], "matches": [{"...": {}}], "dropped_terms": 0},
+    "7b40de91": {"status": "ok", "failure_reason": null, "operator_id": "builtin.scan",
+                 "row_count": 48, "output": [{"row_count": 48, "columns": ["..."],
+                                              "sample_rows": [{"...": {}}]}]}
   },
-  "counters": {"operator_calls": 7, "failure_replans": 0,
-               "control_replans": 1},
+  "counters": {"operator_calls": 7, "failure_replans": 0, "control_replans": 1,
+               "limits": {"...": {}}},
   "conversations": {"calls": 11, "cost": 0.42}
 }
 ```
 
-Four shapes differ from the library's on purpose, and each is a measure where the library carries
-the whole ([10, shapes that leave the process](10-data-model.md#5-shapes-that-leave-the-process)):
-`conversations`, a `DISCOVER` node's matches, the bounds inside `counters`, and the rows a fragment
-returned. An agent reasons about the outcome, and a transcript or a run's intermediate tables would
-bloat every response. The CLI carries the bounds and a search's matches whole, and reports a
-fragment's rows as a summary in its trace (ADR-032).
+Two shapes differ from the library's, and each is a measure where the library carries the whole
+([10, shapes that leave the process](10-data-model.md#5-shapes-that-leave-the-process)): an
+exchange, which travels as a call count and a cost, and the rows a fragment returned, which
+travel as a table summary. Both grow with the work a request did rather than with its answer, so
+carrying either whole would bloat every response. Everything else travels whole, the bounds
+inside `counters` and a `DISCOVER` node's matches included.
 
 A run that did not finish returns the same object with its status, `answer` null, and the counters
 showing what ran out. That is a successful tool call reporting a failed run, not a tool error.

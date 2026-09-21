@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import dataclasses
 from typing import Any
 
 from blue_data_planner import RunResult
@@ -48,20 +47,20 @@ def print_plan(result: RunResult, output_format: str, console: Console) -> None:
 
 def answer_payload(result: RunResult) -> dict[str, Any]:
     """Return the JSON form of a run asked for an answer."""
-    return _run_payload(result, "answer", result.answer)
+    return _without(result.to_dict(), "pipeline", "results")
 
 
 def plan_payload(result: RunResult) -> dict[str, Any]:
     """Return the JSON form of a run asked for a plan."""
-    return _run_payload(result, "pipeline", result.pipeline.to_dict())
+    return _without(result.to_dict(), "answer", "results")
 
 
 def summary_line(result: RunResult) -> str:
     """Return the closing line: how the run ended and what it spent."""
-    usage = _usage_payload(result)
+    spend = result.conversations.to_dict()
     return (
         f"{result.status}  operator calls {result.counters.operator_calls}  "
-        f"model calls {usage['calls']}  ${usage['cost']:.2f}"
+        f"model calls {spend['calls']}  ${spend['cost']:.2f}"
     )
 
 
@@ -70,19 +69,8 @@ def error_line(code: str, description: str) -> str:
     return f"ERROR: {code} {description}"
 
 
-def _run_payload(result: RunResult, key: str, value: Any) -> dict[str, Any]:
-    return {
-        "status": str(result.status),
-        key: value,
-        "failure_reason": result.failure_reason,
-        "counters": {
-            "operator_calls": result.counters.operator_calls,
-            "failure_replans": result.counters.failure_replans,
-            "control_replans": result.counters.control_replans,
-            "limits": dataclasses.asdict(result.counters.limits),
-        },
-        "usage": _usage_payload(result),
-    }
+def _without(payload: dict[str, Any], *keys: str) -> dict[str, Any]:
+    return {key: value for key, value in payload.items() if key not in keys}
 
 
 def _as_table(rows: list[dict[str, Any]]) -> Table:
@@ -93,8 +81,3 @@ def _as_table(rows: list[dict[str, Any]]) -> Table:
     for row in rows:
         table.add_row(*(Text(str(row.get(column, ""))) for column in columns))
     return table
-
-
-def _usage_payload(result: RunResult) -> dict[str, Any]:
-    usage = result.conversations.usage
-    return {"calls": len(usage), "cost": sum(one.cost for one in usage)}
