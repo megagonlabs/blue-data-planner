@@ -16,64 +16,55 @@ plain language, starting with a verb, and names no source, no tool, and no query
 | `SORT_SUPERLATIVE` | one input | Orders, and may keep the top few |
 | `JOIN` | two inputs | Matches rows of two tables |
 | `UNION` | two inputs | Stacks two tables |
-| `RETURN` | one input | Names the columns holding the answer |
-| `DISCOVER` | any inputs | Asks the catalog which entities exist |
+| `RETURN` | one input | Ends the plan, naming the columns that hold the answer |
+| `DISCOVER` | any inputs | Finds the data the request needs |
 | `REPLAN` | any inputs | Stops so the rest can be written against real values |
 
-A node may list more inputs than its kind transforms. The extra ones are reference inputs,
-whose rows the instruction mentions without transforming.
+A node may list more inputs than its kind transforms. The extra ones are reference inputs: the
+instruction mentions their rows without transforming them.
 
-## What a plan has to look like
+`DISCOVER` and `REPLAN` are control nodes. They hand no rows to the rest of the plan. They stop the
+pass instead, so that the work left over can be written against real values.
 
-Write a complete plan, from `SCAN` through `RETURN`, whenever you have enough to write one.
-A larger plan can be pushed into a single operator call; a plan that stops early cannot.
+## How to write a plan
+
+Write a complete plan, from `SCAN` through `RETURN`, whenever you have enough to write one. End the
+pass at a terminal control node only when you do not.
 
 Two endings are allowed and no others:
 
 - Exactly one `RETURN` node, and no control node.
 - One or more terminal control nodes and no `RETURN`. At most one of them is a `REPLAN`.
 
-Every node has to be read by another node, except the terminal ones.
+Every node's rows have to be read by another node, except the terminal ones: `RETURN`, `DISCOVER`,
+and `REPLAN`.
 
-A control node is always terminal. Nothing names its id as an input: a control node produces no
-rows, and what it produces goes to the next plan.
+The plan you write is run. The run ends when a control node stops it or when a step fails, and
+control comes back to you along with a summary of what each node produced: its column names, its row
+count, and why the run stopped. You write the next pass against that summary, continuing from the
+nodes that already hold rows.
 
-A `RETURN` names columns the node it reads declares, and that node has to declare them.
+So one session runs:
 
-## What the ending names
+```text
+these instructions -> the request -> pass 1 -> what pass 1 produced
+                                  -> pass 2 -> what pass 2 produced -> ...
+```
 
-Name the columns holding the answer and nothing else. A column that only supports the answer — an
-id, the key a sort ordered by, the text a filter read — is not one of them, and neither is a column
-the request never asks for.
+## Example
 
-| Request | The ending names |
-| --- | --- |
-| Of the top five users by views, who links social media in their AboutMe? | `["DisplayName"]` |
-| How many postings mention Python? | `["posting_count"]` |
-| Which three cities have the highest median rent, and what is it? | `["city", "median_rent"]` |
-
-## When to stop at a control node
-
-Write a `DISCOVER` node for each thing the request needs found in the catalog. The preview
-below names sources and nothing under them, so nothing in it says which entities exist or
-what columns they hold. A `SCAN` written before a search names columns you invented.
-
-Write a `REPLAN` node when the shape of the remaining work depends on values nobody has
-seen yet.
-
-Write neither when the request is answerable from what you already know.
-
-## Examples
-
-One request, written across the four passes it took.
+One request, and the four passes it took to answer it. Each pass is written after seeing what the
+pass before it produced.
 
 **Request:** Summarize the typical responsibilities of data scientist openings in the San Francisco
 Bay Area at finance companies that hired more than 10 people in August 2026.
 
-### The first pass, ending at discovery
+### Pass 1: discover what has to be found, and stop
 
-Nothing under the registered sources is known yet, so the pass writes what has to be found, one
-node per thing, and stops there. `output_node_id` is null, because the plan has no answer yet.
+**State:** Nothing below the registered sources is known, so no `SCAN` could name a real entity.
+
+**Action:** Write one `DISCOVER` node per thing the request needs found, and stop there.
+`output_node_id` is null, because the plan has no answer yet.
 
 ```json
 {"nodes": [
@@ -84,17 +75,27 @@ node per thing, and stops there. `output_node_id` is null, because the plan has 
 ], "output_node_id": null}
 ```
 
-### The continuation, ending at the answer
+### Pass 2: a complete plan, written against what the searches found
 
-The searches found a `job_posting` entity holding `company_id`, `company_description`,
-`job_description`, `title`, and `location`, and an August 2026 hiring entity holding `company_id`
-and `hire_count`. The two `DISCOVER` nodes stay in the plan and are not written again.
+**State:** The searches found a `job_posting` entity holding `company_id`,
+`company_description`, `job_description`, `title`, and `location`, and an August 2026 hiring entity
+holding `company_id` and `hire_count`. That is enough to answer the request.
 
-Three things to read off this plan. The cheap conditions run first, so the filter that has to read
-text for meaning sees the fewest rows. The request asks for a summary rather than rows, so the plan
-ends at an `AGGREGATE` over the surviving text. And no instruction restates the columns its node
-declares: `required_output_columns` carries the declaration, and an instruction names a column only
-where the operation needs it — the key a join matches on, the name a summary is given.
+**Action:** Write the whole plan, from the two scans through `RETURN`. The two `DISCOVER` nodes stay
+in the plan and are not written again.
+
+Four things to read off this plan:
+
+- The cheap conditions run first, so the filter that has to read text for meaning sees the fewest
+  rows.
+- The request asks for a summary rather than rows, so the plan ends at an `AGGREGATE` over the
+  text that survived.
+- No instruction restates the columns its node declares. `required_output_columns` carries the
+  declaration, and an instruction names a column only where the operation needs it: the key a join
+  matches on, the name a summary is given.
+- `keep_bay_area` filters on something no catalog holds. Which places count as the San Francisco
+  Bay Area is yours to know, so no node asks for it and the condition goes straight into the
+  filter's instruction. A search finds data; what you already know, you write into the plan.
 
 ```json
 {"nodes": [
@@ -127,15 +128,17 @@ where the operation needs it — the key a join matches on, the name a summary i
 ], "output_node_id": "return_summary"}
 ```
 
-### The pass after the run turned that plan down
+### Pass 3: the run rejected pass 2, so discover what the failure named
 
-The plan ran as far as `keep_finance_companies`, which ended it:
+**State:** The run rejected the plan at `keep_finance_companies`, which ended the pass:
 
 > `company_description` holds the blurb a recruiter wrote about the workplace, which says what the
 > team is like and not what the company does, so the industry cannot be read from it.
 
-The nodes up to the join hold rows and stay in the plan. This pass asks for the data the failure
-named, and nothing else.
+The nodes up to the join hold rows and stay in the plan. What is missing is an industry the request
+can be filtered on.
+
+**Action:** Write one `DISCOVER` node for the data the failure named, and nothing else.
 
 ```json
 {"nodes": [
@@ -144,11 +147,12 @@ named, and nothing else.
 ], "output_node_id": null}
 ```
 
-### The continuation that answers
+### Pass 4: continue from the nodes that ran, and answer
 
-The search found a `company` entity holding `company_id`, `company_name`, `industry`, and
-`headquarters`. `keep_openings_at_fast_hiring_companies` holds rows already, so this pass names its
-id to read them and writes only what is new.
+**State:** The search found a `company` entity holding `company_id`, `company_name`, `industry`,
+and `headquarters`. `keep_openings_at_fast_hiring_companies` already holds rows from pass 2.
+
+**Action:** Name that node's id to read its rows, write only what is new, and end at `RETURN`.
 
 ```json
 {"nodes": [
@@ -168,3 +172,29 @@ id to read them and writes only what is new.
    "columns": ["responsibility_summary"]}
 ], "output_node_id": "return_summary"}
 ```
+
+## Guidelines
+
+### How to use `DISCOVER` and `REPLAN`
+
+- Write a `DISCOVER` node for each thing the request needs found in the catalog. Most first passes
+  do only this, because a `SCAN` needs a data path and `DISCOVER` is what reveals it.
+- Write a `REPLAN` node when the shape of the remaining work depends on an intermediate result,
+  such as a branch you can only choose once you have seen what an earlier step returned.
+
+Write neither when the request is answerable from what you already know.
+
+### What `RETURN` names
+
+Name the columns that hold the answer and nothing else. A column that only supports the answer is
+not one of them: an id, the key a sort ordered by, the text a filter read. Neither is a column the
+request never asks for.
+
+Three requests, and the `RETURN` each one ends at:
+
+- Of the top five users by views, who links social media in their AboutMe?
+  `{"kind": "RETURN", "columns": ["DisplayName"]}`
+- How many postings mention Python?
+  `{"kind": "RETURN", "columns": ["posting_count"]}`
+- Which three cities have the highest median rent, and what is it?
+  `{"kind": "RETURN", "columns": ["city", "median_rent"]}`

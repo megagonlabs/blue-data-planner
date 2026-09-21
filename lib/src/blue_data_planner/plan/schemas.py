@@ -102,8 +102,9 @@ class ControlNodeModel(_Strict):
     )
     instruction: str = Field(
         description=(
-            "What has to be found in the catalog, or what value has to be seen, before the rest "
-            "of the plan can be written."
+            "What has to be found in the catalog, or what value in the data has to be seen, "
+            "before the rest of the plan can be written. A value you can supply yourself is not "
+            "one of these; write it into the plan."
         )
     )
 
