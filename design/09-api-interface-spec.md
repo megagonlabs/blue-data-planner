@@ -242,7 +242,7 @@ blue-planner data query "Which Bay Area data scientist postings are at healthcar
 | Command | Does |
 | --- | --- |
 | `data query REQUEST` | Runs `run`: plans, covers, executes, and repairs until the request ends, then prints the answer |
-| `plan query REQUEST` | Runs `plan`: writes one logical plan and one cover, prints them, and spends no operator call |
+| `data query REQUEST --explain` | Runs `plan`: writes one logical plan and one cover, prints them, and spends no operator call |
 | `profile add NAME` | Creates a profile |
 | `profile remove NAME` | Deletes a profile, after a confirmation |
 | `profile list` | Names every profile, marking the selected one |
@@ -258,12 +258,13 @@ so no command accepts one.
 | Option | Commands | Effect |
 | --- | --- | --- |
 | `--profile NAME` | All | Which profile supplies configuration |
-| `--registry PATH` | The two query actions | The `blue-data` registry to plan over |
-| `--model NAME` | The two query actions | The litellm model string every component uses |
+| `--registry PATH` | `data query` | The `blue-data` registry to plan over |
+| `--model NAME` | `data query` | The litellm model string every component uses |
 | `--format table\|json` | Anything printing a result | How the result is written, `table` by default |
-| `--trace` | The two query actions | Report what the run did, after the run |
-| `--trace-max-fragment-rows N` | The two query actions | The rows of a fragment's result the trace shows, 5 by default |
-| `--trace-max-output-chars N` | The two query actions | The characters each line of a fragment's output is cut to, 80 by default |
+| `--explain` | `data query` | Write the plan for the request and stop, running nothing |
+| `--trace` | `data query` | Report what the run did, after the run |
+| `--trace-max-fragment-rows N` | `data query` | The rows of a fragment's result the trace shows, 5 by default |
+| `--trace-max-output-chars N` | `data query` | The characters each line of a fragment's output is cut to, 80 by default |
 | `--confirm` | `profile remove` | Answer the confirmation ahead of time |
 | `--version` | The root | The package version |
 
@@ -282,8 +283,8 @@ behavior no library operation has (ADR-029).
 
 ### Output
 
-Standard output carries the command's result: the answer for `data query`, the plan for `plan
-query`. Standard error carries the progress indicator, the trace, the closing summary, and errors,
+Standard output carries the command's result: the answer, or the plan where `--explain` asked for
+one. Standard error carries the progress indicator, the trace, the closing summary, and errors,
 so redirecting standard output captures the result alone.
 
 `--format table` renders each table of the result under its own column names, and a terminal gets a

@@ -86,15 +86,15 @@ ends, then prints the answer.
 blue-planner data query "Which Bay Area data scientist postings are at healthcare companies?"
 ```
 
-`plan query` writes one logical plan and one cover, prints them, and spends no operator call.
+`--explain` writes one logical plan and one cover, prints them, and spends no operator call.
 
 ```bash
-blue-planner plan query "Which Bay Area data scientist postings are at healthcare companies?"
+blue-planner data query "Which Bay Area data scientist postings are at healthcare companies?" --explain
 ```
 
-Both commands take `--registry PATH`, `--model NAME`, `--format table|json`, `--trace`,
-`--trace-max-fragment-rows N`, and `--trace-max-output-chars N`, and both read `--profile NAME` from
-the root command.
+The command takes `--registry PATH`, `--model NAME`, `--format table|json`, `--explain`, `--trace`,
+`--trace-max-fragment-rows N`, and `--trace-max-output-chars N`, and reads `--profile NAME` from the
+root command.
 
 The six `profile` actions manage the named sets of configuration `blue-planner` reads:
 
@@ -221,7 +221,7 @@ blue-planner profile config OPENAI_API_KEY
 blue-planner profile inspect
 
 # 4. Write a plan without running it.
-blue-planner plan query "Among the schools with the average score in Math over 560 in the SAT test, how many schools are in counties in the bay area?"
+blue-planner data query "Among the schools with the average score in Math over 560 in the SAT test, how many schools are in counties in the bay area?" --explain
 
 # 5. Run it.
 blue-planner data query "Among the schools with the average score in Math over 560 in the SAT test, how many schools are in counties in the bay area?" --trace

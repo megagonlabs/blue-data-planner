@@ -120,9 +120,12 @@ def test_a_command_option_outranks_the_profile(tmp_path: Path) -> None:
     other.write_text("[]")
     resolver = a_resolver_over(tmp_path)
 
-    settings: PlannerSettings = resolve_settings(resolver, registry=str(other))
+    settings: PlannerSettings = resolve_settings(
+        resolver, registry=str(other), output_format="json"
+    )
 
     assert settings.registry_path == other
+    assert settings.output_format == "json"
 
 
 def test_the_model_option_reaches_the_lotus_suite_as_well_as_the_planner(tmp_path: Path) -> None:

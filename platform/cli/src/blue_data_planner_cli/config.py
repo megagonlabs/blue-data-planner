@@ -86,7 +86,10 @@ def build_resolver(profile: str | None, environ: dict[str, str]) -> ConfigResolv
 
 
 def resolve_settings(
-    resolver: ConfigResolver, registry: str | None = None, model: str | None = None
+    resolver: ConfigResolver,
+    registry: str | None = None,
+    model: str | None = None,
+    output_format: str | None = None,
 ) -> PlannerSettings:
     """Resolve every setting one invocation needs, raising CliError on the first that fails."""
     registry_path = Path(str(_require(resolver, "BLUE_DATA_REGISTRY_PATH", registry)))
@@ -98,11 +101,11 @@ def resolve_settings(
         if name.strip()
     )
     planner_model = str(_require(resolver, "BLUE_DATA_PLANNER_MODEL", model))
-    output_format = str(_get(resolver, "BLUE_DATA_CLI_FORMAT"))
-    if output_format not in OUTPUT_FORMATS:
+    chosen_format = str(_get(resolver, "BLUE_DATA_CLI_FORMAT", output_format))
+    if chosen_format not in OUTPUT_FORMATS:
         raise CliError(
             "CONFIG_INVALID",
-            f"BLUE_DATA_CLI_FORMAT names {output_format}; "
+            f"BLUE_DATA_CLI_FORMAT names {chosen_format}; "
             f"expected one of {', '.join(OUTPUT_FORMATS)}",
         )
     return PlannerSettings(
@@ -126,7 +129,7 @@ def resolve_settings(
             failure_replans=int(_get(resolver, "BLUE_DATA_PLANNER_MAX_FAILURE_REPLANS")),
             control_replans=int(_get(resolver, "BLUE_DATA_PLANNER_MAX_CONTROL_REPLANS")),
         ),
-        output_format=output_format,
+        output_format=chosen_format,
         trace_max_fragment_rows=int(_get(resolver, "BLUE_DATA_CLI_TRACE_MAX_FRAGMENT_ROWS")),
         trace_max_output_chars=int(_get(resolver, "BLUE_DATA_CLI_TRACE_MAX_OUTPUT_CHARS")),
     )

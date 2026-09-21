@@ -67,7 +67,7 @@ def test_the_answer_payload_wraps_the_answer_in_how_the_run_ended_and_nothing_it
 
 
 def test_the_plan_payload_carries_the_plan_where_the_answer_payload_carries_rows() -> None:
-    """A plan is what `plan query` was asked for, so it is what standard output carries."""
+    """A plan is what --explain was asked for, so it is what standard output carries."""
     payload = plan_payload(a_run_over_one_cover_of_two_fragments())
 
     assert payload["pipeline"]["current_logical_plan_id"] == "lp1"

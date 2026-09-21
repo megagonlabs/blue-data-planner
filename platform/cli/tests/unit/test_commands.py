@@ -341,16 +341,18 @@ def a_scan_of_one_row(pipeline: DataPipeline) -> dict[str, FragmentResult]:
     }
 
 
-def test_planning_prints_the_cover_and_spends_no_operator_call(
+def test_explaining_prints_the_cover_and_spends_no_operator_call(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """The point of this command is seeing the boundary before paying for it."""
+    """The point of --explain is seeing the boundary before paying for it."""
     double = a_planner_answering(
         monkeypatch, a_run_result(status=RunStatus.PLANNED, pipeline=a_planned_pipeline())
     )
 
     result = CliRunner().invoke(
-        cli, ["plan", "query", "which cities have stores"], env=a_configured_environment(tmp_path)
+        cli,
+        ["data", "query", "which cities have stores", "--explain"],
+        env=a_configured_environment(tmp_path),
     )
 
     assert result.exit_code == 0

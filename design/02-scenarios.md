@@ -268,10 +268,10 @@ The analyst can stop after planning, which spends no operator calls and is worth
 expensive question over a large source.
 
 ```bash
-blue-planner plan query "Which Bay Area data scientist postings are at healthcare companies?"
+blue-planner data query "Which Bay Area data scientist postings are at healthcare companies?" --explain
 ```
 
-For this question, `plan query` shows the first plan and stops at the two `DISCOVER` nodes.
+For this question, `--explain` shows the first plan and stops at the two `DISCOVER` nodes.
 Everything after them depends on what the searches return, and no search has run. That is what it
 shows for any question over registered data, since the first plan over registered data is the one
 that asks the catalog. For a question the planner answers from its own world knowledge it
@@ -404,7 +404,7 @@ record = result.pipeline.to_dict()   # structured data, safe to write to a file 
 ```
 
 An application that wants to see the plan before anything is spent stops after planning, which is
-what `plan query` does at the command line.
+what `--explain` does at the command line.
 
 ```python
 preview = planner.plan("Which Bay Area data scientist postings are at healthcare companies?")

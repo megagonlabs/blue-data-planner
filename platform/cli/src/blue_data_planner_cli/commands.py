@@ -13,6 +13,7 @@ from rich.console import Console
 
 from blue_data_planner_cli import __version__
 from blue_data_planner_cli.config import (
+    OUTPUT_FORMATS,
     CliError,
     PlannerSettings,
     assemble_planner,
@@ -62,7 +63,8 @@ def data_group() -> None:
 @click.argument("request")
 @click.option("--registry", default=None, help="The blue-data registry to plan over.")
 @click.option("--model", default=None, help="The litellm model string every component uses.")
-@click.option("--format", "output_format", type=click.Choice(["table", "json"]), default=None)
+@click.option("--format", "output_format", type=click.Choice(OUTPUT_FORMATS), default=None)
+@click.option("--explain", is_flag=True, help="Write the plan and stop, running nothing.")
 @click.option("--trace", is_flag=True, help="Report what the run did, after the run.")
 @click.option(
     "--trace-max-fragment-rows",
@@ -83,71 +85,20 @@ def data_query(
     registry: str | None,
     model: str | None,
     output_format: str | None,
+    explain: bool,
     trace: bool,
     trace_max_fragment_rows: int | None,
     trace_max_output_chars: int | None,
 ) -> None:
-    """Plan the request, run it, and print the answer."""
+    """Plan the request, run it, and print the answer. With --explain, print the plan instead."""
     try:
         _run_query(
             ctx,
-            "run",
             request,
             registry,
             model,
             output_format,
-            trace,
-            trace_max_fragment_rows,
-            trace_max_output_chars,
-        )
-    except CliError as failure:
-        _print_cli_error(Console(stderr=True), failure)
-        ctx.exit(1)
-
-
-@cli.group("plan")
-def plan_group() -> None:
-    """Write a plan for a question without running it."""
-
-
-@plan_group.command("query")
-@click.argument("request")
-@click.option("--registry", default=None, help="The blue-data registry to plan over.")
-@click.option("--model", default=None, help="The litellm model string every component uses.")
-@click.option("--format", "output_format", type=click.Choice(["table", "json"]), default=None)
-@click.option("--trace", is_flag=True, help="Report what the run did, after the run.")
-@click.option(
-    "--trace-max-fragment-rows",
-    type=int,
-    default=None,
-    help="Rows of a fragment's result the trace shows.",
-)
-@click.option(
-    "--trace-max-output-chars",
-    type=int,
-    default=None,
-    help="Characters each line of a fragment's output is cut to.",
-)
-@click.pass_context
-def plan_query(
-    ctx: click.Context,
-    request: str,
-    registry: str | None,
-    model: str | None,
-    output_format: str | None,
-    trace: bool,
-    trace_max_fragment_rows: int | None,
-    trace_max_output_chars: int | None,
-) -> None:
-    """Write one logical plan and one cover, and print them."""
-    try:
-        _run_query(
-            ctx,
-            "plan",
-            request,
-            registry,
-            model,
-            output_format,
+            explain,
             trace,
             trace_max_fragment_rows,
             trace_max_output_chars,
@@ -159,11 +110,11 @@ def plan_query(
 
 def _run_query(
     ctx: click.Context,
-    operation: str,
     request: str,
     registry: str | None,
     model: str | None,
     output_format: str | None,
+    explain: bool,
     trace: bool,
     trace_max_fragment_rows: int | None,
     trace_max_output_chars: int | None,
@@ -172,21 +123,20 @@ def _run_query(
     # litellm and the provider SDKs read their keys from the process environment, so what a
     # profile resolved has to be applied to it before a planner makes its first call.
     os.environ.update(export_secrets(resolver))
-    settings = resolve_settings(resolver, registry=registry, model=model)
-    chosen_format = output_format or settings.output_format
+    settings = resolve_settings(
+        resolver, registry=registry, model=model, output_format=output_format
+    )
     max_fragment_rows = _chosen(trace_max_fragment_rows, settings.trace_max_fragment_rows)
     max_output_chars = _chosen(trace_max_output_chars, settings.trace_max_output_chars)
     errors = Console(stderr=True)
     planner = PLANNER_FACTORY(settings)
     # The indicator is a terminal courtesy: a redirected stream gets none of it.
     with errors.status(f"Planning {request[:40]}…") if errors.is_terminal else _nothing():
-        result: RunResult = getattr(planner, operation)(request)
-    if operation == "plan":
-        print_plan(result, chosen_format, Console())
-    else:
-        print_answer(result, chosen_format, Console())
+        result = planner.plan(request) if explain else planner.run(request)
+    printer = print_plan if explain else print_answer
+    printer(result, settings.output_format, Console())
     if trace:
-        _print_trace(errors, result, chosen_format, max_fragment_rows, max_output_chars)
+        _print_trace(errors, result, settings.output_format, max_fragment_rows, max_output_chars)
     errors.print(summary_line(result), markup=False)
     if result.status not in (RunStatus.OK, RunStatus.PLANNED):
         code = RUN_STATUS_CODES.get(result.status, "PLANNER_FAILED")

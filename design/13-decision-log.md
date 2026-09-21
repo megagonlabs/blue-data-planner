@@ -785,22 +785,25 @@ after its first, and a request those cannot fix replans.
 ## ADR-027 — The CLI Follows the Blue CLI Family's Command Shape
 
 **Decision:** The command is `blue-planner`, and every invocation reads
-`<cli> <component> <action> <parameters>`. Components are `data`, `plan`, and `profile`; actions come
-from the family's verb list; `--profile` and `--format` carry the meanings they carry in the other
-Blue CLIs. Running a request is `data query`, and the only deviation is that `nl` is absent from
-`--format` (ADR-029).
+`<cli> <component> <action> <parameters>`. Components are `data` and `profile`; actions come from the
+family's verb list; `--profile` and `--format` carry the meanings they carry in the other Blue CLIs.
+Running a request is `data query`, and `--explain` writes the plan for that request without running
+it. The one deviation is that `nl` is absent from `--format` (ADR-029).
 
 **Rationale:** The planner is one component of the Data Intelligence Layer, and a user reaching it
 from `blue-registry` or `blue-kb` should not have to learn a second grammar for the same kind of
 work. `data query` is also the operation those CLIs already name that way: a question in plain
 language, answered from registered data. A single verb such as `ask` would be shorter and would have
 no place to put the profile actions, which every Blue CLI needs and which are defined only inside
-this grammar.
+this grammar. Planning a request is a mode of answering it rather than a component of its own: the
+two take the same request and the same options and differ in how far they go, which is what
+`EXPLAIN` names in every database this planner reads.
 
-**Consequences:** The command surface grows a level before it grows a command. A new capability
-arrives as an action on an existing component, or as a new component, rather than as a flag on a
-single command. Deviations from the family are recorded, since a reader is entitled to assume the
-family's meaning everywhere it is not.
+**Consequences:** A component is a thing a user acts on, so a new capability arrives as an action on
+one, or as a new component, while a mode of an existing capability arrives as a flag. Deviations from
+the family are recorded, since a reader is entitled to assume the family's meaning everywhere it is
+not. The MCP server keeps two tools where the CLI has one command, because a tool call carries no
+flags.
 
 ---
 
@@ -884,8 +887,8 @@ the opt-in tier that remains there is `end_to_end/`, one real request through a 
 ## ADR-032 — Format and Detail Are Separate Options
 
 **Decision:** `--format` decides how the CLI writes a result, and `--trace` decides whether the run
-behind it is reported. Without `--trace`, both formats write the result alone — the answer for `data
-query`, the plan for `plan query` — and `--format json` wraps it in the run's status, failure reason,
+behind it is reported. Without `--trace`, both formats write the result alone — the answer, or the plan where
+`--explain` asked for one — and `--format json` wraps it in the run's status, failure reason,
 counters, and model spend. With `--trace`, the run is reported on standard error, walking each cover
 fragment by fragment, and a fragment's result appears as a `TableSummary` capped by
 `--trace-max-fragment-rows`. A fragment's rows leave the process as that summary
@@ -1006,6 +1009,6 @@ Design questions first, then defects in code that exists today.
 | 51 | What does a compound operation do with a fragment whose frontier carries rows, before it can read one? `blue.nl2sql` declares bound inputs, so the physical planner offers it groups whose inputs arrive from an earlier fragment. A query written from a source's schema alone would answer from that source and leave those rows out, which is a wrong answer rather than a failure, and refusing the bundle as a recoverable failure is what keeps it from being returned. That refusal costs an operator call on a candidate that could not have worked. Narrowing the declaration instead would stop the candidate being enumerated at all, and would have to be widened again by hand once the operation reads its bundle, so the declaration states the target state and is not narrowed. What is unsettled is whether the refusal should cost a call, and whether a candidate an operator is known to refuse should be enumerated at all. That is question 44's shape: a constraint the declaration has no vocabulary for is stated in `limitations`, and the candidate is offered anyway. | Whether a fragment with a non-empty frontier reaches the compound Blue operation, and what a run spends finding out that it cannot serve one |
 | 52 | Should a group whose node lists reference inputs be offered to an operation declaring one logical operator? Arity is a floor in a plan, so a node may list more inputs than its kind transforms ([10-data-model.md](10-data-model.md#how-many-inputs-a-node-takes)), and the bundle built for such a group carries one table per input the fragment reads, which is more tables than the arity names. An operation reading only the tables its arity names refuses that bundle as a recoverable failure, and the physical planner covers the node set again, so the run spends an operator call on a candidate the cover could have skipped. Nothing in a declaration says whether an operation can read a table without transforming it: `logical_operators` names the kinds an operation covers and no field carries the rest, which is the shape questions 44 and 51 share. Two routes. The cover compares a node's input count against the arity and offers only operators declared to read a reference input, which needs that field written first. Or the refusal stays where it is and its cost is accepted, on the grounds that what an operation can read moves with its own suite while a hand-written declaration has to be rewritten to follow. | Whether a plan the arity floor admits is one every operator bound to it can run, and what a run spends on a call refused for the length of its bundle |
 | 54 | Should the library be able to phrase an answer, and the CLI then offer `--format nl`? The family offers a natural-language format where a source answers in prose, and ADR-029 leaves it out because a planner answers in rows. A benchmark whose expected answers are single values, and an agent that wants a sentence rather than a table, both suggest the phrasing has to happen somewhere; doing it in an interface is behavior in an adapter (ADR-002), so the question is whether a library operation should return prose alongside the rows, and what it costs in model calls per request. | Whether `--format nl` and the MCP response ever carry a sentence, and which component writes it |
-| 55 | Should a run be kept on disk so a plan can be read back? The CLI's home directory holds profiles and nothing else, so a plan printed by `plan query` is gone when the terminal scrolls, and `data query` keeps no record a later command could inspect. The family's storage convention has a place for one (`~/.<cli>/<profile>/<component>/`), and `from_dict` already reads a recorded plan back ([06-library.md](06-library.md#two-operations)). What is unsettled is whether a CLI should accumulate state at all for a planner that holds none between requests, and what would remove an old run. | Whether the CLI grows an action that reads a plan it wrote earlier |
+| 55 | Should a run be kept on disk so a plan can be read back? The CLI's home directory holds profiles and nothing else, so a plan printed by `data query --explain` is gone when the terminal scrolls, and `data query` keeps no record a later command could inspect. The family's storage convention has a place for one (`~/.<cli>/<profile>/<component>/`), and `from_dict` already reads a recorded plan back ([06-library.md](06-library.md#two-operations)). What is unsettled is whether a CLI should accumulate state at all for a planner that holds none between requests, and what would remove an old run. | Whether the CLI grows an action that reads a plan it wrote earlier |
 | 56 | Should the CLI be able to write a run's whole record to a file? A fragment's result reaches a person as a summary, and the JSON on standard output carries the answer and how the run ended, so every intermediate table and every model turn is reachable only by a caller who embeds the library (ADR-032). Diagnosing a wrong answer is the case that wants them: a summary says a fragment returned 140 rows over three columns and not which 140, and a review that rejected a fragment is readable only in the conversation. A file is where they would go, since what makes them unwelcome on standard output is size rather than secrecy, and the family's storage convention already has a place for per-profile state. Against adding one: a record holds whatever the sources held, so writing one puts source data on disk, and whether a CLI over a planner that keeps nothing between requests should accumulate state at all is question 55. | Whether a wrong answer can be diagnosed from the CLI alone |
 
