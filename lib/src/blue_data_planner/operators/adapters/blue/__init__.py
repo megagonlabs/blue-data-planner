@@ -2,6 +2,6 @@
 
 from __future__ import annotations
 
-from blue_data_planner.operators.adapters.blue.operators import blue_operators
+from blue_data_planner.operators.adapters.blue.operators import BlueSuite, blue_operators
 
-__all__ = ["blue_operators"]
+__all__ = ["BlueSuite", "blue_operators"]

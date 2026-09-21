@@ -33,6 +33,10 @@ class OperatorRoutingError(BlueDataPlannerError):
     """An operator id is registered twice, or names no registered operator."""
 
 
+class UnknownOperatorSuiteError(BlueDataPlannerError):
+    """A name registers no operator suite."""
+
+
 class BudgetExhaustedError(BlueDataPlannerError):
     """A budget reached its cap."""
 

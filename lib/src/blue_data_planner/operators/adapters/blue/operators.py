@@ -4,14 +4,15 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, ClassVar
 
 from blue_data_ops.operators.operator import Operator
-from blue_data_ops.operators.registry import OperatorRegistry
+from blue_data_ops.operators.registry import OperatorRegistry, default_registry
 from blue_data_ops.operators.types import Properties
 from pydantic import BaseModel, ValidationError
 
 from blue_data_planner.data import DataRegistry
+from blue_data_planner.llm import LLMClient
 from blue_data_planner.operators.adapters.blue import failures
 from blue_data_planner.operators.adapters.blue.schemas import (
     ArgmaxParameters,
@@ -300,3 +301,18 @@ def blue_operators(
             )
         )
     return operators
+
+
+@dataclass(frozen=True)
+class BlueSuite:
+    """The Blue operator library's operations, over the registry that resolves them."""
+
+    name: ClassVar[str] = "blue"
+    # None resolves each operation against the registry blue-data-ops builds by default.
+    operator_registry: OperatorRegistry | None = None
+
+    def operators(
+        self, *, data_registry: DataRegistry, llm_client: LLMClient, model: str
+    ) -> list[PhysicalOperator]:
+        """Return one physical operator per Blue operation a fragment can be bound to."""
+        return blue_operators(self.operator_registry or default_registry(), data_registry)

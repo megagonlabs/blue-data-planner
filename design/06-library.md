@@ -33,7 +33,7 @@ rather than a copy of the code.
 | `blue_data_planner/types/` | Every data class that crosses a module boundary: plans, nodes, fragments, operators, results, catalog readings, model usage, limits. `summarize_table` sits there too, since it builds one of those shapes from another and reaches nothing else |
 | `blue_data_planner/plan/` | `validate_logical_plan`, `validate_physical_plan`, `candidate_fragments`, `signatures`, and the response schemas the planning stages send |
 | `blue_data_planner/execution/` | `execute_physical_operator`, `check_output_columns`, `project_answer` |
-| `blue_data_planner/operators/` | `OperatorRouter`, one adapter per outside suite (`blue_operators` over `blue-data-ops`, `lotus_operators` over LOTUS), and `builtin/`, the suite this repository owns |
+| `blue_data_planner/operators/` | `OperatorRouter`, `operator_suite` over the suite names a deployment configures, one adapter per outside suite (`blue_operators` over `blue-data-ops`, `lotus_operators` over LOTUS), and `builtin/`, the suite this repository owns |
 | `blue_data_planner/data/` | The `blue-data` boundary, the three catalog readings, and opening a serialized registry |
 | `blue_data_planner/llm/` | `LLMClient`, usage accounting, prompt templating, error types |
 
@@ -1028,8 +1028,30 @@ def builtin_operators(
 
 Each returns its `PhysicalOperator` values, and whoever assembles the planner registers what comes
 back. Any of the three sits beside the router and could register into it directly; returning a list
-is kept because it makes a suite's whole result assertable in one test, and because it leaves which
-suites a deployment offers to whoever assembles the planner.
+is kept because it makes a suite's whole result assertable in one test.
+
+A deployment names its suites as strings, so each suite also has an object holding the options that
+suite takes, and one lookup turns a name into one:
+
+```python
+class OperatorSuite(Protocol):
+    name: ClassVar[str]
+
+    def operators(
+        self, *, data_registry: DataRegistry, llm_client: LLMClient, model: str
+    ) -> list[PhysicalOperator]: ...
+
+
+def operator_suite(name: str) -> OperatorSuite: ...
+```
+
+`BuiltinSuite`, `LotusSuite`, and `BlueSuite` each carry their own options — whether the compound
+entry is registered, the model and row cap LOTUS runs under, the registry the Blue operations
+resolve against — so the options one suite takes are declared beside that suite and nothing that
+builds a planner names them. A name no suite registers raises `UnknownOperatorSuiteError`, which is
+what keeps a typo in a suite list from running with fewer operators than it asked for. A suite
+naming no model of its own runs on the planner's, and `BlueSuite` naming no registry resolves
+against the one `blue-data-ops` builds by default.
 
 Nothing else changes when a suite is added. The physical planner builds its candidates from the
 router while it covers a plan, so a newly registered operator competes for every fragment its

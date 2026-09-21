@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any, TypeVar
+from typing import Any, ClassVar, TypeVar
 
 from pydantic import BaseModel, ValidationError
 
@@ -301,3 +301,17 @@ _ENTRIES: tuple[_Entry, ...] = (
         _union,
     ),
 )
+
+
+@dataclass(frozen=True)
+class BuiltinSuite:
+    """The suite this repository owns, and whether its compound entry is registered."""
+
+    name: ClassVar[str] = "builtin"
+    with_nl2table: bool = False
+
+    def operators(
+        self, *, data_registry: DataRegistry, llm_client: LLMClient, model: str
+    ) -> list[PhysicalOperator]:
+        """Return the suite's operators, with the compound entry only where it was asked for."""
+        return builtin_operators(data_registry, llm_client, with_nl2table=self.with_nl2table)

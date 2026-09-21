@@ -31,16 +31,18 @@ and reads its result writes one import. Everything else is reached through the m
 | `blue_data_planner.types` | Plan, node, result, and limit types, the enums, `summarize_table`, and every exception this library defines, `BlueDataPlannerError` first |
 | `blue_data_planner.plan` | `validate_logical_plan`, `validate_physical_plan`, `candidate_fragments` |
 | `blue_data_planner.execution` | `execute_physical_operator`, `check_output_columns`, `project_answer` |
-| `blue_data_planner.operators` | `OperatorRouter` |
-| `blue_data_planner.operators.adapters.blue`, `.adapters.lotus`, `.builtin` | `blue_operators`, `lotus_operators`, `builtin_operators` |
+| `blue_data_planner.operators` | `OperatorRouter`, `OperatorSuite`, `operator_suite`, `OPERATOR_SUITE_NAMES` |
+| `blue_data_planner.operators.adapters.blue`, `.adapters.lotus`, `.builtin` | `BlueSuite`, `LotusSuite`, `BuiltinSuite`, and the `blue_operators`, `lotus_operators`, and `builtin_operators` each is built over |
 | `blue_data_planner.data` | `DataCatalog`, `open_registry`, and the source-level reads |
 | `blue_data_planner.llm` | `LLMClient`, `Conversation`, `LLMUsage`, `LLMError` |
 
 Public is the package root, every module directly inside it, and the `__init__.py` of `types/`,
 `plan/`, `execution/`, `operators/`, `data/`, and `llm/`. A module nested inside one of those
 directories is not, and can be split or renamed within a minor version. The adapters are the one
-exception: `operators/__init__.py` re-exports the router alone, so an adapter is imported from
-`adapters/`, under the name of its suite, and each of those modules is public where it sits.
+exception: `operators/__init__.py` names the router and the suite lookup and nothing of a suite
+itself, so an adapter is imported from `adapters/`, under the name of its suite, and each of
+those modules is public where it sits. `operator_suite` imports the one it is asked for inside
+its own body, so naming a suite never loads another's dependency.
 
 That exception is what keeps the root cheap to import. Python runs a package's `__init__.py` before
 any module inside it, so what the root names is paid by every import from this package. The run path
@@ -213,6 +215,7 @@ does raise, in the order a caller meets it:
 | Exception | Raised when | Reaches a caller |
 | --- | --- | --- |
 | `PlanValidationError` | A generated plan fails a structural check | Only from a direct `validate_logical_plan` or `validate_physical_plan` call. `LogicalPlanner` catches it and regenerates |
+| `UnknownOperatorSuiteError` | A name registers no operator suite | Always, from `operator_suite`. An interface maps it to its own configuration error |
 | Any other `BlueDataPlannerError` | A defect in the planner, raised where it is found | Only from a direct call to the component that raised it |
 | `RecoverableOperatorError` | An operator refuses its input in a way a different operator might not | Only from a direct `execute_physical_operator` call |
 | `UnrecoverableOperatorError` | An operator fails for a reason no other operator would avoid | The same |

@@ -2,6 +2,6 @@
 
 from __future__ import annotations
 
-from blue_data_planner.operators.adapters.lotus.operators import lotus_operators
+from blue_data_planner.operators.adapters.lotus.operators import LotusSuite, lotus_operators
 
-__all__ = ["lotus_operators"]
+__all__ = ["LotusSuite", "lotus_operators"]

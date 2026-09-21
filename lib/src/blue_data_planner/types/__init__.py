@@ -22,6 +22,7 @@ from blue_data_planner.types.errors import (
     SourceUnreachableError,
     UnknownFragmentError,
     UnknownNodeError,
+    UnknownOperatorSuiteError,
     UnrecoverableOperatorError,
 )
 from blue_data_planner.types.plan import (
@@ -119,5 +120,6 @@ __all__ = [
     "Turn",
     "UnknownFragmentError",
     "UnknownNodeError",
+    "UnknownOperatorSuiteError",
     "UnrecoverableOperatorError",
 ]

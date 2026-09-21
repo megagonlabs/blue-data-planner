@@ -4,10 +4,12 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, ClassVar
 
 from pydantic import BaseModel, ValidationError
 
+from blue_data_planner.data import DataRegistry
+from blue_data_planner.llm import LLMClient
 from blue_data_planner.operators.adapters.lotus import frame_conversion, settings
 from blue_data_planner.operators.adapters.lotus.declared_columns import (
     check_named_columns,
@@ -293,3 +295,23 @@ _ENTRIES: tuple[_Entry, ...] = (
         row_cap="Refuses an input whose two tables' row counts multiply past {max_rows}.",
     ),
 )
+
+
+@dataclass(frozen=True)
+class LotusSuite:
+    """LOTUS's operations, and the model and row cap they run under."""
+
+    name: ClassVar[str] = "lotus"
+    # None runs LOTUS on the model every other component uses.
+    model: str | None = None
+    max_rows: int = DEFAULT_MAX_ROWS
+    # None omits the parameter, for a model that does not accept one.
+    reasoning_effort: str | None = None
+
+    def operators(
+        self, *, data_registry: DataRegistry, llm_client: LLMClient, model: str
+    ) -> list[PhysicalOperator]:
+        """Return one operator per LOTUS operation, or none where LOTUS is not installed."""
+        return lotus_operators(
+            self.model or model, self.max_rows, reasoning_effort=self.reasoning_effort
+        )
