@@ -8,6 +8,11 @@ from typing import Any
 
 from blue_data_planner.types import BlueDataPlannerError
 
+# LOTUS's own default for a reasoning model (8192) is spent on hidden reasoning tokens as well as
+# the visible answer, so a call can exhaust it and return an empty answer that operators silently
+# coerce to their default output. Raising the ceiling costs nothing on calls that stay under it.
+_MAX_TOKENS: int = 15000
+
 # LOTUS settings are process-wide, so this module remembers the model and the reasoning effort it
 # was configured with and refuses a second, rather than letting the last writer win.
 _configured_model: str | None = None
@@ -27,7 +32,7 @@ def configured_lotus(model: str, reasoning_effort: str | None = None) -> Any:
         kwargs: dict[str, Any] = (
             {} if reasoning_effort is None else {"reasoning_effort": reasoning_effort}
         )
-        lotus.settings.configure(lm=lotus.models.LM(model=model, **kwargs))
+        lotus.settings.configure(lm=lotus.models.LM(model=model, max_tokens=_MAX_TOKENS, **kwargs))
         _configured_model = model
         _configured_reasoning_effort = reasoning_effort
     elif _configured_model != model or _configured_reasoning_effort != reasoning_effort:

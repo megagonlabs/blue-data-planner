@@ -18,7 +18,11 @@ from blue_data_planner.operators.adapters.lotus.declared_columns import (
 from blue_data_planner.operators.adapters.lotus.instruction_columns import (
     check_instruction_columns,
 )
-from blue_data_planner.operators.adapters.lotus.row_cap import DEFAULT_MAX_ROWS, check_row_cap
+from blue_data_planner.operators.adapters.lotus.row_cap import (
+    DEFAULT_MAX_ROWS,
+    SEM_TOPK_MAX_ROWS,
+    check_row_cap,
+)
 from blue_data_planner.operators.adapters.lotus.schemas import (
     SemAggParameters,
     SemExtractParameters,
@@ -49,6 +53,9 @@ class _Entry:
     run: _Run
     limitations: str | None = None
     row_cap: str = "Reads at most {max_rows} rows in one call and refuses a larger input."
+    # None means "use the suite's cap." Only sem_topk sets this, since its model calls grow
+    # with the comparison count rather than the row count the suite's cap was sized for.
+    max_rows: int | None = None
 
 
 def lotus_operators(
@@ -72,8 +79,15 @@ def lotus_operators(
     ]
 
 
+def _resolved_max_rows(entry: _Entry, max_rows: int) -> int:
+    # An operator's own cap is a safety bound derived from measurement; the suite's cap is a
+    # budget setting. The two compose as a minimum, so a tighter suite setting still holds even
+    # where an operator declares its own, usually looser, bound.
+    return max_rows if entry.max_rows is None else min(entry.max_rows, max_rows)
+
+
 def _limitations(entry: _Entry, max_rows: int) -> str:
-    cap = entry.row_cap.format(max_rows=max_rows)
+    cap = entry.row_cap.format(max_rows=_resolved_max_rows(entry, max_rows))
     return cap if entry.limitations is None else f"{entry.limitations} {cap}"
 
 
@@ -91,7 +105,7 @@ def _build_call(
                 f"{entry.operator_id} reads {entry.table_count} table(s) and was handed "
                 f"{len(inputs)}"
             )
-        check_row_cap(entry.operator_id, list(inputs), max_rows)
+        check_row_cap(entry.operator_id, list(inputs), _resolved_max_rows(entry, max_rows))
         # An empty table carries no column names for an instruction to name, and a model
         # call over no rows can only return nothing. A join over an empty side is empty too.
         if any(not table for table in inputs):
@@ -268,6 +282,7 @@ _ENTRIES: tuple[_Entry, ...] = (
         1,
         _run_topk,
         limitations="Returns the highest rows and carries no column saying how they ranked.",
+        max_rows=SEM_TOPK_MAX_ROWS,
     ),
     _Entry(
         "lotus.sem_agg",

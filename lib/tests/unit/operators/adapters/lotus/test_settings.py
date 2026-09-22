@@ -64,6 +64,13 @@ def test_a_call_with_no_reasoning_effort_omits_the_parameter_entirely() -> None:
     assert "reasoning_effort" not in lotus.settings.lm.kwargs
 
 
+def test_the_first_call_configures_the_model_with_the_token_budget() -> None:
+    """The token budget reaches LOTUS's model on every call, not only a caller-supplied one."""
+    lotus = settings.configured_lotus("openai/gpt-4o")
+
+    assert lotus.settings.lm.kwargs["max_tokens"] == 15000
+
+
 def test_a_second_reasoning_effort_is_refused_rather_than_overwriting_the_first() -> None:
     """Reasoning effort is process-wide too, so a second value is a failure, not a silent swap."""
     settings.configured_lotus("openai/gpt-4o", "none")

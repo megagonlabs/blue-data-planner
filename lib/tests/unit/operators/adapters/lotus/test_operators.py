@@ -10,6 +10,7 @@ import pytest
 
 from blue_data_planner.execution import execute_physical_operator
 from blue_data_planner.operators.adapters.lotus import lotus_operators, settings
+from blue_data_planner.operators.adapters.lotus.row_cap import SEM_TOPK_MAX_ROWS
 from blue_data_planner.types import (
     DataBundle,
     ExecutionResult,
@@ -66,7 +67,7 @@ def test_the_suite_declares_one_logical_operator_per_operation() -> None:
         assert one.source_kinds is None
         assert one.accepts_bound_inputs is False
         assert one.description
-        assert one.limitations is not None and str(5000) in one.limitations
+        assert one.limitations is not None
 
 
 def test_the_single_table_operations_are_registered_for_their_kinds() -> None:
@@ -158,6 +159,66 @@ def test_a_table_over_the_cap_is_refused_before_a_model_is_reached(lotus_stub: A
 
     assert result.status.value == "failed"
     assert lotus_stub.calls == []
+
+
+def test_sem_topks_own_cap_refuses_what_sem_filters_shared_cap_still_accepts(
+    lotus_stub: Any,
+) -> None:
+    """A 600-row table sits above sem_topk's 500-row cap and below the suite's 5000-row
+    default, so sem_topk refuses it while sem_filter, which carries no cap of its own,
+    still accepts it."""
+    table = [{"city": f"c{index}"} for index in range(600)]
+    lotus_stub.frames.append(pd.DataFrame(table))
+
+    topk_result = run(
+        operator("lotus.sem_topk"), [table], {"instruction": "Is {city} inland?", "k": 1}, []
+    )
+    assert topk_result.status.value == "failed"
+    assert lotus_stub.calls == []
+
+    filter_result = run(
+        operator("lotus.sem_filter"), [table], {"instruction": "Is {city} inland?"}, []
+    )
+    assert filter_result.status.value == "ok"
+    assert lotus_stub.calls != []
+
+
+def test_a_suite_cap_tighter_than_sem_topks_own_cap_still_binds_it(lotus_stub: Any) -> None:
+    """sem_topk's own cap and the suite's cap compose as a minimum, so a suite configured
+    tighter than sem_topk's 500-row cap still refuses above its own, lower, number."""
+    table = [{"city": f"c{index}"} for index in range(150)]
+
+    result = run(
+        operator("lotus.sem_topk", max_rows=100),
+        [table],
+        {"instruction": "Is {city} inland?", "k": 1},
+        [],
+    )
+
+    assert result.status.value == "failed"
+    assert lotus_stub.calls == []
+
+
+@pytest.mark.parametrize(
+    "operator_id, expected_phrase",
+    [
+        ("lotus.sem_filter", "5000 rows"),
+        ("lotus.sem_map", "5000 rows"),
+        ("lotus.sem_extract", "5000 rows"),
+        ("lotus.sem_topk", f"{SEM_TOPK_MAX_ROWS} rows"),
+        ("lotus.sem_agg", "5000 rows"),
+        ("lotus.sem_join", "past 5000"),
+    ],
+)
+def test_an_operators_limitations_name_the_cap_it_runs_under(
+    operator_id: str, expected_phrase: str
+) -> None:
+    """Every operator's limitations text names the cap it runs under: sem_topk's own,
+    lower cap, or the suite's cap for the five operators that carry no cap of their own."""
+    found = operator(operator_id, max_rows=5000)
+
+    assert found.limitations is not None
+    assert expected_phrase in found.limitations
 
 
 def test_an_empty_input_comes_back_empty_with_no_call_made(lotus_stub: Any) -> None:
