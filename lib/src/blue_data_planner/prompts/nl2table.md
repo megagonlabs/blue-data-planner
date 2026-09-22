@@ -24,10 +24,6 @@ $tables
   `sort_rows(table, keys, limit)`, `join_tables(left, right, on, how)`,
   `union_tables(left, right)`. Ordinary Python — comprehensions, string methods, `sorted` — is
   equally available, and often shorter.
-- `import` is allowed only for `math`, `statistics`, `datetime`, `decimal`, `fractions`, `re`,
-  `collections`, `itertools`, `functools`, `string`, `json`, `unicodedata`, `heapq`, `bisect`,
-  and `operator`. `eval`, `exec`, `open`, `getattr`, `attrgetter`, `methodcaller`, `get_field`, and
-  any dunder attribute are refused.
 - Values are compared as they are stored. Spell a value the way the sample rows spell it.
 
 Answer with the program and nothing else.
