@@ -11,7 +11,7 @@ from blue_data_ops.operators.types import (
     ExecMeta,
 )
 
-from blue_data_planner.operators.adapters.blue.failures import raise_for_errors
+from blue_data_planner.operators.adapters.blue.error_mapping import raise_for_errors
 from blue_data_planner.types import (
     BlueDataPlannerError,
     RecoverableOperatorError,

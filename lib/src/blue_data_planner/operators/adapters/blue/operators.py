@@ -1,4 +1,4 @@
-"""Blue operators as physical operators, validating parameters and mapping failures."""
+"""Blue operators as physical operators, validating parameters and mapping errors."""
 
 from __future__ import annotations
 
@@ -9,11 +9,11 @@ from typing import Any, ClassVar
 from blue_data_ops.operators.operator import Operator
 from blue_data_ops.operators.registry import OperatorRegistry, default_registry
 from blue_data_ops.operators.types import Properties
-from pydantic import BaseModel, ValidationError
+from pydantic import BaseModel
 
 from blue_data_planner.data import DataRegistry
 from blue_data_planner.llm import LLMClient
-from blue_data_planner.operators.adapters.blue import failures
+from blue_data_planner.operators.adapters.blue import error_mapping
 from blue_data_planner.operators.adapters.blue.schemas import (
     ArgmaxParameters,
     ArgminParameters,
@@ -33,6 +33,7 @@ from blue_data_planner.operators.adapters.blue.schemas import (
     SemanticTransformParameters,
     SumParameters,
 )
+from blue_data_planner.operators.validation import check_table_count, validated_parameters
 from blue_data_planner.types import (
     INPUT_ARITY,
     DataBundle,
@@ -56,27 +57,21 @@ def _build_call(
         attributes: dict[str, Any],
         required_output_columns: list[OutputColumn],
     ) -> OperatorOutput:
-        try:
-            validated = parameters.model_validate(attributes)
-        except ValidationError as error:
-            raise RecoverableOperatorError(
-                f"{operator_id} was given parameters it cannot take: {error}"
-            ) from error
+        validated = validated_parameters(parameters, attributes, operator_id)
         # Checked after the parameters, so a parameter error stays the recoverable failure the
         # parameter repair answers rather than being hidden behind a refusal about the bundle.
-        if table_count is not None and len(inputs) != table_count:
-            raise RecoverableOperatorError(
-                f"{operator_id} reads {table_count} table(s) and was handed {len(inputs)}"
-            )
-        if table_count is None and inputs:
+        if table_count is None:
             # blue.nl2sql is the only operation this branch reaches. It writes its query from
             # a source's schema, with no way to bind another fragment's rows into that query,
             # so a non-empty bundle would be answered from the source alone and the bundle's
             # rows would be silently left out. See design/13-decision-log.md, open question 51.
-            raise RecoverableOperatorError(
-                f"{operator_id} writes its query from the schema of the source it reads, so the "
-                f"{len(inputs)} table(s) this fragment carries would not reach the query"
-            )
+            if inputs:
+                raise RecoverableOperatorError(
+                    f"{operator_id} writes its query from the schema of the source it reads, so "
+                    f"the {len(inputs)} table(s) this fragment carries would not reach the query"
+                )
+        else:
+            check_table_count(operator_id, inputs, table_count)
         # A fragment and operator.run speak the same bundle, so nothing is converted here.
         # The list is copied because an operator may write into the bundle it is handed
         # and the caller reuses one bundle across retries.
@@ -87,7 +82,7 @@ def _build_call(
         output, reported, meta = operator.run(
             list(inputs), validated.model_dump(exclude_none=True), properties
         )
-        failures.raise_for_errors(meta, operator_id, reported or None)
+        error_mapping.raise_for_errors(meta, operator_id, reported or None)
         # ExecMeta.traces stays out: the base class attaches timings and shapes to every call,
         # which is instrumentation rather than something the operation chose to say, and open
         # question 42 is where instrumentation is decided.
@@ -111,6 +106,13 @@ class Operation:
     accepts_bound_inputs: bool = False
     limitations: str | None = None
 
+
+# Four aggregates and two superlatives each carry one of these two sentences, because what
+# limits them is the operation they share rather than the key each one reads.
+_WHOLE_TABLE_AGGREGATE = "Aggregates the whole table; it does not group by a column."
+_WHOLE_TABLE_SUPERLATIVE = (
+    "Returns the one extreme record over the whole table; it does not group by a column."
+)
 
 # AGGREGATE and SORT_SUPERLATIVE take several operators each, because summing and
 # averaging are different operations sharing a node kind rather than two
@@ -154,46 +156,42 @@ OPERATIONS: tuple[Operation, ...] = (
         frozenset({LogicalOperator.AGGREGATE}),
         "sum@2.0.0",
         SumParameters,
-        limitations="Aggregates the whole table; it does not group by a column.",
+        limitations=_WHOLE_TABLE_AGGREGATE,
     ),
     Operation(
         "blue.avg",
         frozenset({LogicalOperator.AGGREGATE}),
         "avg@3.0.0",
         AvgParameters,
-        limitations="Aggregates the whole table; it does not group by a column.",
+        limitations=_WHOLE_TABLE_AGGREGATE,
     ),
     Operation(
         "blue.min",
         frozenset({LogicalOperator.AGGREGATE}),
         "min@3.0.0",
         MinParameters,
-        limitations="Aggregates the whole table; it does not group by a column.",
+        limitations=_WHOLE_TABLE_AGGREGATE,
     ),
     Operation(
         "blue.max",
         frozenset({LogicalOperator.AGGREGATE}),
         "max@3.0.0",
         MaxParameters,
-        limitations="Aggregates the whole table; it does not group by a column.",
+        limitations=_WHOLE_TABLE_AGGREGATE,
     ),
     Operation(
         "blue.argmax",
         frozenset({LogicalOperator.SORT_SUPERLATIVE}),
         "argmax@2.0.0",
         ArgmaxParameters,
-        limitations=(
-            "Returns the one extreme record over the whole table; it does not group by a column."
-        ),
+        limitations=_WHOLE_TABLE_SUPERLATIVE,
     ),
     Operation(
         "blue.argmin",
         frozenset({LogicalOperator.SORT_SUPERLATIVE}),
         "argmin@2.0.0",
         ArgminParameters,
-        limitations=(
-            "Returns the one extreme record over the whole table; it does not group by a column."
-        ),
+        limitations=_WHOLE_TABLE_SUPERLATIVE,
     ),
     Operation(
         "blue.semantic_filter",
@@ -262,7 +260,7 @@ OPERATIONS: tuple[Operation, ...] = (
 
 
 def _table_count(operation: Operation) -> int | None:
-    """Return the tables an operation is handed, or None where the group it covers decides."""
+    """Return the tables an operation reads, or None where it covers a group and reads none."""
     # A compound operation covers a group of nodes, and how many tables that group is handed
     # depends on the cut, so only a single-node operation has a count to hold it to.
     if len(operation.logical_operators) != 1:

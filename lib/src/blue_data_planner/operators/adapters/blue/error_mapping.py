@@ -1,4 +1,4 @@
-"""Mapping what a Blue operation reported onto the failures a run loop knows how to answer."""
+"""Mapping what a Blue operation reported onto the errors a run loop knows how to answer."""
 
 from __future__ import annotations
 

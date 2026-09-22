@@ -6,13 +6,14 @@ import re
 from string import Template
 from typing import Any
 
-from pydantic import BaseModel, ValidationError
+from pydantic import BaseModel
 
 from blue_data_planner.data import DataRegistry
 from blue_data_planner.llm import Conversation, LLMClient, Turn
 from blue_data_planner.operators.builtin import source_scan
 from blue_data_planner.operators.builtin.program_run import run_program
 from blue_data_planner.operators.builtin.schemas import IndexedScanSource, Nl2TableParameters
+from blue_data_planner.operators.validation import validated_parameters
 from blue_data_planner.prompts import prompt_text
 from blue_data_planner.types import (
     Data,
@@ -176,12 +177,7 @@ def _call(
     parameters: dict[str, Any],
     required_output_columns: list[OutputColumn],
 ) -> OperatorOutput:
-    try:
-        validated = Nl2TableParameters.model_validate(parameters)
-    except ValidationError as error:
-        raise RecoverableOperatorError(
-            f"builtin.nl2table was given parameters it cannot take: {error}"
-        ) from error
+    validated = validated_parameters(Nl2TableParameters, parameters, "builtin.nl2table")
     tables, scans = read_tables(data_registry, validated, inputs)
     conversation = Conversation(
         turns=[

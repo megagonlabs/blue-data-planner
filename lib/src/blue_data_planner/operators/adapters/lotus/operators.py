@@ -1,4 +1,4 @@
-"""LOTUS operations as physical operators, converting at the edge and mapping failures."""
+"""LOTUS operations as physical operators, converting at the edge and mapping errors."""
 
 from __future__ import annotations
 
@@ -6,7 +6,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any, ClassVar
 
-from pydantic import BaseModel, ValidationError
+from pydantic import BaseModel
 
 from blue_data_planner.data import DataRegistry
 from blue_data_planner.llm import LLMClient
@@ -18,11 +18,6 @@ from blue_data_planner.operators.adapters.lotus.declared_columns import (
 from blue_data_planner.operators.adapters.lotus.instruction_columns import (
     check_instruction_columns,
 )
-from blue_data_planner.operators.adapters.lotus.row_cap import (
-    DEFAULT_MAX_ROWS,
-    SEM_TOPK_MAX_ROWS,
-    check_row_cap,
-)
 from blue_data_planner.operators.adapters.lotus.schemas import (
     SemAggParameters,
     SemExtractParameters,
@@ -31,7 +26,10 @@ from blue_data_planner.operators.adapters.lotus.schemas import (
     SemMapParameters,
     SemTopKParameters,
 )
+from blue_data_planner.operators.validation import check_table_count, validated_parameters
 from blue_data_planner.types import (
+    INPUT_ARITY,
+    Data,
     DataBundle,
     LogicalOperator,
     OperatorOutput,
@@ -39,6 +37,13 @@ from blue_data_planner.types import (
     PhysicalOperator,
     RecoverableOperatorError,
 )
+
+DEFAULT_MAX_ROWS = 5000
+# sem_topk is quickselect over model-judged pairwise comparisons, so its model calls grow with
+# the comparison count rather than the row count — measured at roughly 8x the rows in one
+# partitioning. A lower cap here keeps its worst case in the same order of magnitude as what
+# DEFAULT_MAX_ROWS already bounds for the other operators.
+SEM_TOPK_MAX_ROWS = 500
 
 _Run = Callable[[list[Any], Any, list[OutputColumn], str], tuple[Any, list[str]]]
 
@@ -49,13 +54,17 @@ class _Entry:
     logical_operator: LogicalOperator
     description: str
     parameter_schema: type[BaseModel]
-    table_count: int
     run: _Run
     limitations: str | None = None
     row_cap: str = "Reads at most {max_rows} rows in one call and refuses a larger input."
     # None means "use the suite's cap." Only sem_topk sets this, since its model calls grow
     # with the comparison count rather than the row count the suite's cap was sized for.
     max_rows: int | None = None
+
+    @property
+    def table_count(self) -> int:
+        """Return the tables this operation reads, which its logical operator fixes."""
+        return INPUT_ARITY[self.logical_operator]
 
 
 def lotus_operators(
@@ -79,6 +88,21 @@ def lotus_operators(
     ]
 
 
+def check_row_cap(operator_id: str, tables: list[Data], max_rows: int) -> None:
+    """Raise when an operation would read more rows than the cap allows."""
+    # A join judges every pair, so the two tables multiply rather than add. One table
+    # multiplies against the empty product, which is its own length.
+    counted = 1
+    for table in tables:
+        counted *= len(table)
+    if counted <= max_rows:
+        return
+    raise RecoverableOperatorError(
+        f"{operator_id} was handed {counted} rows to judge, above the {max_rows}-row cap. A "
+        "built-in operation can narrow the table before a semantic one reads it."
+    )
+
+
 def _resolved_max_rows(entry: _Entry, max_rows: int) -> int:
     # An operator's own cap is a safety bound derived from measurement; the suite's cap is a
     # budget setting. The two compose as a minimum, so a tighter suite setting still holds even
@@ -99,12 +123,8 @@ def _build_call(
         parameters: dict[str, Any],
         required_output_columns: list[OutputColumn],
     ) -> OperatorOutput:
-        validated = _validated(entry.parameter_schema, parameters, entry.operator_id)
-        if len(inputs) != entry.table_count:
-            raise RecoverableOperatorError(
-                f"{entry.operator_id} reads {entry.table_count} table(s) and was handed "
-                f"{len(inputs)}"
-            )
+        validated = validated_parameters(entry.parameter_schema, parameters, entry.operator_id)
+        check_table_count(entry.operator_id, inputs, entry.table_count)
         check_row_cap(entry.operator_id, list(inputs), _resolved_max_rows(entry, max_rows))
         # An empty table carries no column names for an instruction to name, and a model
         # call over no rows can only return nothing. A join over an empty side is empty too.
@@ -126,13 +146,9 @@ def _build_call(
             frame, created = entry.run(
                 frames, validated, required_output_columns, entry.operator_id
             )
-        except ValueError as error:
-            raise RecoverableOperatorError(
-                f"{entry.operator_id} refused its input: {error}"
-            ) from error
-        except AssertionError as error:
-            # sem_join reports a join column it could not find with a bare assert rather
-            # than an exception a caller can tell from a bug.
+        # sem_join reports a join column it could not find with a bare assert rather than
+        # an exception a caller can tell from a bug, so both arrive as a refusal.
+        except (ValueError, AssertionError) as error:
             raise RecoverableOperatorError(
                 f"{entry.operator_id} refused its input: {error}"
             ) from error
@@ -146,15 +162,6 @@ def _build_call(
     return call
 
 
-def _validated(schema: type[BaseModel], parameters: dict[str, Any], operator_id: str) -> Any:
-    try:
-        return schema.model_validate(parameters)
-    except ValidationError as error:
-        raise RecoverableOperatorError(
-            f"{operator_id} was given parameters it cannot take: {error}"
-        ) from error
-
-
 def _check_created(operator_id: str, table: list[dict[str, Any]], created: list[str]) -> None:
     if not table:
         return
@@ -166,21 +173,25 @@ def _check_created(operator_id: str, table: list[dict[str, Any]], created: list[
         )
 
 
-def _usage(lotus: Any) -> tuple[int, int, int, float]:
-    # Read as four numbers rather than held as an object, because LOTUS updates its usage
-    # in place and a reference would move with it.
+# What a report calls each number, and what LOTUS records it under.
+_USAGE_FIELDS: dict[str, str] = {
+    "prompt_tokens": "prompt_tokens",
+    "completion_tokens": "completion_tokens",
+    "total_tokens": "total_tokens",
+    "cost": "total_cost",
+}
+
+
+def _usage(lotus: Any) -> dict[str, float]:
+    # Read as numbers rather than held as an object, because LOTUS updates its usage in
+    # place and a reference would move with it.
     usage = lotus.settings.lm.stats.physical_usage
-    return (usage.prompt_tokens, usage.completion_tokens, usage.total_tokens, usage.total_cost)
+    return {name: getattr(usage, attribute) for name, attribute in _USAGE_FIELDS.items()}
 
 
-def _report(lotus: Any, before: tuple[int, int, int, float]) -> dict[str, Any]:
+def _report(lotus: Any, before: dict[str, float]) -> dict[str, Any]:
     after = _usage(lotus)
-    return {
-        "prompt_tokens": after[0] - before[0],
-        "completion_tokens": after[1] - before[1],
-        "total_tokens": after[2] - before[2],
-        "cost": after[3] - before[3],
-    }
+    return {name: value - before[name] for name, value in after.items()}
 
 
 def _run_filter(
@@ -253,7 +264,6 @@ _ENTRIES: tuple[_Entry, ...] = (
         LogicalOperator.FILTER,
         "Keeps the rows a language model judges to satisfy a condition over named columns.",
         SemFilterParameters,
-        1,
         _run_filter,
     ),
     _Entry(
@@ -261,7 +271,6 @@ _ENTRIES: tuple[_Entry, ...] = (
         LogicalOperator.PROJECT,
         "Writes one new column from a language model's reading of named columns.",
         SemMapParameters,
-        1,
         _run_map,
         limitations="Adds one column and rewrites none of the ones it read.",
     ),
@@ -270,7 +279,6 @@ _ENTRIES: tuple[_Entry, ...] = (
         LogicalOperator.PROJECT,
         "Pulls named values out of text columns into new columns, one row in and one row out.",
         SemExtractParameters,
-        1,
         _run_extract,
         limitations="Reads the columns it is pointed at and builds values from their text alone.",
     ),
@@ -279,7 +287,6 @@ _ENTRIES: tuple[_Entry, ...] = (
         LogicalOperator.SORT_SUPERLATIVE,
         "Keeps the rows a language model ranks highest against a stated preference.",
         SemTopKParameters,
-        1,
         _run_topk,
         limitations="Returns the highest rows and carries no column saying how they ranked.",
         max_rows=SEM_TOPK_MAX_ROWS,
@@ -289,7 +296,6 @@ _ENTRIES: tuple[_Entry, ...] = (
         LogicalOperator.AGGREGATE,
         "Summarizes the rows of each group into one value a language model wrote.",
         SemAggParameters,
-        1,
         _run_agg,
         limitations=(
             "Summarizes each group into one text value and computes no sum, average, or count, "
@@ -301,7 +307,6 @@ _ENTRIES: tuple[_Entry, ...] = (
         LogicalOperator.JOIN,
         "Matches the rows of two tables on a language model's judgment of one column from each.",
         SemJoinParameters,
-        2,
         _run_join,
         limitations=(
             "Compares every pair of rows, so what it costs grows with the two tables multiplied "

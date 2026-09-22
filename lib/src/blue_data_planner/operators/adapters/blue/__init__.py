@@ -1,4 +1,4 @@
-"""The Blue operator suite as physical operators. Importing this module loads `blue-data-ops`."""
+"""The Blue operator suite as physical operators. Importing this package loads `blue-data-ops`."""
 
 from __future__ import annotations
 

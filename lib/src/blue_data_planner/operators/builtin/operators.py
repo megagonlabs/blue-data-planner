@@ -4,9 +4,9 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any, ClassVar, TypeVar
+from typing import Any, ClassVar
 
-from pydantic import BaseModel, ValidationError
+from pydantic import BaseModel
 
 from blue_data_planner.data import DataRegistry
 from blue_data_planner.llm import LLMClient
@@ -23,6 +23,7 @@ from blue_data_planner.operators.builtin.schemas import (
     SortSuperlativeParameters,
     UnionParameters,
 )
+from blue_data_planner.operators.validation import validated_parameters
 from blue_data_planner.types import (
     Data,
     DataBundle,
@@ -32,8 +33,6 @@ from blue_data_planner.types import (
     PhysicalOperator,
     RecoverableOperatorError,
 )
-
-ParametersT = TypeVar("ParametersT", bound=BaseModel)
 
 # Every operator in this suite carries the same sentence, because the fixed vocabulary is
 # what makes it true: nothing these parameters can express reads a value for its meaning.
@@ -80,7 +79,7 @@ def builtin_operators(
 def _filter(
     inputs: DataBundle, parameters: dict[str, Any], required_output_columns: list[OutputColumn]
 ) -> OperatorOutput:
-    filtering = _validated(FilterParameters, parameters, "builtin.filter")
+    filtering = validated_parameters(FilterParameters, parameters, "builtin.filter")
     table = _one_table(inputs, "builtin.filter")
     return OperatorOutput(data=[table_transformations.filter_rows(table, filtering.predicate)])
 
@@ -88,7 +87,7 @@ def _filter(
 def _project(
     inputs: DataBundle, parameters: dict[str, Any], required_output_columns: list[OutputColumn]
 ) -> OperatorOutput:
-    projection = _validated(ProjectParameters, parameters, "builtin.project")
+    projection = validated_parameters(ProjectParameters, parameters, "builtin.project")
     table = _one_table(inputs, "builtin.project")
     return OperatorOutput(data=[table_transformations.project_columns(table, projection.columns)])
 
@@ -96,7 +95,7 @@ def _project(
 def _expand(
     inputs: DataBundle, parameters: dict[str, Any], required_output_columns: list[OutputColumn]
 ) -> OperatorOutput:
-    expansion = _validated(ExpandParameters, parameters, "builtin.expand")
+    expansion = validated_parameters(ExpandParameters, parameters, "builtin.expand")
     table = _one_table(inputs, "builtin.expand")
     return OperatorOutput(
         data=[
@@ -113,7 +112,7 @@ def _expand(
 def _aggregate(
     inputs: DataBundle, parameters: dict[str, Any], required_output_columns: list[OutputColumn]
 ) -> OperatorOutput:
-    aggregation = _validated(AggregateParameters, parameters, "builtin.aggregate")
+    aggregation = validated_parameters(AggregateParameters, parameters, "builtin.aggregate")
     table = _one_table(inputs, "builtin.aggregate")
     return OperatorOutput(
         data=[
@@ -127,7 +126,7 @@ def _aggregate(
 def _distinct(
     inputs: DataBundle, parameters: dict[str, Any], required_output_columns: list[OutputColumn]
 ) -> OperatorOutput:
-    distinct = _validated(DistinctParameters, parameters, "builtin.distinct")
+    distinct = validated_parameters(DistinctParameters, parameters, "builtin.distinct")
     table = _one_table(inputs, "builtin.distinct")
     return OperatorOutput(data=[table_transformations.distinct_rows(table, distinct.columns)])
 
@@ -135,7 +134,9 @@ def _distinct(
 def _sort_superlative(
     inputs: DataBundle, parameters: dict[str, Any], required_output_columns: list[OutputColumn]
 ) -> OperatorOutput:
-    ordering = _validated(SortSuperlativeParameters, parameters, "builtin.sort_superlative")
+    ordering = validated_parameters(
+        SortSuperlativeParameters, parameters, "builtin.sort_superlative"
+    )
     table = _one_table(inputs, "builtin.sort_superlative")
     return OperatorOutput(
         data=[table_transformations.sort_rows(table, ordering.keys, ordering.limit)]
@@ -145,7 +146,7 @@ def _sort_superlative(
 def _join(
     inputs: DataBundle, parameters: dict[str, Any], required_output_columns: list[OutputColumn]
 ) -> OperatorOutput:
-    join = _validated(JoinParameters, parameters, "builtin.join")
+    join = validated_parameters(JoinParameters, parameters, "builtin.join")
     left, right = _two_tables(inputs, "builtin.join")
     return OperatorOutput(data=[table_transformations.join_tables(left, right, join.on, join.how)])
 
@@ -153,7 +154,7 @@ def _join(
 def _union(
     inputs: DataBundle, parameters: dict[str, Any], required_output_columns: list[OutputColumn]
 ) -> OperatorOutput:
-    _validated(UnionParameters, parameters, "builtin.union")
+    validated_parameters(UnionParameters, parameters, "builtin.union")
     left, right = _two_tables(inputs, "builtin.union")
     return OperatorOutput(data=[table_transformations.union_tables(left, right)])
 
@@ -179,7 +180,7 @@ def _scan_entry(data_registry: DataRegistry) -> _Entry:
 def _scan(
     data_registry: DataRegistry, inputs: DataBundle, parameters: dict[str, Any]
 ) -> OperatorOutput:
-    scan = _validated(ScanParameters, parameters, "builtin.scan")
+    scan = validated_parameters(ScanParameters, parameters, "builtin.scan")
     if scan.bound_values is None:
         if inputs:
             raise RecoverableOperatorError(
@@ -200,17 +201,6 @@ def _scan(
             scan.bound_values.input_column,
         )
     return OperatorOutput(data=[table], report=report)
-
-
-def _validated(
-    schema: type[ParametersT], parameters: dict[str, Any], operator_id: str
-) -> ParametersT:
-    try:
-        return schema.model_validate(parameters)
-    except ValidationError as error:
-        raise RecoverableOperatorError(
-            f"{operator_id} was given parameters it cannot take: {error}"
-        ) from error
 
 
 def _one_table(inputs: DataBundle, operator_id: str) -> Data:
