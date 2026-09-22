@@ -45,7 +45,7 @@
   },
   "BLUE_DATA_PLANNER_ENABLE_NL2TABLE": {
     "default": false,
-    "prompt": "Register builtin.nl2table, which writes a Python program and runs it",
+    "prompt": "Register builtin.nl2table, which writes a Python program and runs it (experimental, and not a security boundary)",
     "required": false,
     "cast": "bool"
   },

@@ -147,8 +147,8 @@ process. It is off unless a caller asks for it, and turning it on accepts three 
 **It is not a security boundary.** The program runs with the interpreter's own builtins and
 whatever it imports. Nothing checks it first. A program that reads the filesystem, opens a network
 connection, or reaches out of the child process is doing something this entry does not prevent and
-does not try to. The child process bounds a program that is wrong — a wall clock, a memory and CPU
-limit, no file writes — not one written to escape.
+does not try to. The child process bounds a program that is wrong — a wall clock everywhere, a
+memory and CPU limit and no file writes where the platform offers them — not one written to escape.
 
 **Turn it on only with a model and sources the deployment trusts.** Not on a deployment that
 untrusted requests reach.
@@ -156,8 +156,9 @@ untrusted requests reach.
 **The rows in a registered source reach the prompt.** The entry renders five sample rows of every
 entity a fragment reads into the prompt the program is written from. Text stored in a source is
 read by the model that writes the program, so a source someone else can write to is an input to
-that program. This is the route CVE-2025-68613 was exploited through in LangChain's
-PythonREPLTool.
+that program. This is the route by which a model is coerced into writing a program it would not
+otherwise write. CVE-2025-68613 turned the same feature in LangChain's PythonREPLTool into remote
+code execution, against a check like the one this entry no longer pretends to have.
 
 ---
 

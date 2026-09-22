@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import importlib.util
 import os
+from pathlib import Path
 
 import pytest
 
@@ -27,6 +29,13 @@ def test_a_program_may_import_from_the_standard_library() -> None:
     run = run_program("import os\nresult = [{'sep': os.sep}]", {})
 
     assert run == ProgramRun(table=[{"sep": os.sep}], error=None)
+
+
+def test_a_program_may_call_the_interpreters_own_builtins() -> None:
+    """Nothing narrows the builtins the child runs with, so a program naming one reaches it."""
+    run = run_program("result = [{'evaluated': eval('1 + 1')}]", {})
+
+    assert run == ProgramRun(table=[{"evaluated": 2}], error=None)
 
 
 def test_a_program_may_call_the_shared_transformations() -> None:
@@ -130,6 +139,22 @@ def test_a_program_that_will_not_stop_is_killed() -> None:
     assert run.table is None
     assert run.error is not None
     assert "did not finish" in run.error
+
+
+@pytest.mark.skipif(
+    importlib.util.find_spec("resource") is None,
+    reason="the child limits the size of what a program writes only where the platform offers it",
+)
+def test_a_program_that_writes_a_file_comes_back_as_the_reason(tmp_path: Path) -> None:
+    """The child's file-size limit is zero, so a program writing to disk produces no table."""
+    written = tmp_path / "rows.csv"
+    code = f"with open({str(written)!r}, 'w') as handle:\n    handle.write('rows')\nresult = []"
+
+    run = run_program(code, {})
+
+    assert run.table is None
+    assert run.error is not None
+    assert written.read_text() == ""
 
 
 def test_a_table_holding_a_value_that_cannot_be_sent_refuses_the_call() -> None:
