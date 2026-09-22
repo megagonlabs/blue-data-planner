@@ -512,9 +512,9 @@ entry and to the two documents written against it
 **Decision:** A suite named `builtin`, written here rather than depended on, holding two kinds of
 entry. A deterministic entry holds no model call and does what the parameters the fragment runner
 wrote say. One compound entry, `builtin.nl2table`, writes a Python program from a fragment's
-instruction and runs it, in a separate process that reaches nothing but the tables it was handed.
-Both kinds work through one shared module of functions over the bundle, and that module is what the
-program calls.
+instruction and runs it in a child process holding copies of its tables. It is experimental, and a
+deployment registers it or does not. Both kinds work through one shared module of functions over the
+bundle, and that module is what the program calls.
 
 Every deterministic entry declares one logical operator. `builtin.scan` declares the scan alone: it
 reads one registered source, and a reference input's values reach that source as a bind join
@@ -523,9 +523,9 @@ operator kind, reads registered sources, and accepts bound inputs, and it is the
 no same-source constraint, so a fragment scanning two sources has a candidate.
 
 `builtin.nl2table` reads every source its fragment names before the program starts, so the program
-receives tables and holds no path to a source, a registry, or a model. It writes the program again
-when the program will not run, bounded by an attempt count of its own, and returns a recoverable
-failure once that count is spent. A deployment decides whether it is registered at all.
+receives tables and is given no source, no registry, and no model client. It writes the program
+again when the program will not run, bounded by an attempt count of its own, and returns a
+recoverable failure once that count is spent. A deployment decides whether it is registered at all.
 
 An operation may decide how to carry out the fragment it was given, and may repeat work inside its
 own call. It may not decide what the fragment is, which source to read beyond the one the cover
@@ -555,10 +555,16 @@ traceback names the fix. The repairs outside rewrite the fragment's parameters, 
 gives no reason to doubt, so a failure sent out comes back with the same program written a second
 time.
 
-The program reaches nothing but its tables because that is what turns the entry's declaration from a
-promise into a fact. With no path to a provider the program cannot judge meaning, so a predicate
-that needs reading text belongs to a semantic operator. With no path to a registry it cannot read a
-source the cover did not bind, and with copies of its tables it cannot change what a source holds.
+What the call hands the program is what the entry's declaration rests on. The program is given
+tables and no model client, so it does not judge meaning, and a predicate that needs reading text
+belongs to a semantic operator. It is given no registry handle, so the tables it works over are the
+ones the cover bound. It is given copies, so what it writes does not reach a source.
+
+Each of those is a fact about the call rather than a restraint on a program written to do
+otherwise. The entry is not a security boundary and holds no check pretending to be one: a check
+over a language that resolves names at run time refuses the spellings it was taught and not the
+others, and what rests on such a check gets written as though it held. This is why the entry is
+experimental and off until a deployment asks for it.
 
 The rule about which decision an operation may take is what separates an operation that plans inside
 a fragment from one that takes over the run loop's work. Planning inside is what a compound operator
@@ -587,8 +593,11 @@ is the one place the record is not structured data.
 
 A deployment enabling the entry runs model-written code as the user who launched the planner, and
 what that code may reach beyond the tables it was given is the deployment's to bound
-([12](12-deployment-ops.md#11-what-is-deliberately-absent)). Open question 49 asks what this
-repository should require of it.
+([12](12-deployment-ops.md#11-what-is-deliberately-absent)).
+
+The prompt the program is written from renders sample rows of every entity the fragment reads, so
+what a source holds is an input to the program that runs. A deployment that registers the entry
+decides who can write to the sources it reads.
 
 `operators/` holds more than adapters, and an owned entry carries behavior to test rather than
 translation ([11-testing-strategy.md](11-testing-strategy.md)). Every adapter returns a report
@@ -1012,8 +1021,6 @@ Design questions first, then defects in code that exists today.
 | 45 | Is a bound an operator enforces inside its own call a bound of ADR-014's kind? `RunLimits` holds every bound the run loop obeys, and three numbers sit below it instead: the distinct values a bind join carries, the times `builtin.nl2table` writes its program again before returning a recoverable failure, and the rows a LOTUS operation accepts before refusing the call. All three are shaped like `RunLimits` fields, and they do not agree with each other about who sets them: the LOTUS cap is an argument to `lotus_operators`, so a deployment chooses it where it builds the suite, while the other two are fixed in the operator that enforces them. `builtin.scan` reads only `sql/sqlite`, a source with a predicate language, and implements two of the three realizations in [06](06-library.md#data): values embedded in the query text, capped at 100 distinct values, and a temporary table, capped by nothing. Past the embedded-values cap it escalates to the temporary table rather than refusing the input, so `builtin.scan` never refuses a bind join for carrying too many values; 100 is where it switches realization, not a limit it enforces. The one-call-per-value realization, and the tighter cap that would bound it, belong to an operator reading a source with no predicate language, a case nothing in the built-in suite covers. Every number here is a placeholder set low enough not to break a run rather than measured against real volumes or real failure rates. A `RunLimits` field would let a deployment raise a cap past a default nobody has tested; leaving each number inside its operator keeps the choice with whichever component already sees what decides it. | Whether a bound below the run loop is configurable per deployment, and what real volumes and failure rates call for |
 | 47 | Should the operator vocabulary gain a node that looks the catalog up once per input row? ADR-022 keeps a `DISCOVER` node to a bounded set of entities however many rows it was handed, so a request such as "find the press release document for each of these 500 companies" has nowhere to go: that lookup is per row, what it returns is data rather than context, and it should be billed against the operator budget and reviewed like any other data operation. An operator node would give it all three. Against adding one: none of the ten logical operators reads the catalog, so this would be the first, and what it returns — paths rather than values — is a kind of row nothing else in a plan produces. How often a request needs one is unmeasured. | Whether a per-row catalog lookup is expressible at all, and whether the logical vocabulary stays as it is |
 | 48 | Which component reads a `relation` record when a plan scans a knowledge-base source? `blue-data` records relations alongside entities and attributes, each with a name, a source, and a target, and nothing in this design reads one. A `JOIN` is the obvious consumer, since a relation says which attributes join two entities, and it could arrive as part of the run's catalog context or as part of the fragment runner's deeper reading. What stops the question being answered for tables alone is that relations are the structure a knowledge-base source carries, and how this planner reads a knowledge base is itself unsettled, so an answer shaped for two SQL tables would likely be the wrong shape for a graph. | Whether a `JOIN` is written against a declared relation or against column names a model matched up, and what a knowledge-base source contributes to a plan |
-| 49 | What isolation does a deployment running `builtin.nl2table` need? The program runs in a separate process holding copies of its tables and no path to a registry, a source, or a provider, which bounds what a wrong program can do to the data a request reads and to what a source holds. That process still runs as the user who launched the planner, so what the program may do to that user's files and network is bounded by the operating system rather than by this repository. Two routes. The library requires an isolation mechanism — a syscall filter, a mount namespace, a container — which answers it and narrows the platforms the package runs on. Or the boundary stays where it is and the installation instructions say what it covers, leaving a deployment that needs more to arrange it. | Whether a deployment can enable the entry without arranging isolation of its own |
-| 50 | Does the boundary hold against a program built to defeat it rather than one merely wrong? `check_program` refuses `attrgetter`, `methodcaller`, and `get_field` by name, and the module a program imports is wrapped so an attribute access returning another module is refused. Neither refuses a program that reaches the same attribute through a format-string field reference (`"{0.__globals__[os]}".format(x)`), which performs the identical by-name lookup through a mechanism no AST walk inspects, since the field name is a string constant rather than a parsed attribute access. A function bound into the child's namespace is defined in `program_run.py` itself, whose own module holds `os` and `subprocess` for its own parent-side process management, so this route reaches the child process's environment — which, following this repository's own convention, can hold provider credentials. Building a class through the `type` builtin to capture a live rather than a stringified object during field resolution reaches every class the interpreter knows, `subprocess.Popen` included. `str.format` is too ordinary a method to refuse outright, so closing this needs an answer at a different level than a name check: whether the child process inherits the parent's environment at all, whether a function bound into the child's namespace may come from a module holding a name this boundary exists to keep a program from reaching, and whether `type` belongs on the child's builtins. | Whether `builtin.nl2table` can be enabled for a program not known to be adversarial without one of these three closed |
 | 51 | What does a compound operation do with a fragment whose frontier carries rows, before it can read one? `blue.nl2sql` declares bound inputs, so the physical planner offers it groups whose inputs arrive from an earlier fragment. A query written from a source's schema alone would answer from that source and leave those rows out, which is a wrong answer rather than a failure, and refusing the bundle as a recoverable failure is what keeps it from being returned. That refusal costs an operator call on a candidate that could not have worked. Narrowing the declaration instead would stop the candidate being enumerated at all, and would have to be widened again by hand once the operation reads its bundle, so the declaration states the target state and is not narrowed. What is unsettled is whether the refusal should cost a call, and whether a candidate an operator is known to refuse should be enumerated at all. That is question 44's shape: a constraint the declaration has no vocabulary for is stated in `limitations`, and the candidate is offered anyway. | Whether a fragment with a non-empty frontier reaches the compound Blue operation, and what a run spends finding out that it cannot serve one |
 | 52 | Should a group whose node lists reference inputs be offered to an operation declaring one logical operator? Arity is a floor in a plan, so a node may list more inputs than its kind transforms ([10-data-model.md](10-data-model.md#how-many-inputs-a-node-takes)), and the bundle built for such a group carries one table per input the fragment reads, which is more tables than the arity names. An operation reading only the tables its arity names refuses that bundle as a recoverable failure, and the physical planner covers the node set again, so the run spends an operator call on a candidate the cover could have skipped. Nothing in a declaration says whether an operation can read a table without transforming it: `logical_operators` names the kinds an operation covers and no field carries the rest, which is the shape questions 44 and 51 share. Two routes. The cover compares a node's input count against the arity and offers only operators declared to read a reference input, which needs that field written first. Or the refusal stays where it is and its cost is accepted, on the grounds that what an operation can read moves with its own suite while a hand-written declaration has to be rewritten to follow. | Whether a plan the arity floor admits is one every operator bound to it can run, and what a run spends on a call refused for the length of its bundle |
 | 54 | Should the library be able to phrase an answer, and the CLI then offer `--format nl`? The family offers a natural-language format where a source answers in prose, and ADR-029 leaves it out because a planner answers in rows. A benchmark whose expected answers are single values, and an agent that wants a sentence rather than a table, both suggest the phrasing has to happen somewhere; doing it in an interface is behavior in an adapter (ADR-002), so the question is whether a library operation should return prose alongside the rows, and what it costs in model calls per request. | Whether `--format nl` and the MCP response ever carry a sentence, and which component writes it |

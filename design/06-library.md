@@ -1208,12 +1208,11 @@ reference input's values into a read as a bind join wherever its parameters bind
 `builtin.scan` does. Then it writes a Python program from the fragment's instruction and runs that
 program over those tables together with the ones the frontier delivered.
 
-The program runs in a separate process, holds copies of those tables, and has no path to a source, a
-registry, or a provider. Three properties follow, and the entry's declaration rests on them. It
-cannot judge meaning, so a predicate that needs reading text belongs to a semantic operator. It
-cannot read a source the cover did not bind. It cannot change what any source holds. A program
-naming anything beyond the shared transformations and the parts of the standard library that only
-compute is refused before it runs.
+The program runs in a child process holding copies of those tables, and is given no source, no
+registry, and no model client. Three properties follow, and the entry's declaration rests on them.
+It does not judge meaning, so a predicate that needs reading text belongs to a semantic operator.
+It reads no source the cover did not bind. It changes nothing a source holds. The entry is
+experimental: nothing checks the program before it runs, and a deployment registers it or does not.
 
 The two halves fail differently, and the split follows what a repair could fix. A scan target that
 is not a catalog path, a bound column an input does not carry, a source that refused the read: no

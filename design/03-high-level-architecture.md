@@ -189,7 +189,7 @@ suite this repository owns.
 | `router.py` | `OperatorRouter`. Maps a logical operator to the physical operators that can carry it out, and resolves an operator id to the operator behind it. Lookup and nothing more: whether a particular node has an operator depends on the fragment it sits in and the source its scans are bound to, so it is asked per node by the physical planner and answered as `no_operator`. Only the router is read while planning, never the registry (ADR-009). |
 | `adapters/blue/` | Declares the operators of a `blue-data-ops` registry as physical operators. |
 | `adapters/lotus/` | Declares LOTUS operations as physical operators. |
-| `builtin/` | The suite written here (ADR-020): deterministic operations over the bundle, one per operator node kind, and `builtin.nl2table`, which writes a Python program from a fragment's instruction and runs it in a process holding copies of its tables and no path to a source, a registry, or a provider. This is what the planner falls back to when no outside suite can take a node, and what hosts a fragment that scans nothing. |
+| `builtin/` | The suite written here (ADR-020): deterministic operations over the bundle, one per operator node kind, and `builtin.nl2table`, which writes a Python program from a fragment's instruction and runs it in a child process holding copies of its tables, registered only where a deployment asks for it. This is what the planner falls back to when no outside suite can take a node, and what hosts a fragment that scans nothing. |
 
 `__init__.py` re-exports the router alone, and an adapter is imported from `adapters/`, under the
 name of its suite, so importing the router loads no suite.

@@ -482,6 +482,8 @@ for operator in blue_operators(operator_registry, data_registry):
     router.register(operator)
 for operator in lotus_operators("openai/gpt-4o"):  # empty when LOTUS is not installed
     router.register(operator)
+# with_nl2table registers the experimental entry that writes and runs a Python program; it is
+# not a security boundary (ADR-020)
 for operator in builtin_operators(data_registry, llm_client, with_nl2table=True):
     router.register(operator)
 

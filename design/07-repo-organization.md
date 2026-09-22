@@ -196,7 +196,7 @@ repository (ADR-020).
 | `router.py` | `OperatorRouter`, the only lookup read while planning (ADR-009) |
 | `adapters/blue/` | `blue_operators`, over a `blue-data-ops` `OperatorRegistry`: the parameter models and the operation table that binds them |
 | `adapters/lotus/` | `lotus_operators`, over the LOTUS package |
-| `builtin/` | `builtin_operators`: one module of transformations over the bundle, the deterministic entries wrapping them, `builtin.scan`, `builtin.nl2table`, and the isolated execution its program runs under |
+| `builtin/` | `builtin_operators`: one module of transformations over the bundle, the deterministic entries wrapping them, `builtin.scan`, `builtin.nl2table`, and the child process its program runs in |
 
 `builtin/` sits beside `adapters/` because the router reads every suite the same way and a
 deployment turns any of them on or off the same way. It is a directory for the same reason the two

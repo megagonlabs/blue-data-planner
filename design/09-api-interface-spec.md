@@ -80,7 +80,8 @@ planner = build_data_planner(
     suites=[
         BlueSuite(),
         LotusSuite(),  # registers nothing where LOTUS is not installed
-        # with_nl2table enables the entry that writes and runs a Python program (ADR-020)
+        # with_nl2table registers the experimental entry that writes and runs a Python program;
+        # it is not a security boundary (ADR-020)
         BuiltinSuite(with_nl2table=True),
     ],
     model="openai/gpt-4o",
