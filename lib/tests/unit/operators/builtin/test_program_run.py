@@ -149,3 +149,16 @@ def test_what_a_program_does_to_its_tables_leaves_the_callers_untouched() -> Non
 
     assert run.table == []
     assert tables["stores"] == STORES
+
+
+def test_a_program_is_not_given_the_environment_the_planner_runs_in(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The parent's environment holds provider credentials, and none of it reaches the child."""
+    monkeypatch.setenv("BLUE_DATA_PLANNER_TEST_SECRET", "not-for-a-program")
+
+    run = run_program("import os\nresult = [{'names': sorted(os.environ)}]", {})
+
+    assert run.error is None
+    assert run.table is not None
+    assert "BLUE_DATA_PLANNER_TEST_SECRET" not in run.table[0]["names"]

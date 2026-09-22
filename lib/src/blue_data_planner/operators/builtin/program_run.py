@@ -85,6 +85,11 @@ def _child_output(request: str, timeout_seconds: float) -> str:
         stderr=subprocess.PIPE,
         text=True,
         start_new_session=True,  # its own process group, so a timeout kills what it started
+        # Not a boundary — the parent's environment stays readable through /proc to anything
+        # running as this user. It stops a program handing back a credential it was given for
+        # free, which is the whole of what it is for. The interpreter resolves its own
+        # site-packages from its prefix, so it needs no variable to start.
+        env={},
     )
     try:
         stdout, stderr = process.communicate(request, timeout=timeout_seconds)
