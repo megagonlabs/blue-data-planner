@@ -95,13 +95,13 @@ yet reached.
 
 | Node | Carried over when |
 | --- | --- |
-| An operator node | It belongs to a fragment whose result the run still holds. The nodes that fragment absorbed are carried with it |
+| An operator node | It belongs to a fragment whose result the run still holds. The nodes that fragment grouped are carried with it |
 | `DISCOVER` | Its search resolved, so the run holds a `DiscoveryResult` for it |
 | `REPLAN`, `RETURN` | Never. Neither holds anything, and a `REPLAN` node that fired must not fire again |
 
-An absorbed node materialized no table, so the run holds no result under its id. It is carried
+A grouped node materialized no table, so the run holds no result under its id. It is carried
 anyway, because the fragment's root reads it and dropping it would leave that edge pointing at
-nothing, and because a later cover can only fuse those nodes again if they are still in the plan.
+nothing, and because a later cover can only group those nodes again if they are still in the plan.
 The carried set is therefore a superset of the nodes the run holds a result for. Nothing is moved
 forward: a result is filed under the signature of the work that produced it, and a carried node's
 work is found again by the cover written for the new version
@@ -114,7 +114,7 @@ reads a table the run can hand it.
 
 Within one lineage a continuation may not give an existing node id to a different node. It names an
 existing id only to read a node it carried over, and validation turns down a continuation that
-writes one. Absorbing such a node instead would attach a carried node's name to work nobody
+writes one. Grouping such a node instead would attach a carried node's name to work nobody
 planned.
 
 A `RETURN` node's `columns` name the columns holding the answer and nothing else, so what a caller
@@ -219,7 +219,7 @@ An empty list means no check, and a `RETURN` node carries none, since it names i
 project instead of promising output. The node a `RETURN` reads is the one exception to the list
 being optional ([the logical half](#the-logical-half)).
 
-The declarations on absorbed nodes are checked against nothing, because a fused call produces no
+The declarations on grouped nodes are checked against nothing, because a fragment call produces no
 intermediate tables. Every node still declares its columns, because any of them becomes a checked
 declaration as soon as that node is the root of a smaller fragment.
 
@@ -286,9 +286,9 @@ class PhysicalPlan:
 | Coverage | Every operator node of the logical plan appears in exactly one fragment. `RETURN`, `REPLAN`, and `DISCOVER` appear in none |
 | Shape | Each fragment is connected, convex, and single exit: only the root may have consumers outside it ([04, what a fragment may be](04-detailed-architecture.md#what-a-fragment-may-be)) |
 | Sources | `scan_sources` names a catalog path for each `SCAN` in the fragment. A `SCAN` left out of it reads no registered source, which is what a scan of the model's world knowledge looks like. An operator declaring `source_kinds` needs every scan bound to a source of one of those kinds, and an operator declaring none needs every scan left out. A fragment containing no `SCAN` is bound to an operator that owns its engine (ADR-020) |
-| Instruction | One instruction to the operator covering everything the fragment absorbed, starting with a verb as a node's does: "Find data scientist job postings, with their title, company id, and location" |
+| Instruction | One fragment instruction to the operator covering everything the fragment grouped, starting with a verb as a node instruction does: "Find data scientist job postings, with their title, company id, and location" |
 | Inputs | `input_data` lists the frontier nodes, which are the nodes outside the fragment feeding nodes inside it, in the order the fragment's nodes read them. The list is the plan's to decide, and only each entry's name and description are written during physical planning. One entry covers everything that node produced, so it may stand for more than one table; those tables share the name and keep their order |
-| Columns | `required_output_columns` is copied from the root node unless the model declares that the fusion cannot produce that list |
+| Columns | `required_output_columns` is copied from the root node unless the model declares that the fragment cannot produce that list |
 | Identity | `id` names one fragment, and a fragment carried into a new cover keeps it, so the exchange that wrote its parameters stays attached to the work. What the fragment is for is its signature, which covers everything deciding what it produces, so that is what says whether two covers ask for the same work |
 
 A cover is written whole rather than patched, and what carries over from the previous cover is
@@ -579,7 +579,7 @@ only which ones produced something (ADR-024).
 | Node | Entry |
 | --- | --- |
 | An operator node that roots a fragment | The `FragmentResult` its run came to, kept or not |
-| An operator node a fragment absorbed | None. A fused call produces no intermediate table |
+| An operator node a fragment grouped | None. A fragment call produces no intermediate table |
 | `DISCOVER` | The `DiscoveryResult` the catalog search produced |
 | `REPLAN`, `RETURN` | None. The answer belongs to `RunResult.answer` |
 

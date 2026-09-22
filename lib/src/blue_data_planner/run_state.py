@@ -76,7 +76,7 @@ class RunState:
 
     def result_for(self, node_id: str) -> NodeResult | None:
         """Return what this node produced for whoever reads it next, or nothing."""
-        # A node a fragment absorbed has no signature, because a fused call produces no
+        # A node a fragment grouped has no signature, because a fragment call produces no
         # intermediate table, so it answers None the same way an unrun node does.
         signature = self._signatures.get(node_id)
         filed = None if signature is None else self.results.get(signature)
@@ -105,7 +105,7 @@ class RunState:
         return self._outputs(node.input_node_ids)
 
     def carried_node_ids(self) -> frozenset[str]:
-        """Return every node a new logical version keeps, absorbed nodes included."""
+        """Return every node a new logical version keeps, grouped nodes included."""
         carried: set[str] = set()
         for fragment in self.pipeline.cover.fragments:
             if self.result_for(fragment.root_logical_node_id) is not None:

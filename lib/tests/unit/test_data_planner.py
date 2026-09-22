@@ -127,8 +127,8 @@ def an_ending_naming_a_column_the_rows_lack(plan_id: str) -> LogicalPlan:
     return plan
 
 
-def an_ending_reading_a_node_a_fragment_absorbed(plan_id: str) -> LogicalPlan:
-    """n1 SCAN and n2 FILTER fused into one call, ended by n3 RETURN reading both."""
+def an_ending_reading_a_node_a_fragment_grouped(plan_id: str) -> LogicalPlan:
+    """n1 SCAN and n2 FILTER grouped into one call, ended by n3 RETURN reading both."""
     return LogicalPlan(
         id=plan_id,
         parent_id=None,
@@ -152,7 +152,7 @@ def an_ending_reading_a_node_a_fragment_absorbed(plan_id: str) -> LogicalPlan:
     )
 
 
-def a_fused_cover(cover_id: str, logical_plan_id: str) -> PhysicalPlan:
+def a_grouped_cover(cover_id: str, logical_plan_id: str) -> PhysicalPlan:
     """One fragment over n1 and n2, rooted at n2, so n1 produces no table of its own."""
     return PhysicalPlan(
         id=cover_id,
@@ -289,9 +289,9 @@ def test_a_run_with_nothing_left_to_run_and_no_answer_to_project_ends_as_planner
     ("plan", "cover"),
     [
         (an_ending_naming_a_column_the_rows_lack, a_cover),
-        (an_ending_reading_a_node_a_fragment_absorbed, a_fused_cover),
+        (an_ending_reading_a_node_a_fragment_grouped, a_grouped_cover),
     ],
-    ids=["a column the rows lack", "a node a fragment absorbed"],
+    ids=["a column the rows lack", "a node a fragment grouped"],
 )
 def test_an_ending_the_finished_rows_cannot_answer_is_written_again_rather_than_ending_the_run(
     plan: Callable[[str], LogicalPlan],
@@ -388,7 +388,7 @@ def test_a_replan_gives_the_next_plan_its_own_covers() -> None:
 
 
 def a_scan_and_a_filter(plan_id: str) -> LogicalPlan:
-    """n1 SCAN -> n2 FILTER -> n3 RETURN, two nodes an operator cannot fuse into one fragment."""
+    """n1 SCAN -> n2 FILTER -> n3 RETURN, two nodes an operator cannot group into one fragment."""
     return LogicalPlan(
         id=plan_id,
         parent_id=None,

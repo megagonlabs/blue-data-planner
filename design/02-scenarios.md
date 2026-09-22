@@ -226,7 +226,7 @@ on location and quietly ignores the rest, because "is a data scientist role" is 
 can express. The result has the right number of rows to look plausible.
 
 What catches it is the fragment's instruction. The physical planner wrote one instruction covering
-every node it fused, `n5` among them, so the instruction asks for data scientists and the review has
+every node it grouped, `n5` among them, so the instruction asks for data scientists and the review has
 something to hold the rows against. Titles such as "Data Engineer" and "Research Scientist" do not
 answer it.
 
@@ -376,7 +376,7 @@ result = planner.run("Which Bay Area data scientist postings are at healthcare c
 result.answer                       # the final rows
 result.pipeline.logical_plans       # both versions: the one ending at the DISCOVER nodes, and
                                     # the complete one
-result.pipeline.physical_plans      # both covers: the one that fused three nodes, and its replacement
+result.pipeline.physical_plans      # both covers: the one that grouped three nodes, and its replacement
 result.results[signature_of("n1")]  # one search: its terms, and the entities and attributes found
 result.conversations                # every exchange with the model, by the component that had it
 ```
@@ -491,6 +491,6 @@ for operator in builtin_operators(data_registry, llm_client, with_nl2table=True)
 ```
 
 Four of those six filter and nothing else. The other two answer for `FILTER` because it is one
-of several kinds each declares, so a filter node can be run on its own or absorbed into a wider
+of several kinds each declares, so a filter node can be run on its own or grouped into a wider
 call. That is why the physical planner had a choice to make at `n3`, `n4`, and `n5` in Scenario 1,
 and why it had somewhere to go when the choice turned out wrong.

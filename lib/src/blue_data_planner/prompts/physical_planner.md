@@ -9,8 +9,8 @@ For each decision you are given the candidate fragments rooted at one node, each
 the operator that could run it. Pick one, and write:
 
 - One instruction covering the whole fragment, phrased as an instruction to that operator.
-  A fragment absorbing four nodes has no single instruction to borrow, so say what the
-  fragment is to do rather than stringing together what it absorbed. Say what the fragment
+  A fragment grouping four nodes has no single instruction to borrow, so say what the
+  fragment is to do rather than stringing together what it grouped. Say what the fragment
   has to produce, not what it has to leave out: an operator that cannot drop a column is not
   failing, and the declared output columns are a floor the result has to carry.
 - A name and a description for each input the fragment receives from outside it, one pair

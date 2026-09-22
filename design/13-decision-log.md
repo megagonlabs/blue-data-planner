@@ -146,7 +146,7 @@ operator takes on.
 | Fragment execution | What parameters a call runs with, and whether its result is any good | `FragmentRunner` |
 
 The group of nodes one operator covers is a fragment: connected, convex, and single-exit. An
-operator declares the set of logical operators it can absorb, candidate fragments follow
+operator declares the set of logical operators it can group, candidate fragments follow
 mechanically from that declaration, and a model picks among the candidates.
 
 **Rationale:** Choosing the shape of a computation and choosing an implementation are different
@@ -183,7 +183,7 @@ generated text or code, and it is checked before it runs. A node is one of three
 
 A plan is never edited. A replan adds a new logical plan with a new id and a `parent_id`, and a new
 cover adds a new physical plan the same way. A new logical version carries over every node the run
-holds a result for, absorbed nodes included, and drops the rest. Results live in a map the run owns,
+holds a result for, grouped nodes included, and drops the rest. Results live in a map the run owns,
 keyed by logical plan id and then node id, rather than on the nodes.
 
 A plan is an output, never an input. No entry point accepts a plan and runs it, and `from_dict`
@@ -203,7 +203,7 @@ that fired is dropped and cannot fire again.
 **Consequences:** A plan's shape is public interface, serialized into every MCP response, and a
 change to it follows the package's own versioning; nothing persists a plan, so it carries no version
 field of its own. A continuation rewrites unexecuted work in unrelated branches, and one that reads
-an absorbed node forces the fragment that absorbed it to run again.
+a grouped node forces the fragment that grouped it to run again.
 [10-data-model.md](10-data-model.md) fixes the shape.
 
 ---
@@ -353,14 +353,14 @@ output indexes a table before a row, so the rows of a single-output fragment are
 **Decision:** A result is judged in two passes. `execute_physical_operator` checks it against the
 fragment root's `required_output_columns`, coercing each column to its declared type and failing the
 call as a recoverable error when it cannot. A result clearing that check goes to a model review turn
-returning an assessment and one of accept, reject, or replan. The review sees the fused instruction,
+returning an assessment and one of accept, reject, or replan. The review sees the fragment instruction,
 the operator's description, and a sample of the result, and judges the rows against the instruction.
 Which columns the result carries is settled by the check, and the review is not asked about it. Only
-the root is checked, since a fused call produces no intermediate tables.
+the root is checked, since a fragment call produces no intermediate tables.
 
 **Rationale:** The column check is cheap, deterministic, and catches the mistakes with an obvious
 right answer. It cannot catch a result that is well shaped and wrong, which is the failure that
-matters most for a semantic operator. The fused instruction is what makes a fused call checkable:
+matters most for a semantic operator. The fragment instruction is what makes a fragment call checkable:
 the physical planner writes one instruction covering every node in the fragment, so a call asked to
 scan, filter, and join has a single statement of what it owes, and a call handed a semantic
 predicate SQL cannot express tends to return rows that ignore it. The column rule stays with the
@@ -546,7 +546,7 @@ installed.
 
 The compound entry writes a program because a program reaches what a set of named operations cannot:
 a derived value, an aggregate under a condition, a column whose values have to be normalized before
-they compare. The planner has to bind operations that absorb many nodes, plan inside themselves, and
+they compare. The planner has to bind operations that group many nodes, plan inside themselves, and
 fail as a unit, so one of our own, with an honest declaration and a working bind join, is worth
 having as the case the rest is written against.
 
@@ -957,7 +957,7 @@ each carried node's columns and the first of its rows.
 
 **Rationale:** Two things go wrong with an ending, and neither is a defect. A column is named by the
 name it had when the plan was written, which a join is free to change once it collides, and an
-ending may read a node a fragment absorbed, which produced no table of its own. Both leave a run
+ending may read a node a fragment grouped, which produced no table of its own. Both leave a run
 that did every piece of work correctly and cannot state its answer, so ending the request throws all
 of it away. The alternative that reads the rows and picks the columns at the end would answer the
 same two cases, at the price of a model call on every request that already got its ending right,
@@ -997,8 +997,8 @@ Design questions first, then defects in code that exists today.
 | # | Question | Blocks |
 | --- | --- | --- |
 | 3 | Would annotating a frontier column from the catalog earn its risk? The fragment runner reads a view of every attribute of the entities its own fragment scans, and reads a column arriving on the frontier off the input table it came in on, which carries names, types, and a sample of rows (ADR-022). A frontier column may also have a catalog record, and reaching it means tracing back through the cover to whichever fragment scanned it. Tracing through fragments built only from the kinds that leave columns unchanged — `FILTER`, `DISTINCT`, `SORT_SUPERLATIVE` — is safe, while tracing by name regardless of kind can put a scanned attribute's statistics in front of a model for a column a `PROJECT` redefined. What is unmeasured is whether whole-column statistics add anything the sample rows do not, for a column the run already holds rows for. The first release annotates neither way. | Whether a `FILTER` running alone over rows an earlier fragment scanned sees catalog statistics as well as its input's rows ([10-data-model.md](10-data-model.md#what-the-fragment-runner-reads)) |
-| 6 | Should a result stay valid when only the cut around it changed? A continuation reading a node a fragment absorbed forces that fragment to be dropped and every node in it to run again, even the ones whose logical inputs did not change ([04, what reading an absorbed node costs](04-detailed-architecture.md#what-reading-an-absorbed-node-costs)). Two ways out. Keying validity on a node's upstream logical nodes rather than on the shape of the cover would save the downstream work. Dropping the disjointness rule would let a continuation build its own fragment over `SCAN`, `FILTER`, and the new node while the earlier fragment keeps its result, at the price of running the same scan twice and of giving up the property that each node runs exactly once, which is what makes an attempt list readable as a record of where each pushdown boundary was drawn. Both carry the same consistency risk: a saved result from a fused call sitting beside newly materialized rows from a different cut, so two nodes in one plan could hold values their operators never agreed on. | Whether a failure-driven replan pays for a whole fused call a second time, and whether the attempt record still answers where the boundary was |
-| 8 | Should a fragment pattern be allowed to constrain the order of the nodes it covers? `logical_operators` is a set, so a candidate is any connected convex subgraph built from those kinds, and an operator that can only absorb a filter *after* a scan has no way to say so. No declared operator's capability depends on the order of the nodes it covers, so a set says everything a declaration needs to. | Whether an operator whose capability depends on node order can be declared at all |
+| 6 | Should a result stay valid when only the cut around it changed? A continuation reading a node a fragment grouped forces that fragment to be dropped and every node in it to run again, even the ones whose logical inputs did not change ([04, what reading a grouped node costs](04-detailed-architecture.md#what-reading-a-grouped-node-costs)). Two ways out. Keying validity on a node's upstream logical nodes rather than on the shape of the cover would save the downstream work. Dropping the disjointness rule would let a continuation build its own fragment over `SCAN`, `FILTER`, and the new node while the earlier fragment keeps its result, at the price of running the same scan twice and of giving up the property that each node runs exactly once, which is what makes an attempt list readable as a record of where each pushdown boundary was drawn. Both carry the same consistency risk: a saved result from a fragment call sitting beside newly materialized rows from a different cut, so two nodes in one plan could hold values their operators never agreed on. | Whether a failure-driven replan pays for a whole fragment call a second time, and whether the attempt record still answers where the boundary was |
+| 8 | Should a fragment pattern be allowed to constrain the order of the nodes it covers? `logical_operators` is a set, so a candidate is any connected convex subgraph built from those kinds, and an operator that can only group a filter *after* a scan has no way to say so. No declared operator's capability depends on the order of the nodes it covers, so a set says everything a declaration needs to. | Whether an operator whose capability depends on node order can be declared at all |
 | 15 | Where does the check that an operator receives the number of tables its logical operator declares belong? `INPUT_ARITY` governs what the logical planner writes, and validation checks a node's input count against it, but the bundle an operator is handed is the concatenation of its upstream outputs (ADR-012), and nothing ties that length back to the arity. Each adapter refuses a bundle of the wrong length inside its own callable, which is one rule written once per suite and leaves the next suite free to forget it. `execute_physical_operator` is the single place every call goes through, and for any operator declaring one logical operator it could read the count off `INPUT_ARITY` itself, so a suite added later would get the rule without doing anything. Against moving it: an adapter needs the same guard anyway before it can take its tables apart, so the check would be written twice rather than once. | Whether a wrongly shaped bundle is refused by one rule or by one rule per suite |
 | 18 | Should the three planning components and the discovery step share one model by default? [12-deployment-ops.md](12-deployment-ops.md#4-configuration) sets `BLUE_DATA_PLANNER_MODEL` for all of them, and `DataPlanner`'s constructor takes a client per component, so the split is available and simply not the default ([09-api-interface-spec.md](09-api-interface-spec.md#assembly)). The components do different work. Logical planning writes a plan from a catalog preview and is the one call whose mistakes every later stage inherits, since a badly cut plan cannot be rescued by a good cover. Writing parameters and reviewing a result are narrower, run several times per request, and see concrete columns and values rather than a whole catalog. That shape favors a stronger model for the first and a cheaper one for the rest, which is also what the cost profile favors, and nothing has measured whether the quality holds. Against it: a split default doubles what a deployment configures before it can run anything, and two model strings is two things to get wrong. The TAG-Bench harness reports model calls per component, which says where the spend is but not whether a cheaper model would have answered the same. | What a deployment pays per request, and whether one badly chosen model string degrades every component at once |
 | 32 | Should a prompt ever be optimized automatically rather than written by hand? ADR-005 fixes hand-written prompts versioned in the repository, and the reason is that tuning needs a score to tune against. The TAG-Bench harness produces end-to-end accuracy, which scores a whole run rather than one component's prompt, so a tuner reading it would credit the logical planner for what the fragment runner repaired. Answering it means either a per-component score or accepting that a whole-run score is enough, and `gepa` is the candidate dependency ([05-software-stack.md](05-software-stack.md#what-is-deliberately-absent)). | Whether `prompts/` stays hand-written, and whether `lib/` gains a tuning dependency |

@@ -358,8 +358,8 @@ def test_a_result_is_unreadable_once_the_work_above_it_changed() -> None:
     assert state.result_for("n4") is None
 
 
-def test_a_node_a_fragment_absorbed_has_no_result_of_its_own() -> None:
-    """A fused call produces no intermediate table, so n3 answers the way an unrun node does."""
+def test_a_node_a_fragment_grouped_has_no_result_of_its_own() -> None:
+    """A fragment call produces no intermediate table, so n3 answers the way an unrun node does."""
     state = a_state()
     state.record_fragment(state.pipeline.cover.fragment("f3"), an_accepted_fragment())
 

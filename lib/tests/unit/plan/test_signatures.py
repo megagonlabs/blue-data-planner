@@ -44,7 +44,7 @@ def a_scan_filter_and_discovery() -> LogicalPlan:
                 id="n3",
                 kind=ControlOperator.DISCOVER,
                 # n2 rather than n1: whichever cover a test builds, n2 always roots a
-                # fragment (n1 does not, once a cover fuses it into n2's), so n3 always has
+                # fragment (n1 does not, once a cover groups it into n2's), so n3 always has
                 # a signed node to read. Reading a node no fragment exposes is exactly the
                 # defect the last test in this file checks for, and only that test means to
                 # construct it.
@@ -145,12 +145,12 @@ def test_a_change_upstream_changes_every_signature_below_it() -> None:
     assert signatures(plan, changed)["n3"] != original["n3"]
 
 
-def test_the_same_nodes_fused_into_one_fragment_sign_differently_from_two() -> None:
-    """A fused call is different work, so it finds none of the results the atomic cuts left."""
+def test_the_same_nodes_grouped_into_one_fragment_sign_differently_from_two() -> None:
+    """A fragment call is different work, so it finds none of the results the atomic cuts left."""
     plan = a_scan_filter_and_discovery()
-    fused = a_cover(a_fragment("f1", ["n1", "n2"], "n2"))
+    grouped = a_cover(a_fragment("f1", ["n1", "n2"], "n2"))
 
-    assert signatures(plan, fused)["n2"] != signatures(plan, an_atomic_cover())["n2"]
+    assert signatures(plan, grouped)["n2"] != signatures(plan, an_atomic_cover())["n2"]
 
 
 def test_a_node_read_from_outside_every_fragment_raises_rather_than_signing_nothing() -> None:

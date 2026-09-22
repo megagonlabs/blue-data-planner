@@ -10,7 +10,7 @@ from tests.doubles.operators import recording_operator
 
 
 def test_an_operator_is_found_by_each_logical_operator_it_declares_in_registration_order() -> None:
-    """A compound operator answers for every kind it can absorb, and the order is stable."""
+    """A compound operator answers for every kind it can group, and the order is stable."""
     router = OperatorRouter()
     nl2sql, _ = recording_operator(
         "blue.nl2sql", frozenset({LogicalOperator.SCAN, LogicalOperator.FILTER}), []

@@ -91,14 +91,14 @@ def test_growth_stops_at_a_node_whose_kind_the_operator_does_not_declare() -> No
 
 
 def test_a_node_read_from_outside_is_never_admitted_below_the_root() -> None:
-    """Absorbing n2 while n4 still reads it would leave n4 waiting for a table nobody makes."""
+    """Grouping n2 while n4 still reads it would leave n4 waiting for a table nobody makes."""
     assert candidate_fragments(a_plan_whose_filter_two_nodes_read(), "n3", ALL_OPERATOR_KINDS) == [
         frozenset({"n3"})
     ]
 
 
 def test_a_node_both_its_readers_join_is_admitted() -> None:
-    """Once n3 and n4 are inside, n2 has no consumer left outside and can be absorbed."""
+    """Once n3 and n4 are inside, n2 has no consumer left outside and can be grouped."""
     sets = candidate_fragments(a_plan_whose_filter_two_nodes_read(), "n5", ALL_OPERATOR_KINDS)
     assert frozenset({"n2", "n3", "n4", "n5"}) in sets
     assert frozenset({"n2", "n3", "n5"}) not in sets

@@ -30,9 +30,9 @@ provides. Deciding what to run and when is its job.
 ### Data planners
 
 The shape is borrowed from federated query processing. A request becomes a logical plan of what was
-asked. A physical plan then decides how much of that plan each operator absorbs and against which
-source: that grouping is a cover, and one group in it is a fragment, the nodes one operator runs in
-a single call. Each fragment then runs. A planner works the same way whatever operator suite is
+asked. A physical plan then decides how much of that plan each operator groups into a fragment, and
+against which source: the result is a cover, and one group in it is a fragment, the nodes one
+operator runs in a single call. Each fragment then runs. A planner works the same way whatever operator suite is
 installed.
 
 Three things are not borrowed. There is no cost model, so a model reading the plan and the

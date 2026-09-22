@@ -223,7 +223,8 @@ class PhysicalPlan:
     def fragment_for_root(self, node_id: str) -> PhysicalPlanFragment | None:
         """Return the fragment rooted at this node, or nothing when none is."""
         # None rather than a raise, because a node rooting no fragment of the cover being replaced
-        # is the ordinary case: it may have been absorbed, or the plan may have grown since.
+        # is the ordinary case: it may now be grouped into another fragment, or the plan may have
+        # grown since.
         for fragment in self.fragments:
             if fragment.root_logical_node_id == node_id:
                 return fragment

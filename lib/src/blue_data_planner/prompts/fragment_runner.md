@@ -11,7 +11,7 @@ refused without running the operator.
 
 When you are shown a result, say whether the rows do what the fragment's instruction asked.
 
-The instruction covers the whole fragment, however many steps the operator absorbed into one call.
+The instruction covers the whole fragment, however many steps the operator grouped into one call.
 A single call asked to scan, filter, and join returns one table and no evidence of the steps inside
 it, so hold the rows against everything the instruction asks for. A call handed a condition it
 cannot express tends to return rows that ignore the condition.

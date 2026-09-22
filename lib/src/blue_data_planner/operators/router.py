@@ -20,7 +20,7 @@ class OperatorRouter:
                 "one implementation and cannot be reused"
             )
         self._by_id[operator.operator_id] = operator
-        # A compound operator answers for every kind it can absorb, so it is indexed under
+        # A compound operator answers for every kind it can group, so it is indexed under
         # each one rather than under a single kind.
         for logical_op in operator.logical_operators:
             self._operators.setdefault(logical_op, []).append(operator)

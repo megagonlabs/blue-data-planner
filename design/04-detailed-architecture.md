@@ -60,11 +60,11 @@ only stage that sees data.
 
 ### Fragments and pushdown
 
-Physical planning cuts the plan into fragments. A fragment is a group of neighboring logical nodes
-that one operator runs in a single call, and the operator is said to absorb the nodes in it.
+Physical planning cuts the plan into fragments. Physical planning groups neighboring logical nodes
+into a fragment when one operator can run them in a single call.
 
-Most operators absorb one node. A semantic filter takes a `FILTER` node and nothing else. Others
-absorb many. A Text-to-SQL operator writes and runs one SQL query that scans, filters, joins, and
+Most operators group one node. A semantic filter takes a `FILTER` node and nothing else. Others
+group many. A Text-to-SQL operator writes and runs one SQL query that scans, filters, joins, and
 aggregates, so it can take a whole region of the plan at once. Handing it that region is a pushdown,
 in the sense the term has in federated query processing.
 
@@ -85,7 +85,7 @@ A plan is a DAG of typed nodes. The kind decides what happens when the node come
 
 | Kind | Nodes | Bound to an operator | What happens |
 | --- | --- | --- | --- |
-| Operator | `SCAN`, `FILTER`, `PROJECT`, `EXPAND`, `AGGREGATE`, `DISTINCT`, `SORT_SUPERLATIVE`, `JOIN`, `UNION` | Yes | Absorbed into a fragment and run by the operator that fragment was bound to |
+| Operator | `SCAN`, `FILTER`, `PROJECT`, `EXPAND`, `AGGREGATE`, `DISTINCT`, `SORT_SUPERLATIVE`, `JOIN`, `UNION` | Yes | Grouped into a fragment and run by the operator that fragment was bound to |
 | Terminal | `RETURN` | No | Projects the named columns and ends the run |
 | Control | `REPLAN`, `DISCOVER` | No | Ends the pass and returns to the logical planner |
 
@@ -110,7 +110,7 @@ call and no model call.
 
 The rows the run holds can still fail to answer what the node names, because the names were written
 before anything ran: a join renames a column it collided on, or the ending reads a node a fragment
-absorbed, which produced no table of its own. Both send the run to the replan, where the planner
+grouped, which produced no table of its own. Both send the run to the replan, where the planner
 names the columns again against the rows the run now holds (ADR-034).
 
 Both control nodes act as barriers. A node is only ready once every input it lists has a result, so
@@ -186,8 +186,8 @@ is refused when it is read
 
 ### Writing a plan that can be pushed down
 
-A Text-to-SQL operator can only absorb a scan, its filters, and its joins if those nodes exist when
-physical planning runs. A plan that stops at its scans and defers the rest has nothing to absorb,
+A Text-to-SQL operator can only group a scan, its filters, and its joins if those nodes exist when
+physical planning runs. A plan that stops at its scans and defers the rest has nothing to group,
 and the pushdown decision never comes up.
 
 The prompt therefore asks for a complete plan, from `SCAN` through `RETURN`, whenever the planner
@@ -236,8 +236,8 @@ operator.
 | Connected | The nodes have to describe one computation |
 | Convex: no node outside the fragment lies on a path between two nodes inside it | Execution cannot leave an operator and come back |
 | Disjoint from every other fragment | Each node is run exactly once, by one operator |
-| Single exit: only the root may have consumers outside the fragment | A fragment returns its root's output and nothing else, so an absorbed node's table is never materialized. A node read from outside the fragment would leave that reader waiting for a table nobody produces |
-| Contains only operator nodes | `RETURN`, `REPLAN`, and `DISCOVER` are never absorbed |
+| Single exit: only the root may have consumers outside the fragment | A fragment returns its root's output and nothing else, so a grouped node's table is never materialized. A node read from outside the fragment would leave that reader waiting for a table nobody produces |
+| Contains only operator nodes | `RETURN`, `REPLAN`, and `DISCOVER` are never grouped |
 
 ### What an operator declares
 
@@ -258,11 +258,11 @@ every atomic operator declares.
 | A Text-to-SQL operator | `{SCAN, FILTER, PROJECT, JOIN, AGGREGATE, DISTINCT, SORT_SUPERLATIVE}`, SQL sources, accepts bound inputs | Any convex subgraph of those kinds whose scans are SQL |
 | The built-in compound operator | Every operator kind, the source kinds it reads, accepts bound inputs | Any convex subgraph, including one that scans nothing and one that scans two sources (ADR-020) |
 
-A node several other nodes read is a fragment of its own, because absorbing it would break the
+A node several other nodes read is a fragment of its own, because grouping it would break the
 single-exit rule. Pushing it into both branches would mean scanning twice, which no cover does.
 
 A declaration says nothing about the order the kinds appear in. A Text-to-SQL operator cannot state
-that it absorbs a `FILTER` only when the filter sits directly above its own scan, because the
+that it groups a `FILTER` only when the filter sits directly above its own scan, because the
 declaration has no vocabulary for position. For SQL that costs nothing, since any convex subgraph of
 those kinds is expressible as one query. How to handle an operator whose real capability depends on
 shape is an open question.
@@ -285,7 +285,7 @@ something the code infers by comparing two covers ([a cover is written
 whole](#a-cover-is-written-whole)).
 
 A model picks instead of the code taking the largest match, because the size of a fragment is the
-pushdown decision itself. A rule that always absorbs the maximum would settle in advance the
+pushdown decision itself. A rule that always groups the maximum would settle in advance the
 question the planner is there to answer. Greedy maximal matching stays available as a model-free
 baseline.
 
@@ -299,7 +299,7 @@ The run's catalog context opens the conversation, so it is sent once rather than
 operator, row count, and column names of every node with a result are sent the same way, once, when
 the conversation opens. The failed fragment's node set and which operators were tried on it need no
 separate turn either: they are already there, in the turns that bound it the first time, so a repair
-adds only why the last attempt failed. Row counts matter because absorbing a node that already ran
+adds only why the last attempt failed. Row counts matter because grouping a node that already ran
 throws its result away and pays for the work again, and how much that costs is how many rows are
 discarded ([the cover repair](#the-cover-repair)). Rows themselves stay out: the physical planner
 chooses boundaries and operators, and values are the fragment runner's reading.
@@ -313,7 +313,7 @@ Along with the fragment and its operator, the model writes three things.
 | Written during physical planning | Why then |
 | --- | --- |
 | A catalog path for each `SCAN` in the fragment | Which source a scan reads decides which operators can run it, so the source and the operator are one choice rather than two |
-| One instruction covering the whole fragment, phrased as an instruction to the operator | A fragment absorbing four nodes has no single instruction to borrow. The model writes what the fragment is to do instead of stringing together what it absorbed |
+| One instruction covering the whole fragment, phrased as an instruction to the operator | A fragment grouping four nodes has no single instruction to borrow. The model writes what the fragment is to do instead of stringing together what it grouped |
 | A name and a description for each input the fragment receives | An operator handed a bundle cannot tell a scan target from an auxiliary table, and column names are not known yet |
 
 The response schema for one of these calls is built from that call's candidates, the same way an
@@ -333,13 +333,13 @@ fragments have run, and the parameters that depend on them are written then
 ([section 3](#3-running-a-fragment)).
 
 A fragment inherits `required_output_columns` from its root node unchanged. The model rewrites that
-list only when it declares that the fusion cannot produce those columns. The default therefore stays
+list only when it declares that the fragment cannot produce those columns. The default therefore stays
 deterministic, and the model's discretion is confined to an exception path.
 
 ### A cover is written whole
 
 A cover is written for the plan as it stands and is never patched into an older one. Each one is a
-new object, kept alongside the covers it replaced, and a fragment in it may absorb nodes that
+new object, kept alongside the covers it replaced, and a fragment in it may group nodes that
 already ran. A result the run is holding is therefore a cache: it can be left unread and produced
 again.
 
@@ -439,7 +439,7 @@ wants recorded about the call alongside its rows, and that report travels out on
 the call succeeded or failed.
 
 Only the fragment's root node has its declaration checked. The declarations on the nodes the
-fragment absorbed are not checked against anything, because a fused call produces no intermediate
+fragment grouped are not checked against anything, because a fragment call produces no intermediate
 tables to check them against. One becomes a checked declaration again as soon as a smaller fragment
 makes that node its root.
 
@@ -449,10 +449,10 @@ result.
 ### Reviewing the result
 
 A result that clears the column check goes to a review turn in the runner's conversation with the
-model, which keeps the earlier turns. The review sees the fused instruction, the description of the
+model, which keeps the earlier turns. The review sees the fragment instruction, the description of the
 operator that ran, and a sample of the result.
 
-The fused instruction is what makes a fused call checkable. The physical planner writes one
+The fragment instruction is what makes a fragment call checkable. The physical planner writes one
 instruction covering every node in the fragment, so a call asked to scan, filter, and join has a
 single statement of what it owes, and the review asks whether the rows answer it. A Text-to-SQL call
 handed a semantic predicate it cannot express in SQL tends to return rows that ignore the predicate,
@@ -560,13 +560,13 @@ asks for no work, which is what a continuation rewriting only the ending leaves 
 cover is the one the run already has (ADR-035).
 
 For an operator node, having something means belonging to a fragment whose result the run still
-holds, which includes the nodes that fragment absorbed. Those produced no table of their own, but
-they describe work the fused call already did. Carrying them keeps the graph whole, since the
-fragment's root reads them, and it is what lets a later cover fuse the same nodes again.
+holds, which includes the nodes that fragment grouped. Those produced no table of their own, but
+they describe work the fragment call already did. Carrying them keeps the graph whole, since the
+fragment's root reads them, and it is what lets a later cover group the same nodes again.
 
-### What reading an absorbed node costs
+### What reading a grouped node costs
 
-A carried node is not free to read. Reading one that a fragment absorbed throws that whole fragment
+A carried node is not free to read. Reading one that a fragment grouped throws that whole fragment
 away and runs it again.
 
 Suppose `n2`, `n3`, and `n4` were covered by one Text-to-SQL fragment rooted at `n4`, and the
@@ -579,11 +579,11 @@ cut no longer holds. The plan is cut again, all three nodes lose their standing,
 again. The general rule behind both cases is that a node read from outside its fragment has to be
 that fragment's root.
 
-The ordinary replan path never pays this, and the reason is structural. A control node is absorbed
+The ordinary replan path never pays this, and the reason is structural. A control node is grouped
 into no fragment, so every node it lists as an input has a consumer outside every fragment and is
 therefore a root. The results the planner is handed when a `REPLAN` or `DISCOVER` node fires are
 exactly those roots. The cost appears when a continuation reaches past them into the middle of work
-that already ran, which a replan after a failure is free to do. Whether to spend a fused call again
+that already ran, which a replan after a failure is free to do. Whether to spend a fragment call again
 for a node the planner wants to read, or to write the continuation from the fragment's root instead,
 is left to the planner rather than forbidden. [Section 5](#5-recovering-from-a-failure) is where the
 same trade appears from the other side.
@@ -643,13 +643,13 @@ Four fixes are reachable, and between them they are everything short of a new pl
 | Fix | Answers |
 | --- | --- |
 | Bind a different operator to the failed node set | An operator that cannot express what the node asks for |
-| Cut that set into smaller fragments | A fragment that absorbed more than its operator could carry out |
+| Cut that set into smaller fragments | A fragment that grouped more than its operator could carry out |
 | Bind a `SCAN` in it to a different entity | A search that returned several plausible ones and a cover that picked the wrong one |
-| Grow a fragment, absorbing nodes that already ran | Steps that needed to happen inside one call |
+| Grow a fragment, grouping nodes that already ran | Steps that needed to happen inside one call |
 
 The third is why the repair reads the run's catalog context and not only the cover it is replacing:
 the cover holds the one entity already chosen, and the alternatives are in the context. The fourth
-is the one that costs. Absorbing a node that already ran leaves that node's result unread, and the
+is the one that costs. Grouping a node that already ran leaves that node's result unread, and the
 results of every executed node downstream of it too, since those saw a value the new fragment is
 about to produce again. That work is paid for twice, which is what the model weighs against what
 the wider fragment buys, and the row counts in front of it say how much. The single-exit rule is

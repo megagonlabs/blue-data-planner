@@ -635,7 +635,7 @@ conversation with the error appended, up to `counters.limits.plan_corrections`, 
 down stay in the conversation for the passes that follow.
 
 The prompt asks for a complete plan from `SCAN` through `RETURN` whenever the planner has enough to
-write one, because `nl2sql` can only absorb a scan and its filters if those nodes exist by the time
+write one, because `nl2sql` can only group a scan and its filters if those nodes exist by the time
 the cover is written. Nothing in validation enforces that ([04, writing a plan that can be pushed
 down](04-detailed-architecture.md#writing-a-plan-that-can-be-pushed-down)).
 
@@ -681,7 +681,7 @@ the model would weigh there is work the run already holds rows for (ADR-035).
 to, which is what makes rebinding a scan to a different entity one of the fixes a repair can reach
 where `previous` holds only the entity already chosen. And an operator node's entry says that node
 already ran, which is both what puts a reuse candidate in front of the model and the cost it weighs
-when it considers absorbing that node into a wider fragment
+when it considers grouping that node into a wider fragment
 ([04, the cover repair](04-detailed-architecture.md#the-cover-repair)).
 
 Inside, the planner works top down from the root of the plan. For each uncovered node it asks
@@ -757,7 +757,7 @@ by the caller, so a reduction one attempt achieved cannot compound into the next
 `budget_exhausted` rather than as a planner defect. What the runner was doing when the budget ran out
 is already in the conversation, which the run state holds.
 
-The fused instruction is what makes a fused call checkable. A single call asked to scan, filter, and
+The fragment instruction is what makes a fragment call checkable. A single call asked to scan, filter, and
 join returns one table and no evidence of the steps inside it, so the review asks whether the rows
 answer the one instruction the fragment carries ([04, reviewing the
 result](04-detailed-architecture.md#reviewing-the-result)).
@@ -865,7 +865,7 @@ reaching the next fragment.
 under ([10, conversations](10-data-model.md#conversations)).
 
 `carried_node_ids` answers what a new logical version keeps: every node the run has something for,
-which for an operator node means belonging to a fragment whose result the run still holds, absorbed
+which for an operator node means belonging to a fragment whose result the run still holds, grouped
 nodes included. A resolved `DISCOVER` node carries over and never searches twice. `REPLAN` and
 `RETURN` never carry over, which is what stops a `REPLAN` node that fired from firing again and
 removes the need for a separate set of handled nodes
@@ -914,8 +914,8 @@ rejects its output. An operation that writes something of its own from a model, 
 does, writes it on the far side of that line, so what it got wrong costs an operator call where a
 bad parameter costs none, however many times it writes it again (ADR-020).
 
-The caller passes the fragment root's declarations and nothing else, because a fused call produces
-no intermediate tables to check the absorbed nodes against. Neither a zero-row table nor an empty
+The caller passes the fragment root's declarations and nothing else, because a fragment call produces
+no intermediate tables to check the grouped nodes against. Neither a zero-row table nor an empty
 bundle is a failure. A model call an operator makes internally, as LOTUS does, happens inside this
 call and is billed as part of it rather than tracked separately; an operation able to say what that
 call cost puts the figure in its report, which travels out on the result unchanged.
@@ -1183,7 +1183,7 @@ What a logical plan says is settled before an operator is chosen, and no node is
 an entry can express.
 
 `builtin.scan` is the suite's one source-reading deterministic entry, and it reads through `data/`.
-It declares `SCAN` alone: it absorbs no `FILTER` and no `PROJECT`, and either kind of node downstream
+It declares `SCAN` alone: it groups no `FILTER` and no `PROJECT`, and either kind of node downstream
 of a scan runs as its own fragment, through the matching transform entry. What columns it asks the
 source for is its own implementation choice: `builtin.scan` always reads every column (`SELECT *`).
 Its node's `required_output_columns` declaration ([10](10-data-model.md#declared-output-columns))

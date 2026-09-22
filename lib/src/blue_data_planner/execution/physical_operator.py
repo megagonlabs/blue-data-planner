@@ -54,7 +54,7 @@ def execute_physical_operator(
         row_count=_row_count(output.data),
         report=output.report,
     )
-    # Only the columns the call was handed are checked, because a fused call produces no
+    # Only the columns the call was handed are checked, because a fragment call produces no
     # intermediate tables to check anything else against.
     return check_output_columns(result, required_output_columns, operator.operator_id)
 
