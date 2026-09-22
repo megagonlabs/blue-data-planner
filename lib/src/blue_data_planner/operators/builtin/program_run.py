@@ -1,15 +1,12 @@
-"""Running one written program where it reaches nothing but the tables it was given."""
+"""Running one written program over copies of the tables it was given."""
 
 from __future__ import annotations
 
-import ast
 import json
 import os
 import signal
 import subprocess
 import sys
-import types
-from collections.abc import Iterator
 from dataclasses import dataclass
 from typing import Any, cast
 
@@ -26,135 +23,12 @@ from blue_data_planner.operators.builtin.schemas import (
 )
 from blue_data_planner.types import Data, RecoverableOperatorError
 
-# Modules that compute and offer no way out of the process. A module reaching a file, a socket, a
-# subprocess, or the interpreter's own state is absent by construction rather than by omission.
-ALLOWED_IMPORTS = frozenset(
-    {
-        "bisect",
-        "collections",
-        "datetime",
-        "decimal",
-        "fractions",
-        "functools",
-        "heapq",
-        "itertools",
-        "json",
-        "math",
-        "operator",
-        "re",
-        "statistics",
-        "string",
-        "unicodedata",
-    }
-)
-
-# Names that turn a restricted namespace back into an unrestricted one, whether named directly,
-# imported under an alias (from operator import attrgetter as ag), or reached as an attribute
-# (operator.attrgetter).
-FORBIDDEN_NAMES = frozenset(
-    {
-        "attrgetter",
-        "breakpoint",
-        "compile",
-        "delattr",
-        "eval",
-        "exec",
-        "getattr",
-        "globals",
-        "input",
-        "locals",
-        "methodcaller",
-        "open",
-        "setattr",
-        "vars",
-        "__import__",
-        "__builtins__",
-    }
-)
-
-# attrgetter and methodcaller do the same by-name attribute and method lookup getattr does
-# (operator.attrgetter("__class__") reaches what getattr(x, "__class__") would); get_field does
-# the same lookup through string.Formatter, dispatching on a runtime string rather than a literal
-# attribute name. Checked separately from FORBIDDEN_NAMES so this narrower set never catches an
-# unrelated, safe attribute of an allowed module that happens to share a name with a forbidden
-# builtin (re.compile, for instance, which is re's own ordinary entry point, not the interpreter's
-# compile()). Gates both the AST check below and the runtime wrapper around an imported module
-# further down.
-FORBIDDEN_ATTRIBUTES = frozenset({"attrgetter", "get_field", "methodcaller"})
-
-
-def _is_dunder_name(name: str) -> bool:
-    return name.startswith("__") and name.endswith("__")
-
-
+# The program a model wrote runs with the interpreter's own builtins and whatever it imports. No
+# check stands in front of it, deliberately: an AST walk cannot police a language that resolves
+# names at run time, and one that looks like it can is worse than none, because what rests on it
+# is written as though it held (ADR-020). The child process bounds a program that is wrong, not
+# one that is hostile.
 RESULT_NAME = "result"
-
-
-def check_program(code: str) -> str | None:
-    """Return why the program will not be run, or None when it may be."""
-    try:
-        tree = ast.parse(code)
-    except SyntaxError as error:
-        return f"the program has a syntax error: {error}"
-    for node in _nodes_in_evaluation_order(tree):
-        refusal = _refusal(node)
-        if refusal is not None:
-            return refusal
-    if not _assigns_result(tree):
-        return f"the program assigns no module-level {RESULT_NAME!r}, so it produces no table"
-    return None
-
-
-def _nodes_in_evaluation_order(root: ast.AST) -> Iterator[ast.AST]:
-    # Post-order: a node's children come from it before it comes from itself, which is also the
-    # order a chain such as `x.__class__.__base__` is evaluated in. ast.walk visits breadth-first
-    # instead, so it would name the outermost attribute of such a chain rather than the first one
-    # the program actually reaches. Written as an explicit stack rather than recursion, since the
-    # program being walked is untrusted and a deeply nested expression must not raise
-    # RecursionError out of a function whose whole job is answering a refusal string.
-    to_visit: list[ast.AST] = [root]
-    visited: list[ast.AST] = []
-    while to_visit:
-        node = to_visit.pop()
-        visited.append(node)
-        to_visit.extend(ast.iter_child_nodes(node))
-    yield from reversed(visited)
-
-
-def _refusal(node: ast.AST) -> str | None:
-    if isinstance(node, ast.Import):
-        for alias in node.names:
-            if alias.name.split(".")[0] not in ALLOWED_IMPORTS:
-                return f"the program imports {alias.name!r}, which it may not reach"
-    if isinstance(node, ast.ImportFrom):
-        module = (node.module or "").split(".")[0]
-        if module not in ALLOWED_IMPORTS:
-            return f"the program imports from {node.module!r}, which it may not reach"
-        for alias in node.names:
-            # What is imported is what is dangerous, whatever local name it is bound to; an
-            # alias does not make attrgetter safe.
-            if alias.name in FORBIDDEN_NAMES:
-                return f"the program imports {alias.name!r}, which it may not use"
-    if isinstance(node, ast.Name) and node.id in FORBIDDEN_NAMES:
-        return f"the program names {node.id!r}, which it may not use"
-    if isinstance(node, ast.Attribute) and (
-        node.attr in FORBIDDEN_ATTRIBUTES or _is_dunder_name(node.attr)
-    ):
-        return f"the program reads the attribute {node.attr!r}, which it may not use"
-    return None
-
-
-def _assigns_result(tree: ast.Module) -> bool:
-    for statement in tree.body:
-        targets: list[ast.expr] = []
-        if isinstance(statement, ast.Assign):
-            targets = list(statement.targets)
-        elif isinstance(statement, ast.AnnAssign | ast.AugAssign):
-            targets = [statement.target]
-        for target in targets:
-            if isinstance(target, ast.Name) and target.id == RESULT_NAME:
-                return True
-    return False
 
 
 # Bounds on one program, set to keep a run finite rather than measured against real work
@@ -176,10 +50,7 @@ class ProgramRun:
 def run_program(
     code: str, tables: dict[str, Data], timeout_seconds: float = WALL_CLOCK_SECONDS
 ) -> ProgramRun:
-    """Check the program, run it where it reaches nothing else, and read back its table."""
-    refusal = check_program(code)
-    if refusal is not None:
-        return ProgramRun(table=None, error=refusal)
+    """Run the program in a child process and read back the table it assigned."""
     try:
         request = json.dumps({"code": code, "tables": tables})
     except (TypeError, ValueError) as error:
@@ -270,7 +141,6 @@ def _child_namespace(tables: dict[str, Data]) -> dict[str, Any]:
         "union_tables": table_transformations.union_tables,
     }
     namespace.update(tables)
-    namespace["__builtins__"] = _safe_builtins()
     return namespace
 
 
@@ -318,61 +188,6 @@ def _validated(schema: Any, value: Any) -> Any:
     # shapes the same way, and raises the same way on a value such as how="outer" that fits none
     # of them, rather than letting it fall through to inner-join behavior unnoticed.
     return TypeAdapter(schema).validate_python(value)
-
-
-def _safe_builtins() -> dict[str, Any]:
-    import builtins
-
-    permitted = (
-        "abs all any bool dict divmod enumerate filter float frozenset int isinstance iter len "
-        "list map max min next pow range repr reversed round set slice sorted str sum tuple type "
-        "zip Exception KeyError IndexError TypeError ValueError ZeroDivisionError"
-    ).split()
-    safe: dict[str, Any] = {name: getattr(builtins, name) for name in permitted}
-    # Without a real __import__, the interpreter's own import machinery cannot run at all, and
-    # check_program has already refused anything outside ALLOWED_IMPORTS at the AST level; this is
-    # what lets that refusal apply to a program the interpreter is now actually executing.
-    safe["__import__"] = _restricted_import
-    return safe
-
-
-class _RestrictedModule:
-    """An imported module, exposing only what neither nests nor reflects.
-
-    An allowed module can itself hold a real module as one of its own attributes — `re` holds
-    `enum`, since it uses `enum.Flag` internally — or a function that performs its own attribute
-    lookup by name, such as `operator.attrgetter`. Both reach whatever the real interpreter can
-    reach, regardless of what `check_program` refused in the source it read, since neither one is
-    an import statement or a literal dunder attribute the walk would see. Wrapping the module a
-    program receives closes both routes at the point they would actually be used: an attribute
-    access is refused if it names a dunder, names one of FORBIDDEN_ATTRIBUTES, or would return
-    another module.
-    """
-
-    def __init__(self, module: types.ModuleType) -> None:
-        object.__setattr__(self, "_wrapped", module)
-
-    def __getattribute__(self, name: str) -> Any:
-        if name == "_wrapped" or name in FORBIDDEN_ATTRIBUTES or _is_dunder_name(name):
-            raise AttributeError(name)
-        value = getattr(object.__getattribute__(self, "_wrapped"), name)
-        if isinstance(value, types.ModuleType):
-            raise AttributeError(name)
-        return value
-
-
-def _restricted_import(
-    name: str,
-    globals: dict[str, Any] | None = None,
-    locals: dict[str, Any] | None = None,
-    fromlist: tuple[str, ...] = (),
-    level: int = 0,
-) -> Any:
-    import builtins
-
-    if name.split(".")[0] not in ALLOWED_IMPORTS:
-        raise ImportError(f"{name!r} may not be imported here")
-    return _RestrictedModule(builtins.__import__(name, globals, locals, fromlist, level))
 
 
 def _apply_limits() -> None:
