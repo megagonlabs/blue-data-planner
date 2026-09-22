@@ -157,6 +157,10 @@ if lotus_is_installed():
     suites.append(LotusSuite(max_rows=2000))
 ```
 
+`with_nl2table=True` turns on an experimental entry that runs model-written Python and is not a
+security boundary. Read [what turning it on accepts](features.md#builtinnl2table-is-experimental)
+first.
+
 A caller that expects LOTUS operators checks `lotus_is_installed()` first, since the suite
 registers nothing and says nothing where LOTUS is missing.
 

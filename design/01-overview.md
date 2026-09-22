@@ -86,8 +86,8 @@ that presents its operations in the one shape planning reads: `blue-data-ops` ho
 operator library, LOTUS is its own package, and any other suite enters the same way. One suite is
 written here rather than wrapped. It holds deterministic operations over rows the planner already
 has, and one operation that writes a Python program from a fragment's instruction and runs it in
-isolation, so a plan has somewhere to run when no outside suite can take a node and when a group of
-nodes touches no source at all.
+a child process, so a plan has somewhere to run when no outside suite can take a node and when a
+group of nodes touches no source at all.
 
 An operator declares the set of logical operations it can carry out, the kinds of source it can
 read, whether it accepts tables bound in from elsewhere, and what it cannot do. One that declares a

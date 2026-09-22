@@ -311,7 +311,7 @@ OPERATOR_SUITE_NAMES: tuple[str, ...] = ("builtin", "lotus", "blue")
 
 | Suite | Import | Options | Also exports |
 | --- | --- | --- | --- |
-| `BuiltinSuite` | `blue_data_planner.operators.builtin` | `with_nl2table: bool = False` | `builtin_operators` |
+| `BuiltinSuite` | `blue_data_planner.operators.builtin` | `with_nl2table: bool = False` ([experimental](features.md#builtinnl2table-is-experimental)) | `builtin_operators` |
 | `LotusSuite` | `blue_data_planner.operators.adapters.lotus` | `model: str \| None = None`, `max_rows: int = 5000`, `reasoning_effort: str \| None = None` | `lotus_operators`, `lotus_is_installed` |
 | `BlueSuite` | `blue_data_planner.operators.adapters.blue` | `operator_registry: OperatorRegistry \| None = None` | `blue_operators` |
 

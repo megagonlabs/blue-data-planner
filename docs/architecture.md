@@ -204,7 +204,7 @@ the operators declaring it and resolves an operator id back to its implementatio
 
 | Suite | Offers | Pulled in by importing it |
 | --- | --- | --- |
-| `builtin` | One deterministic operator per operator node kind (`builtin.filter`, `builtin.join`, `builtin.scan`, and the rest), plus `builtin.nl2table`, a compound operator that writes and runs a Python program, registered only when asked for | Nothing beyond the library |
+| `builtin` | One deterministic operator per operator node kind (`builtin.filter`, `builtin.join`, `builtin.scan`, and the rest), plus `builtin.nl2table`, a compound operator that writes and runs a Python program, registered only when asked for, and experimental: see [features.md](features.md#builtinnl2table-is-experimental) | Nothing beyond the library |
 | `lotus` | LOTUS's semantic operations: `lotus.sem_filter`, `lotus.sem_map`, `lotus.sem_extract`, `lotus.sem_topk`, `lotus.sem_agg`, `lotus.sem_join` | LOTUS, and only inside a callable |
 | `blue` | One physical operator per operation in a `blue-data-ops` operator registry | `blue-data-ops` |
 

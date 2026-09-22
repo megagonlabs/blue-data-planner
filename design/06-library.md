@@ -1200,20 +1200,20 @@ recoverable failure, and the parameter repair rewrites what asked for it.
 `builtin.nl2table` is the suite's black box, and the case the pushdown design is written against. It
 reads registered sources, accepts bound inputs, and is the one operator with no same-source
 constraint, so a fragment scanning two sources has a candidate. A fragment scanning none has one
-too, since an operator that owns its engine needs no source to be bound. It is registered when a
-deployment asks for it.
+too, since an operator that owns its engine needs no source to be bound.
 
 The call has two halves. First the operator reads every source the fragment named, carrying a
 reference input's values into a read as a bind join wherever its parameters bind one, the way
 `builtin.scan` does. Then it writes a Python program from the fragment's instruction and runs that
 program over those tables together with the ones the frontier delivered.
 
-The program runs in a separate process, holds copies of those tables, and has no path to a source, a
-registry, or a provider. Three properties follow, and the entry's declaration rests on them. It
-cannot judge meaning, so a predicate that needs reading text belongs to a semantic operator. It
-cannot read a source the cover did not bind. It cannot change what any source holds. A program
-naming anything beyond the shared transformations and the parts of the standard library that only
-compute is refused before it runs.
+The program runs in a child process holding copies of those tables, and is given no source, no
+registry, and no model client. Three properties follow, and the entry's declaration rests on them.
+It does not judge meaning, so a predicate that needs reading text belongs to a semantic operator.
+It reads no source the cover did not bind. It changes nothing a source holds. Each of the three is
+a fact about what the call hands the program rather than a restraint on a program written to do
+otherwise: nothing checks the program before it runs, so a program that opens a source itself is
+outside all three. The entry is experimental, and a deployment registers it or does not.
 
 The two halves fail differently, and the split follows what a repair could fix. A scan target that
 is not a catalog path, a bound column an input does not carry, a source that refused the read: no
