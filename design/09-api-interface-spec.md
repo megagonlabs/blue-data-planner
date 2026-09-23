@@ -367,9 +367,9 @@ An error reaches standard error as `ERROR: <CODE> <description>`.
 | 1 | Any error above |
 | 2 | A usage error: a missing argument, an unknown option, a value outside what an option allows |
 
-A configuration failure is told apart by its error code (ADR-030). A logical plan no operator can
-cover is neither: the physical planner answers `no_operator` per node and returns to the logical
-planner, and a request that never finds a cover ends as `replan_exhausted`, which is code 1
+A configuration failure is told apart by its error code (ADR-030). A logical plan no cover can be
+written for is neither: physical planning returns to the logical planner instead of writing one, and
+a request that never finds a cover ends as `replan_exhausted`, which is code 1
 ([06-library.md](06-library.md#operatorrouter)).
 
 Under `--format json`, a run that produced a result prints that result on standard output whatever

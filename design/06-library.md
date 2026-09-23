@@ -570,7 +570,10 @@ scan does appear the allowed values are narrowed to the paths whose discovered s
 what that candidate's operator declares it reads. It reads `plan` for one thing,
 which is which of a candidate's nodes are scans. The candidate that reuses the fragment already
 covering the node is a choice and nothing else: it carries no instruction, no input names, and no
-source, because everything about that fragment is already written down.
+source, because everything about that fragment is already written down. One further choice takes no
+candidate and carries a reason instead, which is how a binding says that nothing offered can do what
+the plan asks ([04, choosing among
+candidates](04-detailed-architecture.md#choosing-among-candidates)).
 
 A response schema over a plan is a question about the plan's shape, which is what this module
 answers without a model. The fixed schemas a component sends every time — a review's decision, a
@@ -699,8 +702,9 @@ no field in which to name a source, and where a scan does appear the entity path
 the allowed values. A candidate is named by its operator and its node set rather than by a position
 in the list it arrived in, so a choice still says what it chose when a later turn offers a different
 list. The planner searches nothing itself: a path reaches it because a `DISCOVER` node
-found it. `plan` is `None` exactly when some node has no candidate at all, alone or in any fragment
-containing it, and `failure_reason` then says which node and why.
+found it. `plan` is `None` when a node has no candidate at all, alone or in any fragment containing
+it, and when the model refuses the candidates a node was offered; `failure_reason` then says which
+node and why.
 
 ### `FragmentRunner`
 
@@ -1014,8 +1018,8 @@ parameter model to fill (ADR-010), so registering an operator upstream does not 
 A logical operator no registered operation declares is answered as `no_operator`, and the node goes
 back to the logical planner. A gap in the registered suites therefore shows up as a replan rather
 than as a wrong answer, and the run record names the node that had no candidate. With `builtin.nl2table`
-registered every operator node kind has a candidate, so the answer is rare and a poor choice is
-refused at review instead. What keeps the physical planner reaching for a built-in operation where a
+registered every operator node kind has a candidate, so the answer is rare, and work no candidate
+can carry is turned down while the cover is written rather than after an operator call. What keeps the physical planner reaching for a built-in operation where a
 semantic one was needed is open question 43 in
 [13-decision-log.md](13-decision-log.md#open-questions).
 

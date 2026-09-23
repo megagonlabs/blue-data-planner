@@ -291,6 +291,19 @@ matching operator per subgraph, and a model picks one. The
 enumeration already includes the node on its own, so a node reaching this point with no candidate is
 one whose kind no registered operator declares, and that node has no operator.
 
+Where a fragment's boundary falls is decided by what an operator can do with the values inside the
+nodes, which its description and its limitations state. A candidate grouping a node whose condition
+crosses those limits returns rows that ignore that condition, so the cut follows the limit and the
+work on the other side of it becomes a fragment of its own. A declaration names the kinds an
+operator groups and says nothing about the values, so a candidate the enumeration offers can still
+be one no cover should take.
+
+The model may also answer that none of them will do. A refusal ends the cover and returns to the
+logical planner, carrying what the plan asks for that no operator provides, which is what the next
+plan is written against. It is the answer where every candidate would return rows that ignore part
+of what the plan states; where one of them does part of the work correctly, that smaller candidate
+is the answer and the rest of the work becomes another fragment.
+
 A node the run already holds a result for gains one more candidate: reusing the fragment that
 produced it. It is offered wherever the cover being replaced holds a fragment rooted at that node
 and the run holds that fragment's result, and choosing it carries the fragment across unchanged,
@@ -328,8 +341,17 @@ Along with the fragment and its operator, the model writes three things.
 | Written during physical planning | Why then |
 | --- | --- |
 | A catalog path for each `SCAN` in the fragment | Which source a scan reads decides which operators can run it, so the source and the operator are one choice rather than two |
-| One instruction covering the whole fragment, phrased as an instruction to the operator | A fragment grouping four nodes has no single instruction to borrow. The model writes what the fragment is to do instead of stringing together what it grouped |
+| One instruction covering the whole fragment, phrased as an instruction to the operator | A fragment grouping four nodes has no single instruction to borrow, so the model writes one stating everything those nodes require |
 | A name and a description for each input the fragment receives | An operator handed a bundle cannot tell a scan target from an auxiliary table, and column names are not known yet |
+
+An instruction has three properties. It is declarative, saying what the fragment produces while how
+to produce it stays with the operator and the parameters written for it. It states every condition
+the grouped nodes state, joined with *and*: the fragment's root node is the last step there is, so a
+condition held over for a later one is a condition dropped, and the run then reads a correct result
+against a request it no longer answers. And it is short, because a condition is easier to lose
+inside prose than beside another condition. An instruction that cannot state everything the grouped
+nodes require is the sign of a candidate too large to bind, and the answer to that is a smaller
+candidate rather than a looser instruction.
 
 The response schema for one of these calls is built from that call's candidates, the same way an
 operator's `parameter_schema` is built from that operator. A candidate set with no `SCAN` in it has
@@ -702,15 +724,18 @@ decides whether these repairs apply at all.
 | Recoverable | Bad parameters, a missing or uncoercible required column, an operator raising on input it cannot handle | Start with the parameter repair |
 | Unrecoverable | The failure has nothing to do with any of the three repairs: a source is unreachable, credentials are rejected, the process is out of memory | End the request. Retrying would fail the same way |
 
-A third case ends a request without any of this, because nothing ran. When no operator matches a
-node, alone or in any fragment containing it, physical planning writes no cover: the result carries
-no plan and a reason naming the node, and the run goes straight to the replan with no operator call
-spent. It is not a failure kind, since a failure kind describes a call that was made.
+A third case ends a request without any of this, because nothing ran. Physical planning writes no
+cover in two situations: no operator matches a node, alone or in any fragment containing it, and a
+binding turns down every candidate a node was offered (ADR-037). Either way the result carries no
+plan and a reason naming the node, and the run goes straight to the replan with no operator call
+spent. Neither is a failure kind, since a failure kind describes a call that was made.
 
-With the built-in suite registered, every operator node kind has a candidate, so this case is
+With the built-in suite registered, every operator node kind has a candidate, so the first is
 reserved for a scan the suite cannot read: one bound to a source kind outside its declarations, or
-one of the model's world knowledge, which is bound to no source at all. Everything else reaches an
-operator, and a wrong choice is caught at review one operator call later (ADR-020).
+one of the model's world knowledge, which is bound to no source at all. The second covers what a
+declaration cannot state, an operator that groups a node's kind and cannot do what that node asks of
+the values. A poor choice among candidates that can carry the work is caught at review one operator
+call later (ADR-020).
 
 ---
 
