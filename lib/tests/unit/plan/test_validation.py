@@ -22,11 +22,15 @@ def a_node(
     node_id: str,
     kind: LogicalOperator | ControlOperator,
     inputs: list[str],
+    source: str | None = None,
 ) -> PipelineNode:
     """One node with the attributes its kind takes, declaring one column where its kind can."""
-    attributes = (
-        {"columns": ["title"]} if kind is LogicalOperator.RETURN else {"instruction": "do it"}
-    )
+    if kind is LogicalOperator.RETURN:
+        attributes: dict[str, object] = {"columns": ["title"]}
+    elif kind is LogicalOperator.SCAN:
+        attributes = {"instruction": "do it", "source": source}
+    else:
+        attributes = {"instruction": "do it"}
     declares = isinstance(kind, LogicalOperator) and kind is not LogicalOperator.RETURN
     return PipelineNode(
         id=node_id,
@@ -55,7 +59,11 @@ def a_scan_filter_return_plan() -> LogicalPlan:
 
 
 def a_fragment(
-    fragment_id: str, node_ids: list[str], root: str, inputs: list[str] | None = None
+    fragment_id: str,
+    node_ids: list[str],
+    root: str,
+    inputs: list[str] | None = None,
+    scan_sources: dict[str, str] | None = None,
 ) -> PhysicalPlanFragment:
     """One fragment over the node ids given, rooted at the last one that runs."""
     return PhysicalPlanFragment(
@@ -63,7 +71,7 @@ def a_fragment(
         logical_node_ids=node_ids,
         root_logical_node_id=root,
         operator_id="blue.nl2sql",
-        scan_sources={},
+        scan_sources=scan_sources or {},
         instruction="run it",
         input_data=[
             InputData(logical_node_id=node_id, name=node_id, description="rows")
@@ -104,7 +112,7 @@ def a_cover(fragments: list[PhysicalPlanFragment]) -> PhysicalPlan:
 )
 def test_a_sound_plan_passes(plan: LogicalPlan) -> None:
     """A plan with one ending, no cycle, and enough inputs per node runs."""
-    validate_logical_plan(plan)
+    validate_logical_plan(plan, frozenset())
 
 
 @pytest.mark.parametrize(
@@ -237,7 +245,7 @@ def test_an_unsound_plan_is_rejected_and_the_error_names_what_was_wrong(
 ) -> None:
     """Whatever makes a plan invalid, the check raises and says which node and which rule."""
     with pytest.raises(PlanValidationError, match=expected_message):
-        validate_logical_plan(plan)
+        validate_logical_plan(plan, frozenset())
 
 
 def test_a_carried_node_is_exempt_from_the_shape_and_reachability_checks() -> None:
@@ -252,7 +260,7 @@ def test_a_carried_node_is_exempt_from_the_shape_and_reachability_checks() -> No
         output_node_id="n4",
     )
 
-    validate_logical_plan(plan, carried_node_ids=frozenset({"n2"}))
+    validate_logical_plan(plan, frozenset(), carried_node_ids=frozenset({"n2"}))
 
 
 def test_a_continuation_reading_a_carried_discover_node_is_rejected() -> None:
@@ -267,14 +275,14 @@ def test_a_continuation_reading_a_carried_discover_node_is_rejected() -> None:
     )
 
     with pytest.raises(PlanValidationError, match="produces no rows"):
-        validate_logical_plan(plan, carried_node_ids=frozenset({"n1"}))
+        validate_logical_plan(plan, frozenset(), carried_node_ids=frozenset({"n1"}))
 
 
 def test_a_legal_cover_passes() -> None:
     """Every operator node in one fragment, each fragment connected with a single exit."""
     cover = a_cover([a_fragment("f1", ["n1", "n2"], "n2")])
 
-    validate_physical_plan(a_scan_filter_return_plan(), cover, frozenset())
+    validate_physical_plan(a_scan_filter_return_plan(), cover)
 
 
 @pytest.mark.parametrize(
@@ -308,7 +316,7 @@ def test_an_illegal_cover_is_rejected_and_the_error_names_what_was_wrong(
 ) -> None:
     """A broken cover fails loudly here rather than as a run that stops making progress."""
     with pytest.raises(PlanValidationError, match=expected_message):
-        validate_physical_plan(a_scan_filter_return_plan(), cover, frozenset())
+        validate_physical_plan(a_scan_filter_return_plan(), cover)
 
 
 def test_a_fragment_reading_a_node_that_does_not_feed_it_is_rejected() -> None:
@@ -316,7 +324,7 @@ def test_a_fragment_reading_a_node_that_does_not_feed_it_is_rejected() -> None:
     cover = a_cover([a_fragment("f1", ["n2"], "n2", inputs=["n9"]), a_fragment("f2", ["n1"], "n1")])
 
     with pytest.raises(PlanValidationError, match="the nodes feeding it are"):
-        validate_physical_plan(a_scan_filter_return_plan(), cover, frozenset())
+        validate_physical_plan(a_scan_filter_return_plan(), cover)
 
 
 def test_a_disconnected_fragment_is_rejected() -> None:
@@ -333,7 +341,33 @@ def test_a_disconnected_fragment_is_rejected() -> None:
     cover = a_cover([a_fragment("f1", ["n1", "n2"], "n1"), a_fragment("f2", ["n3"], "n3")])
 
     with pytest.raises(PlanValidationError, match="connected"):
-        validate_physical_plan(plan, cover, frozenset())
+        validate_physical_plan(plan, cover)
+
+
+@pytest.mark.parametrize(
+    ("source", "scan_sources"),
+    [
+        ("/source/jobs/entity/postings", {}),
+        ("/source/jobs/entity/postings", {"n1": "/source/jobs/entity/other"}),
+        (None, {"n1": "/source/jobs/entity/postings"}),
+    ],
+    ids=["a-named-source-left-out", "a-different-source", "a-source-for-world-knowledge"],
+)
+def test_a_fragment_whose_scan_sources_differ_from_what_its_scans_name_is_rejected(
+    source: str | None, scan_sources: dict[str, str]
+) -> None:
+    """A fragment reads exactly the sources its SCAN nodes name, and nothing else."""
+    plan = a_plan(
+        [
+            a_node("n1", LogicalOperator.SCAN, [], source=source),
+            a_node("n2", LogicalOperator.RETURN, ["n1"]),
+        ],
+        output_node_id="n2",
+    )
+    cover = a_cover([a_fragment("f1", ["n1"], "n1", scan_sources=scan_sources)])
+
+    with pytest.raises(PlanValidationError, match="f1"):
+        validate_physical_plan(plan, cover)
 
 
 def test_a_plan_ending_on_several_terminal_control_nodes_is_accepted() -> None:
@@ -345,7 +379,7 @@ def test_a_plan_ending_on_several_terminal_control_nodes_is_accepted() -> None:
         ],
         output_node_id=None,
     )
-    validate_logical_plan(plan)
+    validate_logical_plan(plan, frozenset())
 
 
 def test_a_plan_ending_at_a_replan_may_leave_the_step_it_wrote_unread() -> None:
@@ -358,7 +392,7 @@ def test_a_plan_ending_at_a_replan_may_leave_the_step_it_wrote_unread() -> None:
         ],
         output_node_id=None,
     )
-    validate_logical_plan(plan)
+    validate_logical_plan(plan, frozenset())
 
 
 def test_a_plan_holding_two_replan_nodes_is_rejected() -> None:
@@ -371,7 +405,7 @@ def test_a_plan_holding_two_replan_nodes_is_rejected() -> None:
         output_node_id=None,
     )
     with pytest.raises(PlanValidationError, match="at most one REPLAN"):
-        validate_logical_plan(plan)
+        validate_logical_plan(plan, frozenset())
 
 
 def test_a_return_naming_a_column_its_input_does_not_declare_is_rejected() -> None:
@@ -384,7 +418,7 @@ def test_a_return_naming_a_column_its_input_does_not_declare_is_rejected() -> No
     )
     plan = a_plan([a_node("n1", LogicalOperator.SCAN, []), ending], output_node_id="n2")
     with pytest.raises(PlanValidationError, match="posting_count"):
-        validate_logical_plan(plan)
+        validate_logical_plan(plan, frozenset())
 
 
 def test_the_node_a_return_reads_has_to_declare_its_output_columns() -> None:
@@ -393,7 +427,7 @@ def test_the_node_a_return_reads_has_to_declare_its_output_columns() -> None:
         id="n1",
         kind=LogicalOperator.SCAN,
         input_node_ids=[],
-        attributes={"instruction": "read them"},
+        attributes={"instruction": "read them", "source": None},
         required_output_columns=[],
     )
     ending = PipelineNode(
@@ -403,31 +437,34 @@ def test_the_node_a_return_reads_has_to_declare_its_output_columns() -> None:
         attributes={"columns": ["title"]},
     )
     with pytest.raises(PlanValidationError, match="declares no output columns"):
-        validate_logical_plan(a_plan([scan, ending], output_node_id="n2"))
+        validate_logical_plan(a_plan([scan, ending], output_node_id="n2"), frozenset())
 
 
-def test_a_cover_binding_a_scan_to_a_path_the_run_never_searched_for_is_rejected() -> None:
+def test_a_scan_naming_a_path_no_discover_node_found_is_rejected() -> None:
     """A path no DISCOVER node found is a path a model wrote from nothing."""
     plan = a_plan(
-        [a_node("n1", LogicalOperator.SCAN, []), a_node("n2", LogicalOperator.RETURN, ["n1"])],
+        [
+            a_node("n1", LogicalOperator.SCAN, [], source="/source/invented"),
+            a_node("n2", LogicalOperator.RETURN, ["n1"]),
+        ],
         output_node_id="n2",
     )
-    cover = PhysicalPlan(
-        id="c1",
-        parent_id=None,
-        logical_plan_id="p1",
-        fragments=[
-            PhysicalPlanFragment(
-                id="f1",
-                logical_node_ids=["n1"],
-                root_logical_node_id="n1",
-                operator_id="builtin.scan",
-                scan_sources={"n1": "/source/invented"},
-                instruction="read them",
-                input_data=[],
-                required_output_columns=[],
-            )
-        ],
-    )
     with pytest.raises(PlanValidationError, match="/source/invented"):
-        validate_physical_plan(plan, cover, frozenset({"/source/jobs/entity/postings"}))
+        validate_logical_plan(plan, frozenset({"/source/jobs/entity/postings"}))
+
+
+@pytest.mark.parametrize(
+    "source",
+    ["/source/jobs/entity/postings", None],
+    ids=["a-discovered-path", "world-knowledge"],
+)
+def test_a_scan_naming_a_discovered_path_or_null_is_accepted(source: str | None) -> None:
+    """A path the run searched for, or no source at all, both pass the check."""
+    plan = a_plan(
+        [
+            a_node("n1", LogicalOperator.SCAN, [], source=source),
+            a_node("n2", LogicalOperator.RETURN, ["n1"]),
+        ],
+        output_node_id="n2",
+    )
+    validate_logical_plan(plan, frozenset({"/source/jobs/entity/postings"}))

@@ -11,7 +11,8 @@
 {% if catalog_context %}
 ## What the searches found
 
-Each entity below carries every attribute it holds. Declare column names from these.
+Each entity below carries every attribute it holds. Declare column names from these, and name a
+`SCAN`'s source by one of the paths below, copied exactly.
 
 {{ catalog_context }}
 {% endif %}

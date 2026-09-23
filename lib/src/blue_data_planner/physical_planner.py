@@ -1,4 +1,4 @@
-"""Cutting a plan into fragments and binding each one to an operator and an entity."""
+"""Cutting a plan into fragments and binding each one to an operator that reads its scans."""
 
 from __future__ import annotations
 
@@ -68,6 +68,7 @@ class PhysicalPlanner:
     ) -> PhysicalPlanResult:
         confined_to = _coverable(plan)
         entity_source_kinds = _entity_source_kinds(results)
+        _check_scan_sources_discovered(plan, entity_source_kinds)
         opening = not conversation.turns
         if opening:
             conversation.turns.append(
@@ -104,7 +105,6 @@ class PhysicalPlanner:
                 candidates,
                 reusable,
                 results,
-                entity_source_kinds,
                 conversation,
                 preamble,
             )
@@ -118,7 +118,7 @@ class PhysicalPlanner:
             logical_plan_id=plan.id,
             fragments=fragments,
         )
-        validate_physical_plan(plan, cover, frozenset(entity_source_kinds))
+        validate_physical_plan(plan, cover)
         return PhysicalPlanResult(plan=cover, failure_reason=None)
 
     def _candidates(
@@ -148,7 +148,6 @@ class PhysicalPlanner:
         candidates: list[Candidate],
         reusable: PhysicalPlanFragment | None,
         results: dict[str, NodeResult],
-        entity_source_kinds: dict[str, str],
         conversation: Conversation,
         preamble: dict[str, str],
     ) -> PhysicalPlanFragment:
@@ -162,7 +161,7 @@ class PhysicalPlanner:
                 ),
             )
         )
-        schema = cover_choice_schema(plan, node.id, candidates, reusable, entity_source_kinds)
+        schema = cover_choice_schema(plan, node.id, candidates, reusable)
         written = self._llm_client.complete_structured(conversation, schema)
         choice: dict[str, Any] = written.model_dump()["choice"]
         label = str(choice["candidate"])
@@ -187,11 +186,7 @@ class PhysicalPlanner:
             logical_node_ids=sorted(node_ids),
             root_logical_node_id=node.id,
             operator_id=operator.operator_id,
-            scan_sources={
-                key.removeprefix("scan_source_"): value
-                for key, value in choice.items()
-                if key.startswith("scan_source_")
-            },
+            scan_sources=_scan_sources(plan, node_ids),
             instruction=choice["instruction"],
             input_data=[
                 InputData(
@@ -217,17 +212,22 @@ class PhysicalPlanner:
                 f"no operator can run node {node.id!r} of kind {node.kind.value}, "
                 "alone or in any fragment containing it"
             )
-        # An operator declaring the kind is dropped only by the source-kind filter, and that
-        # filter drops a candidate only when it holds a SCAN. So the kind is not what left
-        # this node uncovered, the discovered sources are, and saying which kinds were wanted
-        # is what lets the logical planner search for a different one.
-        readable = sorted(
-            {kind for operator in operators for kind in operator.source_kinds or frozenset[str]()}
+        # An operator declaring the kind always yields the candidate holding the root alone, and a
+        # candidate with no SCAN is always bindable, so when every candidate was dropped the root
+        # is necessarily the SCAN itself.
+        source = node.attributes["source"]
+        reads = (
+            f"{source!r} ({entity_source_kinds[source]})"
+            if source is not None
+            else "world knowledge"
         )
+        wanted = {
+            kind for operator in operators for kind in operator.source_kinds or frozenset[str]()
+        }
+        if any(not operator.source_kinds for operator in operators):
+            wanted.add("world knowledge")
         return (
-            f"node {node.id!r} scans a source of a kind no operator reads: the operators for "
-            f"{node.kind.value} read {readable}, and discovery found "
-            f"{sorted(set(entity_source_kinds.values()))}"
+            f"SCAN node {node.id!r} reads {reads}, and the operators for SCAN read {sorted(wanted)}"
         )
 
 
@@ -277,21 +277,54 @@ def _entity_source_kinds(results: dict[str, NodeResult]) -> dict[str, str]:
     }
 
 
+def _check_scan_sources_discovered(plan: LogicalPlan, entity_source_kinds: dict[str, str]) -> None:
+    # The logical planner validates every source against the same results, so a miss here
+    # means the caller passed results that do not belong to this plan.
+    for node in plan.nodes:
+        if node.kind is not LogicalOperator.SCAN:
+            continue
+        source = node.attributes["source"]
+        if source is not None and source not in entity_source_kinds:
+            raise BlueDataPlannerError(
+                f"SCAN node {node.id!r} names source {source!r}, which no discovery result "
+                "passed to the physical planner found"
+            )
+
+
 def _bindable(
     plan: LogicalPlan,
     node_ids: frozenset[str],
     operator: PhysicalOperator,
     entity_source_kinds: dict[str, str],
 ) -> bool:
-    # An operator declaring source kinds needs every scan in its fragment bound to a source
-    # of one of them (10-data-model.md, the Sources rule), so a candidate whose scans have
-    # nothing to bind to is not a candidate. An operator declaring none reads no registered
-    # source and can take any scan.
-    if not operator.source_kinds:
+    # Every SCAN in the candidate names the source it reads, and the operator's declared
+    # source kinds decide whether it can (10-data-model.md, the Sources rule): an operator
+    # declaring source kinds reads every scan only when each names a source of one of them,
+    # and an operator declaring none reads every scan only when each names no source at all.
+    scans = [
+        plan.node(node_id)
+        for node_id in node_ids
+        if plan.node(node_id).kind is LogicalOperator.SCAN
+    ]
+    if not scans:
         return True
-    if not any(plan.node(node_id).kind is LogicalOperator.SCAN for node_id in node_ids):
-        return True
-    return any(source_kind in operator.source_kinds for source_kind in entity_source_kinds.values())
+    if operator.source_kinds:
+        return all(
+            scan.attributes["source"] is not None
+            and entity_source_kinds[scan.attributes["source"]] in operator.source_kinds
+            for scan in scans
+        )
+    return all(scan.attributes["source"] is None for scan in scans)
+
+
+def _scan_sources(plan: LogicalPlan, node_ids: frozenset[str]) -> dict[str, str]:
+    # A world-knowledge scan reads no registered source, so it has no entry.
+    return {
+        node_id: source
+        for node_id in sorted(node_ids)
+        if plan.node(node_id).kind is LogicalOperator.SCAN
+        and (source := plan.node(node_id).attributes["source"]) is not None
+    }
 
 
 def _render_candidates(
@@ -306,16 +339,21 @@ def _render_candidates(
         lines.append(_render_reuse_candidate(node, reusable, results[node.id]))
     for node_ids, operator in candidates:
         label = candidate_label(node.id, operator.operator_id, node_ids)
-        steps = "; ".join(
-            f"{inner} ({plan.node(inner).kind.value}) {plan.node(inner).attributes['instruction']}"
-            for inner in sorted(node_ids)
-        )
+        steps = "; ".join(_render_step(plan.node(inner)) for inner in sorted(node_ids))
         limits = f" Cannot: {operator.limitations}" if operator.limitations else ""
         lines.append(
             f"{label}. {operator.operator_id} over {sorted(node_ids)} — "
             f"{operator.description}{limits}\n   Steps: {steps}"
         )
     return "\n".join(lines)
+
+
+def _render_step(node: PipelineNode) -> str:
+    step = f"{node.id} ({node.kind.value}) {node.attributes['instruction']}"
+    if node.kind is not LogicalOperator.SCAN:
+        return step
+    source = node.attributes["source"]
+    return f"{step} (reads {source if source is not None else 'world knowledge'})"
 
 
 def _render_reuse_candidate(

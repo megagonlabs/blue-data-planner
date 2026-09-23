@@ -102,7 +102,9 @@ def a_run_over_one_cover_of_two_fragments(
     """Return a run whose one cover scanned a source and filtered what the scan read."""
     nodes = [
         PipelineNode(
-            id="n1", kind=LogicalOperator.SCAN, attributes={"instruction": "read every posting"}
+            id="n1",
+            kind=LogicalOperator.SCAN,
+            attributes={"instruction": "read every posting", "source": "jobs/postings"},
         ),
         PipelineNode(
             id="n2",
@@ -125,7 +127,7 @@ def a_run_over_one_cover_of_two_fragments(
         logical_node_ids=["n1"],
         root_logical_node_id="n1",
         operator_id="builtin.source_scan",
-        scan_sources={"n1": "postings"},
+        scan_sources={"n1": "jobs/postings"},
         instruction="read every posting",
         input_data=[],
         required_output_columns=[],

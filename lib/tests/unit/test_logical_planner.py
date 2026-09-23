@@ -6,9 +6,12 @@ from typing import Any
 
 from blue_data_planner.logical_planner import LogicalPlanner
 from blue_data_planner.types import (
+    AttributeRecord,
     CatalogPreview,
     ControlOperator,
     Conversation,
+    DiscoveryResult,
+    EntityMatch,
     ExecutionResult,
     ExecutionStatus,
     LogicalOperator,
@@ -21,6 +24,8 @@ from blue_data_planner.types import (
     SourceRecord,
 )
 from tests.doubles.llm import ScriptedLLMClient
+
+POSTINGS_PATH = "/source/jobs/database/jobs/collection/public/entity/postings"
 
 
 class FakeCatalog:
@@ -50,6 +55,7 @@ def a_complete_plan() -> dict[str, Any]:
                 "kind": "SCAN",
                 "input_node_ids": [],
                 "instruction": "read the postings",
+                "source": None,
                 "required_output_columns": [{"name": "title", "dtype": "str"}],
             },
             {"id": "n2", "kind": "RETURN", "input_node_ids": ["n1"], "columns": ["title"]},
@@ -88,6 +94,7 @@ def a_plan_ending_in_a_replan() -> dict[str, Any]:
                 "kind": "SCAN",
                 "input_node_ids": [],
                 "instruction": "read the users",
+                "source": None,
                 "required_output_columns": [{"name": "DisplayName", "dtype": "str"}],
             },
             {
@@ -109,10 +116,68 @@ def a_continuation_plan() -> dict[str, Any]:
                 "kind": "SCAN",
                 "input_node_ids": [],
                 "instruction": "read the postings",
+                "source": None,
                 "required_output_columns": [{"name": "title", "dtype": "str"}],
             },
             {"id": "n3", "kind": "RETURN", "input_node_ids": ["n2"], "columns": ["title"]},
         ],
+    }
+
+
+def a_continuation_naming_an_undiscovered_path() -> dict[str, Any]:
+    """A scan naming a path no DISCOVER node found."""
+    return {
+        "output_node_id": "n3",
+        "nodes": [
+            {
+                "id": "n2",
+                "kind": "SCAN",
+                "input_node_ids": [],
+                "instruction": "read the postings",
+                "source": "/source/invented",
+                "required_output_columns": [{"name": "title", "dtype": "str"}],
+            },
+            {"id": "n3", "kind": "RETURN", "input_node_ids": ["n2"], "columns": ["title"]},
+        ],
+    }
+
+
+def a_continuation_naming_the_discovered_path() -> dict[str, Any]:
+    """A scan naming the one path the search returned."""
+    return {
+        "output_node_id": "n3",
+        "nodes": [
+            {
+                "id": "n2",
+                "kind": "SCAN",
+                "input_node_ids": [],
+                "instruction": "read the postings",
+                "source": POSTINGS_PATH,
+                "required_output_columns": [{"name": "title", "dtype": "str"}],
+            },
+            {"id": "n3", "kind": "RETURN", "input_node_ids": ["n2"], "columns": ["title"]},
+        ],
+    }
+
+
+def a_discovered_postings() -> dict[str, ExecutionResult | DiscoveryResult]:
+    """A results map holding one resolved DISCOVER node naming the postings entity."""
+    return {
+        "n1": DiscoveryResult(
+            search_terms=["job postings"],
+            matches=[
+                EntityMatch(
+                    path=POSTINGS_PATH,
+                    name="postings",
+                    description="job postings",
+                    source_kind="sql/sqlite",
+                    attributes=[AttributeRecord(name="title", dtype="str", description=None)],
+                    score=0.9,
+                    search_term="job postings",
+                )
+            ],
+            dropped_terms=0,
+        )
     }
 
 
@@ -126,6 +191,7 @@ def a_continuation_rewriting_n1() -> dict[str, Any]:
                 "kind": "SCAN",
                 "input_node_ids": [],
                 "instruction": "read the postings",
+                "source": None,
                 "required_output_columns": [{"name": "title", "dtype": "str"}],
             },
             {"id": "n2", "kind": "RETURN", "input_node_ids": ["n1"], "columns": ["title"]},
@@ -168,7 +234,7 @@ def a_parent_plan_holding_a_scan() -> LogicalPlan:
                 id="n1",
                 kind=LogicalOperator.SCAN,
                 input_node_ids=[],
-                attributes={"instruction": "read the users"},
+                attributes={"instruction": "read the users", "source": None},
                 required_output_columns=[OutputColumn(name="DisplayName", dtype="str")],
             )
         ],
@@ -382,3 +448,25 @@ def test_a_continuation_writing_a_carried_nodes_id_is_turned_down() -> None:
 
     assert written.status is RunStatus.INVALID_PLAN
     assert "n1" in (written.failure_reason or "")
+
+
+def test_a_continuation_naming_a_path_no_discover_node_found_is_sent_back_for_correction() -> None:
+    """A scan naming a path the searches never returned is turned down and written again."""
+    client = ScriptedLLMClient(
+        [a_continuation_naming_an_undiscovered_path(), a_continuation_naming_the_discovered_path()]
+    )
+    conversation = Conversation()
+
+    written = a_planner_over(client).generate(
+        "Python jobs at Fortune 500",
+        conversation,
+        counters(),
+        parent=a_parent_plan(),
+        carried_node_ids=frozenset({"n1"}),
+        results=a_discovered_postings(),
+    )
+
+    assert written.status is RunStatus.OK
+    correction_role, correction = client.conversations[1][-1]
+    assert correction_role == "user"
+    assert "/source/invented" in correction

@@ -1,7 +1,8 @@
 You write a plan for answering a request over registered data.
 
 A plan is a directed acyclic graph of typed nodes. Every node carries one instruction in
-plain language, starting with a verb, and names no source, no tool, and no query language.
+plain language, starting with a verb, and names no tool and no query language. A `SCAN` also
+names the entity it reads.
 
 ## The vocabulary
 
@@ -25,6 +26,13 @@ instruction mentions their rows without transforming them.
 
 `DISCOVER` and `REPLAN` are control nodes. They hand no rows to the rest of the plan. They stop the
 pass instead, so that the work left over can be written against real values.
+
+### What a `SCAN` names
+
+A `SCAN` writes `source`: one of the paths listed under "What the searches found", copied exactly,
+or `null` when the scan reads what you already know rather than registered data.
+`required_output_columns` are that entity's own attributes, so a `SCAN` naming a source can only
+declare columns that section shows it holds.
 
 ## How to write a plan
 
@@ -77,9 +85,11 @@ Bay Area at finance companies that hired more than 10 people in August 2026.
 
 ### Pass 2: a complete plan, written against what the searches found
 
-**State:** The searches found a `job_posting` entity holding `company_id`,
+**State:** The searches found a `job_posting` entity at
+`/source/jobs/database/jobs/collection/public/entity/job_posting`, holding `company_id`,
 `company_description`, `job_description`, `title`, and `location`, and an August 2026 hiring entity
-holding `company_id` and `hire_count`. That is enough to answer the request.
+at `/source/hiring/database/hiring/collection/public/entity/august_2026_hires`, holding
+`company_id` and `hire_count`. That is enough to answer the request.
 
 **Action:** Write the whole plan, from the two scans through `RETURN`. The two `DISCOVER` nodes stay
 in the plan and are not written again.
@@ -101,6 +111,7 @@ Four things to read off this plan:
 {"nodes": [
   {"id": "scan_postings", "kind": "SCAN", "input_node_ids": [],
    "instruction": "Read the job posting entity.",
+   "source": "/source/jobs/database/jobs/collection/public/entity/job_posting",
    "required_output_columns": [{"name": "company_id", "dtype": "str"}, {"name": "company_description", "dtype": "str"}, {"name": "job_description", "dtype": "str"}, {"name": "title", "dtype": "str"}, {"name": "location", "dtype": "str"}]},
   {"id": "keep_data_scientist_roles", "kind": "FILTER", "input_node_ids": ["scan_postings"],
    "instruction": "Keep rows whose title names a data scientist role.",
@@ -110,6 +121,7 @@ Four things to read off this plan:
    "required_output_columns": [{"name": "company_id", "dtype": "str"}, {"name": "company_description", "dtype": "str"}, {"name": "job_description", "dtype": "str"}]},
   {"id": "scan_august_hires", "kind": "SCAN", "input_node_ids": [],
    "instruction": "Read the August 2026 hiring entity.",
+   "source": "/source/hiring/database/hiring/collection/public/entity/august_2026_hires",
    "required_output_columns": [{"name": "company_id", "dtype": "str"}, {"name": "hire_count", "dtype": "int"}]},
   {"id": "keep_fast_hiring", "kind": "FILTER", "input_node_ids": ["scan_august_hires"],
    "instruction": "Keep rows whose hire_count is greater than 10.",
@@ -149,8 +161,10 @@ can be filtered on.
 
 ### Pass 4: continue from the nodes that ran, and answer
 
-**State:** The search found a `company` entity holding `company_id`, `company_name`, `industry`,
-and `headquarters`. `keep_openings_at_fast_hiring_companies` already holds rows from pass 2.
+**State:** The search found a `company` entity at
+`/source/companies/database/companies/collection/public/entity/company`, holding `company_id`,
+`company_name`, `industry`, and `headquarters`. `keep_openings_at_fast_hiring_companies` already
+holds rows from pass 2.
 
 **Action:** Name that node's id to read its rows, write only what is new, and end at `RETURN`.
 
@@ -158,6 +172,7 @@ and `headquarters`. `keep_openings_at_fast_hiring_companies` already holds rows 
 {"nodes": [
   {"id": "scan_companies", "kind": "SCAN", "input_node_ids": [],
    "instruction": "Read the company entity.",
+   "source": "/source/companies/database/companies/collection/public/entity/company",
    "required_output_columns": [{"name": "company_id", "dtype": "str"}, {"name": "industry", "dtype": "str"}]},
   {"id": "keep_finance_industry", "kind": "FILTER", "input_node_ids": ["scan_companies"],
    "instruction": "Keep rows whose industry is finance.",

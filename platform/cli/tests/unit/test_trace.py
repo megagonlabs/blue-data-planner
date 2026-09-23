@@ -74,7 +74,7 @@ def test_a_fragment_logs_its_operator_its_steps_and_a_summary_of_what_it_returne
     assert [(node.id, node.kind, node.instruction) for node in scan.nodes] == [
         ("n1", "SCAN", "read every posting")
     ]
-    assert scan.nodes[0].scan_source == "postings"
+    assert scan.nodes[0].scan_source == "jobs/postings"
     assert (scan.status, scan.row_count) == (RunStatus.OK, 140)
     assert fragment_ending(scan) == "ok  140 rows"
     assert scan.rows is not None
@@ -192,7 +192,7 @@ def test_a_scanned_source_is_printed_under_the_table_rather_than_inside_a_column
     """A catalog path is longer than any column, and a reader needs the whole of it."""
     printed = a_printed_log(a_run_over_one_cover_of_two_fragments(), width=60)
 
-    assert "      reads  n1  postings" in printed
+    assert "      reads  n1  jobs/postings" in printed
 
 
 def test_a_printed_instruction_holding_square_brackets_reaches_the_table_whole() -> None:

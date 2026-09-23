@@ -54,7 +54,7 @@ def a_scan_and_ending(plan_id: str) -> LogicalPlan:
                 id="n1",
                 kind=LogicalOperator.SCAN,
                 input_node_ids=[],
-                attributes={"instruction": "read the postings"},
+                attributes={"instruction": "read the postings", "source": None},
                 required_output_columns=[OutputColumn(name="title", dtype="str")],
             ),
             PipelineNode(
@@ -115,7 +115,7 @@ def _a_scan_node() -> PipelineNode:
         id="n1",
         kind=LogicalOperator.SCAN,
         input_node_ids=[],
-        attributes={"instruction": "read the postings"},
+        attributes={"instruction": "read the postings", "source": None},
         required_output_columns=[OutputColumn(name="title", dtype="str")],
     )
 
@@ -398,7 +398,7 @@ def a_scan_and_a_filter(plan_id: str) -> LogicalPlan:
                 id="n1",
                 kind=LogicalOperator.SCAN,
                 input_node_ids=[],
-                attributes={"instruction": "read the postings"},
+                attributes={"instruction": "read the postings", "source": None},
                 required_output_columns=[OutputColumn(name="title", dtype="str")],
             ),
             PipelineNode(
