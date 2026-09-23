@@ -9,10 +9,13 @@ import pytest
 
 from blue_data_planner import data_planner as data_planner_module
 from blue_data_planner import settings as settings_module
+from blue_data_planner.operators.adapters.lotus import LotusSuite
+from blue_data_planner.operators.builtin import BuiltinSuite
 from blue_data_planner.settings import PlannerSettings, build_data_planner_from_settings
 from blue_data_planner.types import (
     InvalidSettingError,
     RegistryUnreadableError,
+    RunLimits,
     UnknownOperatorSuiteError,
 )
 
@@ -123,3 +126,49 @@ def test_the_suites_named_are_the_suites_registered(
     )
 
     assert [suite.name for suite in captured["suites"]] == ["lotus", "builtin"]
+
+
+def test_the_bounds_a_caller_sets_reach_the_planner(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """A raised bound is what the run obeys, so it has to survive the build rather than resetting
+    to the RunLimits default."""
+    captured = a_captured_build_data_planner(monkeypatch)
+    limits = RunLimits(operator_calls=7)
+
+    build_data_planner_from_settings(
+        a_settings(registry_path=a_readable_registry(tmp_path), limits=limits)
+    )
+
+    assert captured["limits"] == limits
+
+
+@pytest.mark.parametrize(
+    ("lotus_model", "runs_lotus_on"),
+    [(None, "openai/gpt-4o"), ("openai/gpt-4o-mini", "openai/gpt-4o-mini")],
+)
+def test_each_suite_option_reaches_the_suite_it_configures(
+    lotus_model: str | None,
+    runs_lotus_on: str,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """A suite is built from the options naming it, and a lotus_model left unset runs the LOTUS
+    suite on the model every other component uses."""
+    captured = a_captured_build_data_planner(monkeypatch)
+
+    build_data_planner_from_settings(
+        a_settings(
+            registry_path=a_readable_registry(tmp_path),
+            model="openai/gpt-4o",
+            enable_nl2table=True,
+            lotus_model=lotus_model,
+            lotus_reasoning_effort="high",
+            lotus_max_rows=10,
+        )
+    )
+
+    assert captured["suites"] == [
+        BuiltinSuite(with_nl2table=True),
+        LotusSuite(model=runs_lotus_on, max_rows=10, reasoning_effort="high"),
+    ]
