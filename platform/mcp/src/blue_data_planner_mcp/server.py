@@ -1,4 +1,4 @@
-"""blue-data-planner MCP server.
+r"""blue-data-planner MCP server.
 
 Exposes the planner as one tool, so an agent written with LangChain, LangGraph, or any MCP client
 can hand over a whole data question and get rows back.
@@ -17,7 +17,8 @@ Quick start
     # Run (stdio transport for Claude Desktop / Claude Code / a LangGraph client)
     BLUE_DATA_REGISTRY_PATH=/srv/blue-data/registry.json blue-data-planner-mcp
 
-Claude Desktop config (~/.config/claude-desktop/claude_desktop_config.json):
+Claude Desktop config — ~/Library/Application Support/Claude/claude_desktop_config.json on
+macOS, %APPDATA%\Claude\claude_desktop_config.json on Windows:
     {
       "mcpServers": {
         "blue-data-planner": {
