@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import json
+import threading
 
 import pytest
+from blue_data_planner.types import RegistryUnreadableError
 
 import blue_data_planner_mcp.config as config
 from blue_data_planner_mcp.server import mcp, query_data
@@ -65,3 +67,22 @@ async def test_the_schema_a_client_reads_describes_every_parameter():
     properties = tool.inputSchema["properties"]
     assert set(properties) == {"request", "explain", "include_plan"}
     assert all(one.get("description") for one in properties.values())
+
+
+async def test_a_failure_the_server_meets_returns_an_error_payload(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """A tool error would end the call; the agent is told what went wrong instead."""
+
+    def refuse() -> FakePlanner:
+        raise RegistryUnreadableError("no registry file at /srv/registry.json")
+
+    monkeypatch.setattr(config, "get_planner", refuse)
+    payload = json.loads(await query_data("which postings"))
+    assert payload == {"error": "no registry file at /srv/registry.json"}
+
+
+async def test_the_planner_runs_off_the_event_loop_thread(planner: FakePlanner):
+    """A run takes minutes, and a blocked stdio loop stops answering pings and cancellations."""
+    await query_data("which postings")
+    assert planner.thread_ids != [threading.get_ident()]

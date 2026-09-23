@@ -74,10 +74,17 @@ async def query_data(
     """Answer a data question over the registered sources, or plan it without running it."""
     # Read through the module rather than binding the name at import time, so a test can
     # replace the planner this process holds.
-    planner = config.get_planner()
-    operation = planner.plan if explain else planner.run
-    result = await asyncio.to_thread(operation, request)
-    return _ok(_payload(result, with_plans=explain or include_plan))
+    try:
+        planner = config.get_planner()
+        operation = planner.plan if explain else planner.run
+        # A request takes minutes. A stdio server that blocks its event loop stops answering
+        # pings and cancellations, so the planner runs on a thread of its own.
+        result = await asyncio.to_thread(operation, request)
+        return _ok(_payload(result, with_plans=explain or include_plan))
+    except Exception as error:
+        # The one broad catch in this package, and the shape every Blue Data MCP server
+        # reports a failure in: a payload rather than a tool error.
+        return _err(error)
 
 
 def _payload(result: RunResult, *, with_plans: bool) -> dict[str, Any]:
@@ -91,3 +98,16 @@ def _payload(result: RunResult, *, with_plans: bool) -> dict[str, Any]:
 
 def _ok(data: Any) -> str:
     return json.dumps(data, indent=2, default=str)
+
+
+def _err(error: Exception) -> str:
+    return json.dumps({"error": str(error)}, indent=2)
+
+
+def main() -> None:
+    """Run the server over stdio, the transport a client launches it as a subprocess for."""
+    mcp.run()
+
+
+if __name__ == "__main__":
+    main()
