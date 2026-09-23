@@ -1,0 +1,53 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "blue-data-planner-mcp"
+version = "0.1.0"
+description = "blue-data-planner-mcp — the MCP server over blue-data-planner"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "blue-data-planner==0.1.0",
+    # mcp 2.0 removed FastMCP for mcp.server.mcpserver.MCPServer. Every Blue Data server is on
+    # v1, and moving is one decision for the family rather than for this package.
+    "mcp[cli]>=1.0.0,<2.0.0",
+    "pydantic>=2",
+]
+
+[project.optional-dependencies]
+dev = ["pytest", "pytest-asyncio", "ruff", "pyright"]
+
+[project.scripts]
+blue-data-planner-mcp = "blue_data_planner_mcp.server:main"
+
+[tool.uv.sources]
+# Local development installs. Replace with a package index at release, the way lib/ documents.
+blue-data-planner = { path = "../../lib", editable = true }
+# blue-data-ops and blue-data reach this environment through blue-data-planner, and the sources
+# stay here because uv resolves a path dependency's own.
+blue-data-ops = { git = "ssh://git@github.com/megagon-internal/blue-data-ops.git", subdirectory = "lib", rev = "7ed2c459ce9dc62e0c847f1240518e161b1454f1" }
+blue-data = { git = "ssh://git@github.com/megagon-internal/blue-data.git", subdirectory = "lib", rev = "39e02786d60e069306749176b4efd859171e760f" }
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP"]
+
+[tool.pyright]
+pythonVersion = "3.11"
+typeCheckingMode = "strict"
+venvPath = "."
+venv = ".venv"
+extraPaths = ["src"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+pythonpath = ["src"]
+testpaths = ["tests/unit"]
