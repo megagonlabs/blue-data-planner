@@ -23,7 +23,7 @@ rather than a copy of the code.
 
 | Module | Holds |
 | --- | --- |
-| `blue_data_planner/__init__.py` | The run path in one import: `DataPlanner`, `build_data_planner`, `RunResult`, `RunLimits`, `RunStatus`, `BlueDataPlannerError`, and `__version__` |
+| `blue_data_planner/__init__.py` | The run path in one import: `DataPlanner`, `build_data_planner`, `PlannerSettings`, `build_data_planner_from_settings`, `RunResult`, `RunLimits`, `RunStatus`, `BlueDataPlannerError`, and `__version__` |
 | `blue_data_planner/data_planner.py` | `DataPlanner`, `build_data_planner` |
 | `blue_data_planner/settings.py` | `PlannerSettings`, `build_data_planner_from_settings` |
 | `blue_data_planner/run_state.py` | `RunState` |
@@ -1461,6 +1461,8 @@ dedicated type, and a run that exhausts an allowance returns a status.
 | `SourceUnreachableError` | The registry cannot resolve a source to a connectable object | The operator that read the source, which raises an unrecoverable failure |
 | `BudgetExhaustedError` | The operator call budget reaches its cap | `FragmentRunner`, which returns `budget_exhausted` |
 | `LLMError` | The provider fails after retries | `DataPlanner`, which ends the request with `llm_failed` |
+| `InvalidSettingError` | A `PlannerSettings` field carries a value the planner cannot be built with | Nothing. It propagates to whoever built the settings |
+| `RegistryUnreadableError` | The path a registry is opened from names no file, or the file cannot be read | Nothing. It propagates to whoever opened the registry |
 | `ValueError`, `TypeError`, and a suite's own validation errors | Malformed state or a missing required value | Nothing. These are bugs and they propagate |
 
 Every exception this library defines inherits `BlueDataPlannerError`, defined in `types/errors.py`.

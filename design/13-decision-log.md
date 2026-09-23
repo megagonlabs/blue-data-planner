@@ -432,10 +432,11 @@ per query and scores that query as an error.
 ## ADR-017 — The Package Root Exports the Run Path
 
 **Decision:** `blue_data_planner/__init__.py` holds `__version__` and the run path: `DataPlanner`,
-`build_data_planner`, `RunResult`, `RunLimits`, `RunStatus`, and `BlueDataPlannerError`. Public is
-the root, every module directly inside it, and the `__init__.py` of `types/`, `plan/`, `execution/`,
-`operators/`, `data/`, and `llm/`. An operator adapter is the one exception: `operators/__init__.py`
-re-exports the router alone, so an adapter is imported from the module named for its suite.
+`build_data_planner`, `PlannerSettings`, `build_data_planner_from_settings`, `RunResult`,
+`RunLimits`, `RunStatus`, and `BlueDataPlannerError`. Public is the root, every module directly
+inside it, and the `__init__.py` of `types/`, `plan/`, `execution/`, `operators/`, `data/`, and
+`llm/`. An operator adapter is the one exception: `operators/__init__.py` re-exports the router
+alone, so an adapter is imported from the module named for its suite.
 
 **Rationale:** Python runs a package's `__init__.py` before any module inside it, so whatever the
 root names is paid by every import from the package. Of everything this library imports, an operator

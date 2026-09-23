@@ -3,13 +3,16 @@
 from __future__ import annotations
 
 from blue_data_planner.data_planner import DataPlanner, build_data_planner
+from blue_data_planner.settings import PlannerSettings, build_data_planner_from_settings
 from blue_data_planner.types import BlueDataPlannerError, RunLimits, RunResult, RunStatus
 
 __all__ = [
     "BlueDataPlannerError",
     "DataPlanner",
+    "PlannerSettings",
     "RunLimits",
     "RunResult",
     "RunStatus",
     "build_data_planner",
+    "build_data_planner_from_settings",
 ]

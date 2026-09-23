@@ -19,7 +19,7 @@ command is documented in [cli.md](cli.md); the MCP server is [not built](mcp.md)
 
 | Import | Holds |
 | --- | --- |
-| `blue_data_planner` | `DataPlanner`, `build_data_planner`, `RunResult`, `RunStatus`, `RunLimits`, `BlueDataPlannerError` |
+| `blue_data_planner` | `DataPlanner`, `build_data_planner`, `PlannerSettings`, `build_data_planner_from_settings`, `RunResult`, `RunStatus`, `RunLimits`, `BlueDataPlannerError` |
 | `blue_data_planner.data_planner` | `DataPlanner`, `build_data_planner` |
 | `blue_data_planner.logical_planner`, `.physical_planner`, `.fragment_runner` | The three planning components, one module each |
 | `blue_data_planner.catalog_searcher` | `CatalogSearcher` |

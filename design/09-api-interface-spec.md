@@ -23,7 +23,7 @@ and reads its result writes one import. Everything else is reached through the m
 
 | Import | Holds |
 | --- | --- |
-| `blue_data_planner` | `DataPlanner`, `build_data_planner`, `RunResult`, `RunLimits`, `RunStatus`, `BlueDataPlannerError`, `__version__` |
+| `blue_data_planner` | `DataPlanner`, `build_data_planner`, `PlannerSettings`, `build_data_planner_from_settings`, `RunResult`, `RunLimits`, `RunStatus`, `BlueDataPlannerError`, `__version__` |
 | `blue_data_planner.data_planner` | `DataPlanner`, `build_data_planner` |
 | `blue_data_planner.logical_planner`, `.physical_planner`, `.fragment_runner` | The three planning components, one module each |
 | `blue_data_planner.catalog_searcher` | `CatalogSearcher` |
@@ -214,6 +214,8 @@ does raise, in the order a caller meets it:
 | --- | --- | --- |
 | `PlanValidationError` | A generated plan fails a structural check | Only from a direct `validate_logical_plan` or `validate_physical_plan` call. `LogicalPlanner` catches it and regenerates |
 | `UnknownOperatorSuiteError` | A name registers no operator suite | Always, from `operator_suite`. An interface maps it to its own configuration error |
+| `InvalidSettingError` | A `PlannerSettings` field carries a value the planner cannot be built with | Always, from constructing `PlannerSettings`. An interface maps it to its own configuration error |
+| `RegistryUnreadableError` | The path a registry is opened from names no file, or the file cannot be read | Always, from `open_registry`. An interface maps it to its own configuration error |
 | Any other `BlueDataPlannerError` | A defect in the planner, raised where it is found | Only from a direct call to the component that raised it |
 | `RecoverableOperatorError` | An operator refuses its input in a way a different operator might not | Only from a direct `execute_physical_operator` call |
 | `UnrecoverableOperatorError` | An operator fails for a reason no other operator would avoid | The same |

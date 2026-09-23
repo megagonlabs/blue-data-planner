@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 
 from blue_data_planner.data import open_registry
+from blue_data_planner.types import RegistryUnreadableError
 
 
 def test_a_reopened_registry_holds_the_records_it_was_written_with(tmp_path: Path) -> None:
@@ -42,5 +43,5 @@ def test_a_reopened_registry_holds_the_records_it_was_written_with(tmp_path: Pat
 
 def test_opening_a_registry_that_is_not_there_raises(tmp_path: Path) -> None:
     """A path naming no file is a caller error, not an empty registry."""
-    with pytest.raises(FileNotFoundError):
+    with pytest.raises(RegistryUnreadableError):
         open_registry(tmp_path / "absent.json")

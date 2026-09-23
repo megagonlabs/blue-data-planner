@@ -174,8 +174,8 @@ does and belongs in the same file (ADR-002).
 ### What the root exports
 
 `__init__.py` holds `__version__` and the run path: `DataPlanner`, `build_data_planner`,
-`RunResult`, `RunLimits`, `RunStatus`, and `BlueDataPlannerError`. A caller who runs a planner and
-reads its result writes one import.
+`PlannerSettings`, `build_data_planner_from_settings`, `RunResult`, `RunLimits`, `RunStatus`, and
+`BlueDataPlannerError`. A caller who runs a planner and reads its result writes one import.
 
 Everything else is reached through the module that owns it. The components a caller assembles by
 hand come from `operators`, `data`, and `llm`; the shapes a caller reads off a plan come from
