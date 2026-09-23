@@ -75,7 +75,7 @@ owns is the loop.
 | Component | Built with | Because |
 | --- | --- | --- |
 | `LogicalPlanner` | `llm_client`, `catalog` | Writes plans, reads a catalog preview ranked against the request, and rewrites a plan validation turned down |
-| `PhysicalPlanner` | `llm_client`, `router` | Enumerates candidates from what operators declare, and binds each scan to an entity discovery found. It is the one component built without a catalog, since every entity it can bind to arrives in `results` |
+| `PhysicalPlanner` | `llm_client`, `router` | Enumerates candidates from what operators declare and the kinds of the sources the plan's scans name. It is the one component built without a catalog, since the kind of every source a scan can name arrives in `results` |
 | `FragmentRunner` | `llm_client`, `catalog`, `router` | Resolves a fragment's operator id, reads the attribute views of the entities it scans, writes parameters, reviews the result, and writes them again when the review rejects one |
 | `CatalogSearcher` | `llm_client`, `catalog`, `max_search_terms` | Turns an instruction into search terms and searches the registry for entities |
 | `DataPlanner` | The four above, and `limits` | Creates the run state, schedules, chooses repairs, and assembles the result |
@@ -274,9 +274,9 @@ class LogicalPlan:
     def from_dict(cls, payload: dict[str, Any]) -> LogicalPlan: ...
 ```
 
-A node carries one plain-language instruction and nothing else: no source, no operator id, no
-operator parameters, and no result (ADR-008). All four are properties of a cover or of the run,
-since all four can differ between passes over the same node.
+A node carries one plain-language instruction, and a `SCAN` also the source it reads. No node
+carries an operator id, operator parameters, or a result (ADR-008). All three are properties of a
+cover or of the run, since all three can differ between passes over the same node.
 
 The three query methods read `nodes` and `input_node_ids` and nothing else, so a plan answers
 questions about its own shape without reaching into a planning component or `execution/` (ADR-011). `node`
@@ -329,7 +329,7 @@ strict and exists for reading a recorded plan back, not for running one
 `PhysicalOperator` is one candidate implementation, as the router holds it and as both the physical planner and the
 fragment runner read it. `logical_operators` is the whole matching rule: candidate fragments are the
 connected, convex subgraphs built from nodes whose kind is in that set, and `source_kinds` then
-constrains which sources the scans in such a fragment may be bound to
+decides whether the operator reads the sources the scans in such a fragment name
 ([10](10-data-model.md#a-physical-operator)).
 
 A single-member set means the operator can only ever cover one node. `description` and `limitations`
@@ -467,13 +467,13 @@ nothing else.
 
 ```python
 def validate_logical_plan(
-    plan: LogicalPlan, carried_node_ids: frozenset[str] = frozenset()
+    plan: LogicalPlan,
+    entity_paths: frozenset[str],
+    carried_node_ids: frozenset[str] = frozenset(),
 ) -> None: ...
 
 
-def validate_physical_plan(
-    plan: LogicalPlan, physical_plan: PhysicalPlan, entity_paths: frozenset[str]
-) -> None: ...
+def validate_physical_plan(plan: LogicalPlan, physical_plan: PhysicalPlan) -> None: ...
 ```
 
 Both raise rather than return, and both run before anything is executed. What they raise is
@@ -489,11 +489,9 @@ rule of its own.
 checks, whose objections do not apply to a node the run already has something for. `LogicalPlanner`
 catches the error and regenerates.
 
-`entity_paths` is the run's catalog context flattened to the paths it names, and every value in
-every fragment's `scan_sources` has to be one of them. A path the run never searched for is a path a
-model wrote from nothing. The response schema already confines the choice where a provider enforces
-one strictly, so this is the check that catches it where a provider does not
-([05](05-software-stack.md#structured-output)). A frozenset rather than the results map keeps
+`entity_paths` is the run's catalog context flattened to the paths it names, and every `SCAN` naming
+a source has to name one of them. A path the run never searched for is a path a model wrote from
+nothing, and the correction loop sends it back. A frozenset rather than the results map keeps
 `plan/` reading one kind of value.
 
 The physical check is defensive in its other rules. The physical planner enumerates only fragments
@@ -557,7 +555,6 @@ def cover_choice_schema(
     root_node_id: str,
     candidates: list[tuple[frozenset[str], PhysicalOperator]],
     reusable: PhysicalPlanFragment | None,
-    entity_source_kinds: Mapping[str, str],
 ) -> type[BaseModel]: ...
 ```
 
@@ -565,12 +562,11 @@ Each builds the Pydantic model the model client is handed as a strict response s
 ([05-software-stack.md](05-software-stack.md#structured-output)). `logical_plan_schema` is assembled
 from the node schemas, so a plan naming an operation the vocabulary has no member for cannot be
 produced. `cover_choice_schema` is built for one binding decision from that decision's own
-candidates: a candidate set holding no `SCAN` has no field in which to name a source, and where a
-scan does appear the allowed values are narrowed to the paths whose discovered source kind matches
-what that candidate's operator declares it reads. It reads `plan` for one thing,
-which is which of a candidate's nodes are scans. The candidate that reuses the fragment already
-covering the node is a choice and nothing else: it carries no instruction, no input names, and no
-source, because everything about that fragment is already written down. One further choice takes no
+candidates. It reads `plan` for one thing, which is the nodes feeding each candidate from outside
+it, and gives each one a name and a description field. No field names a source, since the plan's
+scans already name theirs. The candidate that reuses the fragment already covering the node is a
+choice and nothing else: it carries no instruction and no input names, because everything about
+that fragment is already written down. One further choice takes no
 candidate and carries a reason instead, which is how a binding says that nothing offered can do what
 the plan asks ([04, choosing among
 candidates](04-detailed-architecture.md#choosing-among-candidates)).
@@ -680,12 +676,11 @@ A plan whose operator nodes all have results asks for no binding at all, and its
 previous cover's fragments under the new plan's id, written without a model call. Every candidate
 the model would weigh there is work the run already holds rows for (ADR-035).
 
-`results` answers two questions. A `DISCOVER` entry's entities are the ones a `SCAN` may be bound
-to, which is what makes rebinding a scan to a different entity one of the fixes a repair can reach
-where `previous` holds only the entity already chosen. And an operator node's entry says that node
-already ran, which is both what puts a reuse candidate in front of the model and the cost it weighs
-when it considers grouping that node into a wider fragment
-([04, the cover repair](04-detailed-architecture.md#the-cover-repair)).
+`results` answers two questions. A `DISCOVER` entry records the source kind of each entity a `SCAN`
+may name, which decides the operators a fragment holding that scan can be bound to. And an operator
+node's entry says that node already ran, which is both what puts a reuse candidate in front of the
+model and the cost it weighs when it considers grouping that node into a wider fragment ([04, the
+cover repair](04-detailed-architecture.md#the-cover-repair)).
 
 Inside, the planner works top down from the root of the plan. For each uncovered node it asks
 `candidate_fragments` for the node sets each operator the router offers could cover, pairs each set
@@ -789,7 +784,8 @@ proceeds, which makes it a number shaping this component's work rather than a bo
 the size of the catalog preview `LogicalPlanner` reads. The `DiscoveryResult` holds the terms, the `EntityMatch` values they
 found, and how many terms the cap dropped. It is kept under the node's id in the run's results map,
 and together with the other resolved nodes' entries it is the run's catalog context: the logical
-planner reads it to write the continuation, the physical planner to bind a scan.
+planner reads it to write the continuation, the physical planner to read the kind of each source a
+scan names.
 
 It carries out no planning stage. Its output is catalog records rather than rows, it enters no data
 flow, and no operator call is spent
@@ -1355,9 +1351,9 @@ Three readings of the same registry, one per caller, all fixed in
 | `search_records` | `CatalogSearcher`, for a `DISCOVER` node | Which entities the request needs and what each holds. One call per search term |
 | `attribute_views` | `FragmentRunner`, for each entity its fragment scans | How each of that entity's attributes spells its values |
 
-`CatalogSearcher` is the only caller of `search_records`. The physical planner binds a `SCAN` to an
-entity the run's catalog context already holds, and a path reaches that context only by having been
-searched for, so no second search arises.
+`CatalogSearcher` is the only caller of `search_records`. A `SCAN` names an entity the run's catalog
+context already holds, and a path reaches that context only by having been searched for, so no
+second search arises.
 
 `max_search_results` is fixed when the catalog is built, since `search_records` runs once per search
 term and one cap serves every term. It is small because a match now carries an entity's whole

@@ -156,10 +156,11 @@ step a pass wrote ends unread, and the next version is what reads the rows it pr
 | `attributes` | `dict[str, Any]` | The logical planner | Always |
 | `required_output_columns` | `list[OutputColumn]` | The logical planner | Always, possibly empty |
 
-A node carries no source, no operator id, no operator parameters, and no result. Which source a scan
-reads and which operator runs it are properties of the physical plan, because both can differ
-between passes over the same node. What a node produced belongs to the run
-([section 3](#what-a-run-holds-while-it-runs)).
+A `SCAN` names the source it reads; no node names an operator, operator parameters, or a result.
+The source is the logical planner's to name because the scan's `required_output_columns` are that
+entity's attribute names, so declaring them already picks the entity. Which operator runs a node is
+a property of the physical plan, because it can differ between covers of the same node. What a node
+produced belongs to the run ([section 3](#what-a-run-holds-while-it-runs)).
 
 ### Node kinds and what their attributes hold
 
@@ -167,7 +168,8 @@ A node's `kind` decides which keys its `attributes` carries. Nothing else is acc
 
 | `kind` | Node | `attributes` |
 | --- | --- | --- |
-| `SCAN`, `FILTER`, `PROJECT`, `EXPAND`, `AGGREGATE`, `DISTINCT`, `SORT_SUPERLATIVE`, `JOIN`, `UNION` | Operator | `{"instruction": str}` |
+| `SCAN` | Operator | `{"instruction": str, "source": str \| None}` |
+| `FILTER`, `PROJECT`, `EXPAND`, `AGGREGATE`, `DISTINCT`, `SORT_SUPERLATIVE`, `JOIN`, `UNION` | Operator | `{"instruction": str}` |
 | `RETURN` | Terminal | `{"columns": list[str]}` |
 | `REPLAN`, `DISCOVER` | Control | `{"instruction": str}` |
 
@@ -176,6 +178,10 @@ starts with a verb: `load job postings`, `find the postings whose title is a dat
 `find a source holding one profile per company`. It carries no operator parameters (ADR-008).
 Working those out belongs to the fragment runner, and what it writes is shaped by the chosen
 operator's `parameter_schema`.
+
+A scan's `source` is the catalog path of an entity a `DISCOVER` node found, or `None` for a scan of
+the model's world knowledge. Validation rejects a path the run's catalog context does not hold, so
+a scan reads only an entity the run searched for.
 
 ### How many inputs a node takes
 
@@ -254,10 +260,9 @@ There is no date type. A date travels as a `str` in its ISO 8601 form.
 
 ### The physical half
 
-A physical plan cuts the logical plan into fragments and binds each one to a physical operator and,
-where the fragment scans, to a source. It carries no operator parameters: those are written when the
-fragment runs, against the data its inputs produced. A physical plan is a prepared plan whose
-parameters are still unbound.
+A physical plan cuts the logical plan into fragments and binds each one to a physical operator. It
+carries no operator parameters: those are written when the fragment runs, against the data its
+inputs produced. A physical plan is a prepared plan whose parameters are still unbound.
 
 ```python
 @dataclass(frozen=True)
@@ -291,7 +296,7 @@ class PhysicalPlan:
 | --- | --- |
 | Coverage | Every operator node of the logical plan appears in exactly one fragment. `RETURN`, `REPLAN`, and `DISCOVER` appear in none |
 | Shape | Each fragment is connected, convex, and single exit: only the root may have consumers outside it ([04, what a fragment may be](04-detailed-architecture.md#what-a-fragment-may-be)) |
-| Sources | `scan_sources` names a catalog path for each `SCAN` in the fragment. A `SCAN` left out of it reads no registered source, which is what a scan of the model's world knowledge looks like. An operator declaring `source_kinds` needs every scan bound to a source of one of those kinds, and an operator declaring none needs every scan left out. A fragment containing no `SCAN` is bound to an operator that owns its engine (ADR-020) |
+| Sources | `scan_sources` is copied from the fragment's `SCAN` nodes: each scan naming a source maps to that path, and a world-knowledge scan is left out. An operator declaring `source_kinds` takes a fragment only when every scan in it names a source of one of those kinds, and an operator declaring none only when every scan is left out. A fragment containing no `SCAN` is bound to an operator that owns its engine (ADR-020) |
 | Instruction | One instruction to the operator, starting with a verb as a node instruction does, stating every condition the grouped nodes state and joining them with *and*, and saying what the fragment produces rather than how to produce it: "Find Bay Area job postings whose title is a data scientist role, with their title, company id, and location" |
 | Inputs | `input_data` lists the frontier nodes, which are the nodes outside the fragment feeding nodes inside it, in the order the fragment's nodes read them. The list is the plan's to decide, and only each entry's name and description are written during physical planning. One entry covers everything that node produced, so it may stand for more than one table; those tables share the name and keep their order |
 | Columns | `required_output_columns` is copied from the root node unless the model declares that the fragment cannot produce that list |
@@ -343,9 +348,9 @@ the fragment runner passes it to the model client as a response schema, and
 process and never serialized, so nothing needs it as JSON.
 
 `logical_operators` is the whole matching rule. Candidate fragments are the connected, convex
-subgraphs built from nodes whose kind is in that set, and `source_kinds` then constrains which
-sources those scans may be bound to. Nothing declares the order the kinds may appear in, and nothing
-declares that two scans in one fragment have to read the same source (question 44).
+subgraphs built from nodes whose kind is in that set, and `source_kinds` then decides whether the
+operator reads the sources those scans name. Nothing declares the order the kinds may appear in,
+and nothing declares that two scans in one fragment have to read the same source (question 44).
 
 ### Identifiers
 
@@ -390,7 +395,10 @@ A `DataPipeline` serializes as its two maps and its two pointers. One version of
           "id": "n1",
           "kind": "SCAN",
           "input_node_ids": [],
-          "attributes": {"instruction": "load job postings"},
+          "attributes": {
+            "instruction": "load job postings",
+            "source": "/source/jobs/database/jobs/collection/public/entity/postings"
+          },
           "required_output_columns": [
             {"name": "title", "dtype": "str"},
             {"name": "company_id", "dtype": "int"},
@@ -742,8 +750,9 @@ class DiscoveryResult:
 
 A `DISCOVER` node's entry in the run's `results` map holds one of these, where an operator node's
 entry holds rows. The entries of every resolved `DISCOVER` node, taken together, are the run's
-catalog context: the logical planner reads them when it writes the continuation, and the physical
-planner reads them when it binds a scan to a source.
+catalog context: the logical planner reads them when it writes the continuation and names the
+source each scan reads, and the physical planner reads each named source's kind to choose among
+operators.
 
 `dropped_terms` is what a run holds for a reader rather than for itself. Nothing branches on it, and
 a search runs the terms it kept whatever the number is. It reaches a library caller inside

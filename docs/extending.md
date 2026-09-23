@@ -64,7 +64,8 @@ a time:
 1. `operators_for(kind)` returns every operator declaring that node's kind, in registration order.
 2. For each, `candidate_fragments` enumerates the node sets rooted at that node which the
    operator's declared kinds could absorb.
-3. A candidate whose scans have no source of a declared `source_kind` is dropped.
+3. A candidate is dropped unless the operator reads the source kind of every scan in it. An
+   operator declaring no `source_kinds` takes only scans that name no source.
 4. What survives is offered to the model, largest fragment first, and the model binds one.
 
 Two operators covering the same node set are offered in registration order, and the declaration

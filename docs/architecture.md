@@ -110,8 +110,9 @@ output never enters the data flow.
 ### The logical vocabulary
 
 A plan is a DAG of typed nodes. Each operator node carries one instruction in plain language and
-names no source and no operator: both are chosen during physical planning, and both can differ
-between passes over the same node.
+names no operator: that is chosen during physical planning, and it can differ between passes over
+the same node. A `SCAN` also names the discovered entity it reads, or no source when it reads the
+model's world knowledge.
 
 | Kind | Nodes | What happens |
 | --- | --- | --- |
