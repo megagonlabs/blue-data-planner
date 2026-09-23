@@ -23,8 +23,8 @@ dependencies = [
 [tool.uv.sources]
 # Installing blue-data and blue-data-ops from GitHub for developing.
 # TODO: replace this with a package index when we release the blue-data-planner library.
-blue-data-ops = { git = "ssh://git@github.com/megagon-internal/blue-data-ops.git", subdirectory = "lib", rev = "a161d9eaf8511fab3820b50a6dd00cba235ec8a8" }
-blue-data = { git = "ssh://git@github.com/megagon-internal/blue-data.git", subdirectory = "lib", rev = "b2ca35214114156bdef50143d1ee7c05f42b6451" }
+blue-data-ops = { git = "ssh://git@github.com/megagon-internal/blue-data-ops.git", subdirectory = "lib", rev = "7ed2c459ce9dc62e0c847f1240518e161b1454f1" }
+blue-data = { git = "ssh://git@github.com/megagon-internal/blue-data.git", subdirectory = "lib", rev = "39e02786d60e069306749176b4efd859171e760f" }
 
 [project.optional-dependencies]
 dev = [
