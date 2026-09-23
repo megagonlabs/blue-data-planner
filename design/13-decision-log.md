@@ -809,10 +809,10 @@ two take the same request and the same options and differ in how far they go, wh
 `EXPLAIN` names in every database this planner reads.
 
 **Consequences:** A component is a thing a user acts on, so a new capability arrives as an action on
-one, or as a new component, while a mode of an existing capability arrives as a flag. Deviations from
-the family are recorded, since a reader is entitled to assume the family's meaning everywhere it is
-not. The MCP server keeps two tools where the CLI has one command, because a tool call carries no
-flags.
+one, or as a new component, while a mode of an existing capability arrives as a flag. Deviations
+from the family are recorded, since a reader is entitled to assume the family's meaning everywhere
+it is not. The MCP server has one tool where the CLI has one command, and `--explain` becomes an
+argument of it, because a tool's arguments are its flags.
 
 ---
 
@@ -822,21 +822,19 @@ flags.
 then the selected profile, then the default. Profiles live in `~/.blue-planner/.profiles`, over the
 configuration engine `blue-data` publishes, and `BLUE_DATA_PLANNER_HOME` relocates the directory. A
 secret is stored encoded or as an environment reference, never accepted as a command-line value, and
-masked wherever the CLI prints it. The CLI loads no `.env` file. The MCP server keeps reading the
-environment, and loads one.
+masked wherever the CLI prints it. The CLI loads no `.env` file.
 
 **Rationale:** A profile is what lets one machine hold a demonstration setup and a production one
 without a shell full of exports, and the engine that implements it already exists in `blue-data`, so
-every Blue CLI resolves settings and stores secrets by the same rules. `load_dotenv(override=True)`
-is what keeps the CLI out of that scheme: a file that overrides the exported environment sits
-between the option and the profile in a way the documented order cannot describe. The MCP server has
-no interactive user to configure a profile, and a client that launches it as a subprocess passes an
-environment, so the file stays useful there.
+every Blue CLI resolves settings and stores secrets by the same rules.
 
 **Consequences:** The CLI package depends on `blue-data` directly, which the library reaches only
-through `data/`. A bound a run reports back is a profile parameter rather than a flag, so a
-request that needs a different budget selects a different profile. A demonstration configures itself with
-`profile config` rather than with a `.env` file in the checkout.
+through `data/`. A bound a run reports back is a profile parameter rather than a flag, so a request
+that needs a different budget selects a different profile. A demonstration configures itself with
+`profile config` rather than with a `.env` file in the checkout. The MCP server reads no
+configuration file. A file that overrides the exported environment would sit above the `env` block a
+client launching the server passes deliberately, and a server started as a subprocess has a working
+directory it did not choose.
 
 ---
 
@@ -999,6 +997,47 @@ fragments are the previous cover's, and the signatures under which results sit a
 
 ---
 
+## ADR-036 — The MCP Server Reports a Failure in Its Payload
+
+**Decision:** A run that ended on a failure status, and an operator that failed inside one, are
+successful tool calls whose payload carries the status. Anything raised becomes
+`{"error": "<message>"}`, also a successful tool call.
+
+**Rationale:** All four Blue Data MCP servers do this, and a client loading several of them reads
+one shape.
+
+**Consequences:** A client cannot tell a configuration failure from a question that found nothing.
+Whether to carry the CLI's error codes in the payload is open question 57.
+
+---
+
+## ADR-037 — The Values a Planner Is Built From Are a Library Type
+
+**Decision:** `PlannerSettings` holds them with their defaults and their validation; each interface
+resolves its own way and hands one over.
+
+**Rationale:** The CLI and the MCP server need the same eleven values, and `blue-data` already puts
+shared builders in its library.
+
+**Consequences:** The defaults are written once. `profile_spec.json` keeps copies because
+`ConfigResolver` resolves a spec default as its own tier, so without one `profile inspect` reports
+those parameters as unset. A test guards the two against drift.
+
+---
+
+## ADR-038 — The MCP Surface Is Tools-Only, and a Tool Name Borrows the CLI's Verb
+
+**Decision:** No Blue Data server exposes MCP resources. Where a tool and a CLI command name the
+same operation, the tool takes the command's verb and its component as the noun.
+
+**Rationale:** A client loading several Blue Data servers sees one naming convention, and a reader
+moving between a CLI and a tool sees one vocabulary.
+
+**Consequences:** A new tool's name is read off the CLI command naming the same operation, and MCP
+resources are not added without revisiting this.
+
+---
+
 ## Open Questions
 
 Design questions first, then defects in code that exists today.
@@ -1026,4 +1065,5 @@ Design questions first, then defects in code that exists today.
 | 54 | Should the library be able to phrase an answer, and the CLI then offer `--format nl`? The family offers a natural-language format where a source answers in prose, and ADR-029 leaves it out because a planner answers in rows. A benchmark whose expected answers are single values, and an agent that wants a sentence rather than a table, both suggest the phrasing has to happen somewhere; doing it in an interface is behavior in an adapter (ADR-002), so the question is whether a library operation should return prose alongside the rows, and what it costs in model calls per request. | Whether `--format nl` and the MCP response ever carry a sentence, and which component writes it |
 | 55 | Should a run be kept on disk so a plan can be read back? The CLI's home directory holds profiles and nothing else, so a plan printed by `data query --explain` is gone when the terminal scrolls, and `data query` keeps no record a later command could inspect. The family's storage convention has a place for one (`~/.<cli>/<profile>/<component>/`), and `from_dict` already reads a recorded plan back ([06-library.md](06-library.md#two-operations)). What is unsettled is whether a CLI should accumulate state at all for a planner that holds none between requests, and what would remove an old run. | Whether the CLI grows an action that reads a plan it wrote earlier |
 | 56 | Should the CLI be able to write a run's whole record to a file? A fragment's result reaches a person as a summary, and the JSON on standard output carries the answer and how the run ended, so every intermediate table and every model turn is reachable only by a caller who embeds the library (ADR-032). Diagnosing a wrong answer is the case that wants them: a summary says a fragment returned 140 rows over three columns and not which 140, and a review that rejected a fragment is readable only in the conversation. A file is where they would go, since what makes them unwelcome on standard output is size rather than secrecy, and the family's storage convention already has a place for per-profile state. Against adding one: a record holds whatever the sources held, so writing one puts source data on disk, and whether a CLI over a planner that keeps nothing between requests should accumulate state at all is question 55. | Whether a wrong answer can be diagnosed from the CLI alone |
+| 57 | Should the MCP server's payload carry the CLI's error codes? Anything raised reaches a client as `{"error": "<message>"}` (ADR-036), so a missing API key, an unreadable registry, and a question that found nothing are one shape, and a client that wants to act on the difference has nothing to read but the message text. The codes the CLI already prints — `CONFIG_MISSING`, `REGISTRY_UNREADABLE`, and the rest ([09-api-interface-spec.md](09-api-interface-spec.md#errors-and-exit-codes)) — would give it a stable field. Against carrying them: a client loading several Blue Data servers reads one payload shape, and this would be the one server whose shape is its own. | Whether a client can branch on why a call failed, and whether the family's payload shape stays uniform |
 

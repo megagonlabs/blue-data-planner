@@ -85,10 +85,10 @@ There is nothing to bind and no port to choose. A client is configured with the 
 environment the server needs ([02-scenarios.md](02-scenarios.md#scenario-2-answering-a-data-question-inside-an-agent)),
 and the server reads everything else from the environment in [section 4](#4-configuration).
 
-The server builds one planner at startup from the environment in section 4, and every call runs
-under it ([09-api-interface-spec.md](09-api-interface-spec.md#planning-tools)). It needs a reachable
-registry and a model before the first call, so a server that starts is not yet a server that can
-answer.
+On the first tool call the server builds one planner from the environment in section 4 and holds it
+for the process lifetime ([09-api-interface-spec.md](09-api-interface-spec.md#the-tool)). It needs a
+reachable registry and a model to build one, so a server that starts is not yet a server that can
+answer: an unreachable registry reaches the client as an error payload on that first call.
 
 ---
 
@@ -97,9 +97,8 @@ answer.
 The library takes settings as injected values and reads no environment variable itself. Each
 interface loads what it needs and passes it into the constructors.
 
-The MCP server reads the environment, and loads a `.env` file with `dotenv.load_dotenv(override=True)`
-at startup, which is how a client launching it as a subprocess configures it. `.env` files are never
-committed.
+The MCP server reads no configuration file. It reads the environment, which is how a client
+launching it as a subprocess configures it.
 
 `blue-planner` reads a profile, and resolves each setting in one order (ADR-028): **command option,
 then environment variable, then profile, then default**. It loads no `.env` file, so nothing sits

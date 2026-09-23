@@ -35,6 +35,7 @@ and reads its result writes one import. Everything else is reached through the m
 | `blue_data_planner.operators.adapters.blue`, `.adapters.lotus`, `.builtin` | `BlueSuite`, `LotusSuite`, `BuiltinSuite`, and the `blue_operators`, `lotus_operators`, and `builtin_operators` each is built over |
 | `blue_data_planner.data` | `DataCatalog`, `open_registry`, and the source-level reads |
 | `blue_data_planner.llm` | `LLMClient`, `Conversation`, `LLMUsage`, `LLMError` |
+| `blue_data_planner.settings` | `PlannerSettings`, `build_data_planner_from_settings` |
 
 Public is the package root, every module directly inside it, and the `__init__.py` of `types/`,
 `plan/`, `execution/`, `operators/`, `data/`, and `llm/`. A module nested inside one of those
@@ -382,18 +383,47 @@ failure, an internal error, or a declined confirmation — always prints as the 
 
 ## 3. MCP server
 
-The server hosts the planning tools, which is what an agent uses to hand over a whole question.
-Driving one operation directly is an operator suite's own concern, and no tool here exposes one.
+The server hosts one tool, which is what an agent uses to hand over a whole question. Driving one
+operation directly is an operator suite's own concern.
 
-### Planning tools
+### The tool
 
-| Tool | Arguments | Returns |
-| --- | --- | --- |
-| `plan_and_execute` | `task` (string, required) | The result below |
-| `plan` | `task` (string, required) | The same shape with status `planned`, `answer` null, and an empty `results`, having spent no operator call |
+```python
+query_data(request: str, explain: bool = False, include_plan: bool = False) -> str
+```
 
-Neither takes limits. The server builds one planner at startup from its environment, and how much a
-run may spend is a deployment decision rather than something an agent has a basis for choosing.
+| Parameter | Description carried in the schema |
+| --- | --- |
+| `request` | The question to answer, in plain language, self-contained |
+| `explain` | Write the plan and stop. No operator runs, and no answer comes back |
+| `include_plan` | Return every plan the request produced alongside the answer. `explain` already returns them |
+
+`query_data` reaches `DataPlanner.run`, or `DataPlanner.plan` when `explain` is set. The verb is the
+CLI's (`blue-planner data query`), and the noun is the CLI's component (ADR-038). No argument takes
+a limit. The server builds one planner from the environment on the first tool call and holds it for
+the process lifetime, so how much a run may spend is a deployment decision rather than something an
+agent has a basis for choosing.
+
+### What the server deliberately does not expose
+
+| Not exposed | Because |
+| --- | --- |
+| Profile management | The server has no interactive user; it is configured by the `env` block of whoever launches it |
+| Registry and catalog lookups | `blue-data`'s `registry-mcp` already exposes `list_sources` and `search_records`. The operator registry is in-process (ADR-009) |
+| One tool per operator | Driving a single operator is an operator suite's concern |
+| MCP resources | The family is tools-only (ADR-038) |
+
+### The response
+
+`RunResult.to_dict`, serialized to JSON. `pipeline` travels only where the call asked for it; every
+other key travels on every call: `status`, `answer`, `failure_reason`, `results`, `counters`,
+`conversations`.
+
+| Call | `pipeline` |
+| --- | --- |
+| `query_data(request)` | Left out |
+| `query_data(request, include_plan=True)` | Present |
+| `query_data(request, explain=True)` | Present. The plan is the answer |
 
 ```json
 {
@@ -401,12 +431,6 @@ run may spend is a deployment decision rather than something an agent has a basi
   "answer": [
     {"title": "Senior Data Scientist", "company": "Corvus Health", "location": "San Francisco, CA"}
   ],
-  "pipeline": {
-    "current_logical_plan_id": "8c4a71d0",
-    "current_physical_plan_id": "a6e02f77",
-    "logical_plans": {"3f2b9c14": {"...": {}}, "8c4a71d0": {"...": {}}},
-    "physical_plans": {"d19f5b3c": {"...": {}}, "a6e02f77": {"...": {}}}
-  },
   "results": {
     "a3f1c208": {"search_terms": ["job postings"], "matches": [{"...": {}}], "dropped_terms": 0},
     "7b40de91": {"status": "ok", "failure_reason": null, "operator_id": "builtin.scan",
@@ -431,19 +455,20 @@ showing what ran out. That is a successful tool call reporting a failed run, not
 
 ### Errors
 
-| Condition | MCP result |
+| Condition | Result |
 | --- | --- |
 | A run that did not finish | Success, with a status in the payload |
 | An operator failing inside a run | Success. The fragment's attempt carries it |
-| An unknown tool, a malformed argument, or a result that will not encode | Tool error, `isError` true |
-| A missing API key or an unreachable registry | Tool error, `isError` true |
+| Anything raised: an unreadable registry, a missing API key, an invalid setting, a malformed argument | A successful tool call whose payload is `{"error": "<message>"}` (ADR-036) |
+
+A client cannot tell a configuration failure from a data question that found nothing, which is the
+price of the family's shared error convention.
 
 ### Registry access
 
 The operator registry and the router are in-process, built by whoever assembles the planner
-(ADR-009). No tool exposes a registry lookup, and
-physical planning makes no network call to discover an operator. Which operators a deployment
-registered is fixed at startup by what it installed and assembled.
+(ADR-009). Physical planning makes no network call to discover an operator, and which operators a
+deployment registered is fixed by what it installed and assembled.
 
 ---
 
@@ -460,10 +485,10 @@ shapes are specified when someone builds it.
 The library takes settings as injected values and reads no environment variable itself. Each
 interface loads what it needs and passes it into the constructors.
 
-The MCP server reads the environment, which is how a client that launches it as a subprocess
-configures it. `blue-planner` resolves each setting in one order — **command option > environment
-variable > profile > default** — and `profile inspect` reports the tier that supplied each value
-(ADR-028).
+The MCP server reads no configuration file. It reads the environment, which is how a client that
+launches it as a subprocess configures it. `blue-planner` resolves each setting in one order —
+**command option > environment variable > profile > default** — and `profile inspect` reports the
+tier that supplied each value (ADR-028).
 
 | Parameter | Cast | Default | Asked by `profile config` |
 | --- | --- | --- | --- |
@@ -478,7 +503,7 @@ variable > profile > default** — and `profile inspect` reports the tier that s
 | `BLUE_DATA_PLANNER_ENABLE_NL2TABLE` | bool | `false` | |
 | `BLUE_DATA_PLANNER_MAX_OPERATOR_CALLS` | int | `30` | |
 | `BLUE_DATA_PLANNER_MAX_FAILURE_REPLANS` | int | `2` | |
-| `BLUE_DATA_PLANNER_MAX_CONTROL_REPLANS` | int | `2` | |
+| `BLUE_DATA_PLANNER_MAX_CONTROL_REPLANS` | int | `5` | |
 | `BLUE_DATA_CLI_FORMAT` | str | `table` | |
 | `BLUE_DATA_CLI_LOG_LIMIT` | int | `80` | |
 

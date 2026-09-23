@@ -1039,9 +1039,10 @@ server write documents, and a document carries a measure of whatever grows with 
 `RunResult.to_dict` writes that form, and every interface sends it, so one serialization answers for
 all of them. Two shapes are reduced because both grow with the work a request did rather than with
 its answer: a transcript and a run's intermediate tables. Each becomes a measure, which keeps a
-document the size of what a reader can act on (ADR-032). The CLI sends the plans only where a run's
-log was asked for, since what a person reads in a terminal is the answer
-([09](09-api-interface-spec.md#output)).
+document the size of what a reader can act on (ADR-032). `pipeline` travels only where it was asked
+for: the CLI sends it under `--explain` or `--log`
+([09](09-api-interface-spec.md#output)), and the MCP server sends it under `explain` or
+`include_plan` ([09](09-api-interface-spec.md#the-response)).
 
 A run that did not finish returns the same object with its status, `answer` null, and its counters,
 in every interface. There is no separate error shape.
@@ -1113,7 +1114,7 @@ than added to, so no summary mixes two runs.
 | A `schema_version` field in a serialized plan | Nothing persists a plan. The shape is public interface, covered by semver |
 | A stored session, plan, or run | A `RunResult` is the record, and it is returned to the caller |
 | A model response cache | Every model call reaches the provider |
-| Operator or router state between requests | Both are assembled at startup and held in process |
+| Operator or router state between requests | Both are assembled once and held in process |
 | A separate error response shape | A run that did not finish returns a `RunResult` with a status (ADR-015) |
 | A row type of its own | A fragment passes plain dicts, so no shape belongs to a suite (ADR-012) |
 | Cost and cardinality estimates on a node or a fragment | Out of the first release |

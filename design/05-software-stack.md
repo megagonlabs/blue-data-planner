@@ -185,9 +185,8 @@ constructed stay inside the library and `blue-data-ops` is the library's depende
 
 | Concern | Choice |
 | --- | --- |
-| Library | `mcp` |
+| Library | `mcp`, `pydantic` |
 | Transport | stdio, so a client launches the server as a subprocess |
-| Configuration loading | `python-dotenv` |
 
 The server needs a library that registers a tool with a decorator and runs over stdio. Which
 version an install pins is in [12-deployment-ops.md](12-deployment-ops.md#2-installation).
@@ -206,8 +205,7 @@ Not part of the first release ([03-high-level-architecture.md](03-high-level-arc
 ## Configuration
 
 The library takes concrete implementations and settings as injected values and reads no environment
-variable itself. The MCP server reads the environment and loads a `.env` file with
-`dotenv.load_dotenv(override=True)` at startup; `.env` files are never committed. The CLI reads a
+variable itself. The MCP server reads the environment and nothing else. The CLI reads a
 profile, with the environment above it and below a command option (ADR-028).
 
 | Setting | Read by | For |
@@ -256,7 +254,7 @@ writes each one.
 | --- | --- | --- | --- |
 | `blue-data-ops` | `lib/` | Required, pinned to an exact version | The Blue operators and their registry |
 | `blue-data` | `lib/` | Required | Data source interfaces and the registry |
-| `pydantic` | `lib/`, `platform/mcp/` | Required | Response schemas for structured output, attribute validation |
+| `pydantic` | `lib/`, `platform/mcp/` | Required | Response schemas for structured output in `lib/`; MCP tool parameter descriptions in `platform/mcp/` |
 | `jsonmerge` | `lib/` | Required, pinned to an exact version | Blue-compatible JSON merge |
 | `jsonpath-ng` | `lib/` | Required | Path expressions in templating and JSON utilities |
 | `litellm` | `lib/` | Required | Provider-agnostic model calls |
@@ -266,7 +264,6 @@ writes each one.
 | `mcp` | `platform/mcp/` | Required | MCP server |
 | `click` | `platform/cli/` | Required | CLI command routing |
 | `rich` | `platform/cli/` | Required | CLI output formatting |
-| `python-dotenv` | `platform/mcp/` | Required | Loads `.env` at server startup |
 | `blue-data` | `platform/cli/` | Required | Profiles, configuration resolution, secret storage |
 | `pytest`, `pytest-asyncio`, `pytest-cov` | All | `dev` extra | Test tiers |
 | `ruff`, `pyright` | All | `dev` extra | Lint and type gates |

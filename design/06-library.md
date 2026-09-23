@@ -25,6 +25,7 @@ rather than a copy of the code.
 | --- | --- |
 | `blue_data_planner/__init__.py` | The run path in one import: `DataPlanner`, `build_data_planner`, `RunResult`, `RunLimits`, `RunStatus`, `BlueDataPlannerError`, and `__version__` |
 | `blue_data_planner/data_planner.py` | `DataPlanner`, `build_data_planner` |
+| `blue_data_planner/settings.py` | `PlannerSettings`, `build_data_planner_from_settings` |
 | `blue_data_planner/run_state.py` | `RunState` |
 | `blue_data_planner/logical_planner.py` | `LogicalPlanner` |
 | `blue_data_planner/physical_planner.py` | `PhysicalPlanner` |
