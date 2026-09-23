@@ -22,6 +22,7 @@ def validate_logical_plan(
     _check_structure(plan)
     _check_arity(plan)
     _check_replan_count(plan)
+    _check_replan_waits_for_work(plan, carried_node_ids)
     _check_controls_are_terminal(plan)
     terminal_ids = _check_ending(plan, carried_node_ids)
     _check_reachability(plan, terminal_ids, carried_node_ids)
@@ -86,6 +87,22 @@ def _check_replan_count(plan: LogicalPlan) -> None:
         raise PlanValidationError(
             "a plan takes at most one REPLAN node, since resolving one runs nothing and a "
             f"second asks for the continuation the first already asked for; got {len(replans)}"
+        )
+
+
+def _check_replan_waits_for_work(plan: LogicalPlan, carried_node_ids: frozenset[str]) -> None:
+    replans = [node for node in plan.nodes if node.kind is ControlOperator.REPLAN]
+    if not replans:
+        return
+    written_work = [
+        node for node in plan.nodes if node.is_operator_node and node.id not in carried_node_ids
+    ]
+    if not written_work:
+        raise PlanValidationError(
+            f"node {replans[0].id!r} is a REPLAN in a plan that writes no step for it to wait "
+            "for, so it asks for the continuation it was already asked for; write the step(s) "
+            "whose rows the continuation needs, or a DISCOVER node for what the catalog is "
+            "missing, or the whole plan from what is already known"
         )
 
 
@@ -154,6 +171,11 @@ def _check_ending(plan: LogicalPlan, carried_node_ids: frozenset[str]) -> set[st
 def _check_reachability(
     plan: LogicalPlan, terminal_ids: set[str], carried_node_ids: frozenset[str]
 ) -> None:
+    if plan.output_node_id is None:
+        # A plan ending at control nodes stops before its work is consumed, since a REPLAN reads
+        # nothing: the rows its last steps produce are carried into the next version, which is
+        # where something reads them.
+        return
     read_ids = _read_node_ids(plan)
     for node in plan.nodes:
         if node.id in terminal_ids or node.id in carried_node_ids:

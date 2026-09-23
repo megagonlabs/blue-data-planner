@@ -92,19 +92,34 @@ class ReturnNodeModel(_Strict):
     )
 
 
-class ControlNodeModel(_Strict):
-    """A node that ends the pass and returns to the logical planner."""
+class DiscoverNodeModel(_Strict):
+    """A node that searches the catalog and ends the pass."""
 
     id: str = Field(description="A short name for this node, unique in the plan.")
-    kind: Literal["REPLAN", "DISCOVER"] = Field(description="The operation this node performs.")
+    kind: Literal["DISCOVER"] = Field(description="The operation this node performs.")
     input_node_ids: list[str] = Field(
-        description="The ids of the nodes whose rows this node reads, empty when it reads none."
+        description=(
+            "The ids of the nodes whose rows the search terms are written against, empty when "
+            "the search needs none."
+        )
     )
     instruction: str = Field(
         description=(
-            "What has to be found in the catalog, or what value in the data has to be seen, "
-            "before the rest of the plan can be written. A value you can supply yourself is not "
-            "one of these; write it into the plan."
+            "What has to be found in the catalog, in plain language, starting with a verb. Data "
+            "you can supply yourself is not one of these; write it into the plan."
+        )
+    )
+
+
+class ReplanNodeModel(_Strict):
+    """A node that ends the pass so the rest can be written against the rows it produced."""
+
+    id: str = Field(description="A short name for this node, unique in the plan.")
+    kind: Literal["REPLAN"] = Field(description="The operation this node performs.")
+    instruction: str = Field(
+        description=(
+            "Why the pass stops here: what the steps it wrote have to show before the rest of "
+            "the plan can be written."
         )
     )
 
@@ -112,7 +127,7 @@ class ControlNodeModel(_Strict):
 # A plain union rather than a discriminated one: a discriminator is rendered as the JSON Schema
 # keywords `oneOf` and `discriminator`, and a provider enforcing a schema strictly accepts
 # neither. The kinds are disjoint literals, so the node a response holds is unambiguous anyway.
-PlanNodeModel = OperatorNodeModel | ReturnNodeModel | ControlNodeModel
+PlanNodeModel = OperatorNodeModel | ReturnNodeModel | DiscoverNodeModel | ReplanNodeModel
 
 
 class LogicalPlanModel(_Strict):

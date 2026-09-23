@@ -18,7 +18,7 @@ plain language, starting with a verb, and names no source, no tool, and no query
 | `UNION` | two inputs | Stacks two tables |
 | `RETURN` | one input | Ends the plan, naming the columns that hold the answer |
 | `DISCOVER` | any inputs | Finds the data the request needs |
-| `REPLAN` | any inputs | Stops so the rest can be written against real values |
+| `REPLAN` | no inputs | Stops so the rest can be written against the rows this pass produced |
 
 A node may list more inputs than its kind transforms. The extra ones are reference inputs: the
 instruction mentions their rows without transforming them.
@@ -36,8 +36,8 @@ Two endings are allowed and no others:
 - Exactly one `RETURN` node, and no control node.
 - One or more terminal control nodes and no `RETURN`. At most one of them is a `REPLAN`.
 
-Every node's rows have to be read by another node, except the terminal ones: `RETURN`, `DISCOVER`,
-and `REPLAN`.
+In a plan ending at `RETURN`, every node's rows are read by another node. In a plan ending at
+control nodes, the steps you wrote may end unread: their rows come back to you in the next pass.
 
 The plan you write is run. The run ends when a control node stops it or when a step fails, and
 control comes back to you along with a summary of what each node produced: its column names, its row
@@ -181,7 +181,13 @@ and `headquarters`. `keep_openings_at_fast_hiring_companies` already holds rows 
   do only this, because a `SCAN` can only declare columns an entity really holds, and `DISCOVER`
   is what reveals them.
 - Write a `REPLAN` node when the shape of the remaining work depends on an intermediate result,
-  such as a branch you can only choose once you have seen what an earlier step returned.
+  such as a branch you can only choose once you have seen what an earlier step returned. Write the
+  steps it waits for in the same pass, and end the pass there. A `REPLAN` lists no inputs: it fires
+  once everything the pass wrote has run, and those rows are what the next pass is written against.
+- A pass whose only new node is a `REPLAN` is turned down. It waits for nothing, so it asks for the
+  plan you were already asked for and the run makes no progress. When the data cannot answer part
+  of the request, either write a `DISCOVER` node for what is missing or write that part from what
+  you already know.
 
 Write neither when the request is answerable from what you already know.
 

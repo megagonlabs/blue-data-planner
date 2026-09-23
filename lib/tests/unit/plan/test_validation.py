@@ -158,7 +158,7 @@ def test_a_sound_plan_passes(plan: LogicalPlan) -> None:
                 [
                     a_node("n1", LogicalOperator.SCAN, []),
                     a_node("n2", LogicalOperator.RETURN, ["n1"]),
-                    a_node("n3", ControlOperator.REPLAN, ["n1"]),
+                    a_node("n3", ControlOperator.REPLAN, []),
                 ],
                 output_node_id="n2",
             ),
@@ -207,6 +207,16 @@ def test_a_sound_plan_passes(plan: LogicalPlan) -> None:
             ),
             "produces no rows",
         ),
+        (
+            a_plan(
+                [
+                    a_node("n1", ControlOperator.DISCOVER, []),
+                    a_node("n2", ControlOperator.REPLAN, []),
+                ],
+                output_node_id=None,
+            ),
+            "writes no step for it to wait for",
+        ),
     ],
     ids=[
         "repeated-node-id",
@@ -219,6 +229,7 @@ def test_a_sound_plan_passes(plan: LogicalPlan) -> None:
         "a-node-nobody-reads",
         "a-join-given-one-input",
         "a-node-reading-a-control-node",
+        "a-replan-with-no-work-to-wait-for",
     ],
 )
 def test_an_unsound_plan_is_rejected_and_the_error_names_what_was_wrong(
@@ -234,7 +245,7 @@ def test_a_carried_node_is_exempt_from_the_shape_and_reachability_checks() -> No
     plan = a_plan(
         [
             a_node("n1", LogicalOperator.SCAN, []),
-            a_node("n2", ControlOperator.REPLAN, ["n1"]),
+            a_node("n2", ControlOperator.DISCOVER, ["n1"]),
             a_node("n3", LogicalOperator.SCAN, []),
             a_node("n4", LogicalOperator.RETURN, ["n3"]),
         ],
@@ -331,6 +342,19 @@ def test_a_plan_ending_on_several_terminal_control_nodes_is_accepted() -> None:
         [
             a_node("n1", ControlOperator.DISCOVER, []),
             a_node("n2", ControlOperator.DISCOVER, []),
+        ],
+        output_node_id=None,
+    )
+    validate_logical_plan(plan)
+
+
+def test_a_plan_ending_at_a_replan_may_leave_the_step_it_wrote_unread() -> None:
+    """A REPLAN reads nothing, so what the pass wrote is read by the next pass instead."""
+    plan = a_plan(
+        [
+            a_node("n1", LogicalOperator.SCAN, []),
+            a_node("n2", LogicalOperator.FILTER, ["n1"]),
+            a_node("n3", ControlOperator.REPLAN, []),
         ],
         output_node_id=None,
     )

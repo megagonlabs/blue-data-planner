@@ -135,11 +135,16 @@ runs nothing, so a second one asks for a continuation the first already asked fo
 `DISCOVER` carries its own instruction and searches on its own terms
 ([04](04-detailed-architecture.md#three-kinds-of-node)).
 
+A plan holding a `REPLAN` has to write at least one step it did not carry over. The node marks where
+the pass stops so the rest can be written against the rows the pass produced, and a pass running
+nothing produces none: the next version would be written from the same prompt, and the run would
+spend a replan on it.
+
 Several terminal control nodes is the ordinary shape for a request needing two or more things found. "Find
 data scientist openings at Fortune 500 companies" needs a list of those companies and a job postings
 source, and neither search narrows the other, so both `DISCOVER` nodes belong to the same pass.
-Reachability follows the same rule: every node reaches one of the terminal control nodes, not one
-particular node.
+Reachability is checked only where a plan ends at `RETURN`. A `REPLAN` reads nothing, so the last
+step a pass wrote ends unread, and the next version is what reads the rows it produced.
 
 ### `PipelineNode`
 
@@ -181,7 +186,8 @@ operator's `parameter_schema`.
 | `SCAN` | 0, since it reads a source rather than another node |
 | `JOIN`, `UNION` | 2. Merging three tables is two unions |
 | `FILTER`, `PROJECT`, `EXPAND`, `AGGREGATE`, `DISTINCT`, `SORT_SUPERLATIVE`, `RETURN` | 1 |
-| `REPLAN`, `DISCOVER` | Any number, including zero. A control node has no arity (ADR-007) |
+| `DISCOVER` | Any number, including zero. A control node has no arity (ADR-007) |
+| `REPLAN` | None. It reads nothing, so there is no node for it to name |
 
 A node may list more inputs than it transforms. The first `INPUT_ARITY[kind]` are the tables it
 works on, and the rest are reference inputs, whose rows its instruction mentions without

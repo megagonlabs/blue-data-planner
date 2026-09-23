@@ -20,8 +20,8 @@ Each entity below carries every attribute it holds. Declare column names from th
 ## What already ran
 
 These nodes stay in the plan. Name the id of one holding rows to read those rows; do not write
-any of them again. A `DISCOVER` node has already searched, and what it found is above. The row
-under a node is the first of the rows it holds, and its keys are the column names those rows
+any of them again. A `DISCOVER` node has already searched, and what it found is above. The rows
+under a node are the first of the rows it holds, and their keys are the column names those rows
 really carry.
 
 {{ carried_nodes }}

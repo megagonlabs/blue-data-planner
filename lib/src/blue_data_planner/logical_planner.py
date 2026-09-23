@@ -28,8 +28,9 @@ from blue_data_planner.types import (
 # How many source records one prompt carries. It decides how much of a registry a prompt
 # holds rather than how much work a run may do, so it is not a RunLimits field.
 CATALOG_PREVIEW_LIMIT = 20
-# How many rows of a carried node's table one prompt shows.
-CARRIED_SAMPLE_ROWS = 1
+# How many rows of a carried node's table one prompt shows. A continuation is written
+# against these values, since a REPLAN hands the planner nothing of its own.
+CARRIED_SAMPLE_ROWS = 3
 
 
 class LogicalPlanner:
@@ -148,7 +149,8 @@ def _node(payload: dict[str, Any]) -> PipelineNode:
     return PipelineNode(
         id=payload["id"],
         kind=kind,
-        input_node_ids=list(payload["input_node_ids"]),
+        # A REPLAN reads nothing, so ReplanNodeModel carries no input_node_ids field at all.
+        input_node_ids=[] if kind is ControlOperator.REPLAN else list(payload["input_node_ids"]),
         attributes=attributes,
         required_output_columns=columns,
     )
@@ -197,10 +199,10 @@ def _render_carried(
 
 
 def _describe_rows(node: PipelineNode, held: ExecutionResult) -> list[str]:
-    """Describe one node's rows: how many, which columns, and the first of them."""
+    """Describe one node's rows: how many, which columns, and the first few of them."""
     tables = held.output or []
-    # One row, because the ending is written against the names and the shape of the values
-    # rather than against the data, and a carried table may hold a column of long text.
+    # A few rows rather than the table: enough to show how the values vary, short of what a
+    # column of long text would cost the prompt.
     summary = summarize_table(tables[0], CARRIED_SAMPLE_ROWS) if tables else None
     if summary is None:
         return [f"- {node.id} ({node.kind.value}): {held.row_count} row(s)"]

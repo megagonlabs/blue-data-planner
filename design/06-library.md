@@ -611,11 +611,11 @@ handed in. That costs one registry read per request, until the first cover insta
 the preview from four signatures and from the run state.
 
 `results` is the run's map for the parent version, and it answers two different questions. A
-`REPLAN` node's continuation is written against the rows its inputs produced, so the planner reads
-real columns and values. A `DISCOVER` node's entry holds the entities its search found and every
-attribute each one holds, which is what lets the continuation's scans name a source and declare
-column names the registry actually carries. One argument covers both because both live in the same
-map.
+continuation after a `REPLAN` is written against the rows the pass's fragments produced, so the
+planner reads real columns and values. A `DISCOVER` node's entry holds the entities its search
+found and every attribute each one holds, which is what lets the continuation's scans name a source
+and declare column names the registry actually carries. One argument covers both because both live
+in the same map.
 
 `reason` is either a failure reason from the review or the physical planner, or the instruction from
 the control node that ended the pass. It stays at the level the planner works in: it says what could

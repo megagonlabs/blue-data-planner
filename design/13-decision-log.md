@@ -679,7 +679,7 @@ how long the stored sample values are, so it is read for one fragment and goes n
 **Consequences:** A request touching registered data plans at least twice, and a first plan carrying
 no `DISCOVER` node is one the planner judged answerable from world knowledge alone. A first pass may
 end on several terminal control nodes, since two things needing to be found do not have to be found
-one pass apart, so validation and reachability admit more than one
+one pass apart, so validation admits more than one
 ([04](04-detailed-architecture.md#validation)).
 
 An entity is found by its own name and description. A search cannot reach one through an attribute's
@@ -996,6 +996,37 @@ fragment to be told what the results already say, on the path a replanned ending
 wrote it. The cover is carried over rather than rebuilt, so the run's record shows a new cover whose
 fragments are the previous cover's, and the signatures under which results sit are unchanged
 (ADR-024). Where a plan still holds work, every binding is decided afresh as before.
+
+---
+
+## ADR-036 — A `REPLAN` Reads Nothing, and Waits for Work the Same Pass Wrote
+
+**Decision:** A `REPLAN` node lists no inputs. It is ready once no fragment is, and what it hands
+the planner is what the pass's fragments produced. A plan holding one has to write at least one step
+it did not carry over, which validation enforces. A plan ending at control nodes is exempt from the
+rule that every node's rows are read by another node.
+
+**Rationale:** Every other edge in a plan is dataflow, and a `REPLAN` reads no rows, so an edge into
+one would be the single edge meaning something else. It would also take a decision away from the
+physical planner: a node listed by a control node has a consumer outside every fragment and can only
+be a fragment root, which forbids the grouping physical planning exists to choose. Nothing is lost
+by dropping the edges, because every fragment root holding a result is carried into the next version
+and shown to the planner with its columns and a sample of its rows.
+
+A pass writing nothing runs nothing, so the next version is written from the same prompt, and each
+turn of the loop changes only the sentence the previous `REPLAN` wrote about why it stopped. The
+run then spends its control replans without making an operator call. Refusing the plan answers this
+where a bound cannot: a bound sets how many times a run may arrive back where
+it started, and the validation error tells the planner what to write instead while the correction
+costs neither a replan nor an operator call.
+
+**Consequences:** The response schema carries one node model per control kind, and the one for
+`REPLAN` has no field a node id could go in, so the rule holds wherever a provider enforces a schema
+and needs no check of its own. A pass that cannot write a step writes a `DISCOVER` node or the whole
+plan from world knowledge; one that can do neither ends the request as `invalid_plan` with the
+objection as its reason, rather than as `replan_exhausted` several passes later. What already ran is
+the one place values from the run reach a continuation, which is what a carried node's sample rows
+are for ([04](04-detailed-architecture.md#writing-a-continuation)).
 
 ---
 

@@ -208,7 +208,7 @@ def a_cover_of_the_second_version() -> PhysicalPlan:
 
 
 def a_state_over_two_control_nodes() -> RunState:
-    """A plan ending in n6 DISCOVER and n7 REPLAN, both reading n1, covered over n1 alone."""
+    """A plan ending in n6 DISCOVER, reading n1, and n7 REPLAN, covered over n1 alone."""
     state = RunState(request="find the salary tables", counters=RunCounters(RunLimits()))
     state.install_logical_plan(
         LogicalPlan(
@@ -232,7 +232,7 @@ def a_state_over_two_control_nodes() -> RunState:
                 PipelineNode(
                     id="n7",
                     kind=ControlOperator.REPLAN,
-                    input_node_ids=["n1"],
+                    input_node_ids=[],
                     attributes={"instruction": "write the rest"},
                 ),
             ],

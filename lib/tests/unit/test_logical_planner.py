@@ -78,6 +78,27 @@ def a_plan_ending_in_discovery() -> dict[str, Any]:
     }
 
 
+def a_plan_ending_in_a_replan() -> dict[str, Any]:
+    """A pass writing one step and stopping, so the rest is written against the rows it holds."""
+    return {
+        "output_node_id": None,
+        "nodes": [
+            {
+                "id": "n1",
+                "kind": "SCAN",
+                "input_node_ids": [],
+                "instruction": "read the users",
+                "required_output_columns": [{"name": "DisplayName", "dtype": "str"}],
+            },
+            {
+                "id": "n2",
+                "kind": "REPLAN",
+                "instruction": "Stop until the display names are known.",
+            },
+        ],
+    }
+
+
 def a_continuation_plan() -> dict[str, Any]:
     """A scan and an ending, written with ids that do not collide with a carried node."""
     return {
@@ -154,8 +175,8 @@ def a_parent_plan_holding_a_scan() -> LogicalPlan:
     )
 
 
-def three_rows_from_n1() -> dict[str, Any]:
-    """What the run holds for n1: three user rows, of which the prompt shows the first."""
+def five_rows_from_n1() -> dict[str, Any]:
+    """What the run holds for n1: five user rows, of which the prompt shows the first few."""
     return {
         "n1": ExecutionResult(
             status=ExecutionStatus.OK,
@@ -164,10 +185,12 @@ def three_rows_from_n1() -> dict[str, Any]:
                     {"DisplayName": "whuber", "Views": 20932},
                     {"DisplayName": "gung", "Views": 18022},
                     {"DisplayName": "chl", "Views": 9421},
+                    {"DisplayName": "Glen_b", "Views": 8812},
+                    {"DisplayName": "Tim", "Views": 7104},
                 ]
             ],
             operator_id="builtin.scan",
-            row_count=3,
+            row_count=5,
         )
     }
 
@@ -209,6 +232,18 @@ def test_a_request_over_registered_data_comes_back_as_one_discover_node_per_thin
     ]
 
 
+def test_a_pass_stopping_at_a_replan_writes_the_step_the_replan_waits_for() -> None:
+    """A REPLAN ends the pass over the rows this pass produced, and lists no node of its own."""
+    result = a_planner_over(ScriptedLLMClient([a_plan_ending_in_a_replan()])).generate(
+        "who has the most views", Conversation(), counters()
+    )
+
+    assert result.status is RunStatus.OK
+    assert result.plan is not None
+    assert result.plan.node("n2").kind is ControlOperator.REPLAN
+    assert result.plan.node("n2").input_node_ids == []
+
+
 def test_a_continuation_carries_the_nodes_the_run_has_something_for() -> None:
     """The new version keeps what already ran and covers the rest with what came back."""
     conversation = Conversation()
@@ -232,7 +267,7 @@ def test_a_continuation_carries_the_nodes_the_run_has_something_for() -> None:
     assert nodes_by_id["n1"].kind is ControlOperator.DISCOVER
 
 
-def test_a_carried_node_is_shown_with_its_columns_and_the_first_of_its_rows() -> None:
+def test_a_carried_node_is_shown_with_its_columns_and_the_first_few_of_its_rows() -> None:
     """An ending naming the column holding the answer is written against the rows themselves."""
     conversation = Conversation()
     a_planner_over(ScriptedLLMClient([a_continuation_plan()])).generate(
@@ -241,13 +276,14 @@ def test_a_carried_node_is_shown_with_its_columns_and_the_first_of_its_rows() ->
         counters(),
         parent=a_parent_plan_holding_a_scan(),
         carried_node_ids=frozenset({"n1"}),
-        results=three_rows_from_n1(),
+        results=five_rows_from_n1(),
         reason="the ending named a column the rows do not carry",
     )
 
     asked = [turn for turn in conversation.turns if turn.role == "user"][-1].content
-    assert "- n1 (SCAN): 3 row(s), ['DisplayName', 'Views']" in asked
+    assert "- n1 (SCAN): 5 row(s), ['DisplayName', 'Views']" in asked
     assert "{'DisplayName': 'whuber', 'Views': 20932}" in asked
+    assert "{'DisplayName': 'chl', 'Views': 9421}" in asked
     assert "(+2 more row(s))" in asked
 
 

@@ -145,22 +145,18 @@ def test_a_plan_naming_an_operation_the_vocabulary_lacks_is_refused() -> None:
         )
 
 
-def test_each_node_kind_is_held_to_the_attributes_its_kind_carries() -> None:
-    """A RETURN names columns and carries no instruction; an operator node is the reverse."""
+@pytest.mark.parametrize(
+    "node",
+    [
+        {"id": "n1", "kind": "RETURN", "input_node_ids": [], "instruction": "give the answer"},
+        {"id": "n1", "kind": "REPLAN", "input_node_ids": [], "instruction": "wait for the rows"},
+    ],
+    ids=["a-return-carrying-an-instruction", "a-replan-listing-inputs"],
+)
+def test_each_node_kind_is_held_to_the_fields_its_kind_carries(node: dict[str, Any]) -> None:
+    """A RETURN names columns and carries no instruction; a REPLAN has nowhere to list a node."""
     with pytest.raises(ValidationError):
-        logical_plan_schema().model_validate(
-            {
-                "output_node_id": "n1",
-                "nodes": [
-                    {
-                        "id": "n1",
-                        "kind": "RETURN",
-                        "input_node_ids": [],
-                        "instruction": "give the answer",
-                    }
-                ],
-            }
-        )
+        logical_plan_schema().model_validate({"output_node_id": "n1", "nodes": [node]})
 
 
 def test_a_plan_the_vocabulary_admits_reads_back_with_its_nodes() -> None:

@@ -113,23 +113,29 @@ before anything ran: a join renames a column it collided on, or the ending reads
 grouped, which produced no table of its own. Both send the run to the replan, where the planner
 names the columns again against the rows the run now holds (ADR-034).
 
-Both control nodes act as barriers. A node is only ready once every input it lists has a result, so
-one placed over three parallel paths needs no scheduling code of its own. A pass runs the fragments
-it can, then resolves every control node that is ready, and returns to the logical planner once with
-what all of them produced ([section 4](#4-returning-to-the-logical-planner)). Two searches that do
-not narrow each other therefore run in the same pass and cost one return between them.
+Both control nodes act as barriers. A pass runs the fragments it can, then resolves every control
+node that is ready, and returns to the logical planner once with what all of them produced
+([section 4](#4-returning-to-the-logical-planner)). Two searches that do not narrow each other
+therefore run in the same pass and cost one return between them.
 
 | Control node | Waits for | Gives the planner |
 | --- | --- | --- |
-| `REPLAN` | The results of the nodes it lists | Those results, so the rest of the plan can be written against real columns and values |
-| `DISCOVER` | The same, and it may list none | The entities a registry search found, each with every attribute it holds, so a later `SCAN` can name a source and declare real column names |
+| `REPLAN` | Every fragment the pass can run | What those fragments produced, so the rest of the plan can be written against real columns and values |
+| `DISCOVER` | The results of the nodes it lists, and it may list none | The entities a registry search found, each with every attribute it holds, so a later `SCAN` can name a source and declare real column names |
+
+A `DISCOVER` node reads the rows its inputs produced, so it is ready once every input it lists has a
+result, and one placed over three parallel paths needs no scheduling code of its own. A `REPLAN`
+node reads nothing and lists no input: it is ready once no fragment is, which is to say once the
+pass has run everything it can, and those rows are what the continuation is written against. A pass
+writing no step gives a `REPLAN` nothing to wait for, and validation rejects it
+([validation](#validation)).
 
 Only `DISCOVER` does work of its own, and none of it is an operator call
-([section 4](#resolving-a-discovery-node)). Resolving a `REPLAN` node runs nothing: the results it
-waited for are already in the run's hands, and the node's whole content is the instruction it gives
-the planner. That is why a plan holds at most one of them. Two markers saying "stop here and write
-the rest" produce one continuation between them, so the second says nothing the first does not,
-where two `DISCOVER` nodes each carry their own instruction and spend their own search terms.
+([section 4](#resolving-a-discovery-node)). Resolving a `REPLAN` node runs nothing: the rows the
+pass produced are already in the run's hands, and the node's whole content is the instruction it
+gives the planner. That is why a plan holds at most one of them. Two markers saying "stop here and
+write the rest" produce one continuation between them, so the second says nothing the first does
+not, where two `DISCOVER` nodes each carry their own instruction and spend their own search terms.
 
 ### One conversation per component
 
@@ -212,6 +218,12 @@ and no `RETURN` at all. The `RETURN` arrives in a continuation. A plan carrying 
 terminal control nodes at most one is a `REPLAN`, while the number of `DISCOVER` nodes is not
 bounded.
 
+A `REPLAN` is rejected in one further case: a plan writing no step for it to wait for. Such a pass
+runs nothing, so the prompt the next pass reads is the prompt this one read, and the run spends a
+replan arriving back where it started. The way out is to write the steps whose rows the
+continuation needs, a `DISCOVER` node for what the catalog is missing, or the whole plan from what
+the planner already knows.
+
 A `RETURN` names columns the node it reads declares, and that node has to declare them, so
 validation always has something to check the ending against. A plan whose ending projects a column
 nothing produces is rejected before any of it runs.
@@ -219,8 +231,11 @@ nothing produces is rejected before any of it runs.
 A pass may end on several terminal control nodes, and that is the ordinary shape for a request
 needing two or more things found. "Find data scientist openings at Fortune 500 companies" needs a
 list of those companies and a job postings source, and neither search narrows the other, so making
-the second wait a pass for the first would buy nothing. Every node has to reach one of the terminal
-control nodes; which one is not fixed.
+the second wait a pass for the first would buy nothing.
+
+A plan ending at `RETURN` has every node's rows read by another node. A plan ending at control nodes
+does not: a `REPLAN` reads nothing, so the last step a pass wrote ends unread, and the next version
+is what reads the rows it produced.
 
 ---
 
@@ -480,7 +495,7 @@ same way, and one return is one replan however many control nodes fired into it.
 
 | Trigger | What the planner reads |
 | --- | --- |
-| A `REPLAN` node became ready | The node's instruction, and the results its inputs produced |
+| A `REPLAN` node became ready | The node's instruction, and what the pass's fragments produced |
 | A `DISCOVER` node became ready | The node's instruction, and the entities the search found, each with its attributes |
 | Recovery reached the replan | The review's assessment of what could not be done |
 
@@ -547,6 +562,10 @@ Returning to the planner does not discard the run. `DataPlanner` calls the logic
 with the request, the catalog preview, the nodes that already succeeded, everything discovery
 found, and the reason the pass ended.
 
+A node that already ran is shown with its column names, its row count, and a sample of its rows.
+Since a `REPLAN` hands the planner nothing of its own, that sample is where the values a
+continuation is written against come from.
+
 What comes back is a continuation: new nodes covering the remaining work, whose input ids may point
 at nodes that already ran.
 
@@ -579,10 +598,10 @@ cut no longer holds. The plan is cut again, all three nodes lose their standing,
 again. The general rule behind both cases is that a node read from outside its fragment has to be
 that fragment's root.
 
-The ordinary replan path never pays this, and the reason is structural. A control node is grouped
-into no fragment, so every node it lists as an input has a consumer outside every fragment and is
-therefore a root. The results the planner is handed when a `REPLAN` or `DISCOVER` node fires are
-exactly those roots. The cost appears when a continuation reaches past them into the middle of work
+The ordinary replan path never pays this, and the reason is structural. The results the planner is
+handed when a control node fires are the fragment roots, since a grouped node materialized no table
+of its own, so a continuation written against the rows it was shown reads a root. The cost appears
+when a continuation reaches past them into the middle of work
 that already ran, which a replan after a failure is free to do. Whether to spend a fragment call again
 for a node the planner wants to read, or to write the continuation from the fragment's root instead,
 is left to the planner rather than forbidden. [Section 5](#5-recovering-from-a-failure) is where the
