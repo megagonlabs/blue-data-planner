@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# Install the MCP server and the library it adapts, in one editable environment.
+# Install the MCP server, the library it adapts, and the blue-data and blue-data-ops checkouts
+# beside this repository, in one editable environment.
 set -euo pipefail
 cd "$(dirname "$0")/.."
-pip install -e ../../lib
-pip install -e .
+bash ../../lib/scripts/install.sh
+pip install -e '.[dev]'

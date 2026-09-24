@@ -25,10 +25,10 @@ blue-data-planner-mcp = "blue_data_planner_mcp.server:main"
 [tool.uv.sources]
 # Local development installs. Replace with a package index at release, the way lib/ documents.
 blue-data-planner = { path = "../../lib", editable = true }
-# blue-data-ops and blue-data reach this environment through blue-data-planner, and the sources
-# stay here because uv resolves a path dependency's own.
-blue-data-ops = { git = "ssh://git@github.com/megagon-internal/blue-data-ops.git", subdirectory = "lib", rev = "7ed2c459ce9dc62e0c847f1240518e161b1454f1" }
-blue-data = { git = "ssh://git@github.com/megagon-internal/blue-data.git", subdirectory = "lib", rev = "39e02786d60e069306749176b4efd859171e760f" }
+# blue-data and blue-data-ops come from sibling checkouts beside this repository, and stay
+# listed here because uv resolves a path dependency's sources from the root project.
+blue-data-ops = { path = "../../../blue-data-ops/lib", editable = true }
+blue-data = { path = "../../../blue-data/lib", editable = true }
 
 [tool.setuptools.packages.find]
 where = ["src"]
