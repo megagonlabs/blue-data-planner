@@ -29,7 +29,7 @@ platform package is a dependency of the library.
 
 | Package | Path | Depends on |
 | --- | --- | --- |
-| `blue-data-planner` | `lib/` | `blue-data-ops`, `blue-data`, `pydantic`, `jsonmerge`, `jsonpath-ng` |
+| `blue-data-planner` | `lib/` | `blue-data-ops`, `blue-data`, `pydantic`, `litellm`, `tenacity`, `jinja2`, `jsonpath-ng` |
 | `blue-data-planner-cli` | `platform/cli/` | `blue-data-planner`, `blue-data`, `click`, `rich` |
 | `blue-data-planner-mcp` | `platform/mcp/` | `blue-data-planner`, `mcp`, `pydantic` |
 
@@ -255,7 +255,6 @@ writes each one.
 | `blue-data-ops` | `lib/` | Required, pinned to an exact version | The Blue operators and their registry |
 | `blue-data` | `lib/` | Required | Data source interfaces and the registry |
 | `pydantic` | `lib/`, `platform/mcp/` | Required | Response schemas for structured output in `lib/`; MCP tool parameter descriptions in `platform/mcp/` |
-| `jsonmerge` | `lib/` | Required, pinned to an exact version | Blue-compatible JSON merge |
 | `jsonpath-ng` | `lib/` | Required | Path expressions in templating and JSON utilities |
 | `litellm` | `lib/` | Required | Provider-agnostic model calls |
 | `tenacity` | `lib/` | Required | Retry with backoff around model calls |

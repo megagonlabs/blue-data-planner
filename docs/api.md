@@ -8,5 +8,5 @@ A REST API would map to the same two library operations every other interface us
 endpoints get specified when someone builds it. See
 [`design/09-api-interface-spec.md`](../design/09-api-interface-spec.md#4-rest-api).
 
-Until then, use the [Python library](api-reference.md), the [`blue-planner` CLI](cli.md), or the
-[MCP server](mcp.md) once it exists.
+Use the [Python library](api-reference.md), the [`blue-planner` CLI](cli.md), or the
+[MCP server](mcp.md) instead.

@@ -153,13 +153,13 @@ is JSON by protocol, so a format option has nothing to choose.
 
 There is no configuration file. A client launches this server as a subprocess with a working
 directory it did not choose, so a file loaded from disk would either find nothing or find the wrong
-one — sitting above the `env` block the client passed on purpose. The server also reads no CLI
-profile: `blue-planner`'s `~/.blue-planner/.profiles` never reaches it, so a developer's profile
-cannot silently reconfigure a server already running for a client.
+one, and would take precedence over the `env` block the client passed on purpose. The server also
+reads no CLI profile: `blue-planner`'s `~/.blue-planner/.profiles` never reaches it, so a
+developer's profile cannot silently reconfigure a server already running for a client.
 
-The planner is built on the first `query_data` call and held for the process lifetime. A server
-that starts is not yet a server that can answer: an unreachable registry or a missing API key
-surfaces as an error payload on that first call, not at startup.
+The planner is built on the first `query_data` call and held for the process lifetime. An
+unreachable registry or a missing API key therefore returns an error payload on that first call
+rather than stopping the server at startup.
 
 ## Use it elsewhere
 

@@ -87,8 +87,8 @@ and the server reads everything else from the environment in [section 4](#4-conf
 
 On the first tool call the server builds one planner from the environment in section 4 and holds it
 for the process lifetime ([09-api-interface-spec.md](09-api-interface-spec.md#the-tool)). It needs a
-reachable registry and a model to build one, so a server that starts is not yet a server that can
-answer: an unreachable registry reaches the client as an error payload on that first call.
+reachable registry and a model to build one, so an unreachable registry reaches the client as an
+error payload on that first call rather than stopping the server at startup.
 
 ---
 
@@ -101,8 +101,8 @@ The MCP server reads no configuration file. It reads the environment, which is h
 launching it as a subprocess configures it.
 
 `blue-planner` reads a profile, and resolves each setting in one order (ADR-028): **command option,
-then environment variable, then profile, then default**. It loads no `.env` file, so nothing sits
-above the exported environment.
+then environment variable, then profile, then default**. It loads no `.env` file, so nothing takes
+precedence over the exported environment.
 
 | Variable | Default | For |
 | --- | --- | --- |

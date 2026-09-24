@@ -252,7 +252,7 @@ mapping, exit codes. Planning and execution are the library's tests, not repeate
 | --- | --- |
 | MCP | A request returns the run's JSON form without the plans, `include_plan` adds every plan the request produced, and `explain` returns the plan and spends no operator call; a run that did not finish returns its status and a null answer; a failure the server meets returns an error payload; the schema a client reads describes every parameter; every setting comes from the environment, a CLI profile on disk does not configure the server, and the package does not import the CLI |
 | MCP threading | The planner runs off the event loop thread, through `asyncio.to_thread`, rather than blocking it |
-| CLI | Argument and option parsing through Click's `CliRunner`; a profile's parameters resolved in the documented order, with a secret masked rather than printed; the result on standard output and everything else on standard error, with `--format` deciding how the result is written and `--log` what is reported about the run; each error code and each of the three exit codes |
+| CLI | Argument and option parsing through Click's `CliRunner`; a profile's parameters resolved in the documented order, with a secret masked rather than printed; the result on standard output and everything else on standard error, with `--format` deciding how the result is written and `--log` what is reported about the run; each error code and each of the three exit codes; and the defaults the profile spec declares matching the ones `PlannerSettings` holds |
 
 Each platform package keeps its own doubles under `tests/doubles/`: `lib/tests/` ships in no
 package, and a platform package's tests resolve imports against its own root. An adapter test

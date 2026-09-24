@@ -317,9 +317,12 @@ It gets back structured JSON: the rows, and what each node produced.
 {
   "status": "ok",
   "answer": [
-    {"title": "Senior Data Scientist", "company": "Corvus Health"},
-    {"title": "Data Scientist, Clinical", "company": "Meridian Bio"}
+    [
+      {"title": "Senior Data Scientist", "company": "Corvus Health"},
+      {"title": "Data Scientist, Clinical", "company": "Meridian Bio"}
+    ]
   ],
+  "failure_reason": null,
   "results": {
     "a3f1c208": {"search_terms": ["job postings"], "matches": [{"...": {}}], "dropped_terms": 0},
     "7b40de91": {"status": "ok", "failure_reason": null, "operator_id": "builtin.scan",

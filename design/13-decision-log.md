@@ -833,8 +833,8 @@ every Blue CLI resolves settings and stores secrets by the same rules.
 through `data/`. A bound a run reports back is a profile parameter rather than a flag, so a request
 that needs a different budget selects a different profile. A demonstration configures itself with
 `profile config` rather than with a `.env` file in the checkout. The MCP server reads no
-configuration file. A file that overrides the exported environment would sit above the `env` block a
-client launching the server passes deliberately, and a server started as a subprocess has a working
+configuration file: a file read from disk would take precedence over the `env` block a client
+launching the server passes deliberately, and a server started as a subprocess has a working
 directory it did not choose.
 
 ---
@@ -1007,8 +1007,9 @@ successful tool calls whose payload carries the status. Anything raised becomes
 **Rationale:** All four Blue Data MCP servers do this, and a client loading several of them reads
 one shape.
 
-**Consequences:** A client cannot tell a configuration failure from a question that found nothing.
-Whether to carry the CLI's error codes in the payload is open question 57.
+**Consequences:** Every raised failure carries the same one-key payload, so a client tells one
+configuration failure from another only by reading the message. Whether to carry the CLI's error
+codes in the payload is open question 57.
 
 ---
 
@@ -1041,7 +1042,7 @@ resources are not added without revisiting this.
 
 ## Open Questions
 
-Design questions first, then defects in code that exists today.
+Design questions first, then defects in the code.
 
 | # | Question | Blocks |
 | --- | --- | --- |
@@ -1066,5 +1067,6 @@ Design questions first, then defects in code that exists today.
 | 54 | Should the library be able to phrase an answer, and the CLI then offer `--format nl`? The family offers a natural-language format where a source answers in prose, and ADR-029 leaves it out because a planner answers in rows. A benchmark whose expected answers are single values, and an agent that wants a sentence rather than a table, both suggest the phrasing has to happen somewhere; doing it in an interface is behavior in an adapter (ADR-002), so the question is whether a library operation should return prose alongside the rows, and what it costs in model calls per request. | Whether `--format nl` and the MCP response ever carry a sentence, and which component writes it |
 | 55 | Should a run be kept on disk so a plan can be read back? The CLI's home directory holds profiles and nothing else, so a plan printed by `data query --explain` is gone when the terminal scrolls, and `data query` keeps no record a later command could inspect. The family's storage convention has a place for one (`~/.<cli>/<profile>/<component>/`), and `from_dict` already reads a recorded plan back ([06-library.md](06-library.md#two-operations)). What is unsettled is whether a CLI should accumulate state at all for a planner that holds none between requests, and what would remove an old run. | Whether the CLI grows an action that reads a plan it wrote earlier |
 | 56 | Should the CLI be able to write a run's whole record to a file? A fragment's result reaches a person as a summary, and the JSON on standard output carries the answer and how the run ended, so every intermediate table and every model turn is reachable only by a caller who embeds the library (ADR-032). Diagnosing a wrong answer is the case that wants them: a summary says a fragment returned 140 rows over three columns and not which 140, and a review that rejected a fragment is readable only in the conversation. A file is where they would go, since what makes them unwelcome on standard output is size rather than secrecy, and the family's storage convention already has a place for per-profile state. Against adding one: a record holds whatever the sources held, so writing one puts source data on disk, and whether a CLI over a planner that keeps nothing between requests should accumulate state at all is question 55. | Whether a wrong answer can be diagnosed from the CLI alone |
-| 57 | Should the MCP server's payload carry the CLI's error codes? Anything raised reaches a client as `{"error": "<message>"}` (ADR-036), so a missing API key, an unreadable registry, and a question that found nothing are one shape, and a client that wants to act on the difference has nothing to read but the message text. The codes the CLI already prints — `CONFIG_MISSING`, `REGISTRY_UNREADABLE`, and the rest ([09-api-interface-spec.md](09-api-interface-spec.md#errors-and-exit-codes)) — would give it a stable field. Against carrying them: a client loading several Blue Data servers reads one payload shape, and this would be the one server whose shape is its own. | Whether a client can branch on why a call failed, and whether the family's payload shape stays uniform |
+| 57 | Should the MCP server's payload carry the CLI's error codes? Anything raised reaches a client as `{"error": "<message>"}` (ADR-036), so a missing API key, an unreadable registry, and an invalid setting are one shape, and a client that wants to act on the difference has nothing to read but the message text. The codes the CLI already prints — `CONFIG_MISSING`, `REGISTRY_UNREADABLE`, and the rest ([09-api-interface-spec.md](09-api-interface-spec.md#errors-and-exit-codes)) — would give it a stable field. Against carrying them: a client loading several Blue Data servers reads one payload shape, and this would be the one server whose shape is its own. | Whether a client can branch on why a call failed, and whether the family's payload shape stays uniform |
+| 58 | Should the response cache in `llm/client.py` be removed or promoted? `LLMClient` opens a per-directory `diskcache` when a call carries the `llm.cache` property, and nothing in this repository sets that property, so the path answers no caller here. `diskcache` is declared under the `dev` extra alone, so an installed consumer that did request the cache would get `cache_unavailable` rather than a cache. [05-software-stack.md](05-software-stack.md#what-is-deliberately-absent) says the stack has no model response cache, on the reasoning that a planner's requests carry the catalog, an input sample, and the conversation so far, so a key on the request rarely hits, and what a cache reliably does is make a run's cost depend on invisible state from an earlier run. That reasoning holds for every call the planning components make. What argues for keeping the code is a caller outside the planner reaching `execute_api_call` directly, which is the use the property was written for. Removing it deletes a path nothing calls; keeping it means a runtime dependency and a design row that has to say so. | Whether `llm/` offers a cache at all, and whether `diskcache` becomes a runtime dependency |
 

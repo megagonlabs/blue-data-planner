@@ -34,7 +34,7 @@ and reads its result writes one import. Everything else is reached through the m
 | `blue_data_planner.operators` | `OperatorRouter`, `OperatorSuite`, `operator_suite`, `OPERATOR_SUITE_NAMES` |
 | `blue_data_planner.operators.adapters.blue`, `.adapters.lotus`, `.builtin` | `BlueSuite`, `LotusSuite`, `BuiltinSuite`, and the `blue_operators`, `lotus_operators`, and `builtin_operators` each is built over |
 | `blue_data_planner.data` | `DataCatalog`, `open_registry`, and the source-level reads |
-| `blue_data_planner.llm` | `LLMClient`, `Conversation`, `LLMUsage`, `LLMError` |
+| `blue_data_planner.llm` | `LLMClient`, `Conversation`, `LLMError` |
 | `blue_data_planner.settings` | `PlannerSettings`, `build_data_planner_from_settings` |
 
 Public is the package root, every module directly inside it, and the `__init__.py` of `types/`,
@@ -103,8 +103,16 @@ this signature names no suite and grows no argument when one is added
 
 `build_data_planner` constructs the model client from `model` and `reasoning_effort`, registers what
 each suite returns, wraps the registry in a `DataCatalog`, and hands `DataPlanner` its four
-components and the limits. A caller who wants a different model per component, or a fake component
-in a test, builds the four and calls the constructor:
+components and the limits.
+
+A caller holding the values rather than the objects passes a `PlannerSettings` to
+`build_data_planner_from_settings` instead, which opens the registry those values name and builds
+the suites they list ([06-library.md](06-library.md#the-values-a-planner-is-built-from)). That is
+the route both the CLI and the MCP server take: each resolves settings its own way and hands one
+over.
+
+A caller who wants a different model per component, or a fake component in a test, builds the four
+and calls the constructor:
 
 ```python
 from blue_data_planner import DataPlanner
@@ -431,8 +439,11 @@ other key travels on every call: `status`, `answer`, `failure_reason`, `results`
 {
   "status": "ok",
   "answer": [
-    {"title": "Senior Data Scientist", "company": "Corvus Health", "location": "San Francisco, CA"}
+    [
+      {"title": "Senior Data Scientist", "company": "Corvus Health", "location": "San Francisco, CA"}
+    ]
   ],
+  "failure_reason": null,
   "results": {
     "a3f1c208": {"search_terms": ["job postings"], "matches": [{"...": {}}], "dropped_terms": 0},
     "7b40de91": {"status": "ok", "failure_reason": null, "operator_id": "builtin.scan",
@@ -461,10 +472,12 @@ showing what ran out. That is a successful tool call reporting a failed run, not
 | --- | --- |
 | A run that did not finish | Success, with a status in the payload |
 | An operator failing inside a run | Success. The fragment's attempt carries it |
-| Anything raised: an unreadable registry, a missing API key, an invalid setting, a malformed argument | A successful tool call whose payload is `{"error": "<message>"}` (ADR-036) |
+| Anything the tool raises: an unreadable registry, a missing API key, an invalid setting | A successful tool call whose payload is `{"error": "<message>"}` (ADR-036) |
+| An argument the tool's schema refuses | A protocol-level tool error, raised before the tool runs |
 
-A client cannot tell a configuration failure from a data question that found nothing, which is the
-price of the family's shared error convention.
+Every raised failure carries the same one-key payload, so a client tells an unreadable registry
+from a missing API key only by reading the message. That is the price of the family's shared error
+convention.
 
 ### Registry access
 

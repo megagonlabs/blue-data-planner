@@ -1,8 +1,8 @@
 """What the environment supplies, and the planner it builds.
 
 The server reads the environment and nothing else. There is no configuration file: a client
-launches this as a subprocess with a working directory it did not choose, and a file that
-overrode the exported environment would sit above the `env` block the client passed deliberately.
+launches this as a subprocess with a working directory it did not choose, and a file read from
+that directory would take precedence over the `env` block the client passed deliberately.
 
 The variable names are the `blue-planner` CLI's, so a value means the same thing in both. This
 package imports nothing from `blue_data_planner_cli` and reads no profile: it depends only on

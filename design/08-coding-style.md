@@ -67,7 +67,7 @@ def operators_for(self, logical_op: LogicalOperator) -> List[PhysicalOperator]: 
 def next_ready(self) -> Optional[PhysicalPlanFragment]: ...
 ```
 
-Every package ships a `py.typed` marker, so public signatures are part of the released interface.
+The library ships a `py.typed` marker, so its public signatures are part of the released interface.
 
 A dependency shipping no types of its own is imported behind a targeted `pyright: ignore` where it
 enters and delegates through `Any` from there. The import rules below put those imports in three

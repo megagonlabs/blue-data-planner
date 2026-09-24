@@ -227,8 +227,23 @@ profiles, output, and exit codes.
 
 ## MCP server
 
-**Not built.** `platform/mcp/` holds no source. Two tools are sketched in the design set, and the
-library and the CLI do the same work — see [mcp.md](mcp.md).
+`blue-data-planner-mcp` exposes the same two operations as one tool, `query_data`, over stdio, so
+an agent written with LangChain, LangGraph, or any MCP client hands over a whole data question and
+gets rows back.
+
+```json
+{
+  "mcpServers": {
+    "blue-data-planner": {
+      "command": "blue-data-planner-mcp",
+      "env": {"BLUE_DATA_REGISTRY_PATH": "/srv/blue-data/registry.json"}
+    }
+  }
+}
+```
+
+`explain` writes the plan and stops; `include_plan` returns every plan the request produced
+alongside the answer. [mcp.md](mcp.md) covers the tool, the response, and the error payload.
 
 ---
 

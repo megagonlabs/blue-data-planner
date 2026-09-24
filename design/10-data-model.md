@@ -1044,8 +1044,8 @@ for: the CLI sends it under `--explain` or `--log`
 ([09](09-api-interface-spec.md#output)), and the MCP server sends it under `explain` or
 `include_plan` ([09](09-api-interface-spec.md#the-response)).
 
-A run that did not finish returns the same object with its status, `answer` null, and its counters,
-in every interface. There is no separate error shape.
+A run that did not finish comes back as the same object in every interface, with its status,
+`answer` null, and its counters.
 
 ---
 

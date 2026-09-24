@@ -107,8 +107,9 @@ blue-data-planner/
         │   ├── build.sh
         │   └── install.sh
         ├── src/blue_data_planner_mcp/
+        │   ├── __init__.py             # __version__
         │   ├── server.py               # FastMCP, query_data, main
-        │   └── config.py               # what the environment supplies
+        │   └── config.py               # what the environment supplies, and the planner it builds
         └── tests/
 ```
 
