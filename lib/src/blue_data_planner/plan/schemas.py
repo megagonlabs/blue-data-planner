@@ -243,9 +243,10 @@ def _candidate_model(
                 min_length=1,
                 description=(
                     "The columns the fragment's result has to carry. Start from the columns the "
-                    "root node declares, or, when the root is a SCAN, the columns its consumers "
-                    "declare, and adjust them to what this operator produces, naming each column "
-                    "as the result will spell it."
+                    "root node declares (a SCAN declares none), add every column the nodes "
+                    "listed as reading this root name in their instructions, inputs, or outputs, "
+                    "and adjust the list to what this operator produces, naming each column as "
+                    "the result will spell it."
                 ),
             ),
         ),

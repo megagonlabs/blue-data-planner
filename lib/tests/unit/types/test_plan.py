@@ -340,9 +340,9 @@ _MALFORMED_PLAN_PAYLOADS: list[tuple[dict[str, object], str]] = [
             "nodes": [
                 {
                     "id": "n1",
-                    "kind": "SCAN",
+                    "kind": "FILTER",
                     "input_node_ids": [],
-                    "attributes": {"instruction": "a", "source": None},
+                    "attributes": {"instruction": "a"},
                     "required_output_columns": [{"name": "x", "dtype": "date"}],
                 }
             ],

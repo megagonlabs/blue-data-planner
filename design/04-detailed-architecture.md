@@ -329,14 +329,15 @@ knows what it bound a moment earlier, and a repair continues the same exchange, 
 answers the binding that failed rather than being told about it. A new logical plan starts a new
 conversation, because the node ids already in the turns name a different graph.
 
-The logical plan and the run's catalog context open the conversation, so each is sent once rather
-than once per node. The plan shows every node with its instruction, a scan's source, and its
-declared columns, so a binding is made with the whole plan in view. The operator, row count, and
-column names of every node with a result are sent the same way, once, when the conversation opens.
-The failed fragment's node set and which operators were tried on it need no separate turn either:
-they are already there, in the turns that bound it the first time, so a repair adds only why the
-last attempt failed. Row counts matter because grouping a node that already ran throws its result
-away and pays for the work again, and how much that costs is how many rows are discarded ([the cover
+The request, the logical plan, and the run's catalog context open the conversation, so each is sent
+once rather than once per node. The request says what the plan is for, and the plan is what the
+cover follows. The plan shows every node with its instruction, a scan's source, and its declared
+columns, so a binding is made with the whole plan in view. The operator, row count, and column names
+of every node with a result are sent the same way, once, when the conversation opens. The failed
+fragment's node set and which operators were tried on it need no separate turn either: they are
+already there, in the turns that bound it the first time, so a repair adds only why the last attempt
+failed. Row counts matter because grouping a node that already ran throws its result away and pays
+for the work again, and how much that costs is how many rows are discarded ([the cover
 repair](#the-cover-repair)). Rows themselves stay out: the physical planner chooses boundaries and
 operators, and values are the fragment runner's reading.
 

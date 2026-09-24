@@ -19,6 +19,7 @@ from blue_data_planner.plan import (
 from blue_data_planner.prompts import prompt_text
 from blue_data_planner.types import (
     BlueDataPlannerError,
+    ControlOperator,
     DiscoveryResult,
     ExecutionResult,
     InputData,
@@ -77,12 +78,16 @@ class PhysicalPlanner:
         # What changed since the last call rides on this call's first candidate turn, so no two
         # user turns ever sit next to each other.
         preamble = {
+            "plan": _render_plan(plan) if opening else "",
             "catalog_context": _render_context(results) if opening else "",
             "node_results": _render_results(results) if opening else "",
             "reason": reason or "",
         }
         fragments: list[PhysicalPlanFragment] = []
         covered: set[str] = set()
+        # Every node id a fragment bound so far covers, root or grouped, so a later root's
+        # readers can be rendered from what is already bound.
+        bound_so_far: dict[str, PhysicalPlanFragment] = {}
         for node in _reverse_dependency_order(plan):
             if node.id not in confined_to or node.id in covered:
                 continue
@@ -107,11 +112,14 @@ class PhysicalPlanner:
                 results,
                 conversation,
                 preamble,
+                bound_so_far,
             )
             # The preamble rides on the first candidate turn of this call only.
-            preamble = {"catalog_context": "", "node_results": "", "reason": ""}
+            preamble = {"plan": "", "catalog_context": "", "node_results": "", "reason": ""}
             fragments.append(fragment)
             covered.update(fragment.logical_node_ids)
+            for covered_node_id in fragment.logical_node_ids:
+                bound_so_far[covered_node_id] = fragment
         cover = PhysicalPlan(
             id=str(uuid.uuid4()),
             parent_id=previous.id if previous is not None else None,
@@ -150,13 +158,16 @@ class PhysicalPlanner:
         results: dict[str, NodeResult],
         conversation: Conversation,
         preamble: dict[str, str],
+        bound_so_far: dict[str, PhysicalPlanFragment],
     ) -> PhysicalPlanFragment:
         conversation.turns.append(
             Turn(
                 role="user",
                 content=safe_substitute(
                     prompt_text("physical_planner_turn.md"),
-                    candidates=_render_candidates(plan, node, candidates, reusable, results),
+                    candidates=_render_candidates(
+                        plan, node, candidates, reusable, results, bound_so_far
+                    ),
                     **preamble,
                 ),
             )
@@ -331,10 +342,11 @@ def _render_candidates(
     candidates: list[Candidate],
     reusable: PhysicalPlanFragment | None,
     results: dict[str, NodeResult],
+    bound_so_far: dict[str, PhysicalPlanFragment],
 ) -> str:
     lines = [
         f"Node {node.id} is uncovered. Its instruction: {node.attributes['instruction']}",
-        _render_declared_columns(plan, node),
+        _render_root_and_readers(plan, node, bound_so_far),
         "",
     ]
     if reusable is not None:
@@ -350,24 +362,79 @@ def _render_candidates(
     return "\n".join(lines)
 
 
-def _render_declared_columns(plan: LogicalPlan, node: PipelineNode) -> str:
-    # A SCAN declares no columns of its own, so the columns a fragment rooted at one owes come
-    # from whichever nodes read it (design/04-detailed-architecture.md, "the model writes every
-    # fragment's required_output_columns").
+def _render_root_and_readers(
+    plan: LogicalPlan, node: PipelineNode, bound_so_far: dict[str, PhysicalPlanFragment]
+) -> str:
+    # A fragment rooted here has to produce what the root declares plus what every reader of it
+    # uses (design/04-detailed-architecture.md, "Choosing among candidates"). A SCAN declares no
+    # columns of its own, so for one the readers are the whole of it.
+    lines: list[str] = []
     if node.kind is not LogicalOperator.SCAN:
-        return f"Declared output columns: {_render_columns(node.required_output_columns)}"
-    consumers = plan.consumers(node.id)
-    if not consumers:
-        return "Declared output columns: none, and no consumer declares any"
-    parts = [
-        f"{consumer.id} needs {_render_columns(consumer.required_output_columns)}"
-        for consumer in consumers
-    ]
-    return f"Declares no columns of its own. Its consumer(s) declare: {'; '.join(parts)}"
+        lines.append(f"Declared output columns: {_render_columns(node.required_output_columns)}")
+    readers = plan.consumers(node.id)
+    if not readers:
+        lines.append(
+            "Nothing in this plan reads this node yet; write the columns the next pass will need."
+        )
+        return "\n".join(lines)
+    lines.append(f"Nodes reading {node.id}:")
+    # Operator-node readers are grouped by the fragment covering them, so a fragment holding
+    # several readers of this root is described once.
+    fragments: dict[str, PhysicalPlanFragment] = {}
+    readers_by_fragment: dict[str, list[PipelineNode]] = {}
+    for reader in readers:
+        if not reader.is_operator_node:
+            continue
+        fragment = bound_so_far.get(reader.id)
+        if fragment is None:
+            raise BlueDataPlannerError(
+                f"node {reader.id!r} reads uncovered root {node.id!r}, but no fragment covers "
+                f"{reader.id!r} yet; binding runs readers first, so every one is already bound"
+            )
+        fragments[fragment.id] = fragment
+        readers_by_fragment.setdefault(fragment.id, []).append(reader)
+    lines.extend(
+        _render_fragment_reader(node.id, fragments[fragment_id], grouped)
+        for fragment_id, grouped in readers_by_fragment.items()
+    )
+    lines.extend(
+        _render_non_operator_reader(reader) for reader in readers if not reader.is_operator_node
+    )
+    return "\n".join(lines)
+
+
+def _render_non_operator_reader(reader: PipelineNode) -> str:
+    if reader.kind is LogicalOperator.RETURN:
+        return f"- {reader.id} RETURN: the answer carries {', '.join(reader.attributes['columns'])}"
+    lead = ", searching for" if reader.kind is ControlOperator.DISCOVER else ""
+    return f"- {reader.id} {reader.kind.value}{lead}: {reader.instruction}"
+
+
+def _render_fragment_reader(
+    root_node_id: str, fragment: PhysicalPlanFragment, readers: list[PipelineNode]
+) -> str:
+    received = [entry for entry in fragment.input_data if entry.logical_node_id == root_node_id]
+    if len(received) != 1:
+        raise BlueDataPlannerError(
+            f"fragment {fragment.id!r} covers a node reading {root_node_id!r}, but its input_data "
+            f"holds {len(received)} entries for {root_node_id!r}, where exactly one was expected"
+        )
+    return (
+        f"- {_join_words([reader.id for reader in readers])}, in fragment {fragment.id} rooted at "
+        f'{fragment.root_logical_node_id}. Its instruction: "{fragment.instruction}" '
+        f"It produces: {_render_columns(fragment.required_output_columns)}. "
+        f"It receives {root_node_id} as: {received[0].name} ({received[0].description})"
+    )
+
+
+def _join_words(words: list[str]) -> str:
+    if len(words) == 1:
+        return words[0]
+    return f"{', '.join(words[:-1])} and {words[-1]}"
 
 
 def _render_columns(columns: list[OutputColumn]) -> str:
-    return ", ".join(f"{column.name} ({column.dtype})" for column in columns)
+    return ", ".join(f"{column.name} ({column.dtype})" for column in columns) or "none"
 
 
 def _render_step(node: PipelineNode) -> str:
@@ -375,7 +442,7 @@ def _render_step(node: PipelineNode) -> str:
     if node.kind is not LogicalOperator.SCAN:
         return step
     source = node.attributes["source"]
-    return f"{step} (reads {source if source is not None else 'world knowledge'})"
+    return f"{step} (reads {source if source is not None else 'no registered source'})"
 
 
 def _render_reuse_candidate(
@@ -419,3 +486,26 @@ def _describe_execution(result: ExecutionResult) -> str:
     tables = result.output or []
     columns = summarize_table(tables[0], 0).columns if tables else []
     return f"{result.row_count} row(s) from {result.operator_id}, columns {columns}"
+
+
+def _render_plan(plan: LogicalPlan) -> str:
+    # The opening turn shows the whole plan, so each binding is made with every node in view
+    # (design/04-detailed-architecture.md, "Choosing among candidates").
+    return "\n".join(_render_plan_node(node) for node in plan.nodes_in_dependency_order())
+
+
+def _render_plan_node(node: PipelineNode) -> str:
+    if node.kind is LogicalOperator.SCAN:
+        source = node.attributes["source"]
+        reads = f" of {source if source is not None else 'no registered source'}"
+    elif node.input_node_ids:
+        reads = f" of {', '.join(node.input_node_ids)}"
+    else:
+        reads = ""
+    head = f"- {node.id} {node.kind.value}{reads}"
+    if node.kind is LogicalOperator.RETURN:
+        return f"{head}: the answer carries {', '.join(node.attributes['columns'])}"
+    if not node.is_operator_node or node.kind is LogicalOperator.SCAN:
+        return f"{head}: {node.instruction}"
+    columns = _render_columns(node.required_output_columns)
+    return f"{head}: {node.instruction.rstrip('.')}. Outputs: {columns}"

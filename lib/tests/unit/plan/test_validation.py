@@ -31,7 +31,11 @@ def a_node(
         attributes = {"instruction": "do it", "source": source}
     else:
         attributes = {"instruction": "do it"}
-    declares = isinstance(kind, LogicalOperator) and kind is not LogicalOperator.RETURN
+    declares = (
+        isinstance(kind, LogicalOperator)
+        and kind is not LogicalOperator.RETURN
+        and kind is not LogicalOperator.SCAN
+    )
     return PipelineNode(
         id=node_id,
         kind=kind,
@@ -255,9 +259,10 @@ def test_a_carried_node_is_exempt_from_the_shape_and_reachability_checks() -> No
             a_node("n1", LogicalOperator.SCAN, []),
             a_node("n2", ControlOperator.DISCOVER, ["n1"]),
             a_node("n3", LogicalOperator.SCAN, []),
-            a_node("n4", LogicalOperator.RETURN, ["n3"]),
+            a_node("n4", LogicalOperator.FILTER, ["n3"]),
+            a_node("n5", LogicalOperator.RETURN, ["n4"]),
         ],
-        output_node_id="n4",
+        output_node_id="n5",
     )
 
     validate_logical_plan(plan, frozenset(), carried_node_ids=frozenset({"n2"}))
@@ -411,33 +416,54 @@ def test_a_plan_holding_two_replan_nodes_is_rejected() -> None:
 def test_a_return_naming_a_column_its_input_does_not_declare_is_rejected() -> None:
     """The answer is projected after the last fragment runs, so nothing downstream catches it."""
     ending = PipelineNode(
-        id="n2",
+        id="n3",
         kind=LogicalOperator.RETURN,
-        input_node_ids=["n1"],
+        input_node_ids=["n2"],
         attributes={"columns": ["posting_count"]},
     )
-    plan = a_plan([a_node("n1", LogicalOperator.SCAN, []), ending], output_node_id="n2")
+    plan = a_plan(
+        [
+            a_node("n1", LogicalOperator.SCAN, []),
+            a_node("n2", LogicalOperator.FILTER, ["n1"]),
+            ending,
+        ],
+        output_node_id="n3",
+    )
     with pytest.raises(PlanValidationError, match="posting_count"):
         validate_logical_plan(plan, frozenset())
 
 
 def test_the_node_a_return_reads_has_to_declare_its_output_columns() -> None:
     """An empty declaration leaves the ending with nothing to be checked against."""
-    scan = PipelineNode(
-        id="n1",
-        kind=LogicalOperator.SCAN,
-        input_node_ids=[],
-        attributes={"instruction": "read them", "source": None},
+    filtered = PipelineNode(
+        id="n2",
+        kind=LogicalOperator.FILTER,
+        input_node_ids=["n1"],
+        attributes={"instruction": "keep them"},
         required_output_columns=[],
     )
     ending = PipelineNode(
-        id="n2",
+        id="n3",
         kind=LogicalOperator.RETURN,
-        input_node_ids=["n1"],
+        input_node_ids=["n2"],
         attributes={"columns": ["title"]},
     )
+    plan = a_plan([a_node("n1", LogicalOperator.SCAN, []), filtered, ending], output_node_id="n3")
     with pytest.raises(PlanValidationError, match="declares no output columns"):
-        validate_logical_plan(a_plan([scan, ending], output_node_id="n2"), frozenset())
+        validate_logical_plan(plan, frozenset())
+
+
+def test_a_return_reading_a_scan_directly_is_rejected() -> None:
+    """A SCAN declares no columns, so the fix is a PROJECT stating what the answer needs."""
+    plan = a_plan(
+        [
+            a_node("n1", LogicalOperator.SCAN, []),
+            a_node("n2", LogicalOperator.RETURN, ["n1"]),
+        ],
+        output_node_id="n2",
+    )
+    with pytest.raises(PlanValidationError, match="add a PROJECT node"):
+        validate_logical_plan(plan, frozenset())
 
 
 def test_a_scan_naming_a_path_no_discover_node_found_is_rejected() -> None:
@@ -445,9 +471,10 @@ def test_a_scan_naming_a_path_no_discover_node_found_is_rejected() -> None:
     plan = a_plan(
         [
             a_node("n1", LogicalOperator.SCAN, [], source="/source/invented"),
-            a_node("n2", LogicalOperator.RETURN, ["n1"]),
+            a_node("n2", LogicalOperator.FILTER, ["n1"]),
+            a_node("n3", LogicalOperator.RETURN, ["n2"]),
         ],
-        output_node_id="n2",
+        output_node_id="n3",
     )
     with pytest.raises(PlanValidationError, match="/source/invented"):
         validate_logical_plan(plan, frozenset({"/source/jobs/entity/postings"}))
@@ -463,8 +490,9 @@ def test_a_scan_naming_a_discovered_path_or_null_is_accepted(source: str | None)
     plan = a_plan(
         [
             a_node("n1", LogicalOperator.SCAN, [], source=source),
-            a_node("n2", LogicalOperator.RETURN, ["n1"]),
+            a_node("n2", LogicalOperator.FILTER, ["n1"]),
+            a_node("n3", LogicalOperator.RETURN, ["n2"]),
         ],
-        output_node_id="n2",
+        output_node_id="n3",
     )
     validate_logical_plan(plan, frozenset({"/source/jobs/entity/postings"}))

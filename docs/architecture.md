@@ -258,10 +258,10 @@ run(request)
           │       → no valid plan: status invalid_plan
           │
           └─ cover loop, bounded by cover_repairs
-              ├─ PhysicalPlanner.cover(plan, previous cover, results held, reason)
+              ├─ PhysicalPlanner.cover(request, plan, previous cover, results held, reason)
               │    ├─ candidate_fragments per uncovered node, in reverse dependency order
               │    ├─ a model picks one candidate per node, writing the fragment's
-              │    │    instruction, its scan sources, and its input names
+              │    │    instruction, its input names, and its output columns
               │    └─ validate_physical_plan
               │       → no candidate for some node: back to the logical planner,
               │         with no operator call spent
@@ -289,7 +289,7 @@ plan(request)
   ├─ LogicalPlanner.generate(request, catalog preview)
   │    → invalid_plan when the corrections run out
   ├─ install the plan
-  └─ PhysicalPlanner.cover(plan)
+  └─ PhysicalPlanner.cover(request, plan)
        → install the cover, whatever it came back with
          status planned, answer None
 ```

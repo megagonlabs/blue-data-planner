@@ -34,8 +34,9 @@ or `null` when the scan reads no registered source and its operator produces the
 from what you already know, for example. Write `null` exactly when that is true; otherwise name the
 path.
 
-A `SCAN` declares no columns. The nodes reading it declare the entity's columns they need, and only
-the columns that section shows the entity holds.
+A `SCAN` declares no columns. The nodes reading a `SCAN` name the attributes they use in their
+instructions and declared columns; when the scan names a source, use only attributes "What the
+searches found" shows that entity holds.
 
 ## How to write a plan
 

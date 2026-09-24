@@ -651,6 +651,7 @@ class PhysicalPlanner:
 
     def cover(
         self,
+        request: str,
         plan: LogicalPlan,
         conversation: Conversation,
         previous: PhysicalPlan | None,
@@ -662,6 +663,9 @@ class PhysicalPlanner:
 One entry point for every moment a cover is written: the first cover of a request, the cover repair,
 and the cover that follows a continuation. They differ in what the arguments hold rather than in
 which method is called.
+
+`request` is the request the plan answers. It opens the conversation beside the plan, so the model
+reads each node against what the whole plan is for; the plan stays what the cover follows.
 
 It returns a whole new `PhysicalPlan`, because a cover is written whole and never patched into an
 older one ([04](04-detailed-architecture.md#a-cover-is-written-whole)).

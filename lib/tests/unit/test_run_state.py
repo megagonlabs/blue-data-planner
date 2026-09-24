@@ -48,7 +48,9 @@ def a_plan() -> LogicalPlan:
             kind=kind,
             input_node_ids=inputs,
             attributes=attributes,
-            required_output_columns=[OutputColumn(name="title", dtype="str")],
+            required_output_columns=(
+                [] if kind is LogicalOperator.SCAN else [OutputColumn(name="title", dtype="str")]
+            ),
         )
 
     return LogicalPlan(
@@ -177,7 +179,7 @@ def a_second_version_of_the_plan() -> LogicalPlan:
                 kind=LogicalOperator.SCAN,
                 input_node_ids=[],
                 attributes={"instruction": "do it differently", "source": None},
-                required_output_columns=[OutputColumn(name="title", dtype="str")],
+                required_output_columns=[],
             ),
             PipelineNode(
                 id="n7",
@@ -224,7 +226,7 @@ def a_state_over_two_control_nodes() -> RunState:
                     kind=LogicalOperator.SCAN,
                     input_node_ids=[],
                     attributes={"instruction": "read the postings", "source": None},
-                    required_output_columns=[OutputColumn(name="title", dtype="str")],
+                    required_output_columns=[],
                 ),
                 PipelineNode(
                     id="n6",
@@ -300,7 +302,7 @@ def test_a_ready_fragment_is_offered_before_a_ready_control_node() -> None:
                     kind=LogicalOperator.SCAN,
                     input_node_ids=[],
                     attributes={"instruction": "read them", "source": None},
-                    required_output_columns=[OutputColumn(name="title", dtype="str")],
+                    required_output_columns=[],
                 ),
                 PipelineNode(
                     id="n2",

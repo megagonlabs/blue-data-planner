@@ -123,6 +123,11 @@ def _check_answer_columns(plan: LogicalPlan) -> None:
         if node.kind is not LogicalOperator.RETURN:
             continue
         source = plan.node(node.input_node_ids[0])
+        if source.kind is LogicalOperator.SCAN:
+            raise PlanValidationError(
+                f"the RETURN node {node.id!r} reads SCAN node {source.id!r} directly, and a "
+                "SCAN declares no columns; add a PROJECT node that declares the answer's columns"
+            )
         declared = {column.name for column in source.required_output_columns}
         if not declared:
             raise PlanValidationError(

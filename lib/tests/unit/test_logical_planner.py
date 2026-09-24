@@ -469,7 +469,7 @@ def test_a_continuation_writing_a_carried_nodes_id_is_turned_down() -> None:
     )
 
     assert written.status is RunStatus.INVALID_PLAN
-    assert "n1" in (written.failure_reason or "")
+    assert "whose id(s) name nodes it carried over" in (written.failure_reason or "")
 
 
 def test_a_continuation_naming_a_path_no_discover_node_found_is_sent_back_for_correction() -> None:

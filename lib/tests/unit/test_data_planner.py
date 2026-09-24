@@ -44,11 +44,11 @@ from tests.doubles.llm import ScriptedLLMClient
 
 
 def a_scan_and_ending(plan_id: str) -> LogicalPlan:
-    """n1 SCAN, ended by n2 RETURN projecting the title column it reads."""
+    """n1 SCAN -> n2 PROJECT -> n3 RETURN projecting the title column n2 declares."""
     return LogicalPlan(
         id=plan_id,
         parent_id=None,
-        output_node_id="n2",
+        output_node_id="n3",
         nodes=[
             PipelineNode(
                 id="n1",
@@ -59,8 +59,15 @@ def a_scan_and_ending(plan_id: str) -> LogicalPlan:
             ),
             PipelineNode(
                 id="n2",
-                kind=LogicalOperator.RETURN,
+                kind=LogicalOperator.PROJECT,
                 input_node_ids=["n1"],
+                attributes={"instruction": "keep the title column"},
+                required_output_columns=[OutputColumn(name="title", dtype="str")],
+            ),
+            PipelineNode(
+                id="n3",
+                kind=LogicalOperator.RETURN,
+                input_node_ids=["n2"],
                 attributes={"columns": ["title"]},
             ),
         ],
@@ -121,9 +128,9 @@ def _a_scan_node() -> PipelineNode:
 
 
 def an_ending_naming_a_column_the_rows_lack(plan_id: str) -> LogicalPlan:
-    """n1 SCAN declaring title, ended by n2 RETURN projecting a column nothing produced."""
+    """n2 PROJECT declaring title, ended by n3 RETURN projecting a column nothing produced."""
     plan = a_scan_and_ending(plan_id)
-    plan.node("n2").attributes["columns"] = ["posting_count"]
+    plan.node("n3").attributes["columns"] = ["posting_count"]
     return plan
 
 
@@ -153,7 +160,7 @@ def an_ending_reading_a_node_a_fragment_grouped(plan_id: str) -> LogicalPlan:
 
 
 def a_grouped_cover(cover_id: str, logical_plan_id: str) -> PhysicalPlan:
-    """One fragment over n1 and n2, rooted at n2, so n1 produces no table of its own."""
+    """One fragment over n1 SCAN and the n2 reading it, rooted at n2, so n1 yields no table."""
     return PhysicalPlan(
         id=cover_id,
         parent_id=None,
@@ -165,7 +172,7 @@ def a_grouped_cover(cover_id: str, logical_plan_id: str) -> PhysicalPlan:
                 root_logical_node_id="n2",
                 operator_id="builtin.nl2table",
                 scan_sources={},
-                instruction="read the postings and keep the open ones",
+                instruction="read the postings and return their titles",
                 input_data=[],
                 required_output_columns=[OutputColumn(name="title", dtype="str")],
             )
@@ -256,7 +263,7 @@ def test_a_plan_that_runs_clean_ends_ok_with_the_columns_the_return_names() -> N
     """The answer is the RETURN node's columns projected off the node it reads."""
     result = a_planner(
         FakeLogicalPlanner([ok(a_scan_and_ending("p1"))]),
-        FakePhysicalPlanner([covered(a_cover("c1", "p1"))]),
+        FakePhysicalPlanner([covered(a_grouped_cover("c1", "p1"))]),
         FakeFragmentRunner([an_accepted_fragment()]),
         FakeCatalogSearcher(),
     ).run("list the job titles")
@@ -288,7 +295,7 @@ def test_a_run_with_nothing_left_to_run_and_no_answer_to_project_ends_as_planner
 @pytest.mark.parametrize(
     ("plan", "cover"),
     [
-        (an_ending_naming_a_column_the_rows_lack, a_cover),
+        (an_ending_naming_a_column_the_rows_lack, a_grouped_cover),
         (an_ending_reading_a_node_a_fragment_grouped, a_grouped_cover),
     ],
     ids=["a column the rows lack", "a node a fragment grouped"],
@@ -301,7 +308,7 @@ def test_an_ending_the_finished_rows_cannot_answer_is_written_again_rather_than_
     logical = FakeLogicalPlanner([ok(plan("p1")), ok(a_scan_and_ending("p2"))])
     result = a_planner(
         logical,
-        FakePhysicalPlanner([covered(cover("c1", "p1")), covered(a_cover("c2", "p2"))]),
+        FakePhysicalPlanner([covered(cover("c1", "p1")), covered(a_grouped_cover("c2", "p2"))]),
         FakeFragmentRunner([an_accepted_fragment(), an_accepted_fragment()]),
         FakeCatalogSearcher(),
     ).run("list the job titles")
@@ -316,7 +323,9 @@ def test_every_control_node_ready_at_once_is_resolved_before_the_run_plans_again
     searcher = FakeCatalogSearcher()
     result = a_planner(
         FakeLogicalPlanner([ok(two_discovery_nodes("p1")), ok(a_scan_and_ending("p2"))]),
-        FakePhysicalPlanner([covered(an_empty_cover("c1", "p1")), covered(a_cover("c2", "p2"))]),
+        FakePhysicalPlanner(
+            [covered(an_empty_cover("c1", "p1")), covered(a_grouped_cover("c2", "p2"))]
+        ),
         FakeFragmentRunner([an_accepted_fragment()]),
         searcher,
     ).run("Python jobs at Fortune 500")
@@ -332,9 +341,9 @@ def a_planner_whose_every_repair_is_refused() -> tuple[
     logical = FakeLogicalPlanner([ok(a_scan_and_ending("p1")), invalid_plan()])
     physical = FakePhysicalPlanner(
         [
-            covered(a_cover("c1", "p1")),
-            covered(a_cover("c2", "p1")),
-            covered(a_cover("c3", "p1")),
+            covered(a_grouped_cover("c1", "p1")),
+            covered(a_grouped_cover("c2", "p1")),
+            covered(a_grouped_cover("c3", "p1")),
         ]
     )
     runner = FakeFragmentRunner(
@@ -359,10 +368,10 @@ def a_planner_over_two_plans_each_needing_every_cover() -> tuple[DataPlanner, Fa
     logical = FakeLogicalPlanner([ok(a_scan_and_ending("p1")), ok(a_scan_and_ending("p2"))])
     physical = FakePhysicalPlanner(
         [
-            covered(a_cover("c1", "p1")),
-            covered(a_cover("c2", "p1")),
-            covered(a_cover("c3", "p2")),
-            covered(a_cover("c4", "p2")),
+            covered(a_grouped_cover("c1", "p1")),
+            covered(a_grouped_cover("c2", "p1")),
+            covered(a_grouped_cover("c3", "p2")),
+            covered(a_grouped_cover("c4", "p2")),
         ]
     )
     runner = FakeFragmentRunner([an_escalating_fragment() for _ in range(4)])
@@ -399,7 +408,7 @@ def a_scan_and_a_filter(plan_id: str) -> LogicalPlan:
                 kind=LogicalOperator.SCAN,
                 input_node_ids=[],
                 attributes={"instruction": "read the postings", "source": None},
-                required_output_columns=[OutputColumn(name="title", dtype="str")],
+                required_output_columns=[],
             ),
             PipelineNode(
                 id="n2",
@@ -500,7 +509,7 @@ def test_a_plan_no_operator_can_cover_is_replanned_with_the_reason_in_hand() -> 
     )
     result = a_planner(
         logical,
-        FakePhysicalPlanner([uncoverable, covered(a_cover("c1", "p2"))]),
+        FakePhysicalPlanner([uncoverable, covered(a_grouped_cover("c1", "p2"))]),
         FakeFragmentRunner([an_accepted_fragment()]),
         FakeCatalogSearcher(),
     ).run("list the job titles")
@@ -513,7 +522,7 @@ def test_a_replan_limit_ends_the_request_as_replan_exhausted() -> None:
     """Each replan path counts separately and either ends the run on its own bound."""
     result = a_planner(
         FakeLogicalPlanner([ok(a_scan_and_ending("p1"))]),
-        FakePhysicalPlanner([covered(a_cover("c1", "p1"))]),
+        FakePhysicalPlanner([covered(a_grouped_cover("c1", "p1"))]),
         FakeFragmentRunner([an_escalating_fragment()]),
         FakeCatalogSearcher(),
         RunLimits(cover_repairs=0, failure_replans=0),
@@ -556,7 +565,7 @@ def test_the_planning_only_operation_stops_after_the_first_cover() -> None:
     runner = FakeFragmentRunner([])
     result = a_planner(
         FakeLogicalPlanner([ok(a_scan_and_ending("p1"))]),
-        FakePhysicalPlanner([covered(a_cover("c1", "p1"))]),
+        FakePhysicalPlanner([covered(a_grouped_cover("c1", "p1"))]),
         runner,
         FakeCatalogSearcher(),
     ).plan("list the job titles")
