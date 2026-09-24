@@ -36,23 +36,24 @@ from blue_data_planner.types import (
 
 # Every other transform entry in this suite carries the same sentence, because the fixed
 # vocabulary is what makes it true: nothing these parameters can express reads a value for its
-# meaning. builtin.filter carries its own sentence instead (_FILTER_LIMITATIONS), since its
-# predicate can also search a string with a regular expression.
+# meaning. builtin.filter carries its own sentence instead (_FILTER_LIMITATIONS), naming examples
+# of meaning so a condition on a string's form, which its regular-expression search covers, is
+# not mistaken for one.
 _LIMITATIONS = (
-    "Compares values as they are stored and cannot judge meaning, so a predicate that needs "
-    "reading text belongs to a semantic operator."
+    "judge what text means, so a condition or value that depends on meaning belongs to a "
+    "semantic operator"
 )
 
 _FILTER_LIMITATIONS = (
-    "It does not judge what text means, such as a topic or a sentiment, so a condition on "
-    "meaning belongs to a semantic operator."
+    "judge what text means, such as a topic or a sentiment, so a condition on meaning belongs "
+    "to a semantic operator"
 )
 
 # What separates this entry from an operator that owns a query engine: it reads a whole entity
 # and pushes nothing but the values a reference input carried.
 _SCAN_LIMITATIONS = (
-    "Reads a SQL source only, returns the entity whole, and narrows the read by nothing but the "
-    "values a reference input carries, so any other narrowing is a separate FILTER or PROJECT."
+    "read anything but a SQL source, or narrow the read by anything but the values a reference "
+    "input carries, so any other narrowing is a separate FILTER or PROJECT"
 )
 
 

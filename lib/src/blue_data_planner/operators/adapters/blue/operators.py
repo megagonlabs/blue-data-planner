@@ -109,9 +109,9 @@ class Operation:
 
 # Four aggregates and two superlatives each carry one of these two sentences, because what
 # limits them is the operation they share rather than the key each one reads.
-_WHOLE_TABLE_AGGREGATE = "Aggregates the whole table; it does not group by a column."
+_WHOLE_TABLE_AGGREGATE = "group by a column, since it aggregates the whole table"
 _WHOLE_TABLE_SUPERLATIVE = (
-    "Returns the one extreme record over the whole table; it does not group by a column."
+    "group by a column, since it returns the one extreme record over the whole table"
 )
 
 # AGGREGATE and SORT_SUPERLATIVE take several operators each, because summing and
@@ -130,8 +130,8 @@ OPERATIONS: tuple[Operation, ...] = (
         "select@2.0.0",
         SelectParameters,
         limitations=(
-            "One comparison against one key. A conjunction of predicates needs one node per "
-            "comparison."
+            "compare more than one key per call, so a conjunction of predicates needs one node "
+            "per comparison"
         ),
     ),
     Operation(
@@ -144,8 +144,8 @@ OPERATIONS: tuple[Operation, ...] = (
         "intersect@3.0.0",
         MatchOptionParameters,
         limitations=(
-            "Matches whole tuples, so it joins only where both tables share their column names "
-            "and their values."
+            "join tables unless they share their column names and their values, since it "
+            "matches whole tuples"
         ),
     ),
     Operation(
@@ -229,8 +229,8 @@ OPERATIONS: tuple[Operation, ...] = (
         "nl2llm@3.0.0",
         NL2LLMParameters,
         limitations=(
-            "Answers from the model's own world knowledge, so it reads no registered source and "
-            "its rows cannot be held to one."
+            "read a registered source, since it answers from the model's own world knowledge, so "
+            "its rows cannot be checked against one"
         ),
     ),
     Operation(
@@ -252,8 +252,8 @@ OPERATIONS: tuple[Operation, ...] = (
         source_kinds=frozenset({"sql/sqlite", "sql/mysql", "sql/postgres"}),
         accepts_bound_inputs=True,
         limitations=(
-            "Cannot express a semantic predicate, and cannot bind tables from other fragments "
-            "into the query it writes."
+            "express a semantic predicate, or bind tables from other fragments into the query it "
+            "writes"
         ),
     ),
 )

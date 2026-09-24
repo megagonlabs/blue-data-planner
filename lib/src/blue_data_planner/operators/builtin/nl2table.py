@@ -140,9 +140,9 @@ _DESCRIPTION = (
 )
 
 _LIMITATIONS = (
-    "Reads a SQL source only, reads each entity whole into memory before the program runs, and "
-    "makes no model call while running, so a predicate that needs judging what text means "
-    "belongs to a semantic operator."
+    "read anything but a SQL source, read an entity without loading all of it into memory, or "
+    "judge what text means, since the program it writes makes no model call, so a condition on "
+    "meaning belongs to a semantic operator"
 )
 
 

@@ -56,7 +56,7 @@ class _Entry:
     parameter_schema: type[BaseModel]
     run: _Run
     limitations: str | None = None
-    row_cap: str = "Reads at most {max_rows} rows in one call and refuses a larger input."
+    row_cap: str = "read more than {max_rows} rows in one call"
     # None means "use the suite's cap." Only sem_topk sets this, since its model calls grow
     # with the comparison count rather than the row count the suite's cap was sized for.
     max_rows: int | None = None
@@ -112,7 +112,7 @@ def _resolved_max_rows(entry: _Entry, max_rows: int) -> int:
 
 def _limitations(entry: _Entry, max_rows: int) -> str:
     cap = entry.row_cap.format(max_rows=_resolved_max_rows(entry, max_rows))
-    return cap if entry.limitations is None else f"{entry.limitations} {cap}"
+    return cap if entry.limitations is None else f"{entry.limitations}; {cap}"
 
 
 def _build_call(
@@ -272,7 +272,7 @@ _ENTRIES: tuple[_Entry, ...] = (
         "Writes one new column from a language model's reading of named columns.",
         SemMapParameters,
         _run_map,
-        limitations="Adds one column and rewrites none of the ones it read.",
+        limitations="write more than one new column per call, or change a column it read",
     ),
     _Entry(
         "lotus.sem_extract",
@@ -280,7 +280,7 @@ _ENTRIES: tuple[_Entry, ...] = (
         "Pulls named values out of text columns into new columns, one row in and one row out.",
         SemExtractParameters,
         _run_extract,
-        limitations="Reads the columns it is pointed at and builds values from their text alone.",
+        limitations="use anything but the text of the columns it is pointed at",
     ),
     _Entry(
         "lotus.sem_topk",
@@ -288,7 +288,7 @@ _ENTRIES: tuple[_Entry, ...] = (
         "Keeps the rows a language model ranks highest against a stated preference.",
         SemTopKParameters,
         _run_topk,
-        limitations="Returns the highest rows and carries no column saying how they ranked.",
+        limitations="report how the rows it keeps ranked",
         max_rows=SEM_TOPK_MAX_ROWS,
     ),
     _Entry(
@@ -298,8 +298,8 @@ _ENTRIES: tuple[_Entry, ...] = (
         SemAggParameters,
         _run_agg,
         limitations=(
-            "Summarizes each group into one text value and computes no sum, average, or count, "
-            "so a node asking for a number is not its to take."
+            "compute a sum, average, or count, since it writes one text value per group, so a "
+            "node asking for a number is not its to take"
         ),
     ),
     _Entry(
@@ -309,10 +309,12 @@ _ENTRIES: tuple[_Entry, ...] = (
         SemJoinParameters,
         _run_join,
         limitations=(
-            "Compares every pair of rows, so what it costs grows with the two tables multiplied "
-            "together. It matches on one column from each table and produces inner-join rows."
+            "match on more than one column from each table, or produce anything but inner-join rows"
         ),
-        row_cap="Refuses an input whose two tables' row counts multiply past {max_rows}.",
+        row_cap=(
+            "take two tables whose row counts multiply past {max_rows}, since it compares every "
+            "pair of rows"
+        ),
     ),
 )
 

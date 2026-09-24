@@ -440,8 +440,8 @@ PhysicalOperator(
     call=_nl2sql,
     source_kinds=frozenset({"sql/sqlite", "sql/mysql", "sql/postgres"}),
     limitations=(
-        "Cannot express a semantic predicate, and cannot bind tables from other fragments "
-        "into the query it writes."
+        "express a semantic predicate, or bind tables from other fragments into the query it "
+        "writes"
     ),
 )
 ```
