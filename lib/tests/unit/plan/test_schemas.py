@@ -305,6 +305,35 @@ def test_reusing_a_fragment_is_a_choice_and_carries_nothing_else() -> None:
 
 
 @pytest.mark.parametrize(
+    "candidates",
+    [two_candidates(), two_candidates()[1:]],
+    ids=["two_candidates", "one_candidate"],
+)
+def test_turning_down_every_candidate_is_a_choice_that_carries_a_reason(
+    candidates: list[tuple[frozenset[str], PhysicalOperator]],
+) -> None:
+    """A binding may take none of the candidates, however many there are, so long as it says why."""
+    schema = cover_choice_schema(a_scan_and_filter(), "n2", candidates, None)
+
+    written = schema.model_validate(
+        {"choice": {"candidate": "none", "reason": "no candidate reads images"}}
+    )
+
+    assert written.model_dump()["choice"] == {
+        "candidate": "none",
+        "reason": "no candidate reads images",
+    }
+
+
+def test_turning_down_every_candidate_with_no_reason_is_refused() -> None:
+    """A binding that turns every candidate down without a reason is refused."""
+    schema = cover_choice_schema(a_scan_and_filter(), "n2", two_candidates(), None)
+
+    with pytest.raises(ValidationError):
+        schema.model_validate({"choice": {"candidate": "none"}})
+
+
+@pytest.mark.parametrize(
     ("name", "schema"),
     [
         ("logical plan", logical_plan_schema()),

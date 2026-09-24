@@ -210,7 +210,7 @@ A node other than `SCAN` and `RETURN` declares both the name and the type of eve
 result has to carry. The logical planner writes them, since it is the component that knows what a
 later node will read. A `SCAN` declares none: what it reads is its source's attributes, and copying
 them into a declaration only adds a place to misspell one. The physical planner writes the columns
-of each fragment, starting from its root's declaration ([the physical half](#the-physical-half)).
+of each fragment ([the physical half](#the-physical-half)).
 
 ```python
 ColumnDataType = Literal["str", "int", "float", "bool"]
@@ -304,7 +304,7 @@ class PhysicalPlan:
 | Sources | `scan_sources` is copied from the fragment's `SCAN` nodes: each scan naming a source maps to that path, and a scan naming none is left out. An operator declaring `source_kinds` takes a fragment only when every scan in it names a source of one of those kinds, and an operator declaring none only when every scan is left out. A fragment containing no `SCAN` is bound to an operator that owns its engine (ADR-020) |
 | Instruction | One instruction to the operator, starting with a verb as a node instruction does, stating every condition the grouped nodes state and joining them with *and*, and saying what the fragment produces rather than how to produce it: "Find Bay Area job postings whose title is a data scientist role, with their title, company id, and location" |
 | Inputs | `input_data` lists the frontier nodes, which are the nodes outside the fragment feeding nodes inside it, in the order the fragment's nodes read them. The list is the plan's to decide, and only each entry's name and description are written during physical planning. One entry covers everything that node produced, so it may stand for more than one table; those tables share the name and keep their order |
-| Columns | `required_output_columns` is written by the model and holds at least one column: the root node's declaration, plus every column the fragments reading the root use, adjusted to what the operator produces ([04, choosing among candidates](04-detailed-architecture.md#choosing-among-candidates)) |
+| Columns | `required_output_columns` is written by the model and holds at least one column, worked out from the declarations of the fragment's nodes and from what reads its root, named as the operator produces them ([04, choosing among candidates](04-detailed-architecture.md#choosing-among-candidates)) |
 | Identity | `id` names one fragment, and a fragment carried into a new cover keeps it, so the exchange that wrote its parameters stays attached to the work. What the fragment is for is its signature, which covers everything deciding what it produces, so that is what says whether two covers ask for the same work |
 
 A cover is written whole rather than patched, and what carries over from the previous cover is
@@ -344,7 +344,7 @@ class PhysicalOperator:
 | `source_kinds` | The kinds of registered source it can read, or `None` when it reads none |
 | `accepts_bound_inputs` | Whether it can take tables from other fragments alongside the source it reads. A source-access operator that cannot is limited to fragments with an empty frontier |
 | `limitations` | What it cannot do, in plain language, where its author can state it. A Text-to-SQL operator cannot express a semantic predicate, and saying so is what gives the physical planner something to weigh against a description that otherwise promises everything |
-| `description`, `parameter_schema`, `call` | What it does, the shape of its parameters, and the callable execution invokes. A callable is handed the bundle, its parameters, and the columns the fragment's root declares (ADR-012) |
+| `description`, `parameter_schema`, `call` | What it does, the shape of its parameters, and the callable execution invokes. A callable is handed the bundle, its parameters, and the fragment's `required_output_columns` (ADR-012) |
 
 `parameter_schema` is a Pydantic model class, hand-written per operator (ADR-010). It serves twice:
 the fragment runner passes it to the model client as a response schema, and

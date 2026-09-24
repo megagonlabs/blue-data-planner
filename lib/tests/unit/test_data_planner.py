@@ -537,6 +537,7 @@ def test_a_defect_in_a_component_ends_the_request_instead_of_raising_at_the_call
     class PhysicalPlannerWithADefect(FakePhysicalPlanner):
         def cover(
             self,
+            request: str,
             plan: LogicalPlan,
             conversation: Conversation,
             previous: PhysicalPlan | None,

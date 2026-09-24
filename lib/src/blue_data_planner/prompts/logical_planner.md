@@ -29,13 +29,13 @@ pass instead, so that the work left over can be written against real values.
 
 ### What a `SCAN` names
 
-A `SCAN` writes `source`: one of the paths listed under "What the searches found", copied exactly,
-or `null` when the scan reads no registered source and its operator produces the data itself —
-from what you already know, for example. Write `null` exactly when that is true; otherwise name the
-path.
+Write a `SCAN`'s `source` as one of the paths listed under "What the searches found", copied
+exactly, or as `null` when the scan reads no registered source and its operator produces the data
+itself — from what you already know, for example. Write `null` only when that is true; otherwise
+copy the path.
 
-A `SCAN` declares no columns. The nodes reading a `SCAN` name the attributes they use in their
-instructions and declared columns; when the scan names a source, use only attributes "What the
+Declare no columns on a `SCAN`; the nodes reading it name the attributes they use, in their
+instructions and declared columns. When the scan names a source, use only the attributes "What the
 searches found" shows that entity holds.
 
 ## How to write a plan

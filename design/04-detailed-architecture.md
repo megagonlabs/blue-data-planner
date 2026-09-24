@@ -377,13 +377,15 @@ fragments have run, and the parameters that depend on them are written then
 
 The model writes every fragment's `required_output_columns`, and the schema takes no fragment
 without at least one. A node's declared columns are what it outputs, not what it reads, so the
-root's declaration alone can leave out a column a later step filters or joins on, and a `SCAN`
-declares none at all. The list is therefore written from two things: the columns the root declares,
-and what reads the root. Bindings run consumers first and a fragment's root is its only exit, so
-every reader is known when a node is bound, and the turn shows each one: the instruction and columns
-of the fragment holding it, the columns of a `RETURN`, or the instruction of a `DISCOVER`. The model
-adds every column those readers use and adjusts the list to what the chosen operator produces. For a
-scan that names no source, this list is the only statement of what the operator is to produce.
+declarations inside the fragment can leave out a column a later step filters or joins on, and a
+`SCAN` declares none at all. The list is therefore written from two things: the columns the
+fragment's nodes declare, where any do, and what reads the fragment's root. Bindings run consumers
+first and a fragment's root is its only exit, so every reader is known when a node is bound, and the
+turn shows each one: the instruction, columns, and input of the fragment holding it, the columns of
+a `RETURN`, or the instruction of a control node. The model writes the columns those readers use and
+the declarations call for, named as the chosen operator produces them. A root nothing reads yet,
+which a pass ending at a `REPLAN` leaves, gets the columns the next pass will need. For a scan that
+names no source, this list is the only statement of what the operator is to produce.
 
 ### A cover is written whole
 
@@ -423,8 +425,8 @@ frontier receives an empty bundle, which is what a scan rooted at a source gets.
 `FragmentRunner` runs one ready fragment.
 
 1. Write the operator's parameters, constrained by its `parameter_schema`, as structured output.
-2. Call `execute_physical_operator` with the operator, the parameters, the inputs, and the columns
-    the fragment's root declares. This is the only place an operator is invoked, and the declared
+2. Call `execute_physical_operator` with the operator, the parameters, the inputs, and the
+    fragment's `required_output_columns`. This is the only place an operator is invoked, and those
     columns are checked as part of the call.
 3. Review the result.
 

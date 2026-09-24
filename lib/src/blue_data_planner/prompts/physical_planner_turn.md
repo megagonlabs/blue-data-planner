@@ -1,11 +1,17 @@
+{% if request -%}
+## Request
+
+{{ request }}
+
+{% endif -%}
 {% if plan -%}
-## The plan
+## Plan
 
 {{ plan }}
 
 {% endif -%}
 {% if catalog_context -%}
-## The entities the searches found
+## The data the searches found
 
 {{ catalog_context }}
 

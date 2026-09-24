@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from blue_data_planner.plan.fragments import candidate_fragments, fragment_frontier
 from blue_data_planner.plan.schemas import (
+    NONE,
     REUSE,
     OutputColumnModel,
     candidate_label,
@@ -14,6 +15,7 @@ from blue_data_planner.plan.signatures import signatures
 from blue_data_planner.plan.validation import validate_logical_plan, validate_physical_plan
 
 __all__ = [
+    "NONE",
     "REUSE",
     "OutputColumnModel",
     "candidate_fragments",

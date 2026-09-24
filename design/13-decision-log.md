@@ -216,7 +216,7 @@ source it reads (ADR-022). The columns a later node depends on are recorded on t
 `required_output_columns`, each one a name and a type drawn from `str`, `int`, `float`, and `bool`.
 `SCAN` and `RETURN` carry none: a scan reads its source's attributes, and a `RETURN` names input
 columns to project rather than promising output. The physical planner writes the columns of every
-fragment, starting from its root's declaration.
+fragment.
 
 **Rationale:** The logical planner has no way to write good parameters. It does not know which
 operators are available, what they call their arguments, or what values the data holds, so
@@ -233,8 +233,8 @@ planner is the component that knows what a later node will read.
 A `SCAN` declaring columns only copies its entity's attribute list, and the copy is where names get
 misspelled and types guessed, failing a call on a column the source never held. What a fragment
 can produce depends on the operator it is bound to, which the physical planner knows and the
-logical planner does not, so the physical planner writes each fragment's list, from the root's
-declaration and from what the fragments reading the root use. A scan that names no source gets
+logical planner does not, so the physical planner writes each fragment's list, from the
+declarations of the nodes it groups and from what reads its root. A scan that names no source gets
 its columns there too.
 
 **Consequences:** An operator's description carries all the weight in the physical planner's prompt,
@@ -333,8 +333,8 @@ DataBundle = list[Data]  # what one fragment passes to the next
 ```
 
 The data an operator receives and the data it returns are both this shape, so a callable takes a
-bundle and gives one back alongside its report (ADR-020). A callable is also handed the columns
-the fragment's root declares, to read or to ignore; what the result carries is checked after the
+bundle and gives one back alongside its report (ADR-020). A callable is also handed the fragment's
+`required_output_columns`, to read or to ignore; what the result carries is checked after the
 call either way ([04](04-detailed-architecture.md#executing)). A fragment's inputs are the tables
 its upstream fragments produced, concatenated in the order it lists them. Each adapter converts at its own edge: the LOTUS adapter builds one data frame per
 table and flattens coming out.

@@ -15,14 +15,16 @@ from blue_data_planner.types import (
     PhysicalPlanFragment,
 )
 
-# Never an operator id, because those are suite-qualified.
+# REUSE fills a label's operator slot and is never an operator id, since those are suite-qualified.
+# NONE is a whole label and cannot collide with one, since a label always contains colons.
 REUSE = "reuse"
+NONE = "none"
 
 
 def candidate_label(root_node_id: str, operator_id: str, node_ids: frozenset[str]) -> str:
     """Return the name one binding candidate answers to, stable across turns."""
     # A candidate names what it is rather than where it sat in the list it arrived in: the list
-    # differs from turn to turn, and from Task 8 the conversation keeps the earlier turns.
+    # differs from turn to turn, and the conversation keeps the earlier turns.
     return f"{root_node_id}:{operator_id}:[{','.join(sorted(node_ids))}]"
 
 
@@ -189,13 +191,12 @@ def cover_choice_schema(
     )
     if reusable is not None:
         variants = (*variants, _reuse_model(root_node_id, reusable))
-    if len(variants) == 1:
-        choice: Any = variants[0]
-    else:
-        union: Any = Union
-        # Undiscriminated, for the reason PlanNodeModel gives. Each variant's label is its own
-        # literal, so the candidate a response took is unambiguous.
-        choice = union[variants]
+    # Offered on every call (ADR-040), so the union always holds at least two variants.
+    variants = (*variants, _none_model())
+    union: Any = Union
+    # Undiscriminated, for the reason PlanNodeModel gives. Each variant's label is its own
+    # literal, so the candidate a response took is unambiguous.
+    choice: Any = union[variants]
     return create_model(
         "CoverChoice",
         __base__=_Strict,
@@ -211,6 +212,25 @@ def _reuse_model(root_node_id: str, reusable: PhysicalPlanFragment) -> type[Base
         candidate=(
             _only(label),
             Field(description="Keep the fragment already run for this node and run nothing new."),
+        ),
+    )
+
+
+def _none_model() -> type[BaseModel]:
+    return create_model(
+        "CandidateNone",
+        __base__=_Strict,
+        candidate=(
+            _only(NONE),
+            Field(
+                description=(
+                    "Take none of the candidates: nothing offered can do what the plan asks."
+                )
+            ),
+        ),
+        reason=(
+            str,
+            Field(description=("Why none of the candidates will do (rule 2 of the instructions).")),
         ),
     )
 
@@ -242,11 +262,8 @@ def _candidate_model(
             Field(
                 min_length=1,
                 description=(
-                    "The columns the fragment's result has to carry. Start from the columns the "
-                    "root node declares (a SCAN declares none), add every column the nodes "
-                    "listed as reading this root name in their instructions, inputs, or outputs, "
-                    "and adjust the list to what this operator produces, naming each column as "
-                    "the result will spell it."
+                    "The columns this fragment's output must carry, worked out as rule 4 of the "
+                    "instructions describes."
                 ),
             ),
         ),

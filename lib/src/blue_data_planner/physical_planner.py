@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import uuid
 from typing import Any
 
@@ -9,6 +10,7 @@ from blue_data_planner.llm import Conversation, LLMClient, Turn
 from blue_data_planner.llm.templating import safe_substitute
 from blue_data_planner.operators import OperatorRouter
 from blue_data_planner.plan import (
+    NONE,
     REUSE,
     candidate_fragments,
     candidate_label,
@@ -19,7 +21,6 @@ from blue_data_planner.plan import (
 from blue_data_planner.prompts import prompt_text
 from blue_data_planner.types import (
     BlueDataPlannerError,
-    ControlOperator,
     DiscoveryResult,
     ExecutionResult,
     InputData,
@@ -47,6 +48,7 @@ class PhysicalPlanner:
 
     def cover(
         self,
+        request: str,
         plan: LogicalPlan,
         conversation: Conversation,
         previous: PhysicalPlan | None,
@@ -57,10 +59,11 @@ class PhysicalPlanner:
         carried = _carried_cover(plan, previous, results)
         if carried is not None:
             return PhysicalPlanResult(plan=carried, failure_reason=None)
-        return self._walk(plan, conversation, previous, results, reason)
+        return self._walk(request, plan, conversation, previous, results, reason)
 
     def _walk(
         self,
+        request: str,
         plan: LogicalPlan,
         conversation: Conversation,
         previous: PhysicalPlan | None,
@@ -77,12 +80,8 @@ class PhysicalPlanner:
             )
         # What changed since the last call rides on this call's first candidate turn, so no two
         # user turns ever sit next to each other.
-        preamble = {
-            "plan": _render_plan(plan) if opening else "",
-            "catalog_context": _render_context(results) if opening else "",
-            "node_results": _render_results(results) if opening else "",
-            "reason": reason or "",
-        }
+        preamble = _opening_preamble(request, plan, results) if opening else dict(_EMPTY_PREAMBLE)
+        preamble["reason"] = reason or ""
         fragments: list[PhysicalPlanFragment] = []
         covered: set[str] = set()
         # Every node id a fragment bound so far covers, root or grouped, so a later root's
@@ -104,7 +103,7 @@ class PhysicalPlanner:
                 if previous is not None and node.id in results
                 else None
             )
-            fragment = self._bind(
+            bound = self._bind(
                 plan,
                 node,
                 candidates,
@@ -115,11 +114,19 @@ class PhysicalPlanner:
                 bound_so_far,
             )
             # The preamble rides on the first candidate turn of this call only.
-            preamble = {"plan": "", "catalog_context": "", "node_results": "", "reason": ""}
-            fragments.append(fragment)
-            covered.update(fragment.logical_node_ids)
-            for covered_node_id in fragment.logical_node_ids:
-                bound_so_far[covered_node_id] = fragment
+            preamble = dict(_EMPTY_PREAMBLE)
+            if isinstance(bound, str):
+                # A binding turning down every candidate (ADR-040) ends the cover the same way
+                # a node with no candidate at all does: no plan, no operator call spent.
+                return PhysicalPlanResult(
+                    plan=None,
+                    failure_reason=f"the binding for node {node.id!r} took none of the "
+                    f"candidates offered: {bound}",
+                )
+            fragments.append(bound)
+            covered.update(bound.logical_node_ids)
+            for covered_node_id in bound.logical_node_ids:
+                bound_so_far[covered_node_id] = bound
         cover = PhysicalPlan(
             id=str(uuid.uuid4()),
             parent_id=previous.id if previous is not None else None,
@@ -159,15 +166,14 @@ class PhysicalPlanner:
         conversation: Conversation,
         preamble: dict[str, str],
         bound_so_far: dict[str, PhysicalPlanFragment],
-    ) -> PhysicalPlanFragment:
+    ) -> PhysicalPlanFragment | str:
+        """Bind the root to one candidate, or return the reason it turned every one down."""
         conversation.turns.append(
             Turn(
                 role="user",
                 content=safe_substitute(
                     prompt_text("physical_planner_turn.md"),
-                    candidates=_render_candidates(
-                        plan, node, candidates, reusable, results, bound_so_far
-                    ),
+                    candidates=_render_candidates(plan, node, candidates, reusable, bound_so_far),
                     **preamble,
                 ),
             )
@@ -176,6 +182,8 @@ class PhysicalPlanner:
         written = self._llm_client.complete_structured(conversation, schema)
         choice: dict[str, Any] = written.model_dump()["choice"]
         label = str(choice["candidate"])
+        if label == NONE:
+            return str(choice["reason"])
         if reusable is not None and label == candidate_label(
             node.id, REUSE, frozenset(reusable.logical_node_ids)
         ):
@@ -238,6 +246,29 @@ class PhysicalPlanner:
         return (
             f"SCAN node {node.id!r} reads {reads}, and the operators for SCAN read {sorted(wanted)}"
         )
+
+
+# What a candidate turn substitutes when its section has nothing to show. The opening turn
+# overrides the sections it fills, so every turn's preamble has the same keys.
+_EMPTY_PREAMBLE: dict[str, str] = {
+    "request": "",
+    "plan": "",
+    "catalog_context": "",
+    "node_results": "",
+    "reason": "",
+}
+
+
+def _opening_preamble(
+    request: str, plan: LogicalPlan, results: dict[str, NodeResult]
+) -> dict[str, str]:
+    return {
+        **_EMPTY_PREAMBLE,
+        "request": request,
+        "plan": _render_plan(plan),
+        "catalog_context": _render_context(results),
+        "node_results": _render_results(results),
+    }
 
 
 def _carried_cover(
@@ -341,49 +372,43 @@ def _render_candidates(
     node: PipelineNode,
     candidates: list[Candidate],
     reusable: PhysicalPlanFragment | None,
-    results: dict[str, NodeResult],
     bound_so_far: dict[str, PhysicalPlanFragment],
 ) -> str:
     lines = [
-        f"Node {node.id} is uncovered. Its instruction: {node.attributes['instruction']}",
-        _render_root_and_readers(plan, node, bound_so_far),
+        f"Node {node.id} is uncovered.",
+        "",
+        "Read by:",
+        "",
+        _render_readers(plan, node, bound_so_far),
+        "",
+        "Candidates:",
         "",
     ]
     if reusable is not None:
-        lines.append(_render_reuse_candidate(node, reusable, results[node.id]))
+        lines.append(_render_reuse_candidate(node, reusable))
     for node_ids, operator in candidates:
         label = candidate_label(node.id, operator.operator_id, node_ids)
-        steps = "; ".join(_render_step(plan.node(inner)) for inner in sorted(node_ids))
         limits = f" Cannot: {operator.limitations}" if operator.limitations else ""
-        lines.append(
-            f"{label}. {operator.operator_id} over {sorted(node_ids)} — "
-            f"{operator.description}{limits}\n   Steps: {steps}"
-        )
+        lines.append(f"- {label} — {operator.operator_id}: {operator.description}{limits}")
     return "\n".join(lines)
 
 
-def _render_root_and_readers(
+def _render_readers(
     plan: LogicalPlan, node: PipelineNode, bound_so_far: dict[str, PhysicalPlanFragment]
 ) -> str:
-    # A fragment rooted here has to produce what the root declares plus what every reader of it
-    # uses (design/04-detailed-architecture.md, "Choosing among candidates"). A SCAN declares no
-    # columns of its own, so for one the readers are the whole of it.
-    lines: list[str] = []
-    if node.kind is not LogicalOperator.SCAN:
-        lines.append(f"Declared output columns: {_render_columns(node.required_output_columns)}")
+    # Every reader of an uncovered root is already known: a cover binds a node's readers before
+    # the node itself, and the root is its own fragment's only exit
+    # (design/04-detailed-architecture.md, "Choosing among candidates").
     readers = plan.consumers(node.id)
     if not readers:
-        lines.append(
-            "Nothing in this plan reads this node yet; write the columns the next pass will need."
-        )
-        return "\n".join(lines)
-    lines.append(f"Nodes reading {node.id}:")
-    # Operator-node readers are grouped by the fragment covering them, so a fragment holding
-    # several readers of this root is described once.
+        return "[]"
+    # Operator-node readers are keyed by the fragment covering them, so a fragment holding
+    # several readers of this root is named once.
     fragments: dict[str, PhysicalPlanFragment] = {}
-    readers_by_fragment: dict[str, list[PipelineNode]] = {}
+    non_operator_entries: list[dict[str, Any]] = []
     for reader in readers:
         if not reader.is_operator_node:
+            non_operator_entries.append(_render_non_operator_reader(reader))
             continue
         fragment = bound_so_far.get(reader.id)
         if fragment is None:
@@ -392,73 +417,54 @@ def _render_root_and_readers(
                 f"{reader.id!r} yet; binding runs readers first, so every one is already bound"
             )
         fragments[fragment.id] = fragment
-        readers_by_fragment.setdefault(fragment.id, []).append(reader)
-    lines.extend(
-        _render_fragment_reader(node.id, fragments[fragment_id], grouped)
-        for fragment_id, grouped in readers_by_fragment.items()
-    )
-    lines.extend(
-        _render_non_operator_reader(reader) for reader in readers if not reader.is_operator_node
-    )
-    return "\n".join(lines)
+    fragment_entries = [
+        _render_fragment_reader(node.id, fragment) for fragment in fragments.values()
+    ]
+    return _render_json_array(fragment_entries + non_operator_entries)
 
 
-def _render_non_operator_reader(reader: PipelineNode) -> str:
+def _render_non_operator_reader(reader: PipelineNode) -> dict[str, Any]:
     if reader.kind is LogicalOperator.RETURN:
-        return f"- {reader.id} RETURN: the answer carries {', '.join(reader.attributes['columns'])}"
-    lead = ", searching for" if reader.kind is ControlOperator.DISCOVER else ""
-    return f"- {reader.id} {reader.kind.value}{lead}: {reader.instruction}"
+        return {
+            "id": reader.id,
+            "kind": reader.kind.value,
+            "columns": reader.attributes["columns"],
+        }
+    return {"id": reader.id, "kind": reader.kind.value, "instruction": reader.instruction}
 
 
-def _render_fragment_reader(
-    root_node_id: str, fragment: PhysicalPlanFragment, readers: list[PipelineNode]
-) -> str:
+def _render_fragment_reader(root_node_id: str, fragment: PhysicalPlanFragment) -> dict[str, Any]:
     received = [entry for entry in fragment.input_data if entry.logical_node_id == root_node_id]
     if len(received) != 1:
         raise BlueDataPlannerError(
             f"fragment {fragment.id!r} covers a node reading {root_node_id!r}, but its input_data "
             f"holds {len(received)} entries for {root_node_id!r}, where exactly one was expected"
         )
-    return (
-        f"- {_join_words([reader.id for reader in readers])}, in fragment {fragment.id} rooted at "
-        f'{fragment.root_logical_node_id}. Its instruction: "{fragment.instruction}" '
-        f"It produces: {_render_columns(fragment.required_output_columns)}. "
-        f"It receives {root_node_id} as: {received[0].name} ({received[0].description})"
-    )
+    return {
+        "fragment": fragment.id,
+        "logical_node_ids": sorted(fragment.logical_node_ids),
+        "instruction": fragment.instruction,
+        "required_output_columns": _columns_as_strings(fragment.required_output_columns),
+        "input": {"name": received[0].name, "description": received[0].description},
+    }
 
 
-def _join_words(words: list[str]) -> str:
-    if len(words) == 1:
-        return words[0]
-    return f"{', '.join(words[:-1])} and {words[-1]}"
+def _columns_as_strings(columns: list[OutputColumn]) -> list[str]:
+    return [f"{column.name}: {column.dtype}" for column in columns]
 
 
-def _render_columns(columns: list[OutputColumn]) -> str:
-    return ", ".join(f"{column.name} ({column.dtype})" for column in columns) or "none"
+def _render_json_array(entries: list[dict[str, Any]]) -> str:
+    if not entries:
+        return "[]"
+    lines = [json.dumps(entry, ensure_ascii=False) for entry in entries]
+    return "[\n  " + ",\n  ".join(lines) + "\n]"
 
 
-def _render_step(node: PipelineNode) -> str:
-    step = f"{node.id} ({node.kind.value}) {node.attributes['instruction']}"
-    if node.kind is not LogicalOperator.SCAN:
-        return step
-    source = node.attributes["source"]
-    return f"{step} (reads {source if source is not None else 'no registered source'})"
-
-
-def _render_reuse_candidate(
-    node: PipelineNode, reusable: PhysicalPlanFragment, result: NodeResult
-) -> str:
-    if not isinstance(result, ExecutionResult):
-        raise BlueDataPlannerError(
-            f"node {node.id!r} offers a reusable fragment, but the result recorded for it is a "
-            f"{type(result).__name__}, not an ExecutionResult"
-        )
+def _render_reuse_candidate(node: PipelineNode, reusable: PhysicalPlanFragment) -> str:
     label = candidate_label(node.id, REUSE, frozenset(reusable.logical_node_ids))
     return (
-        f"{label}. Reuse the fragment already run, {reusable.operator_id} over "
-        f"{sorted(reusable.logical_node_ids)} — costs nothing.\n"
-        f"   Instruction: {reusable.instruction}\n"
-        f"   Already produced: {_describe_execution(result)}"
+        f"- {label} — {reusable.operator_id}: reuse the fragment already run, which costs "
+        f"nothing. Instruction: {json.dumps(reusable.instruction, ensure_ascii=False)}"
     )
 
 
@@ -491,21 +497,24 @@ def _describe_execution(result: ExecutionResult) -> str:
 def _render_plan(plan: LogicalPlan) -> str:
     # The opening turn shows the whole plan, so each binding is made with every node in view
     # (design/04-detailed-architecture.md, "Choosing among candidates").
-    return "\n".join(_render_plan_node(node) for node in plan.nodes_in_dependency_order())
+    nodes = [_plan_node_payload(node) for node in plan.nodes_in_dependency_order()]
+    return _render_json_array(nodes)
 
 
-def _render_plan_node(node: PipelineNode) -> str:
+def _plan_node_payload(node: PipelineNode) -> dict[str, Any]:
+    payload: dict[str, Any] = {
+        "id": node.id,
+        "kind": node.kind.value,
+        "input_node_ids": node.input_node_ids,
+    }
     if node.kind is LogicalOperator.SCAN:
-        source = node.attributes["source"]
-        reads = f" of {source if source is not None else 'no registered source'}"
-    elif node.input_node_ids:
-        reads = f" of {', '.join(node.input_node_ids)}"
+        payload["instruction"] = node.instruction
+        payload["source"] = node.attributes["source"]
+    elif node.kind is LogicalOperator.RETURN:
+        payload["columns"] = node.attributes["columns"]
     else:
-        reads = ""
-    head = f"- {node.id} {node.kind.value}{reads}"
-    if node.kind is LogicalOperator.RETURN:
-        return f"{head}: the answer carries {', '.join(node.attributes['columns'])}"
-    if not node.is_operator_node or node.kind is LogicalOperator.SCAN:
-        return f"{head}: {node.instruction}"
-    columns = _render_columns(node.required_output_columns)
-    return f"{head}: {node.instruction.rstrip('.')}. Outputs: {columns}"
+        # An operator node other than SCAN, or a control node (DISCOVER, REPLAN).
+        payload["instruction"] = node.instruction
+        if node.is_operator_node:
+            payload["required_output_columns"] = _columns_as_strings(node.required_output_columns)
+    return payload

@@ -54,6 +54,7 @@ class FakePhysicalPlanner:
 
     def cover(
         self,
+        request: str,
         plan: LogicalPlan,
         conversation: Conversation,
         previous: PhysicalPlan | None,

@@ -227,6 +227,7 @@ class DataPlanner:
     ) -> PhysicalPlanResult:
         current = state.pipeline.current_physical_plan_id
         return self._physical_planner.cover(
+            state.request,
             plan,
             state.conversations.for_physical_planner(plan.id),
             state.pipeline.physical_plans.get(current) if current else None,

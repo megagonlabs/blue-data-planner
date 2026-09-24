@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from typing import Any
 
 import pytest
@@ -28,6 +29,7 @@ from tests.doubles.llm import ScriptedLLMClient
 
 POSTINGS = "/source/jobs/database/jobs/collection/public/entity/postings"
 REVIEWS = "/source/reviews/database/reviews/collection/default/entity/reviews"
+REQUEST = "list the job titles"
 
 
 class NoParameters(BaseModel):
@@ -322,6 +324,11 @@ def a_binding(label: str, inputs: tuple[str, ...] = (), **extra: Any) -> dict[st
     return {"choice": payload}
 
 
+def a_none_choice(reason: str) -> dict[str, Any]:
+    """A binding decision that turns every candidate offered down."""
+    return {"choice": {"candidate": "none", "reason": reason}}
+
+
 def a_planner(client: ScriptedLLMClient, router: OperatorRouter) -> PhysicalPlanner:
     """A planner over this router, whose model answers come from this scripted client."""
     # ScriptedLLMClient stands in for LLMClient structurally; pyright's strict nominal
@@ -333,7 +340,7 @@ def test_a_plan_one_operator_can_absorb_comes_back_as_one_fragment() -> None:
     """The widest candidate is offered first, and taking it ends the cover in one turn."""
     client = ScriptedLLMClient([a_binding("n3:builtin.nl2table:[n1,n2,n3]")])
     planner = a_planner(client, a_router(an_operator("builtin.nl2table", ALL_KINDS)))
-    result = planner.cover(a_plan(), Conversation(), None, a_discovery())
+    result = planner.cover(REQUEST, a_plan(), Conversation(), None, a_discovery())
     assert result.plan is not None
     assert [sorted(f.logical_node_ids) for f in result.plan.fragments] == [["n1", "n2", "n3"]]
 
@@ -344,10 +351,43 @@ def test_a_node_no_operator_can_run_ends_the_cover_with_the_reason_naming_it() -
         ScriptedLLMClient([]),
         a_router(an_operator("builtin.filter", frozenset({LogicalOperator.FILTER}))),
     )
-    result = planner.cover(a_plan(), Conversation(), None, a_discovery())
+    result = planner.cover(REQUEST, a_plan(), Conversation(), None, a_discovery())
     assert result.plan is None
     assert result.failure_reason is not None
     assert "n3" in result.failure_reason
+
+
+def test_a_binding_that_turns_every_candidate_down_ends_the_cover_with_no_plan() -> None:
+    """No fragment is bound and no operator runs; the reason names the node and the model's why."""
+    reason = "the plan filters on what a photo shows, and no operator offered reads images"
+    client = ScriptedLLMClient([a_none_choice(reason)])
+    planner = a_planner(client, a_router(an_operator("builtin.nl2table", ALL_KINDS)))
+
+    result = planner.cover(REQUEST, a_plan(), Conversation(), None, a_discovery())
+
+    assert result.plan is None
+    assert result.failure_reason is not None
+    assert "n3" in result.failure_reason
+    assert reason in result.failure_reason
+
+
+def test_a_binding_turning_every_candidate_down_after_others_were_bound_returns_no_plan() -> None:
+    """The fragments already bound are dropped with the rest, so no partial cover comes back."""
+    client = ScriptedLLMClient(
+        [
+            a_binding("n3:builtin.aggregate:[n3]", inputs=("n2",)),
+            a_binding("n2:builtin.filter:[n2]", inputs=("n1",)),
+            a_none_choice("no operator offered reads this source"),
+        ]
+    )
+
+    result = a_planner(client, a_three_step_router()).cover(
+        REQUEST, a_plan(), Conversation(), None, a_discovery()
+    )
+
+    assert result.plan is None
+    assert result.failure_reason is not None
+    assert "n1" in result.failure_reason
 
 
 def test_a_cover_taking_one_node_at_a_time_sends_one_turn_per_node() -> None:
@@ -367,7 +407,7 @@ def test_a_cover_taking_one_node_at_a_time_sends_one_turn_per_node() -> None:
             an_operator("builtin.aggregate", frozenset({LogicalOperator.AGGREGATE})),
         ),
     )
-    result = planner.cover(a_plan(), Conversation(), None, a_discovery())
+    result = planner.cover(REQUEST, a_plan(), Conversation(), None, a_discovery())
     assert result.plan is not None
     assert sorted(sorted(f.logical_node_ids) for f in result.plan.fragments) == [
         ["n1"],
@@ -382,7 +422,7 @@ def test_a_scan_an_operator_answers_from_its_own_knowledge_is_bound_to_no_source
         ScriptedLLMClient([a_binding("n2:builtin.nl2table:[n1,n2]")]),
         a_router(an_operator("builtin.nl2table", ALL_KINDS, source_kinds=None)),
     )
-    result = planner.cover(a_scan_and_return(source=None), Conversation(), None, {})
+    result = planner.cover(REQUEST, a_scan_and_return(source=None), Conversation(), None, {})
     assert result.plan is not None
     assert result.plan.fragments[0].scan_sources == {}
 
@@ -400,7 +440,7 @@ def test_a_scan_no_discovered_source_matches_leaves_its_node_with_no_candidate()
             ),
         ),
     )
-    result = planner.cover(a_scan_and_return(), Conversation(), None, a_discovery())
+    result = planner.cover(REQUEST, a_scan_and_return(), Conversation(), None, a_discovery())
     assert result.plan is None
     assert result.failure_reason is not None
     assert "n1" in result.failure_reason
@@ -417,7 +457,7 @@ def test_a_world_knowledge_scan_finds_no_candidate_when_every_operator_needs_a_s
             an_operator("builtin.scan", frozenset({LogicalOperator.SCAN})),
         ),
     )
-    result = planner.cover(a_scan_and_return(source=None), Conversation(), None, {})
+    result = planner.cover(REQUEST, a_scan_and_return(source=None), Conversation(), None, {})
     assert result.plan is None
     assert result.failure_reason is not None
     assert "n1" in result.failure_reason
@@ -431,7 +471,7 @@ def test_a_scan_naming_a_source_absent_from_the_results_raises() -> None:
         a_router(an_operator("op.one", frozenset({LogicalOperator.SCAN}))),
     )
     with pytest.raises(BlueDataPlannerError, match="n1"):
-        planner.cover(a_scan_and_return(), Conversation(), None, {})
+        planner.cover(REQUEST, a_scan_and_return(), Conversation(), None, {})
 
 
 @pytest.mark.parametrize(
@@ -456,6 +496,7 @@ def test_a_join_over_scans_no_one_operator_reads_is_offered_only_per_scan_cuts(
     planner = a_planner(client, a_router(left_operator, right_operator))
 
     planner.cover(
+        REQUEST,
         a_join_of_two_scans(POSTINGS, right_source),
         Conversation(),
         None,
@@ -468,26 +509,28 @@ def test_a_join_over_scans_no_one_operator_reads_is_offered_only_per_scan_cuts(
     assert f"n3:{right_operator.operator_id}:[n2,n3]" in join_turn
 
 
-def test_a_candidate_holding_a_scan_tells_the_model_which_source_it_reads() -> None:
-    """The fragment instruction is written against the source, so the model has to see it."""
-    client = ScriptedLLMClient([a_binding("n2:op.one:[n1,n2]")])
-    planner = a_planner(
-        client,
-        a_router(an_operator("op.one", frozenset({LogicalOperator.SCAN, LogicalOperator.PROJECT}))),
-    )
-
-    planner.cover(a_scan_and_return(), Conversation(), None, a_discovery())
-
-    assert f"(reads {POSTINGS})" in client.conversations[0][-1][1]
+def the_plan_nodes(turn: str) -> list[dict[str, Any]]:
+    """Parse the JSON array under "## Plan", one node object per line, into a list of dicts."""
+    return _json_array_section(turn, "## Plan\n", "\n## ")
 
 
-def the_plan_section(turn: str) -> str:
-    """The text under "## The plan", up to the next section heading."""
-    return turn.split("## The plan\n", 1)[1].split("\n## ", 1)[0].strip()
+def the_readers(turn: str) -> list[dict[str, Any]]:
+    """Parse the JSON array under "Read by:", one reader object per line, into a list of dicts."""
+    return _json_array_section(turn, "Read by:\n\n", "\n\nCandidates:")
 
 
-def test_the_opening_turn_shows_the_plan_and_a_later_turn_does_not_repeat_it() -> None:
-    """The whole plan opens the conversation once, one node per line, and is not sent again."""
+def _json_array_section(turn: str, start: str, end: str) -> list[dict[str, Any]]:
+    section = turn.split(start, 1)[1].split(end, 1)[0].strip()
+    if section == "[]":
+        return []
+    lines = section.splitlines()
+    assert lines[0] == "["
+    assert lines[-1] == "]"
+    return [json.loads(line.rstrip(",")) for line in lines[1:-1]]
+
+
+def test_the_opening_turn_shows_the_request_and_the_plan_and_a_later_turn_repeats_neither() -> None:
+    """The request and the whole plan open the conversation once, and are not sent again."""
     client = ScriptedLLMClient(
         [
             a_binding("n2:builtin.filter:[n2]", inputs=("n1",)),
@@ -502,14 +545,31 @@ def test_the_opening_turn_shows_the_plan_and_a_later_turn_does_not_repeat_it() -
         ),
     )
 
-    planner.cover(a_scan_a_filter_and_return(), Conversation(), None, a_discovery())
+    planner.cover(REQUEST, a_scan_a_filter_and_return(), Conversation(), None, a_discovery())
 
-    assert the_plan_section(client.conversations[0][-1][1]).splitlines() == [
-        f"- n1 SCAN of {POSTINGS}: name the planets",
-        "- n2 FILTER of n1: keep the rocky ones. Outputs: title (str)",
-        "- n3 RETURN of n2: the answer carries title",
+    opening_turn = client.conversations[0][-1][1]
+    assert "## Request" in opening_turn
+    assert REQUEST in opening_turn.split("## Plan", 1)[0]
+    assert the_plan_nodes(opening_turn) == [
+        {
+            "id": "n1",
+            "kind": "SCAN",
+            "input_node_ids": [],
+            "instruction": "name the planets",
+            "source": POSTINGS,
+        },
+        {
+            "id": "n2",
+            "kind": "FILTER",
+            "input_node_ids": ["n1"],
+            "instruction": "keep the rocky ones",
+            "required_output_columns": ["title: str"],
+        },
+        {"id": "n3", "kind": "RETURN", "input_node_ids": ["n2"], "columns": ["title"]},
     ]
-    assert "## The plan" not in client.conversations[1][-1][1]
+    later_turn = client.conversations[1][-1][1]
+    assert "## Request" not in later_turn
+    assert "## Plan" not in later_turn
 
 
 def a_three_step_router() -> OperatorRouter:
@@ -539,19 +599,25 @@ def test_a_candidate_turn_lists_the_fragment_reading_its_root_with_what_it_produ
     )
 
     result = a_planner(client, a_three_step_router()).cover(
-        a_plan(), Conversation(), None, a_discovery()
+        REQUEST, a_plan(), Conversation(), None, a_discovery()
     )
 
     assert result.plan is not None
     turn = client.conversations[{"n3": 0, "n2": 1, "n1": 2}[root_node_id]][-1][1]
     reader = result.plan.fragment_for_root(reader_node_id)
     assert reader is not None
-    assert (
-        f"- {reader_node_id}, in fragment {reader.id} rooted at {reader_node_id}. "
-        f'Its instruction: "do the whole thing" It produces: title (str). '
-        f"It receives {root_node_id} as: the {root_node_id} table "
-        f"(the rows {root_node_id} produced)"
-    ) in turn
+    assert the_readers(turn) == [
+        {
+            "fragment": reader.id,
+            "logical_node_ids": [reader_node_id],
+            "instruction": "do the whole thing",
+            "required_output_columns": ["title: str"],
+            "input": {
+                "name": f"the {root_node_id} table",
+                "description": f"the rows {root_node_id} produced",
+            },
+        }
+    ]
 
 
 def test_a_root_read_by_two_fragments_lists_both_in_its_turn() -> None:
@@ -573,7 +639,7 @@ def test_a_root_read_by_two_fragments_lists_both_in_its_turn() -> None:
         ),
     )
 
-    result = planner.cover(a_fan_out_scan(), Conversation(), None, a_discovery())
+    result = planner.cover(REQUEST, a_fan_out_scan(), Conversation(), None, a_discovery())
 
     assert result.plan is not None
     scan_turn = client.conversations[3][-1][1]
@@ -581,8 +647,10 @@ def test_a_root_read_by_two_fragments_lists_both_in_its_turn() -> None:
     fragment_n3 = result.plan.fragment_for_root("n3")
     assert fragment_n2 is not None
     assert fragment_n3 is not None
-    assert f"- n2, in fragment {fragment_n2.id} rooted at n2." in scan_turn
-    assert f"- n3, in fragment {fragment_n3.id} rooted at n3." in scan_turn
+    assert [entry["fragment"] for entry in the_readers(scan_turn)] == [
+        fragment_n2.id,
+        fragment_n3.id,
+    ]
 
 
 def a_scan_read_twice_by_one_fragment() -> LogicalPlan:
@@ -619,14 +687,36 @@ def test_a_fragment_holding_two_readers_of_a_root_is_listed_once() -> None:
     )
     planner = a_planner(client, a_router(an_operator("op.all", ALL_KINDS)))
 
-    result = planner.cover(a_scan_read_twice_by_one_fragment(), Conversation(), None, a_discovery())
+    result = planner.cover(
+        REQUEST, a_scan_read_twice_by_one_fragment(), Conversation(), None, a_discovery()
+    )
 
     assert result.plan is not None
     reader = result.plan.fragment_for_root("n3")
     assert reader is not None
-    scan_turn = client.conversations[1][-1][1]
-    assert scan_turn.count("in fragment") == 1
-    assert f"- n2 and n3, in fragment {reader.id} rooted at n3." in scan_turn
+    readers = the_readers(client.conversations[1][-1][1])
+    assert len(readers) == 1
+    assert readers[0]["fragment"] == reader.id
+    assert readers[0]["logical_node_ids"] == ["n2", "n3"]
+
+
+def test_a_reader_fragment_is_listed_with_every_node_it_groups() -> None:
+    """A fragment is named by all of its nodes, including those that do not read the root."""
+    client = ScriptedLLMClient(
+        [a_binding("n3:op.rest:[n2,n3]", inputs=("n1",)), a_binding("n1:builtin.scan:[n1]")]
+    )
+    planner = a_planner(
+        client,
+        a_router(
+            an_operator("builtin.scan", frozenset({LogicalOperator.SCAN})),
+            an_operator("op.rest", frozenset({LogicalOperator.FILTER, LogicalOperator.AGGREGATE})),
+        ),
+    )
+
+    planner.cover(REQUEST, a_plan(), Conversation(), None, a_discovery())
+
+    readers = the_readers(client.conversations[1][-1][1])
+    assert [reader["logical_node_ids"] for reader in readers] == [["n2", "n3"]]
 
 
 def a_scan_read_by(kind: ControlOperator, instruction: str) -> LogicalPlan:
@@ -652,20 +742,20 @@ def a_scan_read_by(kind: ControlOperator, instruction: str) -> LogicalPlan:
 @pytest.mark.parametrize(
     ("plan", "expected"),
     [
-        (a_scan_a_filter_and_return(), "- n3 RETURN: the answer carries title"),
+        (a_scan_a_filter_and_return(), {"id": "n3", "kind": "RETURN", "columns": ["title"]}),
         (
             a_scan_read_by(ControlOperator.DISCOVER, "find the companies"),
-            "- c1 DISCOVER, searching for: find the companies",
+            {"id": "c1", "kind": "DISCOVER", "instruction": "find the companies"},
         ),
         (
             a_scan_read_by(ControlOperator.REPLAN, "need the companies first"),
-            "- c1 REPLAN: need the companies first",
+            {"id": "c1", "kind": "REPLAN", "instruction": "need the companies first"},
         ),
     ],
     ids=["return", "discover", "replan"],
 )
 def test_a_candidate_turn_names_a_reader_no_operator_runs_by_what_it_asks_for(
-    plan: LogicalPlan, expected: str
+    plan: LogicalPlan, expected: dict[str, Any]
 ) -> None:
     """A RETURN is listed by the columns it answers with, a control node by its instruction."""
     client = ScriptedLLMClient(
@@ -673,26 +763,29 @@ def test_a_candidate_turn_names_a_reader_no_operator_runs_by_what_it_asks_for(
     )
 
     a_planner(client, a_router(an_operator("op.all", ALL_KINDS))).cover(
-        plan, Conversation(), None, a_discovery()
+        REQUEST, plan, Conversation(), None, a_discovery()
     )
 
-    assert any(expected in conversation[-1][1] for conversation in client.conversations)
+    assert any(
+        expected in the_readers(conversation[-1][1]) for conversation in client.conversations
+    )
 
 
-def test_a_root_nothing_reads_says_so_in_its_turn() -> None:
-    """A root with no reader tells the model to write the columns the next pass will need."""
+def test_a_root_nothing_reads_is_listed_with_an_empty_readers_array() -> None:
+    """A root with no reader offers the model an empty `Read by` array."""
     client = ScriptedLLMClient(
         [a_binding("n2:op.all:[n2]", inputs=("n1",)), a_binding("n1:op.all:[n1]")]
     )
 
     a_planner(client, a_router(an_operator("op.all", ALL_KINDS))).cover(
+        REQUEST,
         a_scan_read_by(ControlOperator.DISCOVER, "find the companies"),
         Conversation(),
         None,
         a_discovery(),
     )
 
-    assert "Nothing in this plan reads this node yet" in client.conversations[0][-1][1]
+    assert the_readers(client.conversations[0][-1][1]) == []
 
 
 def test_a_reader_covered_by_a_reused_fragment_is_listed_by_that_fragment() -> None:
@@ -714,13 +807,16 @@ def test_a_reader_covered_by_a_reused_fragment_is_listed_by_that_fragment() -> N
     )
     plan = a_scan_a_filter_and_return()
 
-    first = planner.cover(plan, Conversation(), None, a_discovery())
+    first = planner.cover(REQUEST, plan, Conversation(), None, a_discovery())
     assert first.plan is not None
-    planner.cover(plan, Conversation(), first.plan, a_discovery_holding_n2(), "try again")
+    planner.cover(REQUEST, plan, Conversation(), first.plan, a_discovery_holding_n2(), "try again")
 
     kept = first.plan.fragment_for_root("n2")
     assert kept is not None
-    assert f"- n2, in fragment {kept.id} rooted at n2." in client.conversations[3][-1][1]
+    readers = the_readers(client.conversations[3][-1][1])
+    assert len(readers) == 1
+    assert readers[0]["fragment"] == kept.id
+    assert readers[0]["logical_node_ids"] == ["n2"]
 
 
 def test_a_fragments_scan_sources_is_copied_from_what_the_plans_scans_name() -> None:
@@ -731,7 +827,7 @@ def test_a_fragments_scan_sources_is_copied_from_what_the_plans_scans_name() -> 
         a_router(an_operator("op.one", frozenset({LogicalOperator.SCAN, LogicalOperator.PROJECT}))),
     )
 
-    result = planner.cover(a_scan_and_return(), Conversation(), None, a_discovery())
+    result = planner.cover(REQUEST, a_scan_and_return(), Conversation(), None, a_discovery())
 
     assert result.plan is not None
     assert result.plan.fragments[0].scan_sources == {"n1": POSTINGS}
@@ -755,7 +851,7 @@ def test_a_fragments_output_columns_is_what_the_binding_wrote() -> None:
         a_router(an_operator("op.one", frozenset({LogicalOperator.SCAN, LogicalOperator.PROJECT}))),
     )
 
-    result = planner.cover(a_scan_and_return(), Conversation(), None, a_discovery())
+    result = planner.cover(REQUEST, a_scan_and_return(), Conversation(), None, a_discovery())
 
     assert result.plan is not None
     assert result.plan.fragments[0].required_output_columns == [
@@ -780,7 +876,7 @@ def test_a_fragments_inputs_are_the_nodes_feeding_it_and_not_a_model_choice() ->
             an_operator("builtin.aggregate", frozenset({LogicalOperator.AGGREGATE})),
         ),
     )
-    result = planner.cover(a_plan(), Conversation(), None, a_discovery())
+    result = planner.cover(REQUEST, a_plan(), Conversation(), None, a_discovery())
     assert result.plan is not None
     reads = {
         fragment.logical_node_ids[0]: [entry.logical_node_id for entry in fragment.input_data]
@@ -808,9 +904,11 @@ def test_a_node_whose_fragment_produced_a_result_can_reuse_it_unchanged() -> Non
     )
     plan = a_scan_a_filter_and_return()
 
-    first = planner.cover(plan, Conversation(), None, a_discovery())
+    first = planner.cover(REQUEST, plan, Conversation(), None, a_discovery())
     assert first.plan is not None
-    again = planner.cover(plan, Conversation(), first.plan, a_discovery_holding_n1(), "try again")
+    again = planner.cover(
+        REQUEST, plan, Conversation(), first.plan, a_discovery_holding_n1(), "try again"
+    )
 
     assert again.plan is not None
     assert again.plan.fragment_for_root("n1") == first.plan.fragment_for_root("n1")
@@ -825,10 +923,10 @@ def test_a_plan_whose_every_node_already_ran_carries_the_cover_over_unasked() ->
     )
     plan = a_scan_and_return()
 
-    first = planner.cover(plan, Conversation(), None, a_discovery())
+    first = planner.cover(REQUEST, plan, Conversation(), None, a_discovery())
     assert first.plan is not None
     conversation = Conversation()
-    again = planner.cover(plan, conversation, first.plan, a_discovery_holding_n2())
+    again = planner.cover(REQUEST, plan, conversation, first.plan, a_discovery_holding_n2())
 
     assert again.plan is not None
     assert again.plan.fragments == first.plan.fragments
@@ -849,9 +947,11 @@ def test_a_node_with_no_result_is_offered_no_way_to_reuse_its_fragment() -> None
     )
     plan = a_scan_and_return()
 
-    first = planner.cover(plan, Conversation(), None, a_discovery())
+    first = planner.cover(REQUEST, plan, Conversation(), None, a_discovery())
     assert first.plan is not None
-    again = planner.cover(plan, Conversation(), first.plan, a_discovery(), "it returned nothing")
+    again = planner.cover(
+        REQUEST, plan, Conversation(), first.plan, a_discovery(), "it returned nothing"
+    )
 
     assert again.plan is not None
     assert again.plan.fragments[0].id != first.plan.fragments[0].id
@@ -872,9 +972,9 @@ def test_a_repair_answers_the_binding_it_is_replacing_in_the_same_conversation()
     conversation = Conversation()
     plan = a_scan_and_return()
 
-    first = planner.cover(plan, conversation, None, a_discovery())
+    first = planner.cover(REQUEST, plan, conversation, None, a_discovery())
     assert first.plan is not None
-    planner.cover(plan, conversation, first.plan, a_discovery(), "it returned nothing")
+    planner.cover(REQUEST, plan, conversation, first.plan, a_discovery(), "it returned nothing")
 
     assert sum(1 for turn in conversation.turns if turn.role == "system") == 1
     assert "it returned nothing" in conversation.turns[-2].content
@@ -882,8 +982,10 @@ def test_a_repair_answers_the_binding_it_is_replacing_in_the_same_conversation()
     # resend them, or the prefix the model already cached stops matching (ADR-025).
     assert "The entities the searches found" in conversation.turns[1].content
     assert "The entities the searches found" not in conversation.turns[-2].content
-    assert "## The plan" in conversation.turns[1].content
-    assert "## The plan" not in conversation.turns[-2].content
+    assert "## Request" in conversation.turns[1].content
+    assert "## Request" not in conversation.turns[-2].content
+    assert "## Plan" in conversation.turns[1].content
+    assert "## Plan" not in conversation.turns[-2].content
 
 
 def test_the_opening_instructions_carry_nothing_that_varies_by_plan() -> None:
@@ -893,10 +995,10 @@ def test_the_opening_instructions_carry_nothing_that_varies_by_plan() -> None:
         an_operator("op.one", frozenset({LogicalOperator.SCAN, LogicalOperator.PROJECT}))
     )
     a_planner(ScriptedLLMClient([a_binding("n2:op.one:[n1,n2]")]), router).cover(
-        a_scan_and_return(), first, None, a_discovery()
+        REQUEST, a_scan_and_return(), first, None, a_discovery()
     )
     a_planner(ScriptedLLMClient([a_binding("n2:op.one:[n2]", inputs=("n1",))]), router).cover(
-        a_scan_and_return(source=None), second, None, {}
+        REQUEST, a_scan_and_return(source=None), second, None, {}
     )
 
     assert first.turns[0].content == second.turns[0].content
