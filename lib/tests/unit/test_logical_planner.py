@@ -197,7 +197,43 @@ def a_discovered_postings() -> dict[str, ExecutionResult | DiscoveryResult]:
                     attributes=[AttributeRecord(name="title", dtype="str", description=None)],
                     score=0.9,
                     search_term="job postings",
+                    row_count=None,
                 )
+            ],
+            dropped_terms=0,
+        )
+    }
+
+
+REVIEWS_PATH = "/source/reviews/database/reviews/collection/default/entity/reviews"
+
+
+def a_discovery_of_a_sized_and_an_unsized_entity() -> dict[str, ExecutionResult | DiscoveryResult]:
+    """A results map holding one entity the registry sized and one it did not."""
+    return {
+        "n1": DiscoveryResult(
+            search_terms=["job postings"],
+            matches=[
+                EntityMatch(
+                    path=POSTINGS_PATH,
+                    name="postings",
+                    description="job postings",
+                    source_kind="sql/sqlite",
+                    attributes=[AttributeRecord(name="title", dtype="str", description=None)],
+                    score=0.9,
+                    search_term="job postings",
+                    row_count=11060,
+                ),
+                EntityMatch(
+                    path=REVIEWS_PATH,
+                    name="reviews",
+                    description="company reviews",
+                    source_kind="sql/sqlite",
+                    attributes=[AttributeRecord(name="title", dtype="str", description=None)],
+                    score=0.5,
+                    search_term="job postings",
+                    row_count=None,
+                ),
             ],
             dropped_terms=0,
         )
@@ -373,6 +409,21 @@ def test_a_carried_node_is_shown_with_its_columns_and_the_first_few_of_its_rows(
     assert "{'DisplayName': 'whuber', 'Views': 20932}" in asked
     assert "{'DisplayName': 'chl', 'Views': 9421}" in asked
     assert "(+2 more row(s))" in asked
+
+
+def test_the_opening_turn_shows_each_discovered_entitys_row_count() -> None:
+    """A row count the registry recorded renders as a count; an unrecorded one says so."""
+    conversation = Conversation()
+    a_planner_over(ScriptedLLMClient([a_complete_plan()])).generate(
+        "Python jobs at Fortune 500",
+        conversation,
+        counters(),
+        results=a_discovery_of_a_sized_and_an_unsized_entity(),
+    )
+
+    asked = [turn for turn in conversation.turns if turn.role == "user"][-1].content
+    assert f"- {POSTINGS_PATH} (sql/sqlite, 11060 row(s)): job postings" in asked
+    assert f"- {REVIEWS_PATH} (sql/sqlite, row count not recorded): company reviews" in asked
 
 
 def test_a_plan_validation_turned_down_is_written_again_with_the_error_in_the_conversation() -> (

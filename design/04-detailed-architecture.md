@@ -298,11 +298,12 @@ enumeration already includes the node on its own, so a node reaching this point 
 one whose kind no registered operator declares, and that node has no operator.
 
 Where a fragment's boundary falls is decided by what an operator can do with the values inside the
-nodes, which its description and its limitations state. A candidate grouping a node whose condition
-crosses those limits returns rows that ignore that condition, so the cut follows the limit and the
-work on the other side of it becomes a fragment of its own. A declaration names the kinds an
-operator groups and says nothing about the values, so a candidate the enumeration offers can still
-be one no cover should take.
+nodes and with the number of rows it reads, which its description and its limitations state. For a
+`SCAN` that has not run yet, the size the planner judges by is the entity's recorded row count in
+the catalog context. A candidate grouping a node whose condition crosses those limits returns rows
+that ignore that condition, so the cut follows the limit and the work on the other side of it
+becomes a fragment of its own. A declaration names the kinds an operator groups and says nothing
+about the values, so a candidate the enumeration offers can still be one no cover should take.
 
 The model may also answer that none of them will do. A refusal ends the cover and returns to the
 logical planner, carrying what the plan asks for that no operator provides, which is what the next
@@ -554,8 +555,8 @@ keyword match, value match, and vector similarity together. Vector similarity ne
 and an embedding function; without them the search still runs on the other two signals.
 
 The search runs at one level, the entity, because that is the unit a `SCAN` is bound to. A hit
-returns that entity together with every attribute it holds: each attribute's name, its type, and the
-description enrichment wrote for it
+returns that entity, its recorded row count, and every attribute it holds: each attribute's name, its
+type, and the description enrichment wrote for it
 ([10-data-model.md](10-data-model.md#what-a-search-returns)). The run keeps the hits under the
 node's id, and every resolved node's hits together are the run's catalog context. Nothing is
 converted into rows, and no operator call is spent.

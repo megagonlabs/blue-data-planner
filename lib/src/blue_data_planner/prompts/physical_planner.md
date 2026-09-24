@@ -50,10 +50,12 @@ For the candidate you pick, write:
 ## Rules
 
 1. **Judge each candidate by its operator's capabilities and limitations.** Take a candidate only
-   if the operator's description and limitations cover every operation and condition in the
-   fragment, such as judging meaning, reading text or images, or computing totals. An operator
-   handed a condition it cannot express returns rows that ignore it and reports no error. Nothing
-   downstream can tell, so you are the only check.
+   if the operator's description and limitations cover everything the fragment asks of it: every
+   operation and condition (such as judging meaning, reading text or images, or computing totals),
+   the form of the data it reads, and the number of rows it is handed. The row counts under
+   **The data the searches found** and **What has already run** say how large an input is. An
+   operator handed a condition it cannot express returns rows that ignore it and reports no error.
+   Nothing downstream can tell, so you are the only check.
 2. **Pick none only when no candidate passes rule 1.** The physical plan is then discarded and the
    request goes back to logical planning, which can happen only a few times. When you pick none,
    say what the plan asks for and which capability no offered operator provides. Logical planning

@@ -962,6 +962,7 @@ class EntityMatch:
     attributes: list[AttributeRecord]
     score: float
     search_term: str                   # which term found it
+    row_count: int | None              # the registry's recorded row count, or None if unrecorded
 ```
 
 The full attribute list is what makes a declared column name a fact rather than a guess. A logical
@@ -972,6 +973,11 @@ pass ([declared output columns](#declared-output-columns)).
 `source_kind` rides on the match because it is what decides which operators may run a fragment
 containing a `SCAN` over this entity. It is recorded on the source record rather than on the entity
 record, and the search reads it from there.
+
+`row_count` is the entity's recorded row count, which the planners see before a `SCAN` over the
+entity has run. The physical planner judges an operator's input size by it
+([choosing among candidates](04-detailed-architecture.md#choosing-among-candidates)). A registry
+built without stats records no row count, and for its entities `row_count` is `None`.
 
 `search_records` takes one query string and returns the entities that match it, ranked. A discovery
 node that expands into several terms calls it once per term. `score` is the registry's own relevance

@@ -476,7 +476,14 @@ def _render_context(results: dict[str, NodeResult]) -> str:
         for match in result.matches:
             described = match.description or "no description recorded"
             names = ", ".join(attribute.name for attribute in match.attributes)
-            lines.append(f"- {match.path} ({match.source_kind}): {described}. Holds: {names}")
+            rows = (
+                f"{match.row_count} row(s)"
+                if match.row_count is not None
+                else "row count not recorded"
+            )
+            lines.append(
+                f"- {match.path} ({match.source_kind}, {rows}): {described}. Holds: {names}"
+            )
     return "\n".join(lines)
 
 

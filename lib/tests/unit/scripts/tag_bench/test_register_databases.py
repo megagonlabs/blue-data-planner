@@ -16,10 +16,12 @@ from blue_data.source.json.memory_json_source import (  # pyright: ignore[report
     MemoryJSONSource,
 )
 
+from scripts.tag_bench.reasoning_effort import effective_reasoning_effort
 from scripts.tag_bench.register_databases import (
     build_registry,
     check_every_database_registered,
     entity_counts_by_database,
+    llm_client_properties,
     sqlite_database_names,
     write_registry,
 )
@@ -145,6 +147,26 @@ def test_a_written_registry_reopens_from_another_directory_and_queries_the_datab
     )
 
     assert [row["city"] for row in rows] == ["Oakland", "Reno"]
+
+
+@pytest.mark.parametrize(
+    ("chosen_effort", "expected_reasoning_effort_property"),
+    [
+        ("none", "none"),
+        ("low", "low"),
+        ("off", None),
+    ],
+)
+def test_llm_client_properties_sends_the_resolved_effort_and_off_omits_the_key(
+    chosen_effort: str, expected_reasoning_effort_property: str | None
+) -> None:
+    """A --reasoning-effort value reaches openai.reasoning_effort, except "off", which omits it."""
+    properties = llm_client_properties("gpt-5.6-luna", effective_reasoning_effort(chosen_effort))
+
+    assert properties.get("openai.reasoning_effort") == expected_reasoning_effort_property
+    assert ("openai.reasoning_effort" in properties) == (
+        expected_reasoning_effort_property is not None
+    )
 
 
 def test_check_every_database_registered_raises_for_a_database_without_entities(

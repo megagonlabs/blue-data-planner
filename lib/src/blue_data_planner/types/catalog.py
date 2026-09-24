@@ -65,6 +65,9 @@ class EntityMatch:
     attributes: list[AttributeRecord]
     score: float
     search_term: str
+    # The registry's recorded row count for the entity. None means the registry records no
+    # row count for it, which a registry built without stats legitimately produces.
+    row_count: int | None
 
     def to_dict(self) -> dict[str, Any]:
         """Return the JSON form."""
@@ -76,6 +79,7 @@ class EntityMatch:
             "attributes": [one.to_dict() for one in self.attributes],
             "score": self.score,
             "search_term": self.search_term,
+            "row_count": self.row_count,
         }
 
 

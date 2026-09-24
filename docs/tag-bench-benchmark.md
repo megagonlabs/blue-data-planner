@@ -62,14 +62,17 @@ model involved. Passing `--describe` additionally asks a model for a plain-langu
 each table and column, one call per table plus several per column:
 
 ```bash
-uv run --project lib python lib/scripts/tag_bench/register_databases.py --force --describe --model gpt-5.6-luna
+uv run --project lib python lib/scripts/tag_bench/register_databases.py --force --describe \
+    --model gpt-5.6-luna --reasoning-effort none
 ```
 
 `--describe` needs a model, given by `--model` or the `BLUE_DATA_OPS_MODEL` environment variable,
-and a provider key that model's client accepts (`OPENAI_API_KEY` for an OpenAI model). Keeping one
-registry built without `--describe` around is deliberate: it is the "nobody enriched this" case the
-design commits to handling, and planning quality against it is one of the things the benchmark is
-meant to measure.
+and a provider key that model's client accepts (`OPENAI_API_KEY` for an OpenAI model).
+`--reasoning-effort` sets how hard that model reasons over each description, and defaults to
+`none`; `off` omits the parameter entirely, for a model that rejects it. Keeping one registry built
+without `--describe` around is deliberate: it is the "nobody enriched this" case the design commits
+to handling, and planning quality against it is one of the things the benchmark is meant to
+measure.
 
 ## Running the benchmark
 
@@ -96,7 +99,7 @@ same moment, so a run that stops keeps what it finished.
 | `--run-name` | a timestamp and the model | The directory under `data/tag_bench/runs/`. One already holding records is refused |
 | `--data-dir` | `<repository>/data/tag_bench` | Where the inputs and the run directories live |
 | `--registry` | `<data-dir>/registry.json` | The registry to plan over |
-| `--model`, `--reasoning-effort` | `openai/gpt-5.6-luna`, `low` | The model every planner component calls, LOTUS included. An empty effort omits the parameter |
+| `--model`, `--reasoning-effort` | `openai/gpt-5.6-luna`, `low` | The model every planner component calls, LOTUS included. `off` omits the parameter |
 | `--lotus-max-rows` | 5000 | Rows a LOTUS operation accepts before refusing the call |
 
 There is no resume: a stopped run is summarized with `report` for what it holds, and the queries

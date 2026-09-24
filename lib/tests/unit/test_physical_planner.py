@@ -220,6 +220,7 @@ def a_discovery() -> dict[str, Any]:
                     attributes=[AttributeRecord(name="title", dtype="str", description=None)],
                     score=0.9,
                     search_term="job postings",
+                    row_count=None,
                 )
             ],
             dropped_terms=0,
@@ -273,12 +274,45 @@ def a_discovery_of_two_source_kinds() -> dict[str, Any]:
         attributes=[AttributeRecord(name="title", dtype="str", description=None)],
         score=0.8,
         search_term="reviews",
+        row_count=None,
     )
     discovery = a_discovery()["d1"]
     return {
         "d1": DiscoveryResult(
             search_terms=["job postings", "reviews"],
             matches=[*discovery.matches, reviews],
+            dropped_terms=0,
+        )
+    }
+
+
+def a_discovery_of_a_sized_and_an_unsized_entity() -> dict[str, Any]:
+    """The postings entity with a recorded row count, plus a reviews entity with none."""
+    return {
+        "d1": DiscoveryResult(
+            search_terms=["job postings", "reviews"],
+            matches=[
+                EntityMatch(
+                    path=POSTINGS,
+                    name="postings",
+                    description="job postings",
+                    source_kind="sql/sqlite",
+                    attributes=[AttributeRecord(name="title", dtype="str", description=None)],
+                    score=0.9,
+                    search_term="job postings",
+                    row_count=11060,
+                ),
+                EntityMatch(
+                    path=REVIEWS,
+                    name="reviews",
+                    description="company reviews",
+                    source_kind="vector/chroma",
+                    attributes=[AttributeRecord(name="title", dtype="str", description=None)],
+                    score=0.8,
+                    search_term="reviews",
+                    row_count=None,
+                ),
+            ],
             dropped_terms=0,
         )
     }
@@ -570,6 +604,35 @@ def test_the_opening_turn_shows_the_request_and_the_plan_and_a_later_turn_repeat
     later_turn = client.conversations[1][-1][1]
     assert "## Request" not in later_turn
     assert "## Plan" not in later_turn
+
+
+def test_the_opening_turn_shows_each_discovered_entitys_row_count() -> None:
+    """A row count the registry recorded renders as a count; an unrecorded one says so."""
+    client = ScriptedLLMClient(
+        [
+            a_binding("n2:builtin.filter:[n2]", inputs=("n1",)),
+            a_binding("n1:builtin.scan:[n1]"),
+        ]
+    )
+    planner = a_planner(
+        client,
+        a_router(
+            an_operator("builtin.scan", frozenset({LogicalOperator.SCAN})),
+            an_operator("builtin.filter", frozenset({LogicalOperator.FILTER})),
+        ),
+    )
+
+    planner.cover(
+        REQUEST,
+        a_scan_a_filter_and_return(),
+        Conversation(),
+        None,
+        a_discovery_of_a_sized_and_an_unsized_entity(),
+    )
+
+    opening_turn = client.conversations[0][-1][1]
+    assert f"- {POSTINGS} (sql/sqlite, 11060 row(s)): job postings" in opening_turn
+    assert f"- {REVIEWS} (vector/chroma, row count not recorded): company reviews" in opening_turn
 
 
 def a_three_step_router() -> OperatorRouter:
@@ -980,8 +1043,8 @@ def test_a_repair_answers_the_binding_it_is_replacing_in_the_same_conversation()
     assert "it returned nothing" in conversation.turns[-2].content
     # The discovered entities were already sent on the opening turn; a repair must not
     # resend them, or the prefix the model already cached stops matching (ADR-025).
-    assert "The entities the searches found" in conversation.turns[1].content
-    assert "The entities the searches found" not in conversation.turns[-2].content
+    assert "The data the searches found" in conversation.turns[1].content
+    assert "The data the searches found" not in conversation.turns[-2].content
     assert "## Request" in conversation.turns[1].content
     assert "## Request" not in conversation.turns[-2].content
     assert "## Plan" in conversation.turns[1].content

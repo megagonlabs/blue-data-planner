@@ -35,7 +35,8 @@ directory is absolute.
 
 Semantic types are inferred by pattern matching, with no model involved. `--describe` also asks a
 model for plain-language table and column descriptions, one call per table plus several per column.
-It needs the `llm` extra installed and a provider key in the environment:
+It needs the `llm` extra installed and a provider key in the environment. `--reasoning-effort`
+controls how hard that model reasons, and defaults to `none`; `off` omits the parameter entirely.
 
 ```bash
 python lib/scripts/tag_bench/register_databases.py --force --describe --model gpt-4o

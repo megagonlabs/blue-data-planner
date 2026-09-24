@@ -39,6 +39,7 @@ def a_match(term: str, score: float) -> EntityMatch:
         attributes=[AttributeRecord(name="title", dtype="str", description=None)],
         score=score,
         search_term=term,
+        row_count=None,
     )
 
 

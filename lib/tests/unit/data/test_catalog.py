@@ -95,13 +95,19 @@ def test_a_source_nobody_described_renders_with_no_description() -> None:
     assert source.path == "/source/reviews_lake"
 
 
-def a_record(level: str, name: str, scope: str, description: str = "") -> dict[str, Any]:
+def a_record(
+    level: str,
+    name: str,
+    scope: str,
+    description: str = "",
+    stats: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     return {
         "name": name,
         "type": level,
         "scope": scope,
         "description": description,
-        "properties": {},
+        "properties": {"stats": stats} if stats is not None else {},
         "contents": {},
     }
 
@@ -199,6 +205,42 @@ def test_a_matched_entity_carries_the_kind_of_source_it_sits_in() -> None:
     catalog = DataCatalog(a_registry_with_a_store_table())
 
     assert catalog.search_records("stores in a city")[0].source_kind == "sql/sqlite"
+
+
+def records_for_a_store_table_recording(stats: dict[str, Any] | None) -> list[dict[str, Any]]:
+    return [
+        a_source("retail", description="store records"),
+        a_record("database", "shop", "/source/retail"),
+        a_record("collection", "public", "/source/retail/database/shop"),
+        a_record(
+            "entity",
+            "stores",
+            "/source/retail/database/shop/collection/public",
+            "one row per store",
+            stats=stats,
+        ),
+    ]
+
+
+def a_registry_with_a_store_table_recording(stats: dict[str, Any] | None) -> DataRegistry:
+    return a_registry_holding(*records_for_a_store_table_recording(stats))
+
+
+@pytest.mark.parametrize(
+    ("stats", "expected"),
+    [
+        pytest.param({"row_count": 11060}, 11060, id="row_count_recorded"),
+        pytest.param(None, None, id="stats_not_recorded"),
+        pytest.param({}, None, id="stats_recorded_without_row_count"),
+    ],
+)
+def test_a_matched_entitys_row_count_reflects_what_the_registry_recorded(
+    stats: dict[str, Any] | None, expected: int | None
+) -> None:
+    """A search hit carries the row count the entity's record stores, or None if it stores none."""
+    catalog = DataCatalog(a_registry_with_a_store_table_recording(stats))
+
+    assert catalog.search_records("stores in a city")[0].row_count == expected
 
 
 def a_registry_with_two_store_tables() -> DataRegistry:
@@ -390,6 +432,10 @@ def a_store_table_whose_source_record_is_missing() -> list[dict[str, Any]]:
     ]
 
 
+def a_store_table_with_a_non_int_row_count() -> list[dict[str, Any]]:
+    return records_for_a_store_table_recording({"row_count": "eleven thousand"})
+
+
 @pytest.mark.parametrize(
     ("records", "call_kind", "expected_message"),
     [
@@ -428,6 +474,18 @@ def a_store_table_whose_source_record_is_missing() -> list[dict[str, Any]]:
             "search_records",
             "no source record",
             id="matched_entity_has_no_source_record",
+        ),
+        pytest.param(
+            a_store_table_with_a_non_int_row_count(),
+            "search_records",
+            "row_count is",
+            id="matched_entitys_row_count_not_an_int",
+        ),
+        pytest.param(
+            records_for_a_store_table_recording({"row_count": True}),
+            "search_records",
+            "row_count is",
+            id="matched_entitys_row_count_a_bool",
         ),
         pytest.param(
             [a_source_with_a_malformed_connection()],

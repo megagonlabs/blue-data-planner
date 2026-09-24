@@ -187,7 +187,12 @@ def _render_context(results: dict[str, ExecutionResult | DiscoveryResult]) -> st
             continue
         for match in result.matches:
             described = match.description or "no description recorded"
-            lines.append(f"- {match.path} ({match.source_kind}): {described}")
+            rows = (
+                f"{match.row_count} row(s)"
+                if match.row_count is not None
+                else "row count not recorded"
+            )
+            lines.append(f"- {match.path} ({match.source_kind}, {rows}): {described}")
             for attribute in match.attributes:
                 dtype = attribute.dtype or "type not recorded"
                 note = attribute.description or "no description recorded"

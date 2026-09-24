@@ -21,9 +21,12 @@ from blue_data.source.sql.sqlite.sqlite_sql_source import (  # pyright: ignore[r
     SQLiteDBSource,
 )
 
+from scripts.tag_bench.reasoning_effort import effective_reasoning_effort
+
 SOURCE_NAME = "tag_bench"
 DEFAULT_SAMPLE_LIMIT = 10
 DEFAULT_MODEL_ENV_VAR = "BLUE_DATA_OPS_MODEL"
+DEFAULT_REASONING_EFFORT = "none"
 
 # One source holding all five databases, so reaching an unnamed source is a search with
 # several candidates rather than one. SQLite has no schemas, so blue-data reports the
@@ -119,7 +122,29 @@ def write_registry(registry: Any, registry_path: Path) -> None:
     registry.dump(str(registry_path))
 
 
-def build_llm_fn(model: str) -> Callable[[str], str]:
+def llm_client_properties(model: str, reasoning_effort: str | None) -> dict[str, Any]:
+    """Return the properties an enrichment LLMClient takes, given an already-resolved effort.
+
+    reasoning_effort is None where the parameter is left out of the call entirely; any other
+    value, "none" included, is sent to the provider as openai.reasoning_effort.
+    """
+    properties: dict[str, Any] = {
+        "service_prefix": "openai",
+        "openai.model": model,
+        # No input_template: an enrichment prompt carries sample values, and
+        # templating would substitute into them.
+        "input_json": '[{"role": "user", "content": ""}]',
+        "input_context": "$[0]",
+        "input_context_field": "content",
+        "input_field": "messages",
+        "output_path": "$.choices[0].message.content",
+    }
+    if reasoning_effort is not None:
+        properties["openai.reasoning_effort"] = reasoning_effort
+    return properties
+
+
+def build_llm_fn(model: str, reasoning_effort: str | None) -> Callable[[str], str]:
     """Return a (prompt) -> text callable over model, verified by one probe call.
 
     Raises:
@@ -129,17 +154,7 @@ def build_llm_fn(model: str) -> Callable[[str], str]:
 
     client = LLMClient(
         name="tag_bench_enricher",
-        properties={
-            "service_prefix": "openai",
-            "openai.model": model,
-            # No input_template: an enrichment prompt carries sample values, and
-            # templating would substitute into them.
-            "input_json": '[{"role": "user", "content": ""}]',
-            "input_context": "$[0]",
-            "input_context_field": "content",
-            "input_field": "messages",
-            "output_path": "$.choices[0].message.content",
-        },
+        properties=llm_client_properties(model, reasoning_effort),
     )
 
     def call_model(prompt: str) -> str:
@@ -169,6 +184,14 @@ def main() -> None:
         default=os.environ.get(DEFAULT_MODEL_ENV_VAR),
         help=f"Model for --describe. Defaults to ${DEFAULT_MODEL_ENV_VAR}.",
     )
+    parser.add_argument(
+        "--reasoning-effort",
+        default=DEFAULT_REASONING_EFFORT,
+        help=(
+            "Reasoning effort for --describe's model. 'off' omits the parameter, for a model "
+            f"that rejects it. Default: {DEFAULT_REASONING_EFFORT}."
+        ),
+    )
     parser.add_argument("--force", action="store_true")
     args = parser.parse_args()
 
@@ -184,7 +207,9 @@ def main() -> None:
     if args.describe:
         if not args.model:
             raise ValueError(f"--describe needs --model or ${DEFAULT_MODEL_ENV_VAR}")
-        llm_fn = build_llm_fn(str(args.model))
+        llm_fn = build_llm_fn(
+            str(args.model), effective_reasoning_effort(str(args.reasoning_effort))
+        )
 
     print(f"registering {len(db_names)} databases from {databases_dir}: {', '.join(db_names)}")
     registry = build_registry(

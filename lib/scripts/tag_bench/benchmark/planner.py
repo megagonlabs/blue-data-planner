@@ -9,16 +9,12 @@ from blue_data_planner import DataPlanner, RunLimits, build_data_planner
 from blue_data_planner.data import open_registry
 from blue_data_planner.operators.adapters.lotus import LotusSuite, lotus_is_installed
 from blue_data_planner.operators.builtin import BuiltinSuite
+from scripts.tag_bench.reasoning_effort import effective_reasoning_effort
 
 LLM_CLIENT_NAME: str = "tag_bench_benchmark"
 # LOTUS runs the planner's own model. "none" is a real litellm reasoning_effort value rather
 # than an omission, and it is what the CLI configures LOTUS with.
 LOTUS_REASONING_EFFORT: str = "none"
-# The one value that means "omit this parameter," for a model that rejects it. Distinct from
-# "none", a real litellm reasoning_effort value that still has to reach the provider. Mirrors
-# platform/cli/src/blue_data_planner_cli/config.py's _REASONING_EFFORT_OFF: lib/ does not depend
-# on platform/cli, so the check is duplicated here rather than imported.
-_REASONING_EFFORT_OFF: str = "off"
 
 
 @dataclass(frozen=True)
@@ -48,12 +44,7 @@ def build_benchmark_planner(settings: BenchmarkSettings) -> DataPlanner:
             LotusSuite(max_rows=settings.lotus_max_rows, reasoning_effort=LOTUS_REASONING_EFFORT),
         ],
         model=settings.model,
-        reasoning_effort=_effective_reasoning_effort(settings.reasoning_effort),
+        reasoning_effort=effective_reasoning_effort(settings.reasoning_effort),
         limits=settings.limits,
         llm_client_name=LLM_CLIENT_NAME,
     )
-
-
-def _effective_reasoning_effort(value: str | None) -> str | None:
-    """Return the value litellm should receive, or None to omit the parameter."""
-    return value if value and value != _REASONING_EFFORT_OFF else None

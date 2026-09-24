@@ -81,6 +81,23 @@ def _parse_entity_path(entity_path: str) -> AttributeRef:
     )
 
 
+def _row_count(properties: dict[str, Any], path: str) -> int | None:
+    stats = properties.get("stats", {})
+    if not isinstance(stats, dict):
+        raise ValueError(
+            f"Entity record {path}: stats is {type(stats).__name__}, expected a mapping"
+        )
+    stats = cast("dict[str, Any]", stats)
+    row_count = stats.get("row_count")
+    if row_count is None:
+        return None
+    if isinstance(row_count, bool) or not isinstance(row_count, int):
+        raise ValueError(
+            f"Entity record {path}: row_count is {type(row_count).__name__}, expected an int"
+        )
+    return row_count
+
+
 def _dtype(properties: dict[str, Any], path: str) -> str | None:
     info = properties.get("info")
     if not isinstance(info, dict):
@@ -173,6 +190,7 @@ class DataCatalog:
             ],
             score=float(raw["_score"]),
             search_term=search_term,
+            row_count=_row_count(_properties(raw), path),
         )
 
     def _attribute_record(self, record: dict[str, Any], entity_path: str) -> AttributeRecord:
