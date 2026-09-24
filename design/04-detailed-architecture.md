@@ -726,7 +726,7 @@ decides whether these repairs apply at all.
 
 A third case ends a request without any of this, because nothing ran. Physical planning writes no
 cover in two situations: no operator matches a node, alone or in any fragment containing it, and a
-binding turns down every candidate a node was offered (ADR-037). Either way the result carries no
+binding turns down every candidate a node was offered (ADR-040). Either way the result carries no
 plan and a reason naming the node, and the run goes straight to the replan with no operator call
 spent. Neither is a failure kind, since a failure kind describes a call that was made.
 
