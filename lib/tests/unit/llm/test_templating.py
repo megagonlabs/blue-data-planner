@@ -1,18 +1,18 @@
-"""Behavior tests for request templating and response extraction."""
+"""Behavior tests for prompt rendering, request building, and response extraction."""
 
 from __future__ import annotations
 
 from typing import Any
 
+import jinja2
 import pytest
 
-from blue_data_planner.llm.templating import build_message, extract_output
+from blue_data_planner.llm.templating import build_message, extract_output, render_prompt
 
 BASE: dict[str, Any] = {
     "service_prefix": "openai",
     "openai.api": "ChatCompletion",
     "openai.model": "gpt-4o",
-    "input_template": "Answer about $topic using $input",
     "input_json": '[{"role": "user"}]',
     "input_context": "$[0]",
     "input_context_field": "content",
@@ -22,41 +22,10 @@ BASE: dict[str, Any] = {
 
 
 def test_message_build_end_to_end() -> None:
-    message = build_message("DATA", BASE, {"topic": "jobs"})
+    message = build_message("DATA", BASE)
     assert message["api"] == "ChatCompletion"  # prefix-stripped api property
     assert message["model"] == "gpt-4o"
-    assert message["messages"] == [{"role": "user", "content": "Answer about jobs using DATA"}]
-
-
-def test_unknown_placeholder_survives() -> None:
-    props = {**BASE, "input_template": "keep $missing and use $input"}
-    message = build_message("X", props, {})
-    assert message["messages"][0]["content"] == "keep $missing and use X"
-
-
-@pytest.mark.parametrize(
-    "properties_key,additional",
-    [
-        ("input", {}),  # properties vs input params
-        ("topic", {"topic": "b"}),  # properties vs additional
-    ],
-    ids=["properties-vs-input", "properties-vs-additional"],
-)
-def test_collisions_raise_type_error(properties_key: str, additional: dict[str, Any]) -> None:
-    props = {**BASE, properties_key: "a"}
-    with pytest.raises(TypeError, match="multiple values"):
-        build_message("X", props, additional)
-
-
-def test_input_vs_additional_collision() -> None:
-    with pytest.raises(TypeError, match="multiple values"):
-        build_message("X", dict(BASE), {"input": "clash"})
-
-
-def test_no_template_passes_input_through() -> None:
-    props = {k: v for k, v in BASE.items() if k != "input_template"}
-    message = build_message("RAW", props, None)
-    assert message["messages"][0]["content"] == "RAW"
+    assert message["messages"] == [{"role": "user", "content": "DATA"}]
 
 
 OPENAI_PAYLOAD: dict[str, Any] = {
@@ -106,38 +75,6 @@ def test_output_sub_transformation_fixed() -> None:
     assert extract_output(payload, props) == "x#y#"
 
 
-def test_output_template() -> None:
-    payload = {"choices": [{"message": {"content": "core"}}]}
-    props = {
-        "output_path": "$.choices[0].message.content",
-        "output_template": "wrapped($output)",
-    }
-    assert extract_output(payload, props) == "wrapped(core)"
-
-
-def test_jinja_placeholders_render() -> None:
-    # Template substitution runs before Jinja; unknown Jinja names become empty.
-    props = {**BASE, "input_template": "{{ input }} {{ missing }}"}
-    message = build_message("X", props, {})
-    assert message["messages"][0]["content"] == "X "
-
-
-def test_recursive_substitution_resolves_chains() -> None:
-    # Repetition resolves $a -> "$b" -> "done" before stopping.
-    props = {**BASE, "input_template": "$a", "a": "$b", "b": "done"}
-    message = build_message("X", props, {})
-    assert message["messages"][0]["content"] == "done"
-
-
-def test_output_template_jinja() -> None:
-    payload = {"choices": [{"message": {"content": "core"}}]}
-    props = {
-        "output_path": "$.choices[0].message.content",
-        "output_template": "wrapped({{ output }})",
-    }
-    assert extract_output(payload, props) == "wrapped(core)"
-
-
 def test_json_set_old_index_surface() -> None:
     # jsonpath-ng 1.5.x exposes Index.index; modern versions expose indices.
     # The setter must handle BOTH: simulate the old surface directly.
@@ -165,9 +102,7 @@ def test_json_set_old_index_surface() -> None:
 
 def test_json_set_installed_index_surface() -> None:
     # The installed jsonpath-ng (modern API) end-to-end through build_message.
-    message = build_message(
-        "hello", {**BASE, "input_template": None} | {"input_template": "$input"}, {}
-    )
+    message = build_message("hello", BASE)
     assert message["messages"] == [{"role": "user", "content": "hello"}]
 
 
@@ -175,3 +110,19 @@ def test_missing_output_path_yields_none() -> None:
     assert (
         extract_output({"nothing": True}, {"output_path": "$.choices[0].message.content"}) is None
     )
+
+
+@pytest.mark.parametrize(
+    "value",
+    ["{{ other }}", "{% if other %}yes{% endif %}", "a {# b", "about $other and ${other}"],
+)
+def test_a_rendered_prompt_carries_each_value_verbatim(value: str) -> None:
+    """A value holding Jinja or string.Template syntax reaches the prompt unchanged."""
+    rendered = render_prompt("[{{ value }}]", value=value, other="SUBSTITUTED")
+    assert rendered == f"[{value}]"
+
+
+def test_a_prompt_placeholder_with_no_value_raises() -> None:
+    """Rendering a prompt that names a value the caller did not pass raises."""
+    with pytest.raises(jinja2.UndefinedError):
+        render_prompt("{{ request }} {{ reason }}", request="r")

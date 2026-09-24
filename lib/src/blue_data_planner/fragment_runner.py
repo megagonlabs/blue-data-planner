@@ -9,7 +9,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from blue_data_planner.data import DataCatalog
 from blue_data_planner.execution import execute_physical_operator
 from blue_data_planner.llm import Conversation, LLMClient, Turn
-from blue_data_planner.llm.templating import safe_substitute
+from blue_data_planner.llm.templating import render_prompt
 from blue_data_planner.operators import OperatorRouter
 from blue_data_planner.prompts import prompt_text
 from blue_data_planner.types import (
@@ -187,7 +187,7 @@ class FragmentRunner:
         views: list[AttributeView] = []
         for entity_path in fragment.scan_sources.values():
             views.extend(self._catalog.attribute_views(entity_path))
-        return safe_substitute(
+        return render_prompt(
             prompt_text("fragment_runner_turn.md"),
             instruction=fragment.instruction,
             operator_description=operator.description,

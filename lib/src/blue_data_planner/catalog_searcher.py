@@ -6,7 +6,7 @@ from pydantic import BaseModel, ConfigDict
 
 from blue_data_planner.data import DataCatalog
 from blue_data_planner.llm import Conversation, LLMClient, Turn
-from blue_data_planner.llm.templating import safe_substitute
+from blue_data_planner.llm.templating import render_prompt
 from blue_data_planner.prompts import prompt_text
 from blue_data_planner.types import (
     DataBundle,
@@ -51,7 +51,7 @@ class CatalogSearcher:
             conversation.turns.append(
                 Turn(
                     role="system",
-                    content=safe_substitute(
+                    content=render_prompt(
                         prompt_text("catalog_searcher.md"),
                         max_search_terms=self._max_search_terms,
                     ),
@@ -73,7 +73,7 @@ class CatalogSearcher:
         )
 
     def _ask(self, node: PipelineNode, inputs: DataBundle) -> str:
-        return safe_substitute(
+        return render_prompt(
             prompt_text("catalog_searcher_turn.md"),
             instruction=node.instruction,
             input_tables=_render_tables(inputs),

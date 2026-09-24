@@ -7,7 +7,7 @@ import uuid
 from typing import Any
 
 from blue_data_planner.llm import Conversation, LLMClient, Turn
-from blue_data_planner.llm.templating import safe_substitute
+from blue_data_planner.llm.templating import render_prompt
 from blue_data_planner.operators import OperatorRouter
 from blue_data_planner.plan import (
     NONE,
@@ -171,7 +171,7 @@ class PhysicalPlanner:
         conversation.turns.append(
             Turn(
                 role="user",
-                content=safe_substitute(
+                content=render_prompt(
                     prompt_text("physical_planner_turn.md"),
                     candidates=_render_candidates(plan, node, candidates, reusable, bound_so_far),
                     **preamble,

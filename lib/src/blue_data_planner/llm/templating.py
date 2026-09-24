@@ -3,7 +3,6 @@ from __future__ import annotations
 import copy
 import json
 import re
-from string import Template
 from typing import Any
 
 from jsonpath_ng.ext import (  # pyright: ignore[reportMissingTypeStubs]
@@ -17,37 +16,21 @@ def _find(path: str, target: Any) -> list[Any]:
     return list(expression.find(target))
 
 
-def safe_substitute(template: str, **kwargs: Any) -> str:
-    """Apply string.Template and Jinja substitutions repeatedly until stable."""
-    # A Template pass preserves unknown $names; the following Jinja pass renders
-    # {{ }} placeholders and empties unknown names. Repetition resolves chains such
-    # as $a -> "$b" -> "done".
-    from jinja2 import BaseLoader, Environment
+def render_prompt(template: str, **values: Any) -> str:
+    """Render a Jinja prompt template once, passing every value through verbatim."""
+    # Values are model output, user input, or registry text, so they are never parsed as
+    # templates, and a placeholder with no value raises rather than rendering empty.
+    from jinja2 import BaseLoader, Environment, StrictUndefined
 
-    rendered = Template(template).safe_substitute(**kwargs)
-    rendered = Environment(loader=BaseLoader()).from_string(rendered).render(**kwargs)
-    if rendered == template:
-        return rendered
-    return safe_substitute(rendered, **kwargs)
+    environment = Environment(loader=BaseLoader(), undefined=StrictUndefined)
+    return environment.from_string(template).render(**values)
 
 
 def build_message(
-    input_data: Any,
-    properties: dict[str, Any],
-    additional_data: dict[str, Any] | None = None,
-    default_prefix: str = "",
+    input_data: Any, properties: dict[str, Any], default_prefix: str = ""
 ) -> dict[str, Any]:
-    """Build a request message while rejecting duplicate substitution keys."""
-    if additional_data is None:
-        additional_data = {}
-
+    """Build a request message carrying the input where the client's properties place it."""
     message: dict[str, Any] = api_properties(properties, default_prefix)
-
-    if properties.get("input_template") is not None:
-        input_params = {"input": input_data}
-        input_data = _substitute_with_collision_check(
-            properties["input_template"], properties, input_params, additional_data
-        )
 
     input_object: Any = input_data
     if properties.get("input_json") is not None:
@@ -70,30 +53,7 @@ def extract_output(payload: Any, properties: dict[str, Any]) -> Any:
     output_data: Any = matches[0] if matches else None
 
     output_data = _preprocess_output(output_data, properties)
-
-    if properties.get("output_template") is not None:
-        output_data = _substitute_with_collision_check(
-            properties["output_template"], properties, {}, {"output": output_data}
-        )
-
     return _cast_output(output_data, properties)
-
-
-def _substitute_with_collision_check(
-    template: str,
-    properties: dict[str, Any],
-    params: dict[str, Any],
-    additional_data: dict[str, Any],
-) -> str:
-    # Duplicate keys are ambiguous and raise before substitution; no source is given
-    # implicit precedence.
-    merged: dict[str, Any] = {}
-    for source in (properties, params, additional_data):
-        for key in source:
-            if key in merged:
-                raise TypeError(f"got multiple values for keyword argument '{key}'")
-        merged.update(source)
-    return safe_substitute(template, **merged)
 
 
 def api_properties(properties: dict[str, Any], default_prefix: str = "") -> dict[str, Any]:

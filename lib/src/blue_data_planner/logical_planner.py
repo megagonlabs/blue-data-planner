@@ -7,7 +7,7 @@ from typing import Any
 
 from blue_data_planner.data import DataCatalog
 from blue_data_planner.llm import Conversation, LLMClient, Turn
-from blue_data_planner.llm.templating import safe_substitute
+from blue_data_planner.llm.templating import render_prompt
 from blue_data_planner.plan import logical_plan_schema, validate_logical_plan
 from blue_data_planner.prompts import prompt_text
 from blue_data_planner.types import (
@@ -92,7 +92,7 @@ class LogicalPlanner:
         parent: LogicalPlan | None,
     ) -> str:
         first_pass = parent is None
-        return safe_substitute(
+        return render_prompt(
             prompt_text("logical_planner_turn.md"),
             request=request if first_pass else "",
             catalog_preview=(

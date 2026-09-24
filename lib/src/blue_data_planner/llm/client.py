@@ -95,11 +95,10 @@ class LLMClient:
         self,
         input: Any,  # noqa: A002 — public call-surface parameter
         properties: dict[str, Any] | None = None,
-        additional_data: dict[str, Any] | None = None,
     ) -> Any:
         started = time.monotonic()
         merged = {**self.properties, **(properties or {})}
-        message = build_message(input, merged, additional_data, self.name.lower())
+        message = build_message(input, merged, self.name.lower())
         kwargs = self._build_call_kwargs(message, merged)
 
         cache, cache_key = self._cache_lookup(merged, kwargs)
@@ -156,11 +155,10 @@ class LLMClient:
         self,
         input: Any,  # noqa: A002 — matches the synchronous call surface
         properties: dict[str, Any] | None = None,
-        additional_data: dict[str, Any] | None = None,
     ) -> Any:
         started = time.monotonic()
         merged = {**self.properties, **(properties or {})}
-        message = build_message(input, merged, additional_data, self.name.lower())
+        message = build_message(input, merged, self.name.lower())
         kwargs = self._build_call_kwargs(message, merged)
 
         cache, cache_key = self._cache_lookup(merged, kwargs)

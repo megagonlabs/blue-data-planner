@@ -49,7 +49,7 @@ Every model call the library makes goes through `lib/src/blue_data_planner/llm/`
 | First provider | OpenAI, through a litellm model string |
 | Structured output | Pydantic models passed as a strict response schema |
 | Retries | `tenacity`, with exponential backoff on provider errors |
-| Prompt templating | `jinja2` plus `string.Template`, in `llm/templating.py` |
+| Prompt templating | `jinja2`, in `llm/templating.py` |
 | API key | `OPENAI_API_KEY` in the environment, read by litellm |
 
 Litellm is chosen over an SDK for one provider because the rest of the stack speaks it: the

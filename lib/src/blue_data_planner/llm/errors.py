@@ -7,7 +7,7 @@ class LLMError(Exception):
     """Raised for LLM transport failures and rejected adapter configuration."""
 
     # Wrapping boundary: transport/provider exceptions and malformed responses are
-    # wrapped here by the client; templating errors (substitution TypeError, JSONPath
+    # wrapped here by the client; templating errors (an undefined prompt value, JSONPath
     # misses) remain raw because they occur before the provider boundary.
 
     def __init__(
