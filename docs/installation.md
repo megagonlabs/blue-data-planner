@@ -8,7 +8,7 @@
 | --- | --- | --- |
 | `blue-data-planner` | [`lib/`](../lib/README.md) | The planner library: `DataPlanner`, `build_data_planner`, and the operator suites |
 | `blue-data-planner-cli` | [`platform/cli/`](../platform/cli/README.md) | The `blue-planner` command |
-| `blue-data-planner-mcp` | `platform/mcp/` | Not built. See [mcp.md](mcp.md) |
+| `blue-data-planner-mcp` | [`platform/mcp/`](../platform/mcp/README.md) | The `blue-data-planner-mcp` server, one tool over the planner |
 
 Install the library first. The CLI package depends on it.
 [`lib/README.md`](../lib/README.md) and
@@ -25,13 +25,15 @@ own install and requirements; this page collects them.
 
 ### Install
 
-Neither package is published to an index yet, so both install from a checkout.
+No package is published to an index yet, so all three install from a checkout. Each platform
+package depends on the library, and either one installs without the other.
 
 ```bash
 python -m venv .venv && source .venv/bin/activate
 
 cd lib && pip install -e .                 # the library
 cd ../platform/cli && pip install -e .     # the blue-planner command
+cd ../mcp && pip install -e .              # the MCP server
 ```
 
 ### Extras
@@ -60,7 +62,8 @@ reads the provider key from the process environment on each call, so a library-o
 too.
 
 The rest configure the `blue-planner` CLI, which resolves each setting as command option, then
-environment variable, then profile, then default.
+environment variable, then profile, then default, and the MCP server, which reads the environment
+alone.
 
 | Variable | Default | Sets |
 | --- | --- | --- |
@@ -69,7 +72,8 @@ environment variable, then profile, then default.
 | `BLUE_DATA_PLANNER_OPERATORS` | `builtin,lotus` | Which suites are registered, over `builtin`, `lotus`, and `blue` |
 
 `blue-planner profile config` stores the same values in a profile and prompts for the key, so it
-never reaches the shell history. The remaining parameters (LOTUS settings, run bounds, output
+never reaches the shell history. An MCP client sets them in the `env` block it launches the server
+with ([`platform/mcp/README.md`](../platform/mcp/README.md#configuration-reference)). The remaining parameters (LOTUS settings, run bounds, output
 format) are in [`platform/cli/README.md`](../platform/cli/README.md#parameters) and
 [`design/09-api-interface-spec.md`](../design/09-api-interface-spec.md#configuration).
 

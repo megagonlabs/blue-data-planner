@@ -40,6 +40,7 @@ blue-data-planner/
 │   ├── src/blue_data_planner/
 │   │   ├── __init__.py                # __version__ and the run path
 │   │   ├── data_planner.py            # DataPlanner, build_data_planner
+│   │   ├── settings.py                # what a planner is built from
 │   │   ├── run_state.py               # RunState
 │   │   ├── logical_planner.py         # LogicalPlanner
 │   │   ├── physical_planner.py        # PhysicalPlanner
@@ -106,8 +107,9 @@ blue-data-planner/
         │   ├── build.sh
         │   └── install.sh
         ├── src/blue_data_planner_mcp/
-        │   ├── server.py               # the two tools, and main
-        │   └── config.py               # what the environment supplies
+        │   ├── __init__.py             # __version__
+        │   ├── server.py               # FastMCP, query_data, main
+        │   └── config.py               # what the environment supplies, and the planner it builds
         └── tests/
 ```
 
@@ -173,8 +175,8 @@ does and belongs in the same file (ADR-002).
 ### What the root exports
 
 `__init__.py` holds `__version__` and the run path: `DataPlanner`, `build_data_planner`,
-`RunResult`, `RunLimits`, `RunStatus`, and `BlueDataPlannerError`. A caller who runs a planner and
-reads its result writes one import.
+`PlannerSettings`, `build_data_planner_from_settings`, `RunResult`, `RunLimits`, `RunStatus`, and
+`BlueDataPlannerError`. A caller who runs a planner and reads its result writes one import.
 
 Everything else is reached through the module that owns it. The components a caller assembles by
 hand come from `operators`, `data`, and `llm`; the shapes a caller reads off a plan come from
@@ -223,7 +225,7 @@ Two modules and a console script, which is the shape both sibling repositories s
 | File | Holds |
 | --- | --- |
 | `commands.py` or `server.py` | What the interface parses and which library call each command reaches, and the entry point the console script names |
-| `config.py` | The settings in force, resolved once at startup, and the planner they assemble |
+| `config.py` | The settings in force, resolved once, and the planner they assemble |
 | `profile.py`, `profile_spec.json`, `output.py` | The CLI's three subjects that are not command routing: the profile actions, the parameters a profile holds, and how a result is rendered |
 | `pyproject.toml` | The package, and the console script under `[project.scripts]` |
 | `scripts/` | `build.sh` and `install.sh`. Publishing is a tag in CI ([12-deployment-ops.md](12-deployment-ops.md)), so no platform package carries a `publish.sh` |
@@ -231,7 +233,7 @@ Two modules and a console script, which is the shape both sibling repositories s
 The CLI has no `commands/` package. Three command groups fit in one module, which is what the
 sibling Blue CLIs do with more groups than that.
 
-The MCP package has no module for wire shapes or for tool registration. Two tools and one planner
+The MCP package has no module for wire shapes or for tool registration. One tool and one planner
 fit beside the bootstrap, and a suite that exposes one tool per operator — which this repository
 does not ([09-api-interface-spec.md](09-api-interface-spec.md#3-mcp-server)) — is what makes those
 worth splitting out.

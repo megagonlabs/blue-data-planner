@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import Any
 
@@ -9,9 +10,7 @@ import pytest
 from blue_data.utils.config import (  # pyright: ignore[reportMissingTypeStubs]
     ConfigResolver,
 )
-from blue_data_planner import RunLimits
-from blue_data_planner.operators.adapters.lotus import LotusSuite
-from blue_data_planner.operators.builtin import BuiltinSuite
+from blue_data_planner import PlannerSettings, RunLimits
 
 from blue_data_planner_cli import config
 from blue_data_planner_cli.config import (
@@ -25,6 +24,24 @@ from blue_data_planner_cli.config import (
     resolved_environment,
 )
 from tests.doubles.environment import a_cli_home, a_profile_holding, a_registry_file
+
+
+def test_the_profile_spec_declares_the_library_defaults() -> None:
+    """Two files name the same defaults, so a test is what keeps them from drifting apart."""
+    spec = json.loads(Path(config.__file__).with_name("profile_spec.json").read_text())
+    defaults = PlannerSettings(registry_path=Path("registry.json"))
+    declared = {
+        "BLUE_DATA_PLANNER_MODEL": defaults.model,
+        "BLUE_DATA_PLANNER_REASONING_EFFORT": defaults.reasoning_effort,
+        "BLUE_DATA_PLANNER_OPERATORS": ",".join(defaults.operator_suites),
+        "BLUE_DATA_PLANNER_LOTUS_REASONING_EFFORT": defaults.lotus_reasoning_effort,
+        "BLUE_DATA_PLANNER_LOTUS_MAX_ROWS": defaults.lotus_max_rows,
+        "BLUE_DATA_PLANNER_ENABLE_NL2TABLE": defaults.enable_nl2table,
+        "BLUE_DATA_PLANNER_MAX_OPERATOR_CALLS": defaults.limits.operator_calls,
+        "BLUE_DATA_PLANNER_MAX_FAILURE_REPLANS": defaults.limits.failure_replans,
+        "BLUE_DATA_PLANNER_MAX_CONTROL_REPLANS": defaults.limits.control_replans,
+    }
+    assert {name: spec[name]["default"] for name in declared} == declared
 
 
 def test_the_spec_declares_the_planner_parameters_beside_the_family_wide_ones() -> None:
@@ -69,14 +86,15 @@ def a_resolver_over(tmp_path: Path, **values: str) -> ConfigResolver:
 
 
 def a_captured_build(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
-    """Replace build_data_planner with a double recording what the CLI handed it."""
+    """Replace build_data_planner_from_settings with a double recording what the CLI handed it."""
     captured: dict[str, Any] = {}
 
-    def _build(data_registry: Any, **arguments: Any) -> Any:
+    def _build(settings: Any, **arguments: Any) -> Any:
+        captured["settings"] = settings
         captured.update(arguments)
         return None
 
-    monkeypatch.setattr(config, "build_data_planner", _build)
+    monkeypatch.setattr(config, "build_data_planner_from_settings", _build)
     return captured
 
 
@@ -87,40 +105,41 @@ def test_the_bounds_a_profile_carries_reach_run_limits(tmp_path: Path) -> None:
 
     settings: ResolvedSettings = resolve_settings(resolver)
 
-    assert settings.limits.operator_calls == 7
-    assert settings.limits.plan_corrections == 5  # no parameter names it, so the default stands
+    assert settings.planner.limits.operator_calls == 7
+    # no parameter names it, so the default stands
+    assert settings.planner.limits.plan_corrections == 5
 
 
-@pytest.mark.parametrize(
-    ("configured", "resolved"), [("low", "low"), ("none", "none"), ("off", None)]
-)
-def test_off_is_the_one_spelling_that_leaves_the_reasoning_effort_out(
-    configured: str, resolved: str | None, tmp_path: Path
+@pytest.mark.parametrize("configured", ["low", "none", "off"])
+def test_the_configured_reasoning_effort_reaches_planner_settings_unchanged(
+    configured: str, tmp_path: Path
 ) -> None:
-    """ "none" is a real litellm value the provider still receives; "off" is how a user on a model
-    that rejects the field says it must not be sent, and None is how the library reads that."""
+    """Translating "off" into the omitted parameter is the library's job, done when the planner
+    is built; resolve_settings passes every documented spelling through as-is."""
     resolver = a_resolver_over(tmp_path, BLUE_DATA_PLANNER_REASONING_EFFORT=configured)
 
     settings: ResolvedSettings = resolve_settings(resolver)
 
-    assert settings.reasoning_effort == resolved
+    assert settings.planner.reasoning_effort == configured
 
 
 @pytest.mark.parametrize(
     "parameter",
     ["BLUE_DATA_PLANNER_REASONING_EFFORT", "BLUE_DATA_PLANNER_LOTUS_REASONING_EFFORT"],
 )
-def test_a_reasoning_effort_outside_the_documented_values_is_a_configuration_error(
+def test_a_reasoning_effort_outside_the_documented_values_names_the_parameter_that_set_it(
     parameter: str, tmp_path: Path
 ) -> None:
     """A value the provider refuses fails every model call the run makes, so it is caught where
-    it is read rather than partway into a request."""
+    it is read, reported under the parameter name a profile sets rather than the library's own
+    field name."""
     resolver = a_resolver_over(tmp_path, **{parameter: "maximum"})
 
     with pytest.raises(CliError) as raised:
         resolve_settings(resolver)
 
     assert raised.value.code == "CONFIG_INVALID"
+    assert raised.value.description.startswith(parameter)
     assert "maximum" in raised.value.description
 
 
@@ -132,7 +151,7 @@ def test_an_unset_lotus_reasoning_effort_resolves_to_none_regardless_of_the_main
 
     settings: ResolvedSettings = resolve_settings(resolver)
 
-    assert settings.lotus_reasoning_effort == "none"
+    assert settings.planner.lotus_reasoning_effort == "none"
 
 
 def test_a_command_option_outranks_the_profile(tmp_path: Path) -> None:
@@ -145,23 +164,27 @@ def test_a_command_option_outranks_the_profile(tmp_path: Path) -> None:
         resolver, registry=str(other), output_format="json"
     )
 
-    assert settings.registry_path == other
+    assert settings.planner.registry_path == other
     assert settings.output_format == "json"
 
 
-def test_the_model_option_reaches_the_lotus_suite_as_well_as_the_planner(tmp_path: Path) -> None:
+def test_the_model_option_reaches_the_lotus_setting_as_well_as_the_planners_own(
+    tmp_path: Path,
+) -> None:
     """--model names the model every component uses, and BLUE_DATA_PLANNER_LOTUS_MODEL inherits
-    BLUE_DATA_PLANNER_MODEL, so its own resolution never sees the option."""
+    BLUE_DATA_PLANNER_MODEL, so both settings resolve to the option even though the LOTUS
+    parameter never sees it."""
     resolver = a_resolver_over(tmp_path)
 
     settings: ResolvedSettings = resolve_settings(resolver, model="openai/gpt-4o-mini")
 
-    assert settings.model == "openai/gpt-4o-mini"
-    assert settings.lotus_model == "openai/gpt-4o-mini"
+    assert settings.planner.model == "openai/gpt-4o-mini"
+    assert settings.planner.lotus_model == "openai/gpt-4o-mini"
 
 
-def test_a_profile_set_lotus_model_stands_apart_from_the_planners_own(tmp_path: Path) -> None:
-    """Setting LOTUS away from the planner's model is what the parameter is for."""
+def test_a_profile_set_lotus_model_resolves_apart_from_the_planners_own(tmp_path: Path) -> None:
+    """Setting LOTUS away from the planner's model is what the parameter is for, so the two
+    settings resolve side by side."""
     resolver = a_resolver_over(
         tmp_path,
         BLUE_DATA_PLANNER_MODEL="openai/gpt-4o",
@@ -170,8 +193,8 @@ def test_a_profile_set_lotus_model_stands_apart_from_the_planners_own(tmp_path: 
 
     settings: ResolvedSettings = resolve_settings(resolver)
 
-    assert settings.model == "openai/gpt-4o"
-    assert settings.lotus_model == "openai/gpt-4o-mini"
+    assert settings.planner.model == "openai/gpt-4o"
+    assert settings.planner.lotus_model == "openai/gpt-4o-mini"
 
 
 def test_an_unknown_operator_suite_is_a_configuration_error(tmp_path: Path) -> None:
@@ -202,9 +225,10 @@ def test_an_output_format_outside_the_two_is_a_configuration_error(tmp_path: Pat
 def test_a_registry_path_naming_no_file_is_reported_before_a_run_starts(tmp_path: Path) -> None:
     """An unreadable registry is a configuration failure, not a run that ends badly."""
     resolver = a_resolver_over(tmp_path)
+    settings = resolve_settings(resolver, registry=str(tmp_path / "missing.json"))
 
     with pytest.raises(CliError) as raised:
-        resolve_settings(resolver, registry=str(tmp_path / "missing.json"))
+        assemble_planner(settings)
 
     assert raised.value.code == "REGISTRY_UNREADABLE"
 
@@ -221,31 +245,24 @@ def test_a_registry_that_does_not_parse_fails_before_a_planner_is_built(tmp_path
     assert raised.value.code == "REGISTRY_UNREADABLE"
 
 
-def test_what_a_profile_resolved_is_what_the_library_is_handed(
+def test_the_settings_a_profile_resolved_reach_the_library_under_the_cli_client_name(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """The adapter resolves and translates, so every value a run is built on has to arrive as the
-    profile left it, the suites and their own options included."""
+    """The adapter resolves and hands off: what a profile set arrives as the PlannerSettings the
+    library builds from, under the CLI's own LLM client name. Building the planner from those
+    settings, suites and all, is the library's job."""
     captured = a_captured_build(monkeypatch)
     resolver = a_resolver_over(
         tmp_path,
-        BLUE_DATA_PLANNER_OPERATORS="builtin,lotus",
-        BLUE_DATA_PLANNER_MODEL="openai/gpt-4o",
-        BLUE_DATA_PLANNER_REASONING_EFFORT="off",
         BLUE_DATA_PLANNER_ENABLE_NL2TABLE="true",
         BLUE_DATA_PLANNER_LOTUS_MAX_ROWS="10",
     )
-    settings = resolve_settings(resolver)
 
-    assemble_planner(settings)
+    assemble_planner(resolve_settings(resolver))
 
-    assert captured["model"] == "openai/gpt-4o"
-    assert captured["reasoning_effort"] is None
-    assert captured["limits"] == settings.limits
-    assert captured["suites"] == [
-        BuiltinSuite(with_nl2table=True),
-        LotusSuite(model="openai/gpt-4o", max_rows=10, reasoning_effort="none"),
-    ]
+    assert captured["settings"].enable_nl2table is True
+    assert captured["settings"].lotus_max_rows == 10
+    assert captured["llm_client_name"] == "blue_planner"
 
 
 def test_a_missing_required_parameter_names_what_to_set(tmp_path: Path) -> None:

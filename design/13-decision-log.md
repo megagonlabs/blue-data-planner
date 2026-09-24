@@ -432,10 +432,11 @@ per query and scores that query as an error.
 ## ADR-017 — The Package Root Exports the Run Path
 
 **Decision:** `blue_data_planner/__init__.py` holds `__version__` and the run path: `DataPlanner`,
-`build_data_planner`, `RunResult`, `RunLimits`, `RunStatus`, and `BlueDataPlannerError`. Public is
-the root, every module directly inside it, and the `__init__.py` of `types/`, `plan/`, `execution/`,
-`operators/`, `data/`, and `llm/`. An operator adapter is the one exception: `operators/__init__.py`
-re-exports the router alone, so an adapter is imported from the module named for its suite.
+`build_data_planner`, `PlannerSettings`, `build_data_planner_from_settings`, `RunResult`,
+`RunLimits`, `RunStatus`, and `BlueDataPlannerError`. Public is the root, every module directly
+inside it, and the `__init__.py` of `types/`, `plan/`, `execution/`, `operators/`, `data/`, and
+`llm/`. An operator adapter is the one exception: `operators/__init__.py` re-exports the router
+alone, so an adapter is imported from the module named for its suite.
 
 **Rationale:** Python runs a package's `__init__.py` before any module inside it, so whatever the
 root names is paid by every import from the package. Of everything this library imports, an operator
@@ -809,10 +810,10 @@ two take the same request and the same options and differ in how far they go, wh
 `EXPLAIN` names in every database this planner reads.
 
 **Consequences:** A component is a thing a user acts on, so a new capability arrives as an action on
-one, or as a new component, while a mode of an existing capability arrives as a flag. Deviations from
-the family are recorded, since a reader is entitled to assume the family's meaning everywhere it is
-not. The MCP server keeps two tools where the CLI has one command, because a tool call carries no
-flags.
+one, or as a new component, while a mode of an existing capability arrives as a flag. Deviations
+from the family are recorded, since a reader is entitled to assume the family's meaning everywhere
+it is not. The MCP server has one tool where the CLI has one command, and `--explain` becomes an
+argument of it, because a tool's arguments are its flags.
 
 ---
 
@@ -822,21 +823,19 @@ flags.
 then the selected profile, then the default. Profiles live in `~/.blue-planner/.profiles`, over the
 configuration engine `blue-data` publishes, and `BLUE_DATA_PLANNER_HOME` relocates the directory. A
 secret is stored encoded or as an environment reference, never accepted as a command-line value, and
-masked wherever the CLI prints it. The CLI loads no `.env` file. The MCP server keeps reading the
-environment, and loads one.
+masked wherever the CLI prints it. The CLI loads no `.env` file.
 
 **Rationale:** A profile is what lets one machine hold a demonstration setup and a production one
 without a shell full of exports, and the engine that implements it already exists in `blue-data`, so
-every Blue CLI resolves settings and stores secrets by the same rules. `load_dotenv(override=True)`
-is what keeps the CLI out of that scheme: a file that overrides the exported environment sits
-between the option and the profile in a way the documented order cannot describe. The MCP server has
-no interactive user to configure a profile, and a client that launches it as a subprocess passes an
-environment, so the file stays useful there.
+every Blue CLI resolves settings and stores secrets by the same rules.
 
 **Consequences:** The CLI package depends on `blue-data` directly, which the library reaches only
-through `data/`. A bound a run reports back is a profile parameter rather than a flag, so a
-request that needs a different budget selects a different profile. A demonstration configures itself with
-`profile config` rather than with a `.env` file in the checkout.
+through `data/`. A bound a run reports back is a profile parameter rather than a flag, so a request
+that needs a different budget selects a different profile. A demonstration configures itself with
+`profile config` rather than with a `.env` file in the checkout. The MCP server reads no
+configuration file: a file read from disk would take precedence over the `env` block a client
+launching the server passes deliberately, and a server started as a subprocess has a working
+directory it did not choose.
 
 ---
 
@@ -999,7 +998,49 @@ fragments are the previous cover's, and the signatures under which results sit a
 
 ---
 
-## ADR-036 — A `REPLAN` Reads Nothing, and Waits for Work the Same Pass Wrote
+## ADR-036 — The MCP Server Reports a Failure in Its Payload
+
+**Decision:** A run that ended on a failure status, and an operator that failed inside one, are
+successful tool calls whose payload carries the status. Anything raised becomes
+`{"error": "<message>"}`, also a successful tool call.
+
+**Rationale:** All four Blue Data MCP servers do this, and a client loading several of them reads
+one shape.
+
+**Consequences:** Every raised failure carries the same one-key payload, so a client tells one
+configuration failure from another only by reading the message. Whether to carry the CLI's error
+codes in the payload is open question 57.
+
+---
+
+## ADR-037 — The Values a Planner Is Built From Are a Library Type
+
+**Decision:** `PlannerSettings` holds them with their defaults and their validation; each interface
+resolves its own way and hands one over.
+
+**Rationale:** The CLI and the MCP server need the same eleven values, and `blue-data` already puts
+shared builders in its library.
+
+**Consequences:** The defaults are written once. `profile_spec.json` keeps copies because
+`ConfigResolver` resolves a spec default as its own tier, so without one `profile inspect` reports
+those parameters as unset. A test guards the two against drift.
+
+---
+
+## ADR-038 — The MCP Surface Is Tools-Only, and a Tool Name Borrows the CLI's Verb
+
+**Decision:** No Blue Data server exposes MCP resources. Where a tool and a CLI command name the
+same operation, the tool takes the command's verb and its component as the noun.
+
+**Rationale:** A client loading several Blue Data servers sees one naming convention, and a reader
+moving between a CLI and a tool sees one vocabulary.
+
+**Consequences:** A new tool's name is read off the CLI command naming the same operation, and MCP
+resources are not added without revisiting this.
+
+---
+
+## ADR-039 — A `REPLAN` Reads Nothing, and Waits for Work the Same Pass Wrote
 
 **Decision:** A `REPLAN` node lists no inputs. It is ready once no fragment is, and what it hands
 the planner is what the pass's fragments produced. A plan holding one has to write at least one step
@@ -1030,7 +1071,7 @@ are for ([04](04-detailed-architecture.md#writing-a-continuation)).
 
 ---
 
-## ADR-037 — A Binding May Turn Down Every Candidate
+## ADR-040 — A Binding May Turn Down Every Candidate
 
 **Decision:** The schema one binding decision is written into carries one choice beyond the
 candidates and the reuse candidate: taking none of them, with a reason. Choosing it ends the cover,
@@ -1059,7 +1100,7 @@ two cases, and the status mix of a benchmark run is what measures whether they d
 
 ## Open Questions
 
-Design questions first, then defects in code that exists today.
+Design questions first, then defects in the code.
 
 | # | Question | Blocks |
 | --- | --- | --- |
@@ -1074,7 +1115,7 @@ Design questions first, then defects in code that exists today.
 | 38 | Where does an operation's capability declaration come from? A `PhysicalOperator` carries `logical_operators`, `source_kinds`, `accepts_bound_inputs`, and `limitations`, and the adapter hand-writes all four. `blue-data-ops` states most of them itself, on an `OperatorCard`: closed `accepts-*`, `requires-*`, and `capability-*` tags plus a `when_to_invoke` line, written by whoever wrote the operation. Reading the card where it exists would have caught the `nl2sql` defect, since the card says `accepts-none`. Against reading it: the card is `blue-data-ops`'s own scheme and nothing else has one — LOTUS declares no capability metadata at all, and a suite this repository writes declares whatever it chooses — so deriving one suite's declarations and hand-writing every other suite's is two rules for one field. The tag vocabulary is also close to but not the same question: `capability-filter` and `LogicalOperator.FILTER` agree, while `accepts-data` says an operation reads a bundle and not whether it can read one alongside a source it scans. A third route is to keep hand-writing and have the conformance test compare against the card where a suite has one, so a disagreement fails a test rather than a run. | Whether a hand-written declaration is checked against anything, and whether the adapter conformance test reads more than `AttributeSpec` |
 | 41 | Is the bundle shape chosen to match one suite's operator signature? ADR-012 fixes a list of tables on both sides of an operator call, and no document says how much conversion the Blue adapter then needs ([06-library.md](06-library.md#what-an-adapter-reads)). Two things are unsettled. Whether the alignment with the Blue operations is deliberate or incidental: if it is deliberate, the shape follows one suite and every other adapter pays the conversion, and if it is not, the shape is chosen for what a plan passes and the Blue adapter converts like any other. And what a callable invokes on the suite's side, which no document names either: a dependency's method name is a fact that goes stale, and naming it in two places is how two documents came to disagree about it. | Whether ADR-012's shape rests on a dependency's signature, and whether the Blue adapter is a pass-through |
 | 42 | Does anything here emit traces or logs of its own, and if so which package? [12-deployment-ops.md](12-deployment-ops.md#7-logging) fixes the library at standard-library logging with no handler configured, so an embedding application decides the format and the destination, and nothing in [05-software-stack.md](05-software-stack.md) declares a tracing dependency. Three routes. The adapters own it: the MCP package declares an exporter, emits structured JSON logs, and opens one span per tool request, leaving the library uninstrumented. The library owns it: spans cover each planning component, each operator call, and each model call, which is the only route that can show where a run's time and money went, at the price of a tracing dependency in `lib/` and an import in code every consumer runs. Or nothing ships in the first release and the run record stays the instrument. What argues for instrumenting at all is the fragment span: it would carry the logical nodes a fragment covered and the operator that ran them, which is where the pushdown boundary was drawn, and a trace can show that where a counter cannot. Against it: `RunResult` already carries every plan, every attempt, the counters, and one usage record per model call, so a trace would restate what the caller is handed. | Whether a deployment can see inside a run without reading the returned result, and which package pays for it |
-| 43 | How is the physical planner made to choose a more capable operator over a built-in one? Where `builtin.nl2table` is registered every operator node kind has a built-in candidate (ADR-020), so a node is almost never answered as `no_operator` and a wrong choice is refused at review instead, one operator call later. A binding turning every candidate down (ADR-037) answers the node nothing fits; this question is the other one, where a built-in candidate returns rows that look like an answer. `description` and `limitations` are the whole of what separates two candidates in the prompt, so an operator that cannot judge meaning has to say so in terms a model weighs against a description promising a general engine, and one that reads whole tables into memory to work over them has to say that too. A built-in program can approximate a semantic predicate — matching a phrase where a reader would have judged a title — and the approximation returns rows and reports no error, so nothing but review stands between it and an answer. The review rejection rate of fragments bound to a built-in entry, which the TAG-Bench harness reports, is what measures it. | Whether a floor that always has a candidate raises the cost of every request that needed the ceiling |
+| 43 | How is the physical planner made to choose a more capable operator over a built-in one? Where `builtin.nl2table` is registered every operator node kind has a built-in candidate (ADR-020), so a node is almost never answered as `no_operator` and a wrong choice is refused at review instead, one operator call later. A binding turning every candidate down (ADR-040) answers the node nothing fits; this question is the other one, where a built-in candidate returns rows that look like an answer. `description` and `limitations` are the whole of what separates two candidates in the prompt, so an operator that cannot judge meaning has to say so in terms a model weighs against a description promising a general engine, and one that reads whole tables into memory to work over them has to say that too. A built-in program can approximate a semantic predicate — matching a phrase where a reader would have judged a title — and the approximation returns rows and reports no error, so nothing but review stands between it and an answer. The review rejection rate of fragments bound to a built-in entry, which the TAG-Bench harness reports, is what measures it. | Whether a floor that always has a candidate raises the cost of every request that needed the ceiling |
 | 44 | Can an operator declare that every scan in one fragment reads the same source? `source_kinds` is a set of kinds and says nothing about identity, and `scan_sources` binds each `SCAN` in a fragment separately, so nothing stops a cover from handing one operator two databases. `blue.nl2sql` needs the constraint, since one SQL query cannot span two of them, while `builtin.nl2table` deliberately lacks it and covering such a fragment is the point of it. Without a way to declare the difference the constraint lives in `limitations` as plain language, and a candidate that cannot work is offered anyway. This is question 8's family: a capability the declaration has no vocabulary for. | Whether an operator limited to one source at a time can be declared at all, or is offered candidates it has to refuse |
 | 45 | Is a bound an operator enforces inside its own call a bound of ADR-014's kind? `RunLimits` holds every bound the run loop obeys, and three numbers sit below it instead: the distinct values a bind join carries, the times `builtin.nl2table` writes its program again before returning a recoverable failure, and the rows a LOTUS operation accepts before refusing the call. All three are shaped like `RunLimits` fields, and they do not agree with each other about who sets them: the LOTUS cap is an argument to `lotus_operators`, so a deployment chooses it where it builds the suite, while the other two are fixed in the operator that enforces them. `builtin.scan` reads only `sql/sqlite`, a source with a predicate language, and implements two of the three realizations in [06](06-library.md#data): values embedded in the query text, capped at 100 distinct values, and a temporary table, capped by nothing. Past the embedded-values cap it escalates to the temporary table rather than refusing the input, so `builtin.scan` never refuses a bind join for carrying too many values; 100 is where it switches realization, not a limit it enforces. The one-call-per-value realization, and the tighter cap that would bound it, belong to an operator reading a source with no predicate language, a case nothing in the built-in suite covers. Every number here is a placeholder set low enough not to break a run rather than measured against real volumes or real failure rates. A `RunLimits` field would let a deployment raise a cap past a default nobody has tested; leaving each number inside its operator keeps the choice with whichever component already sees what decides it. | Whether a bound below the run loop is configurable per deployment, and what real volumes and failure rates call for |
 | 47 | Should the operator vocabulary gain a node that looks the catalog up once per input row? ADR-022 keeps a `DISCOVER` node to a bounded set of entities however many rows it was handed, so a request such as "find the press release document for each of these 500 companies" has nowhere to go: that lookup is per row, what it returns is data rather than context, and it should be billed against the operator budget and reviewed like any other data operation. An operator node would give it all three. Against adding one: none of the ten logical operators reads the catalog, so this would be the first, and what it returns — paths rather than values — is a kind of row nothing else in a plan produces. How often a request needs one is unmeasured. | Whether a per-row catalog lookup is expressible at all, and whether the logical vocabulary stays as it is |
@@ -1084,4 +1125,6 @@ Design questions first, then defects in code that exists today.
 | 54 | Should the library be able to phrase an answer, and the CLI then offer `--format nl`? The family offers a natural-language format where a source answers in prose, and ADR-029 leaves it out because a planner answers in rows. A benchmark whose expected answers are single values, and an agent that wants a sentence rather than a table, both suggest the phrasing has to happen somewhere; doing it in an interface is behavior in an adapter (ADR-002), so the question is whether a library operation should return prose alongside the rows, and what it costs in model calls per request. | Whether `--format nl` and the MCP response ever carry a sentence, and which component writes it |
 | 55 | Should a run be kept on disk so a plan can be read back? The CLI's home directory holds profiles and nothing else, so a plan printed by `data query --explain` is gone when the terminal scrolls, and `data query` keeps no record a later command could inspect. The family's storage convention has a place for one (`~/.<cli>/<profile>/<component>/`), and `from_dict` already reads a recorded plan back ([06-library.md](06-library.md#two-operations)). What is unsettled is whether a CLI should accumulate state at all for a planner that holds none between requests, and what would remove an old run. | Whether the CLI grows an action that reads a plan it wrote earlier |
 | 56 | Should the CLI be able to write a run's whole record to a file? A fragment's result reaches a person as a summary, and the JSON on standard output carries the answer and how the run ended, so every intermediate table and every model turn is reachable only by a caller who embeds the library (ADR-032). Diagnosing a wrong answer is the case that wants them: a summary says a fragment returned 140 rows over three columns and not which 140, and a review that rejected a fragment is readable only in the conversation. A file is where they would go, since what makes them unwelcome on standard output is size rather than secrecy, and the family's storage convention already has a place for per-profile state. Against adding one: a record holds whatever the sources held, so writing one puts source data on disk, and whether a CLI over a planner that keeps nothing between requests should accumulate state at all is question 55. | Whether a wrong answer can be diagnosed from the CLI alone |
+| 57 | Should the MCP server's payload carry the CLI's error codes? Anything raised reaches a client as `{"error": "<message>"}` (ADR-036), so an unreadable registry, an unknown operator suite name, and an invalid setting are one shape, and a client that wants to act on the difference has nothing to read but the message text. The codes the CLI already prints — `CONFIG_MISSING`, `REGISTRY_UNREADABLE`, and the rest ([09-api-interface-spec.md](09-api-interface-spec.md#errors-and-exit-codes)) — would give it a stable field. Against carrying them: a client loading several Blue Data servers reads one payload shape, and this would be the one server whose shape is its own. | Whether a client can branch on why a call failed, and whether the family's payload shape stays uniform |
+| 58 | Should the response cache in `llm/client.py` be removed or promoted? `LLMClient` opens a per-directory `diskcache` when a call carries the `llm.cache` property, and nothing in this repository sets that property, so the path answers no caller here. `diskcache` is declared under the `dev` extra alone, so an installed consumer that did request the cache would get `cache_unavailable` rather than a cache. [05-software-stack.md](05-software-stack.md#what-is-deliberately-absent) says the stack has no model response cache, on the reasoning that a planner's requests carry the catalog, an input sample, and the conversation so far, so a key on the request rarely hits, and what a cache reliably does is make a run's cost depend on invisible state from an earlier run. That reasoning holds for every call the planning components make. What argues for keeping the code is a caller outside the planner reaching `execute_api_call` directly, which is the use the property was written for. Removing it deletes a path nothing calls; keeping it means a runtime dependency and a design row that has to say so. | Whether `llm/` offers a cache at all, and whether `diskcache` becomes a runtime dependency |
 

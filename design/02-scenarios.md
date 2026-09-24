@@ -308,25 +308,21 @@ A user asks the agent to help with a job search. Several turns in, the agent dec
 postings and calls the tool with a request it composed from the conversation:
 
 ```text
-plan_and_execute(task="Bay Area data scientist postings at healthcare companies")
+query_data(request="Bay Area data scientist postings at healthcare companies")
 ```
 
-It gets back structured JSON: the rows, every plan the request produced, and what each node
-produced.
+It gets back structured JSON: the rows, and what each node produced.
 
 ```json
 {
   "status": "ok",
   "answer": [
-    {"title": "Senior Data Scientist", "company": "Corvus Health"},
-    {"title": "Data Scientist, Clinical", "company": "Meridian Bio"}
+    [
+      {"title": "Senior Data Scientist", "company": "Corvus Health"},
+      {"title": "Data Scientist, Clinical", "company": "Meridian Bio"}
+    ]
   ],
-  "pipeline": {
-    "current_logical_plan_id": "8c4a71d0",
-    "current_physical_plan_id": "a6e02f77",
-    "logical_plans": {"3f2b9c14": {"...": {}}, "8c4a71d0": {"...": {}}},
-    "physical_plans": {"d19f5b3c": {"...": {}}, "a6e02f77": {"...": {}}}
-  },
+  "failure_reason": null,
   "results": {
     "a3f1c208": {"search_terms": ["job postings"], "matches": [{"...": {}}], "dropped_terms": 0},
     "7b40de91": {"status": "ok", "failure_reason": null, "operator_id": "builtin.scan",

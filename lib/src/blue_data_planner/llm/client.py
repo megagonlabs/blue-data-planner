@@ -224,8 +224,7 @@ class LLMClient:
                 import diskcache  # pyright: ignore[reportMissingTypeStubs]
             except ImportError as e:
                 raise LLMError(
-                    "llm.cache requested but diskcache is not installed "
-                    "(pip install 'blue-data-planner[llm]')",
+                    "llm.cache requested but diskcache is not installed (pip install diskcache)",
                     code="cache_unavailable",
                 ) from e
             cache = diskcache.Cache(cache_dir)

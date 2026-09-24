@@ -3,7 +3,7 @@
 Signatures and types for the `blue_data_planner` library, grouped by the module that owns them.
 [guide.md](guide.md) is the task-oriented walkthrough of the same surface, and
 [architecture.md](architecture.md) explains the run loop these types describe. The `blue-planner`
-command is documented in [cli.md](cli.md); the MCP server is [not built](mcp.md).
+command is documented in [cli.md](cli.md), and the MCP server in [mcp.md](mcp.md).
 
 ---
 
@@ -19,7 +19,7 @@ command is documented in [cli.md](cli.md); the MCP server is [not built](mcp.md)
 
 | Import | Holds |
 | --- | --- |
-| `blue_data_planner` | `DataPlanner`, `build_data_planner`, `RunResult`, `RunStatus`, `RunLimits`, `BlueDataPlannerError` |
+| `blue_data_planner` | `DataPlanner`, `build_data_planner`, `PlannerSettings`, `build_data_planner_from_settings`, `RunResult`, `RunStatus`, `RunLimits`, `BlueDataPlannerError`, `__version__` |
 | `blue_data_planner.data_planner` | `DataPlanner`, `build_data_planner` |
 | `blue_data_planner.logical_planner`, `.physical_planner`, `.fragment_runner` | The three planning components, one module each |
 | `blue_data_planner.catalog_searcher` | `CatalogSearcher` |
@@ -88,6 +88,55 @@ def build_data_planner(
 The call builds the model client, registers what each suite returns with an `OperatorRouter`,
 wraps the registry in a `DataCatalog`, and hands `DataPlanner` its four components.
 [guide.md](guide.md) works through an assembled planner end to end.
+
+---
+
+## `PlannerSettings`
+
+```python
+from blue_data_planner import PlannerSettings
+```
+
+Frozen. Every value a planner is built from, with the default each one takes.
+
+| Field | Type | Default | Holds |
+| --- | --- | --- | --- |
+| `registry_path` | `Path` | required | The serialized `blue-data` registry to plan over |
+| `model` | `str` | `"openai/gpt-5.6-luna"` | The litellm model string every planning component calls |
+| `reasoning_effort` | `str` | `"low"` | One of `minimal`, `low`, `medium`, `high`, `none`, `off`. `off` omits the parameter, for a model that refuses it |
+| `operator_suites` | `tuple[str, ...]` | `("builtin", "lotus")` | The suites to register, in order |
+| `lotus_model` | `str \| None` | `None` | The model LOTUS operations run on. `None` runs them on `model` |
+| `lotus_reasoning_effort` | `str` | `"none"` | The reasoning effort a LOTUS call spends, from the same six values |
+| `lotus_max_rows` | `int` | `5000` | The rows a LOTUS operation accepts before refusing the call |
+| `enable_nl2table` | `bool` | `False` | Whether `builtin.nl2table`, which writes a Python program and runs it, is registered |
+| `limits` | `RunLimits` | `RunLimits()` | The bounds every run obeys |
+
+A reasoning effort outside those six raises `InvalidSettingError` from the constructor, naming the
+field. Nothing else is validated here: an unknown suite name and an unreadable registry are both
+found when the planner is built.
+
+## `build_data_planner_from_settings`
+
+```python
+from blue_data_planner import build_data_planner_from_settings
+```
+
+```python
+def build_data_planner_from_settings(
+    settings: PlannerSettings,
+    *,
+    llm_client_name: str = "blue_data_planner",
+) -> DataPlanner: ...
+```
+
+Opens the registry the settings name and builds a planner over the suites they list.
+`RegistryUnreadableError` says the registry could not be read, and `UnknownOperatorSuiteError` that
+a name in `operator_suites` registers no suite.
+
+The library reads no environment variable. Each interface resolves values its own way and hands one
+`PlannerSettings` over: `blue-planner` resolves a command option, then the environment, then the
+selected profile, then the default; the MCP server reads the environment alone. A library caller
+constructs one directly, or calls `build_data_planner` with values already resolved.
 
 ---
 

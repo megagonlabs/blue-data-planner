@@ -67,3 +67,11 @@ class SourceQueryError(BlueDataPlannerError):
 
 class SourceUnreachableError(BlueDataPlannerError):
     """A registered source could not be connected to."""
+
+
+class InvalidSettingError(BlueDataPlannerError):
+    """A setting carries a value the planner cannot be built with."""
+
+
+class RegistryUnreadableError(BlueDataPlannerError):
+    """The registry named could not be read."""

@@ -16,7 +16,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["pytest", "ruff", "pyright"]
+dev = ["pytest", "ruff", "pyright", "build"]
 
 [project.scripts]
 blue-planner = "blue_data_planner_cli.commands:main"
