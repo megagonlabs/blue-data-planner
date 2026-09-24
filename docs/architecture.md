@@ -12,7 +12,7 @@ operators are registered, and repairs what fails. It has two tiers, `lib/` and `
 
    ┌──────────────┐   ┌──────────────┐   ┌──────────────┐
    │  Python lib  │   │     CLI      │   │  MCP server  │
-   │              │   │ blue-planner │   │ (not built)  │
+   │              │   │ blue-planner │   │  query_data  │
    └──────┬───────┘   └──────┬───────┘   └──────┬───────┘
           └──────────────────┴──────────────────┘
                              │
@@ -75,21 +75,22 @@ operators are registered, and repairs what fails. It has two tiers, `lib/` and `
  │                                                               │
  │  ┌──────────────────────┐      ┌──────────────────────┐       │
  │  │         cli          │      │         mcp          │       │
- │  │  blue-planner        │      │  (directory only)    │       │
- │  │  Click + Rich        │      │  two tools sketched  │       │
- │  │  data query          │      │  in design/09        │       │
- │  │  profile ...         │      │                      │       │
- │  └──────────┬───────────┘      └──────────────────────┘       │
- └─────────────┼─────────────────────────────────────────────────┘
-               │  Python import of the public names
-               ▼
-          blue_data_planner       lib/src/
+ │  │  blue-planner        │      │  blue-data-planner-  │       │
+ │  │  Click + Rich        │      │  mcp                 │       │
+ │  │  data query          │      │  FastMCP, stdio      │       │
+ │  │  profile ...         │      │  query_data          │       │
+ │  └──────────┬───────────┘      └──────────┬───────────┘       │
+ └─────────────┼─────────────────────────────┼───────────────────┘
+               └──────────────┬──────────────┘
+                              │  Python import of the public names
+                              ▼
+                      blue_data_planner       lib/src/
 ```
 
 | Component | Package | Entry point | Status |
 | --- | --- | --- | --- |
 | `platform/cli/` | `blue-data-planner-cli` | `blue-planner` (terminal, Click) | Built — see [cli.md](cli.md) |
-| `platform/mcp/` | `blue-data-planner-mcp` | stdio (MCP) | Not built — see [mcp.md](mcp.md) |
+| `platform/mcp/` | `blue-data-planner-mcp` | stdio (MCP), one tool: `query_data` | Built — see [mcp.md](mcp.md) |
 | `platform/api/` | — | HTTP | Reserved, not built, not in the first release — see [api.md](api.md) |
 
 An adapter translates arguments and results and holds no planning logic.

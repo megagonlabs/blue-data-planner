@@ -120,7 +120,7 @@ All four pass before work is reported as complete.
 
 - [Installation](../docs/installation.md) — components, extras, and environment variables
 - [`blue-planner` CLI](../docs/cli.md) — commands, profiles, output, and exit codes
-- [MCP server](../docs/mcp.md) — not built
+- [MCP server](../docs/mcp.md) — the `query_data` tool, its response, and its errors
 - [TAG-Bench](../docs/tag-bench-benchmark.md) — the benchmark harness
 - [`design/`](../design/) — the design set, starting with
   [04-detailed-architecture.md](../design/04-detailed-architecture.md)

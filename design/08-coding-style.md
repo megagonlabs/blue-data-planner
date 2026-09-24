@@ -67,7 +67,7 @@ def operators_for(self, logical_op: LogicalOperator) -> List[PhysicalOperator]: 
 def next_ready(self) -> Optional[PhysicalPlanFragment]: ...
 ```
 
-Every package ships a `py.typed` marker, so public signatures are part of the released interface.
+The library ships a `py.typed` marker, so its public signatures are part of the released interface.
 
 A dependency shipping no types of its own is imported behind a targeted `pyright: ignore` where it
 enters and delegates through `Any` from there. The import rules below put those imports in three
@@ -305,10 +305,14 @@ classes as recoverable would reach the caller as a crash. Both boundaries conver
 the original error in its message and keeping it as the cause: the source read raises
 `SourceQueryError`, the provider call raises `LLMError`.
 
+The MCP server's tool handler is the one other place it is permitted, and the only broad catch in
+that package. A tool call answers with a payload rather than an exception, so anything raised below
+the handler leaves as `{"error": "<message>"}`.
+
 | Interface | Handling |
 | --- | --- |
 | Python library | Exceptions propagate to the caller |
-| MCP server | A run that did not finish, and an operator failing inside one, are successful tool calls whose payload carries the status and the attempt. An exception raised in the adapter itself becomes a tool error at the handler boundary ([09-api-interface-spec.md](09-api-interface-spec.md#errors)) |
+| MCP server | A run that did not finish, and an operator failing inside one, are successful tool calls whose payload carries the status and the attempt. An exception raised in the adapter itself is also a successful tool call, and its payload is `{"error": "<message>"}` ([09-api-interface-spec.md](09-api-interface-spec.md#errors)) |
 | CLI | A top-level handler renders the message through Rich and sets an exit code |
 
 The library has one `try` of its own that is not a conversion: `LLMError` is caught at the top of

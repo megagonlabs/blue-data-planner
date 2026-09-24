@@ -23,8 +23,9 @@ rather than a copy of the code.
 
 | Module | Holds |
 | --- | --- |
-| `blue_data_planner/__init__.py` | The run path in one import: `DataPlanner`, `build_data_planner`, `RunResult`, `RunLimits`, `RunStatus`, `BlueDataPlannerError`, and `__version__` |
+| `blue_data_planner/__init__.py` | The run path in one import: `DataPlanner`, `build_data_planner`, `PlannerSettings`, `build_data_planner_from_settings`, `RunResult`, `RunLimits`, `RunStatus`, `BlueDataPlannerError`, and `__version__` |
 | `blue_data_planner/data_planner.py` | `DataPlanner`, `build_data_planner` |
+| `blue_data_planner/settings.py` | `PlannerSettings`, `build_data_planner_from_settings` |
 | `blue_data_planner/run_state.py` | `RunState` |
 | `blue_data_planner/logical_planner.py` | `LogicalPlanner` |
 | `blue_data_planner/physical_planner.py` | `PhysicalPlanner` |
@@ -103,6 +104,37 @@ the same five lines instead of the same forty. Wiring is not translation
 
 A caller who wants a different model per component, or a fake component in a test, builds the four
 and calls `DataPlanner` directly.
+
+### The values a planner is built from
+
+```python
+@dataclass(frozen=True)
+class PlannerSettings:
+    registry_path: Path
+    model: str
+    reasoning_effort: str
+    operator_suites: tuple[str, ...]
+    lotus_model: str | None
+    lotus_reasoning_effort: str
+    lotus_max_rows: int
+    enable_nl2table: bool
+    limits: RunLimits
+
+
+def build_data_planner_from_settings(
+    settings: PlannerSettings, *, llm_client_name: str = "blue_data_planner"
+) -> DataPlanner: ...
+```
+
+`PlannerSettings` holds every value a planner is built from and carries the default each one
+takes. Constructing one refuses a reasoning effort no model accepts. The defaults are in
+[12-deployment-ops.md](12-deployment-ops.md#4-configuration), beside the variable each interface
+reads one from.
+
+`build_data_planner_from_settings` opens the registry the settings name and builds a planner over
+the suites they list, which is the step every interface would otherwise repeat. The library still
+reads no environment variable: each interface resolves values its own way and hands one
+`PlannerSettings` over (ADR-037).
 
 ### Two operations
 
@@ -1465,6 +1497,9 @@ dedicated type, and a run that exhausts an allowance returns a status.
 | `SourceUnreachableError` | The registry cannot resolve a source to a connectable object | The operator that read the source, which raises an unrecoverable failure |
 | `BudgetExhaustedError` | The operator call budget reaches its cap | `FragmentRunner`, which returns `budget_exhausted` |
 | `LLMError` | The provider fails after retries | `DataPlanner`, which ends the request with `llm_failed` |
+| `UnknownOperatorSuiteError` | A name registers no operator suite | Nothing. It propagates to whoever named the suite |
+| `InvalidSettingError` | A `PlannerSettings` field carries a value the planner cannot be built with | Nothing. It propagates to whoever built the settings |
+| `RegistryUnreadableError` | The path a registry is opened from names no file, or the file cannot be read | Nothing. It propagates to whoever opened the registry |
 | `ValueError`, `TypeError`, and a suite's own validation errors | Malformed state or a missing required value | Nothing. These are bugs and they propagate |
 
 Every exception this library defines inherits `BlueDataPlannerError`, defined in `types/errors.py`.

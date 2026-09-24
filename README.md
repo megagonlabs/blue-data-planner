@@ -55,4 +55,4 @@ blue-data-planner/
 | --- | --- | --- |
 | `blue-data-planner` | [`lib/`](lib/README.md) | The planner library |
 | `blue-data-planner-cli` | [`platform/cli/`](platform/cli/README.md) | The `blue-planner` command |
-| `blue-data-planner-mcp` | [`platform/mcp/`](platform/mcp/README.md) | Not built |
+| `blue-data-planner-mcp` | [`platform/mcp/`](platform/mcp/README.md) | The `blue-data-planner-mcp` server, one tool over the planner |
