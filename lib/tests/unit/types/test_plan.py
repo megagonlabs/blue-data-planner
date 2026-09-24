@@ -83,8 +83,11 @@ def a_scan_filter_return_plan() -> LogicalPlan:
                 id="n1",
                 kind=LogicalOperator.SCAN,
                 input_node_ids=[],
-                attributes={"instruction": "job postings"},
-                required_output_columns=columns,
+                attributes={
+                    "instruction": "job postings",
+                    "source": "/source/jobs/database/jobs/collection/public/entity/postings",
+                },
+                required_output_columns=[],
             ),
             PipelineNode(
                 id="n2",
@@ -248,12 +251,32 @@ def test_a_pipeline_survives_its_serialized_form_unchanged() -> None:
     assert DataPipeline.from_dict(pipeline.to_dict()) == pipeline
 
 
+def test_a_world_knowledge_scans_null_source_survives_serialization() -> None:
+    """A scan naming no source reads back as naming none, not as a missing attribute."""
+    plan = LogicalPlan(
+        id="p",
+        parent_id=None,
+        output_node_id=None,
+        nodes=[
+            PipelineNode(
+                id="n1",
+                kind=LogicalOperator.SCAN,
+                input_node_ids=[],
+                attributes={"instruction": "read them", "source": None},
+                required_output_columns=[],
+            )
+        ],
+    )
+
+    assert LogicalPlan.from_dict(plan.to_dict()) == plan
+
+
 def test_serialization_writes_enum_members_and_column_types_as_their_values() -> None:
     """A plan leaves the process as JSON, so nothing in it may be a Python object."""
     payload = a_scan_filter_return_plan().to_dict()
 
     assert payload["nodes"][0]["kind"] == "SCAN"
-    assert payload["nodes"][0]["required_output_columns"][0] == {"name": "title", "dtype": "str"}
+    assert payload["nodes"][1]["required_output_columns"][0] == {"name": "title", "dtype": "str"}
 
 
 _MALFORMED_PLAN_PAYLOADS: list[tuple[dict[str, object], str]] = [
@@ -319,12 +342,63 @@ _MALFORMED_PLAN_PAYLOADS: list[tuple[dict[str, object], str]] = [
                     "id": "n1",
                     "kind": "SCAN",
                     "input_node_ids": [],
-                    "attributes": {"instruction": "a"},
+                    "attributes": {"instruction": "a", "source": None},
                     "required_output_columns": [{"name": "x", "dtype": "date"}],
                 }
             ],
         },
         "date",
+    ),
+    (
+        {
+            "id": "p",
+            "parent_id": None,
+            "output_node_id": None,
+            "nodes": [
+                {
+                    "id": "n1",
+                    "kind": "SCAN",
+                    "input_node_ids": [],
+                    "attributes": {"instruction": "a"},
+                    "required_output_columns": [],
+                }
+            ],
+        },
+        "source",
+    ),
+    (
+        {
+            "id": "p",
+            "parent_id": None,
+            "output_node_id": None,
+            "nodes": [
+                {
+                    "id": "n1",
+                    "kind": "SCAN",
+                    "input_node_ids": [],
+                    "attributes": {"instruction": "a", "source": 42},
+                    "required_output_columns": [],
+                }
+            ],
+        },
+        "source",
+    ),
+    (
+        {
+            "id": "p",
+            "parent_id": None,
+            "output_node_id": None,
+            "nodes": [
+                {
+                    "id": "n1",
+                    "kind": "SCAN",
+                    "input_node_ids": [],
+                    "attributes": {"instruction": "a", "source": None},
+                    "required_output_columns": [{"name": "title", "dtype": "str"}],
+                }
+            ],
+        },
+        "declares no columns",
     ),
 ]
 
@@ -332,7 +406,16 @@ _MALFORMED_PLAN_PAYLOADS: list[tuple[dict[str, object], str]] = [
 @pytest.mark.parametrize(
     ("payload", "expected_message"),
     _MALFORMED_PLAN_PAYLOADS,
-    ids=["missing-key", "unknown-kind", "wrong-attribute", "input-naming-no-node", "unknown-dtype"],
+    ids=[
+        "missing-key",
+        "unknown-kind",
+        "wrong-attribute",
+        "input-naming-no-node",
+        "unknown-dtype",
+        "scan-missing-source",
+        "scan-source-not-a-string",
+        "scan-carrying-columns",
+    ],
 )
 def test_reading_a_malformed_plan_raises_and_names_what_was_wrong(
     payload: dict[str, object], expected_message: str

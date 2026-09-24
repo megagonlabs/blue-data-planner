@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
 from typing import Any, Literal, Union
 
 from pydantic import BaseModel, ConfigDict, Field, create_model
@@ -11,7 +10,6 @@ from blue_data_planner.plan.fragments import fragment_frontier
 from blue_data_planner.types import (
     BlueDataPlannerError,
     ColumnDataType,
-    LogicalOperator,
     LogicalPlan,
     PhysicalOperator,
     PhysicalPlanFragment,
@@ -48,7 +46,6 @@ class OperatorNodeModel(_Strict):
         description="A short name for this node, unique in the plan, used by the nodes reading it."
     )
     kind: Literal[
-        "SCAN",
         "FILTER",
         "PROJECT",
         "EXPAND",
@@ -72,6 +69,31 @@ class OperatorNodeModel(_Strict):
         description=(
             "The columns this node's result has to carry so the nodes reading it can. A result "
             "carrying further columns satisfies this."
+        )
+    )
+
+
+class ScanNodeModel(_Strict):
+    """A node that reads one entity, named by the catalog path it scans."""
+
+    id: str = Field(
+        description="A short name for this node, unique in the plan, used by the nodes reading it."
+    )
+    kind: Literal["SCAN"] = Field(description="The operation this node performs.")
+    input_node_ids: list[str] = Field(
+        description="The ids of the nodes whose rows this node reads, in the order it reads them."
+    )
+    instruction: str = Field(
+        description=(
+            "What this node does, in plain language, starting with a verb. Name no tool and no "
+            "query language."
+        )
+    )
+    source: str | None = Field(
+        description=(
+            "The catalog path copied exactly from the paths under 'What the searches found', or "
+            "null when the scan reads no registered source and its operator produces the data "
+            "itself, for example from the model's own world knowledge."
         )
     )
 
@@ -127,7 +149,9 @@ class ReplanNodeModel(_Strict):
 # A plain union rather than a discriminated one: a discriminator is rendered as the JSON Schema
 # keywords `oneOf` and `discriminator`, and a provider enforcing a schema strictly accepts
 # neither. The kinds are disjoint literals, so the node a response holds is unambiguous anyway.
-PlanNodeModel = OperatorNodeModel | ReturnNodeModel | DiscoverNodeModel | ReplanNodeModel
+PlanNodeModel = (
+    OperatorNodeModel | ScanNodeModel | ReturnNodeModel | DiscoverNodeModel | ReplanNodeModel
+)
 
 
 class LogicalPlanModel(_Strict):
@@ -152,7 +176,6 @@ def cover_choice_schema(
     root_node_id: str,
     candidates: list[tuple[frozenset[str], PhysicalOperator]],
     reusable: PhysicalPlanFragment | None,
-    entity_source_kinds: Mapping[str, str],
 ) -> type[BaseModel]:
     """Return the response schema one binding decision is written into."""
     if not candidates:
@@ -161,7 +184,7 @@ def cover_choice_schema(
             "physical planner's no_operator case"
         )
     variants = tuple(
-        _candidate_model(root_node_id, plan, index, node_ids, operator, entity_source_kinds)
+        _candidate_model(root_node_id, plan, index, node_ids, operator)
         for index, (node_ids, operator) in enumerate(candidates)
     )
     if reusable is not None:
@@ -198,7 +221,6 @@ def _candidate_model(
     index: int,
     node_ids: frozenset[str],
     operator: PhysicalOperator,
-    entity_source_kinds: Mapping[str, str],
 ) -> type[BaseModel]:
     label = candidate_label(root_node_id, operator.operator_id, node_ids)
     fields: dict[str, Any] = {
@@ -216,13 +238,14 @@ def _candidate_model(
             ),
         ),
         "required_output_columns": (
-            list[OutputColumnModel] | None,
+            list[OutputColumnModel],
             Field(
-                default=None,
+                min_length=1,
                 description=(
-                    "Leave this unset, and the fragment owes what its root node declares. Set "
-                    "it only when the operator's stated limitations mean it cannot produce that, "
-                    "naming what it does produce instead."
+                    "The columns the fragment's result has to carry. Start from the columns the "
+                    "root node declares, or, when the root is a SCAN, the columns its consumers "
+                    "declare, and adjust them to what this operator produces, naming each column "
+                    "as the result will spell it."
                 ),
             ),
         ),
@@ -239,38 +262,11 @@ def _candidate_model(
             str,
             Field(description=f"What the rows node {frontier_id} produced hold."),
         )
-    scan_ids = [
-        node_id for node_id in sorted(node_ids) if plan.node(node_id).kind is LogicalOperator.SCAN
-    ]
-    # An operator declaring no source kinds reads no registered source, so every scan it
-    # takes is left out of scan_sources and the schema offers nowhere to name one
-    # (10-data-model.md, the Sources rule).
-    if scan_ids and operator.source_kinds:
-        readable = sorted(
-            path
-            for path, source_kind in entity_source_kinds.items()
-            if source_kind in operator.source_kinds
-        )
-        # PhysicalPlanner drops a candidate it cannot bind before the schema is built, so
-        # an empty list here is a bug rather than a plan worth offering. Falling back to a
-        # bare str would let the model invent a path.
-        if not readable:
-            raise BlueDataPlannerError(
-                f"candidate {label!r} binds {operator.operator_id} to {scan_ids}, but no "
-                f"discovered entity has a source kind it reads "
-                f"({sorted(operator.source_kinds)})"
-            )
-        paths = _only(*readable)
-        for node_id in scan_ids:
-            fields[f"scan_source_{node_id}"] = (
-                paths,
-                Field(description=f"The catalog path node {node_id} scans."),
-            )
     return create_model(f"Candidate{index}", __base__=_Strict, **fields)
 
 
-def _only(*values: object) -> Any:
-    # A Literal over values known only at run time. Typed Any because a type checker cannot
+def _only(value: object) -> Any:
+    # A Literal over a value known only at run time. Typed Any because a type checker cannot
     # follow one, and pydantic is what validates the field against it.
     literal: Any = Literal
-    return literal[values]
+    return literal[value]

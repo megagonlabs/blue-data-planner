@@ -117,10 +117,9 @@ operator should take on would never come up.
      "required_output_columns": []},
 
     {"id": "n3", "kind": "SCAN", "input_node_ids": [],
-     "attributes": {"instruction": "load job postings"},
-     "required_output_columns": [{"name": "title", "dtype": "str"},
-                                 {"name": "company_id", "dtype": "int"},
-                                 {"name": "location", "dtype": "str"}]},
+     "attributes": {"instruction": "load job postings",
+                    "source": "/source/jobs/database/jobs/collection/public/entity/postings"},
+     "required_output_columns": []},
 
     {"id": "n4", "kind": "FILTER", "input_node_ids": ["n3"],
      "attributes": {"instruction": "find the postings whose location is in the San Francisco Bay Area"},
@@ -135,10 +134,9 @@ operator should take on would never come up.
                                  {"name": "location", "dtype": "str"}]},
 
     {"id": "n6", "kind": "SCAN", "input_node_ids": [],
-     "attributes": {"instruction": "load company profile documents"},
-     "required_output_columns": [{"name": "company_id", "dtype": "int"},
-                                 {"name": "company", "dtype": "str"},
-                                 {"name": "profile", "dtype": "str"}]},
+     "attributes": {"instruction": "load company profile documents",
+                    "source": "/source/research_library/database/docs/collection/profiles/entity/company_profiles"},
+     "required_output_columns": []},
 
     {"id": "n7", "kind": "JOIN", "input_node_ids": ["n5", "n6"],
      "attributes": {"instruction": "match each posting to the profile of the company that posted it"},
@@ -160,10 +158,11 @@ operator should take on would never come up.
 }
 ```
 
-Every column name here is one the searches returned. `title`, `company_id`, and `location` are three
-of the five attributes of `postings`; the scan declares the three the rest of the plan reads and
-leaves `salary` and `description` out, since a declaration says what must be present rather than
-what may be. The ending names two of them and not `location`, because the question asks
+Every source and column name here is one the searches returned. Each scan names the entity it
+reads and declares no columns. `title`, `company_id`, and `location` are three of the five
+attributes of `postings`; the filters above the scan declare the three the rest of the plan reads
+and leave `salary` and `description` out, since a declaration says what must be present rather
+than what may be. The ending names two of them and not `location`, because the question asks
 which postings, and the location is what a filter compared against on the way to them.
 
 This is a new version of the logical plan rather than an edit of the first one. It names its parent,
@@ -187,9 +186,9 @@ and the location filter, or all three, and each is a different trade: one SQL qu
 rows down to 48 inside the database, against three calls whose middle step can be checked on its
 own. The planner takes all three.
 
-The entity each scan is bound to is one the searches returned, and the kind of source behind it is
-what admits `nl2sql` for `postings` and rules it out for `company_profiles`. Physical planning takes
-no reading of the catalog of its own.
+The kind of source behind the entity each scan names is what admits `nl2sql` for `postings` and
+rules it out for `company_profiles`. Physical planning takes no reading of the catalog of its own,
+and each fragment's `scan_sources` is copied from its scans.
 
 ```json
 {

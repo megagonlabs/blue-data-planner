@@ -52,6 +52,7 @@ class LogicalPlanner:
     ) -> LogicalPlanResult:
         """Write a plan, or a continuation of one, correcting it until validation accepts."""
         held = results or {}
+        entity_paths = _entity_paths(held)
         if not conversation.turns:
             conversation.turns.append(
                 Turn(role="system", content=prompt_text("logical_planner.md"))
@@ -64,7 +65,7 @@ class LogicalPlanner:
             written = self._llm_client.complete_structured(conversation, logical_plan_schema())
             try:
                 plan = _assemble(written.model_dump(), parent, carried_node_ids)
-                validate_logical_plan(plan, carried_node_ids)
+                validate_logical_plan(plan, entity_paths, carried_node_ids)
             except PlanValidationError as error:
                 failure_reason = str(error)
                 conversation.turns.append(
@@ -129,6 +130,15 @@ def _assemble(
     )
 
 
+def _entity_paths(results: dict[str, ExecutionResult | DiscoveryResult]) -> frozenset[str]:
+    return frozenset(
+        match.path
+        for result in results.values()
+        if isinstance(result, DiscoveryResult)
+        for match in result.matches
+    )
+
+
 def _node(payload: dict[str, Any]) -> PipelineNode:
     kind_name: str = payload["kind"]
     if kind_name in {member.value for member in ControlOperator}:
@@ -138,6 +148,12 @@ def _node(payload: dict[str, Any]) -> PipelineNode:
     elif kind_name == LogicalOperator.RETURN.value:
         kind = LogicalOperator.RETURN
         attributes = {"columns": payload["columns"]}
+        columns = []
+    elif kind_name == LogicalOperator.SCAN.value:
+        kind = LogicalOperator.SCAN
+        attributes = {"instruction": payload["instruction"], "source": payload["source"]}
+        # A SCAN declares no columns of its own; the nodes reading it declare the entity's
+        # columns they need (design/13-decision-log.md, ADR-008).
         columns = []
     else:
         kind = LogicalOperator(kind_name)

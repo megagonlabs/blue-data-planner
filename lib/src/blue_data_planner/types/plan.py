@@ -466,17 +466,35 @@ def _node_from_dict(node_payload: Any) -> PipelineNode:
     node_id = _require_str(payload, "id", "node")
     kind = _kind_from_value(payload["kind"])
     attributes = _require_dict(payload, "attributes", "node")
-    expected_key = "columns" if kind is LogicalOperator.RETURN else "instruction"
-    if set(attributes) != {expected_key}:
-        raise PlanFormatError(
-            f"node {node_id!r} of kind {kind.value} takes the attribute "
-            f"{expected_key!r}, got {sorted(attributes)}"
-        )
-    if expected_key == "instruction":
-        _as_str(attributes[expected_key], f"the instruction of node {node_id!r}")
+    if kind is LogicalOperator.RETURN:
+        expected_keys = {"columns"}
+    elif kind is LogicalOperator.SCAN:
+        expected_keys = {"instruction", "source"}
     else:
-        for column in _as_list(attributes[expected_key], f"the columns of node {node_id!r}"):
+        expected_keys = {"instruction"}
+    if set(attributes) != expected_keys:
+        raise PlanFormatError(
+            f"node {node_id!r} of kind {kind.value} takes the attribute(s) "
+            f"{sorted(expected_keys)}, got {sorted(attributes)}"
+        )
+    if kind is LogicalOperator.RETURN:
+        for column in _as_list(attributes["columns"], f"the columns of node {node_id!r}"):
             _as_str(column, f"a column of node {node_id!r}")
+    else:
+        _as_str(attributes["instruction"], f"the instruction of node {node_id!r}")
+        if kind is LogicalOperator.SCAN:
+            source = attributes["source"]
+            if source is not None and not isinstance(source, str):
+                raise PlanFormatError(
+                    f"the source of node {node_id!r} must be a string or null, got "
+                    f"{type(source).__name__}"
+                )
+    columns = [
+        _column_from_dict(column)
+        for column in _require_list(payload, "required_output_columns", "node")
+    ]
+    if kind is LogicalOperator.SCAN and columns:
+        raise PlanFormatError(f"node {node_id!r} is a SCAN, and a SCAN declares no columns")
     return PipelineNode(
         id=node_id,
         kind=kind,
@@ -485,10 +503,7 @@ def _node_from_dict(node_payload: Any) -> PipelineNode:
             for input_id in _require_list(payload, "input_node_ids", "node")
         ],
         attributes=dict(attributes),
-        required_output_columns=[
-            _column_from_dict(column)
-            for column in _require_list(payload, "required_output_columns", "node")
-        ],
+        required_output_columns=columns,
     )
 
 

@@ -31,7 +31,7 @@ def a_scan_filter_and_discovery() -> LogicalPlan:
             PipelineNode(
                 id="n1",
                 kind=LogicalOperator.SCAN,
-                attributes={"instruction": "read the postings"},
+                attributes={"instruction": "read the postings", "source": None},
                 required_output_columns=[OutputColumn(name="title", dtype="str")],
             ),
             PipelineNode(

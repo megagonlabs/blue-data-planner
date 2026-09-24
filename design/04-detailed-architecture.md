@@ -121,7 +121,7 @@ therefore run in the same pass and cost one return between them.
 | Control node | Waits for | Gives the planner |
 | --- | --- | --- |
 | `REPLAN` | Every fragment the pass can run | What those fragments produced, so the rest of the plan can be written against real columns and values |
-| `DISCOVER` | The results of the nodes it lists, and it may list none | The entities a registry search found, each with every attribute it holds, so a later `SCAN` can name a source and declare real column names |
+| `DISCOVER` | The results of the nodes it lists, and it may list none | The entities a registry search found, each with every attribute it holds, so a later `SCAN` can name a source and the nodes reading it can declare real column names |
 
 A `DISCOVER` node reads the rows its inputs produced, so it is ready once every input it lists has a
 result, and one placed over three parallel paths needs no scheduling code of its own. A `REPLAN`
@@ -224,6 +224,10 @@ replan arriving back where it started. The way out is to write the steps whose r
 continuation needs, a `DISCOVER` node for what the catalog is missing, or the whole plan from what
 the planner already knows.
 
+A `SCAN` names a source the run's catalog context holds, or none for a scan whose operator produces
+the data itself. A path no `DISCOVER` node found is rejected, so a plan reads only entities the run
+has searched for.
+
 A `RETURN` names columns the node it reads declares, and that node has to declare them, so
 validation always has something to check the ending against. A plan whose ending projects a column
 nothing produces is rejected before any of it runs.
@@ -260,8 +264,10 @@ An operator declares the set of logical operators it can execute, the kinds of s
 and whether it accepts tables bound in from elsewhere
 ([10-data-model.md](10-data-model.md#a-physical-operator)). Nothing else. Candidate fragments follow
 mechanically: grow a connected, convex subgraph using only nodes whose kind is in that set. A
-fragment containing a `SCAN` also needs a source, and the operator's declared source kinds decide
-which sources it may be given.
+fragment containing a `SCAN` reads the sources its scans name, and the operator's declared source
+kinds decide whether it can: an operator declaring source kinds takes the fragment only when every
+scan names a source of one of them, and an operator declaring none only when no scan names a
+source.
 
 An operator declaring a single logical operator can only ever match a single node, which is what
 every atomic operator declares.
@@ -323,14 +329,16 @@ knows what it bound a moment earlier, and a repair continues the same exchange, 
 answers the binding that failed rather than being told about it. A new logical plan starts a new
 conversation, because the node ids already in the turns name a different graph.
 
-The run's catalog context opens the conversation, so it is sent once rather than once per node. The
-operator, row count, and column names of every node with a result are sent the same way, once, when
-the conversation opens. The failed fragment's node set and which operators were tried on it need no
-separate turn either: they are already there, in the turns that bound it the first time, so a repair
-adds only why the last attempt failed. Row counts matter because grouping a node that already ran
-throws its result away and pays for the work again, and how much that costs is how many rows are
-discarded ([the cover repair](#the-cover-repair)). Rows themselves stay out: the physical planner
-chooses boundaries and operators, and values are the fragment runner's reading.
+The logical plan and the run's catalog context open the conversation, so each is sent once rather
+than once per node. The plan shows every node with its instruction, a scan's source, and its
+declared columns, so a binding is made with the whole plan in view. The operator, row count, and
+column names of every node with a result are sent the same way, once, when the conversation opens.
+The failed fragment's node set and which operators were tried on it need no separate turn either:
+they are already there, in the turns that bound it the first time, so a repair adds only why the
+last attempt failed. Row counts matter because grouping a node that already ran throws its result
+away and pays for the work again, and how much that costs is how many rows are discarded ([the cover
+repair](#the-cover-repair)). Rows themselves stay out: the physical planner chooses boundaries and
+operators, and values are the fragment runner's reading.
 
 A candidate is named by its operator and its node set rather than by a position in the list it
 arrived in. The list differs from turn to turn, so a position means something different in each one,
@@ -340,9 +348,9 @@ Along with the fragment and its operator, the model writes three things.
 
 | Written during physical planning | Why then |
 | --- | --- |
-| A catalog path for each `SCAN` in the fragment | Which source a scan reads decides which operators can run it, so the source and the operator are one choice rather than two |
 | One instruction covering the whole fragment, phrased as an instruction to the operator | A fragment grouping four nodes has no single instruction to borrow, so the model writes one stating everything those nodes require |
 | A name and a description for each input the fragment receives | An operator handed a bundle cannot tell a scan target from an auxiliary table, and column names are not known yet |
+| The columns the fragment's result has to carry | What a fragment can produce depends on the operator it is bound to, and a `SCAN` root declares no columns of its own |
 
 An instruction has three properties. It is declarative, saying what the fragment produces while how
 to produce it stays with the operator and the parameters written for it. It states every condition
@@ -354,24 +362,26 @@ nodes require is the sign of a candidate too large to bind, and the answer to th
 candidate rather than a looser instruction.
 
 The response schema for one of these calls is built from that call's candidates, the same way an
-operator's `parameter_schema` is built from that operator. A candidate set with no `SCAN` in it has
-no place in the schema to name a source, and where a scan does appear the allowed values are the
-entity paths the run's catalog context holds. An impossible choice never appears as an option, so a
-provider enforcing the schema strictly cannot invent a path. Validation checks every bound path
-against the same context, which is what catches one on a provider that does not
-([06-library.md](06-library.md#checking-a-plan)).
+operator's `parameter_schema` is built from that operator. Every candidate on offer can already read
+the sources its scans name, so the choice is the operator and the cut. The fragment's
+`scan_sources` is copied from its scans.
 
-The physical planner takes no reading of the catalog of its own. A path reaches it because a
-`DISCOVER` node found it, so the entities a cover may bind a scan to are exactly the entities the
-run has searched for.
+The physical planner takes no reading of the catalog of its own. The kind of each source a scan
+names comes from the `DISCOVER` result that found it.
 
 Everything else waits for execution. Column names, types, and rows are not known until the upstream
 fragments have run, and the parameters that depend on them are written then
 ([section 3](#3-running-a-fragment)).
 
-A fragment inherits `required_output_columns` from its root node unchanged. The model rewrites that
-list only when it declares that the fragment cannot produce those columns. The default therefore stays
-deterministic, and the model's discretion is confined to an exception path.
+The model writes every fragment's `required_output_columns`, and the schema takes no fragment
+without at least one. A node's declared columns are what it outputs, not what it reads, so the
+root's declaration alone can leave out a column a later step filters or joins on, and a `SCAN`
+declares none at all. The list is therefore written from two things: the columns the root declares,
+and what reads the root. Bindings run consumers first and a fragment's root is its only exit, so
+every reader is known when a node is bound, and the turn shows each one: the instruction and columns
+of the fragment holding it, the columns of a `RETURN`, or the instruction of a `DISCOVER`. The model
+adds every column those readers use and adjusts the list to what the chosen operator produces. For a
+scan that names no source, this list is the only statement of what the operator is to produce.
 
 ### A cover is written whole
 
@@ -547,10 +557,10 @@ node's id, and every resolved node's hits together are the run's catalog context
 converted into rows, and no operator call is spent.
 
 The attribute list is why discovery answers more than "which source." A continuation written against
-it names a source for each `SCAN`, and it also declares each node's output columns from names the
-registry holds rather than from names the model read out of an entity's description. That is what a
-discovery node buys, and why a request over registered data reaches pushdown one pass later than a
-request the planner answers from world knowledge.
+it names a source for each `SCAN`, and the nodes reading a scan declare their output columns from
+names the registry holds rather than from names the model read out of an entity's description. That
+is what a discovery node buys, and why a request over registered data reaches pushdown one pass
+later than a request the planner answers from world knowledge.
 
 ### What a discovery node's inputs are for
 
@@ -679,22 +689,19 @@ The physical planner covers the whole logical plan again, with the failure reaso
 binding is decided afresh, and every fragment that already produced a result is on offer to be kept,
 so what the repair changes is what the model chooses to change.
 
-Four fixes are reachable, and between them they are everything short of a new plan.
+Three fixes are reachable, and between them they are everything short of a new plan.
 
 | Fix | Answers |
 | --- | --- |
 | Bind a different operator to the failed node set | An operator that cannot express what the node asks for |
 | Cut that set into smaller fragments | A fragment that grouped more than its operator could carry out |
-| Bind a `SCAN` in it to a different entity | A search that returned several plausible ones and a cover that picked the wrong one |
 | Grow a fragment, grouping nodes that already ran | Steps that needed to happen inside one call |
 
-The third is why the repair reads the run's catalog context and not only the cover it is replacing:
-the cover holds the one entity already chosen, and the alternatives are in the context. The fourth
-is the one that costs. Grouping a node that already ran leaves that node's result unread, and the
-results of every executed node downstream of it too, since those saw a value the new fragment is
-about to produce again. That work is paid for twice, which is what the model weighs against what
-the wider fragment buys, and the row counts in front of it say how much. The single-exit rule is
-what makes it safe: no node outside the fragment was reading those tables.
+The third is the one that costs. Grouping a node that already ran leaves that node's result
+unread, and the results of every executed node downstream of it too, since those saw a value the
+new fragment is about to produce again. That work is paid for twice, which is what the model weighs
+against what the wider fragment buys, and the row counts in front of it say how much. The
+single-exit rule is what makes it safe: no node outside the fragment was reading those tables.
 
 Suppose `SCAN`, `FILTER`, and `PROJECT` were each covered alone, ran, and the projection came back
 wrong because the three steps needed to happen inside one query. The repair covers the plan again
@@ -709,6 +716,10 @@ The run returns to the logical planner ([section 4](#4-returning-to-the-logical-
 writes a continuation covering the remaining work. This is the repair for a plan that asks for
 something no arrangement of the available operators can do, and it is where a review's `replan`
 decision goes directly, skipping the three narrower repairs.
+
+A scan that named the wrong entity arrives here too. The logical planner names each scan's source,
+so reading a different entity is a continuation: a scan that already ran is carried over unchanged,
+and the continuation writes a new `SCAN` for the other entity.
 
 An ending the finished rows cannot answer arrives here for a different reason: every fragment ran
 and was kept, so the narrower repairs have nothing to rewrite, and what is wrong is the one thing
@@ -731,11 +742,10 @@ plan and a reason naming the node, and the run goes straight to the replan with 
 spent. Neither is a failure kind, since a failure kind describes a call that was made.
 
 With the built-in suite registered, every operator node kind has a candidate, so the first is
-reserved for a scan the suite cannot read: one bound to a source kind outside its declarations, or
-one of the model's world knowledge, which is bound to no source at all. The second covers what a
-declaration cannot state, an operator that groups a node's kind and cannot do what that node asks of
-the values. A poor choice among candidates that can carry the work is caught at review one operator
-call later (ADR-020).
+reserved for a scan the suite cannot read: one naming a source of a kind outside its declarations,
+or one that names no source at all. The second covers what a declaration cannot state, an operator
+that groups a node's kind and cannot do what that node asks of the values. A poor choice among
+candidates that can carry the work is caught at review one operator call later (ADR-020).
 
 ---
 

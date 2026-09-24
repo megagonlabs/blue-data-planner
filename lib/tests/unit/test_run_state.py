@@ -40,11 +40,14 @@ def a_plan() -> LogicalPlan:
     """n1 SCAN and n2 SCAN joined at n3, counted at n4, ended at n5."""
 
     def node(node_id: str, kind: LogicalOperator, inputs: list[str]) -> PipelineNode:
+        attributes: dict[str, object] = {"instruction": "do it"}
+        if kind is LogicalOperator.SCAN:
+            attributes["source"] = None
         return PipelineNode(
             id=node_id,
             kind=kind,
             input_node_ids=inputs,
-            attributes={"instruction": "do it"},
+            attributes=attributes,
             required_output_columns=[OutputColumn(name="title", dtype="str")],
         )
 
@@ -173,7 +176,7 @@ def a_second_version_of_the_plan() -> LogicalPlan:
                 id="n6",
                 kind=LogicalOperator.SCAN,
                 input_node_ids=[],
-                attributes={"instruction": "do it differently"},
+                attributes={"instruction": "do it differently", "source": None},
                 required_output_columns=[OutputColumn(name="title", dtype="str")],
             ),
             PipelineNode(
@@ -220,7 +223,7 @@ def a_state_over_two_control_nodes() -> RunState:
                     id="n1",
                     kind=LogicalOperator.SCAN,
                     input_node_ids=[],
-                    attributes={"instruction": "read the postings"},
+                    attributes={"instruction": "read the postings", "source": None},
                     required_output_columns=[OutputColumn(name="title", dtype="str")],
                 ),
                 PipelineNode(
@@ -296,7 +299,7 @@ def test_a_ready_fragment_is_offered_before_a_ready_control_node() -> None:
                     id="n1",
                     kind=LogicalOperator.SCAN,
                     input_node_ids=[],
-                    attributes={"instruction": "read them"},
+                    attributes={"instruction": "read them", "source": None},
                     required_output_columns=[OutputColumn(name="title", dtype="str")],
                 ),
                 PipelineNode(

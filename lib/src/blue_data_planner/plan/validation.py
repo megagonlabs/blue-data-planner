@@ -16,9 +16,11 @@ from blue_data_planner.types import (
 
 
 def validate_logical_plan(
-    plan: LogicalPlan, carried_node_ids: frozenset[str] = frozenset()
+    plan: LogicalPlan,
+    entity_paths: frozenset[str],
+    carried_node_ids: frozenset[str] = frozenset(),
 ) -> None:
-    """Raise unless the plan is a sound DAG with one ending and enough inputs per node."""
+    """Raise unless the plan is a sound DAG with one ending, enough inputs, and known scans."""
     _check_structure(plan)
     _check_arity(plan)
     _check_replan_count(plan)
@@ -27,17 +29,16 @@ def validate_logical_plan(
     terminal_ids = _check_ending(plan, carried_node_ids)
     _check_reachability(plan, terminal_ids, carried_node_ids)
     _check_answer_columns(plan)
+    _check_scan_sources(plan, entity_paths)
 
 
-def validate_physical_plan(
-    plan: LogicalPlan, physical_plan: PhysicalPlan, entity_paths: frozenset[str]
-) -> None:
-    """Raise unless every operator node is covered once by a legal fragment over a known entity."""
+def validate_physical_plan(plan: LogicalPlan, physical_plan: PhysicalPlan) -> None:
+    """Raise unless every operator node is covered exactly once by a legal fragment."""
     _check_coverage(plan, physical_plan)
     for fragment in physical_plan.fragments:
         _check_fragment_shape(plan, fragment)
         _check_input_data(plan, fragment)
-        _check_scan_sources(fragment, entity_paths)
+        _check_fragment_scan_sources(plan, fragment)
 
 
 def _check_structure(plan: LogicalPlan) -> None:
@@ -283,10 +284,27 @@ def _check_input_data(plan: LogicalPlan, fragment: PhysicalPlanFragment) -> None
         )
 
 
-def _check_scan_sources(fragment: PhysicalPlanFragment, entity_paths: frozenset[str]) -> None:
-    for node_id, path in fragment.scan_sources.items():
-        if path not in entity_paths:
+def _check_scan_sources(plan: LogicalPlan, entity_paths: frozenset[str]) -> None:
+    for node in plan.nodes:
+        if node.kind is not LogicalOperator.SCAN:
+            continue
+        source = node.attributes["source"]
+        if source is not None and source not in entity_paths:
             raise PlanValidationError(
-                f"fragment {fragment.id!r} binds node {node_id!r} to {path!r}, which no "
-                "DISCOVER node found; a scan reads only an entity the run searched for"
+                f"node {node.id!r} names source {source!r}, which no DISCOVER node found; "
+                "a scan reads only an entity the run searched for"
             )
+
+
+def _check_fragment_scan_sources(plan: LogicalPlan, fragment: PhysicalPlanFragment) -> None:
+    expected = {
+        node_id: source
+        for node_id in fragment.logical_node_ids
+        if plan.node(node_id).kind is LogicalOperator.SCAN
+        and (source := plan.node(node_id).attributes["source"]) is not None
+    }
+    if fragment.scan_sources != expected:
+        raise PlanValidationError(
+            f"fragment {fragment.id!r} lists scan sources {fragment.scan_sources}, but its SCAN "
+            f"nodes name {expected}"
+        )
