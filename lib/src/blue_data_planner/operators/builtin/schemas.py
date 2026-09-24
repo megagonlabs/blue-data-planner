@@ -47,10 +47,20 @@ class NullComparison(BaseModel):
     operator: Literal["is_null"]
 
 
-# Three shapes rather than one model with cross-field rules a JSON Schema cannot state: whether
-# "value" is required, absent, or a list follows from which variant a call picked, not from a
-# validator pydantic can only run after a provider has already accepted the object.
-Comparison = ValueComparison | InComparison | NullComparison
+class PatternComparison(BaseModel):
+    """One string column searched for a regular expression, as Python's re.search does."""
+
+    model_config = _STRICT
+
+    column: str = Field(min_length=1)
+    operator: Literal["re.search"]
+    value: str = Field(min_length=1)
+
+
+# Four shapes rather than one model with cross-field rules a JSON Schema cannot state: whether
+# "value" is required, absent, a list, or a pattern follows from which variant a call picked, not
+# from a validator pydantic can only run after a provider has already accepted the object.
+Comparison = ValueComparison | InComparison | NullComparison | PatternComparison
 
 
 class AndPredicate(BaseModel):
@@ -79,7 +89,7 @@ class NotPredicate(BaseModel):
 
 # A tree rather than a flat list, so a filter node reaches one operator whole and no plan is
 # cut differently to fit what an operator's parameters can say (design/06-library.md). Comparison
-# is itself a union, and Python flattens a union of unions, so this is the six-variant flat union
+# is itself a union, and Python flattens a union of unions, so this is the seven-variant flat union
 # a provider's schema needs, not a union nested inside another.
 Predicate = Comparison | AndPredicate | OrPredicate | NotPredicate
 

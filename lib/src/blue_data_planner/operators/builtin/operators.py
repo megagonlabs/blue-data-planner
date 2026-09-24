@@ -34,11 +34,18 @@ from blue_data_planner.types import (
     RecoverableOperatorError,
 )
 
-# Every operator in this suite carries the same sentence, because the fixed vocabulary is
-# what makes it true: nothing these parameters can express reads a value for its meaning.
+# Every other transform entry in this suite carries the same sentence, because the fixed
+# vocabulary is what makes it true: nothing these parameters can express reads a value for its
+# meaning. builtin.filter carries its own sentence instead (_FILTER_LIMITATIONS), since its
+# predicate can also search a string with a regular expression.
 _LIMITATIONS = (
     "Compares values as they are stored and cannot judge meaning, so a predicate that needs "
     "reading text belongs to a semantic operator."
+)
+
+_FILTER_LIMITATIONS = (
+    "It does not judge what text means, such as a topic or a sentiment, so a condition on "
+    "meaning belongs to a semantic operator."
 )
 
 # What separates this entry from an operator that owns a query engine: it reads a whole entity
@@ -235,9 +242,13 @@ _ENTRIES: tuple[_Entry, ...] = (
     _Entry(
         "builtin.filter",
         LogicalOperator.FILTER,
-        "Keeps the rows a predicate of comparisons, combined with and, or, and not, accepts.",
+        "Keeps the rows a predicate accepts: comparisons of stored values and regular-expression "
+        "searches (re.search) over string columns, combined with and, or, and not. A condition "
+        "on a string's form, such as its first word, a prefix, or a code format, is a "
+        "regular-expression search.",
         FilterParameters,
         _filter,
+        limitations=_FILTER_LIMITATIONS,
     ),
     _Entry(
         "builtin.project",

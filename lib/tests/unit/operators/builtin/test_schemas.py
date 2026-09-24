@@ -130,6 +130,10 @@ def test_a_comparison_keeps_the_type_of_the_value_it_was_written_with(
             FilterParameters,
             {"predicate": {"column": "state", "operator": "matches", "value": "CA"}},
         ),
+        (
+            FilterParameters,
+            {"predicate": {"column": "state", "operator": "re.search", "value": 4}},
+        ),
         (FilterParameters, {"predicate": {"column": "closed", "operator": "eq"}}),
         (FilterParameters, {"predicate": {"column": "tags", "operator": "eq", "value": {"a": 1}}}),
         (AggregateParameters, {"aggregations": [{"function": "avg", "into": "mean"}]}),
@@ -282,13 +286,14 @@ def _literal_values(property_schema: dict[str, Any]) -> set[Any]:
 
 def test_each_comparison_variant_declares_only_the_operators_its_value_shape_supports() -> None:
     """ "is_null" names no "value" property and forbids one, every other operator requires one,
-    and "in" alone requires it as a list — and each operator belongs to exactly one variant's
-    enum, so a provider's schema can never pair "is_null" with a value or route "in" to a variant
-    whose value is not a list."""
+    "in" requires it as a list and "re.search" as a string — and each operator belongs to exactly
+    one variant's enum, so a provider's schema can never pair "is_null" with a value or route "in"
+    to a variant whose value is not a list."""
     comparisons = FilterParameters.model_json_schema()["$defs"]
     null_comparison = comparisons["NullComparison"]
     value_comparison = comparisons["ValueComparison"]
     in_comparison = comparisons["InComparison"]
+    pattern_comparison = comparisons["PatternComparison"]
 
     assert _literal_values(value_comparison["properties"]["operator"]) == {
         "eq",
@@ -301,12 +306,15 @@ def test_each_comparison_variant_declares_only_the_operators_its_value_shape_sup
     }
     assert _literal_values(in_comparison["properties"]["operator"]) == {"in"}
     assert _literal_values(null_comparison["properties"]["operator"]) == {"is_null"}
+    assert _literal_values(pattern_comparison["properties"]["operator"]) == {"re.search"}
 
     assert "value" not in null_comparison["properties"]
     assert null_comparison["additionalProperties"] is False
     assert "value" in value_comparison["required"]
     assert "value" in in_comparison["required"]
     assert in_comparison["properties"]["value"]["type"] == "array"
+    assert "value" in pattern_comparison["required"]
+    assert pattern_comparison["properties"]["value"]["type"] == "string"
 
 
 def test_each_aggregation_variant_declares_a_column_only_where_its_function_needs_one() -> None:

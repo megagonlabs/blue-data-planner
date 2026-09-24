@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from collections.abc import Callable
 from operator import ge, gt, le, lt
 from typing import Any, cast
@@ -16,6 +17,7 @@ from blue_data_planner.operators.builtin.schemas import (
     NotPredicate,
     NullComparison,
     OrPredicate,
+    PatternComparison,
     Predicate,
     ProjectedColumn,
     SortKey,
@@ -160,6 +162,13 @@ def _compares(value: Any, comparison: Comparison) -> bool:
     # column mostly of one category was answering correctly, on one dirty cell.
     if isinstance(comparison, InComparison):
         return value in comparison.value
+    if isinstance(comparison, PatternComparison):
+        if not isinstance(value, str):
+            raise RecoverableOperatorError(
+                f"column {comparison.column!r} holds {type(value).__name__}, and 're.search' "
+                "searches one string for a pattern"
+            )
+        return re.search(comparison.value, value) is not None
     if comparison.operator == "eq":
         return bool(value == comparison.value)
     if comparison.operator == "ne":
@@ -223,12 +232,24 @@ def _require_comparable_predicate(table: Data, predicate: Predicate) -> None:
 def _require_comparable_comparison(table: Data, comparison: Comparison) -> None:
     if isinstance(comparison, NullComparison):
         return
+    if isinstance(comparison, PatternComparison):
+        # Compiled here, before any row, so a bad pattern is refused even when no row would
+        # reach it.
+        _require_valid_pattern(comparison.value)
+        return
     present = [row[comparison.column] for row in table if row.get(comparison.column) is not None]
     if isinstance(comparison, InComparison):
         _require_comparable_membership(present, comparison.value, comparison.column)
         return
     if comparison.operator in ("eq", "ne"):
         _require_comparable_category(present, comparison.value, comparison.column)
+
+
+def _require_valid_pattern(pattern: str) -> None:
+    try:
+        re.compile(pattern)
+    except re.error as error:
+        raise RecoverableOperatorError(f"pattern {pattern!r} does not compile: {error}") from None
 
 
 def _require_comparable_category(present: list[Any], other: Any, column: str) -> None:

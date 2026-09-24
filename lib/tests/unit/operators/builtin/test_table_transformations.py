@@ -51,6 +51,11 @@ def a_predicate(payload: dict[str, Any]) -> Any:
         ({"column": "rating", "operator": "is_null"}, [4]),
         ({"column": "name", "operator": "contains", "value": "da"}, [1, 4]),
         ({"column": "name", "operator": "contains", "value": "DA"}, []),
+        pytest.param(
+            {"column": "name", "operator": "re.search", "value": r"^(Ada|Curie)$"},
+            [1, 3, 4],
+            id="a_pattern_keeps_the_rows_whose_string_it_finds",
+        ),
         (
             {
                 "or": [
@@ -224,6 +229,25 @@ def test_a_transformation_refuses_a_table_that_lacks_the_column_it_names(
     """A column no row carries is a refusal, not an empty result."""
     with pytest.raises(RecoverableOperatorError, match="city"):
         transformation(a_table_of_restaurants())
+
+
+@pytest.mark.parametrize(
+    ("table", "predicate_value", "match"),
+    [
+        ([{"name": None}], "(unclosed", "does not compile"),
+        ([{"name": 1234}], r"^Adam\b", "name"),
+    ],
+)
+def test_a_pattern_comparison_that_cannot_run_refuses_the_table(
+    table: Data, predicate_value: str, match: str
+) -> None:
+    """A pattern that does not compile is refused even when no row would reach it, and a pattern
+    run against a non-string column is refused, so the parameter repair can rewrite either."""
+    with pytest.raises(RecoverableOperatorError, match=match):
+        filter_rows(
+            table,
+            a_predicate({"column": "name", "operator": "re.search", "value": predicate_value}),
+        )
 
 
 def test_a_comparison_between_values_that_cannot_be_ordered_refuses_the_table() -> None:

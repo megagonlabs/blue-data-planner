@@ -1216,7 +1216,10 @@ call those functions, and so does the program `builtin.nl2table` writes.
 A transform entry takes one logical node whole. Its parameters reach as far as its node kind does,
 so a filter combining conditions under and, or, and not arrives as one node and runs as one call.
 What a logical plan says is settled before an operator is chosen, and no node is split to fit what
-an entry can express.
+an entry can express. `builtin.filter`'s comparisons include a regular-expression search over a
+string column, run deterministically against the stored value: a condition on a string's shape,
+such as a prefix or a first token, is this entry's work, and a condition on what the string means is
+a semantic operator's.
 
 `builtin.scan` is the suite's one source-reading deterministic entry, and it reads through `data/`.
 It declares `SCAN` alone: it groups no `FILTER` and no `PROJECT`, and either kind of node downstream

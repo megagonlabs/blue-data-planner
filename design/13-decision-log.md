@@ -1117,6 +1117,26 @@ two cases, and the status mix of a benchmark run is what measures whether they d
 
 ---
 
+## ADR-041 — The Built-In Filter Searches Strings by Regular Expression
+
+**Decision:** A comparison in `builtin.filter`'s predicate can be a `re.search` over a string
+column, alongside the value, membership, and null comparisons.
+
+**Rationale:** A string's shape — a prefix, a first token, a code format — is a condition on the
+stored value, not on what it means. A predicate with no way to state it leaves the planner two
+choices: send the condition to a semantic operator, which costs a model call per row and a row
+cap, or loosen it into one the predicate can express and return a wrong answer. A
+general-purpose pattern language covers the whole family of string-shape conditions in one operator
+name, where a growing list of narrower string operators (starts-with, ends-with, matches-format)
+has no natural end. Extending the predicate also keeps the built-in suite small, which
+matters because a third-party suite is meant to plug in beside it rather than duplicate it.
+
+**Consequences:** The pattern is written by the fragment runner and matched deterministically, with
+no model call. A pattern that does not compile is a recoverable failure, so the parameter repair
+can rewrite it.
+
+---
+
 ## Open Questions
 
 Design questions first, then defects in the code.
@@ -1146,4 +1166,5 @@ Design questions first, then defects in the code.
 | 56 | Should the CLI be able to write a run's whole record to a file? A fragment's result reaches a person as a summary, and the JSON on standard output carries the answer and how the run ended, so every intermediate table and every model turn is reachable only by a caller who embeds the library (ADR-032). Diagnosing a wrong answer is the case that wants them: a summary says a fragment returned 140 rows over three columns and not which 140, and a review that rejected a fragment is readable only in the conversation. A file is where they would go, since what makes them unwelcome on standard output is size rather than secrecy, and the family's storage convention already has a place for per-profile state. Against adding one: a record holds whatever the sources held, so writing one puts source data on disk, and whether a CLI over a planner that keeps nothing between requests should accumulate state at all is question 55. | Whether a wrong answer can be diagnosed from the CLI alone |
 | 57 | Should the MCP server's payload carry the CLI's error codes? Anything raised reaches a client as `{"error": "<message>"}` (ADR-036), so an unreadable registry, an unknown operator suite name, and an invalid setting are one shape, and a client that wants to act on the difference has nothing to read but the message text. The codes the CLI already prints — `CONFIG_MISSING`, `REGISTRY_UNREADABLE`, and the rest ([09-api-interface-spec.md](09-api-interface-spec.md#errors-and-exit-codes)) — would give it a stable field. Against carrying them: a client loading several Blue Data servers reads one payload shape, and this would be the one server whose shape is its own. | Whether a client can branch on why a call failed, and whether the family's payload shape stays uniform |
 | 58 | Should the response cache in `llm/client.py` be removed or promoted? `LLMClient` opens a per-directory `diskcache` when a call carries the `llm.cache` property, and nothing in this repository sets that property, so the path answers no caller here. `diskcache` is declared under the `dev` extra alone, so an installed consumer that did request the cache would get `cache_unavailable` rather than a cache. [05-software-stack.md](05-software-stack.md#what-is-deliberately-absent) says the stack has no model response cache, on the reasoning that a planner's requests carry the catalog, an input sample, and the conversation so far, so a key on the request rarely hits, and what a cache reliably does is make a run's cost depend on invisible state from an earlier run. That reasoning holds for every call the planning components make. What argues for keeping the code is a caller outside the planner reaching `execute_api_call` directly, which is the use the property was written for. Removing it deletes a path nothing calls; keeping it means a runtime dependency and a design row that has to say so. | Whether `llm/` offers a cache at all, and whether `diskcache` becomes a runtime dependency |
+| 59 | Does a model-written pattern need a time bound? `builtin.filter` runs the regular expression the fragment runner writes (ADR-041) with no bound on how long one search takes, so a catastrophically backtracking pattern over a large column could stall one filter call, and nothing in the run loop or the operator stops it. `builtin.nl2table` runs model-written code under the same absence, so the question is not specific to patterns. | Whether an operator call that runs model-written logic is bounded in time, and which component enforces the bound |
 
