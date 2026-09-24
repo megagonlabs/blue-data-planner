@@ -212,10 +212,11 @@ a grouped node forces the fragment that grouped it to run again.
 
 **Decision:** An operator node carries an instruction written in plain language. It names no
 operator, because the operator can differ between covers of the same node. A `SCAN` also names the
-source it reads, since its columns already fix that (ADR-022). The columns a later node depends on
-are recorded on the node as `required_output_columns`, each one a name and a type drawn from `str`,
-`int`, `float`, and `bool`. `RETURN` carries none, since it names input columns to project rather
-than promising output.
+source it reads (ADR-022). The columns a later node depends on are recorded on the node as
+`required_output_columns`, each one a name and a type drawn from `str`, `int`, `float`, and `bool`.
+`SCAN` and `RETURN` carry none: a scan reads its source's attributes, and a `RETURN` names input
+columns to project rather than promising output. The physical planner writes the columns of every
+fragment, starting from its root's declaration.
 
 **Rationale:** The logical planner has no way to write good parameters. It does not know which
 operators are available, what they call their arguments, or what values the data holds, so
@@ -228,6 +229,12 @@ everything — one asked to extract a year gives back `"1815"` — so a numeric 
 fails on a type nobody chose. Inference cannot fix it, because it has to refuse the spellings a plan
 most needs to accept: `y` is a boolean only when something declares the column one. The logical
 planner is the component that knows what a later node will read.
+
+A `SCAN` declaring columns only copies its entity's attribute list, and the copy is where names get
+misspelled and types guessed, failing a call on a column the source never held. What a fragment
+can produce depends on the operator it is bound to, which the physical planner knows and the
+logical planner does not, so the physical planner writes each fragment's list. A scan that names
+no source gets its columns there too, from what its consumers declare.
 
 **Consequences:** An operator's description carries all the weight in the physical planner's prompt,
 because one plain-language instruction does not tell operators apart. The logical planner writes one type per column
@@ -607,8 +614,8 @@ alongside its data, and an outside suite's is empty.
 `EXPAND` stops needing its two readings told apart: a deterministic unnest and a semantic expansion
 are two candidates for one node kind, and the physical planner chooses between them. Two `SCAN`
 cases still have no built-in candidate: one naming a source of a kind the suite does not read, and
-one of the model's world knowledge, which names no source and so cannot be given to an operator
-declaring `source_kinds`.
+one naming no source, such as a scan of the model's world knowledge, which cannot be given to an
+operator declaring `source_kinds`.
 
 ---
 
@@ -662,11 +669,12 @@ description, `execute_physical_operator` fails the call on a column the result d
 the parameter repair cannot converge because every rewrite repeats the same guess. The whole list
 makes a declared column name a fact.
 
-Those names are one entity's attributes, so the node declaring them has already chosen the entity,
-and the logical planner names it. Choosing it again during physical planning would let a cover move
-a scan to a similar entity in a source a better operator reads, but the moved scan still declares
-the first entity's columns, so the move rarely survives the column check, and two components
-choosing one thing can disagree.
+The logical planner names the entity each `SCAN` reads, since it is the stage that reads what the
+searches found, and the nodes reading the scan declare their columns from that entity's attributes.
+Choosing the entity again during physical planning would let a cover move a scan to a similar
+entity in a source a better operator reads, but the nodes downstream still declare the first
+entity's columns, so the move rarely survives the column check, and two components choosing one
+thing can disagree.
 
 The entity is the level to search because it is the unit a `SCAN` is bound to, and because
 `blue-data` records the same five levels for every source kind, so one rule covers a SQL database, a

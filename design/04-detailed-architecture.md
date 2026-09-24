@@ -121,7 +121,7 @@ therefore run in the same pass and cost one return between them.
 | Control node | Waits for | Gives the planner |
 | --- | --- | --- |
 | `REPLAN` | Every fragment the pass can run | What those fragments produced, so the rest of the plan can be written against real columns and values |
-| `DISCOVER` | The results of the nodes it lists, and it may list none | The entities a registry search found, each with every attribute it holds, so a later `SCAN` can name a source and declare real column names |
+| `DISCOVER` | The results of the nodes it lists, and it may list none | The entities a registry search found, each with every attribute it holds, so a later `SCAN` can name a source and the nodes reading it can declare real column names |
 
 A `DISCOVER` node reads the rows its inputs produced, so it is ready once every input it lists has a
 result, and one placed over three parallel paths needs no scheduling code of its own. A `REPLAN`
@@ -224,9 +224,9 @@ replan arriving back where it started. The way out is to write the steps whose r
 continuation needs, a `DISCOVER` node for what the catalog is missing, or the whole plan from what
 the planner already knows.
 
-A `SCAN` names a source the run's catalog context holds, or none for a scan of the model's world
-knowledge. A path no `DISCOVER` node found is rejected, so a plan reads only entities the run has
-searched for.
+A `SCAN` names a source the run's catalog context holds, or none for a scan whose operator produces
+the data itself. A path no `DISCOVER` node found is rejected, so a plan reads only entities the run
+has searched for.
 
 A `RETURN` names columns the node it reads declares, and that node has to declare them, so
 validation always has something to check the ending against. A plan whose ending projects a column
@@ -266,8 +266,8 @@ and whether it accepts tables bound in from elsewhere
 mechanically: grow a connected, convex subgraph using only nodes whose kind is in that set. A
 fragment containing a `SCAN` reads the sources its scans name, and the operator's declared source
 kinds decide whether it can: an operator declaring source kinds takes the fragment only when every
-scan names a source of one of them, and an operator declaring none only when every scan is one of
-world knowledge.
+scan names a source of one of them, and an operator declaring none only when no scan names a
+source.
 
 An operator declaring a single logical operator can only ever match a single node, which is what
 every atomic operator declares.
@@ -348,6 +348,7 @@ Along with the fragment and its operator, the model writes three things.
 | --- | --- |
 | One instruction covering the whole fragment, phrased as an instruction to the operator | A fragment grouping four nodes has no single instruction to borrow, so the model writes one stating everything those nodes require |
 | A name and a description for each input the fragment receives | An operator handed a bundle cannot tell a scan target from an auxiliary table, and column names are not known yet |
+| The columns the fragment's result has to carry | What a fragment can produce depends on the operator it is bound to, and a `SCAN` root declares no columns of its own |
 
 An instruction has three properties. It is declarative, saying what the fragment produces while how
 to produce it stays with the operator and the parameters written for it. It states every condition
@@ -370,9 +371,11 @@ Everything else waits for execution. Column names, types, and rows are not known
 fragments have run, and the parameters that depend on them are written then
 ([section 3](#3-running-a-fragment)).
 
-A fragment inherits `required_output_columns` from its root node unchanged. The model rewrites that
-list only when it declares that the fragment cannot produce those columns. The default therefore stays
-deterministic, and the model's discretion is confined to an exception path.
+The model writes every fragment's `required_output_columns`, and the schema takes no fragment
+without at least one. It starts from the columns the root node declares and adjusts them to what the
+chosen operator produces. A `SCAN` declares none, so for a fragment rooted at one it starts from the
+columns the scan's consumers declare. For a scan that names no source, those columns are the only
+statement of what the operator is to produce.
 
 ### A cover is written whole
 
@@ -548,10 +551,10 @@ node's id, and every resolved node's hits together are the run's catalog context
 converted into rows, and no operator call is spent.
 
 The attribute list is why discovery answers more than "which source." A continuation written against
-it names a source for each `SCAN`, and it also declares each node's output columns from names the
-registry holds rather than from names the model read out of an entity's description. That is what a
-discovery node buys, and why a request over registered data reaches pushdown one pass later than a
-request the planner answers from world knowledge.
+it names a source for each `SCAN`, and the nodes reading a scan declare their output columns from
+names the registry holds rather than from names the model read out of an entity's description. That
+is what a discovery node buys, and why a request over registered data reaches pushdown one pass
+later than a request the planner answers from world knowledge.
 
 ### What a discovery node's inputs are for
 
@@ -734,10 +737,9 @@ spent. Neither is a failure kind, since a failure kind describes a call that was
 
 With the built-in suite registered, every operator node kind has a candidate, so the first is
 reserved for a scan the suite cannot read: one naming a source of a kind outside its declarations,
-or one of the model's world knowledge, which names no source at all. The second covers what a
-declaration cannot state, an operator that groups a node's kind and cannot do what that node asks of
-the values. A poor choice among candidates that can carry the work is caught at review one operator
-call later (ADR-020).
+or one that names no source at all. The second covers what a declaration cannot state, an operator
+that groups a node's kind and cannot do what that node asks of the values. A poor choice among
+candidates that can carry the work is caught at review one operator call later (ADR-020).
 
 ---
 

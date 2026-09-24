@@ -105,8 +105,8 @@ planning tool.
 The three questions are decided separately, and what a logical node carries follows from that. It says what a step is for and nothing about how to
 carry it out: one instruction in plain language, no operator, and none of the parameters an
 implementation would need. Those belong to a particular attempt, and can differ between attempts at
-the same node. A scan also names the entity it reads, because the columns it declares are that
-entity's.
+the same node. A scan also names the entity it reads, since the columns downstream nodes declare
+are that entity's.
 
 Plans are never edited in place: a repair adds a new version, so what ran earlier stays readable
 exactly as it ran.

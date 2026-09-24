@@ -154,12 +154,13 @@ step a pass wrote ends unread, and the next version is what reads the rows it pr
 | `kind` | `LogicalOperator \| ControlOperator` | The logical planner | Always |
 | `input_node_ids` | `list[str]` | The logical planner | Always, possibly empty |
 | `attributes` | `dict[str, Any]` | The logical planner | Always |
-| `required_output_columns` | `list[OutputColumn]` | The logical planner | Always, possibly empty |
+| `required_output_columns` | `list[OutputColumn]` | The logical planner | Always; empty for `SCAN` and `RETURN` |
 
 A `SCAN` names the source it reads; no node names an operator, operator parameters, or a result.
-The source is the logical planner's to name because the scan's `required_output_columns` are that
-entity's attribute names, so declaring them already picks the entity. Which operator runs a node is
-a property of the physical plan, because it can differ between covers of the same node. What a node
+The source is the logical planner's to name because it is the stage that reads what the searches
+found, and the nodes reading a scan declare their columns from that entity's attributes. Which
+operator runs a node is a property of the physical plan, because it can differ between covers of the
+same node. What a node
 produced belongs to the run ([section 3](#what-a-run-holds-while-it-runs)).
 
 ### Node kinds and what their attributes hold
@@ -179,8 +180,9 @@ starts with a verb: `load job postings`, `find the postings whose title is a dat
 Working those out belongs to the fragment runner, and what it writes is shaped by the chosen
 operator's `parameter_schema`.
 
-A scan's `source` is the catalog path of an entity a `DISCOVER` node found, or `None` for a scan of
-the model's world knowledge. Validation rejects a path the run's catalog context does not hold, so
+A scan's `source` is the catalog path of an entity a `DISCOVER` node found, or `None` for a scan that
+reads no registered source, whose operator produces the data itself: from the model's world
+knowledge, for example. Validation rejects a path the run's catalog context does not hold, so
 a scan reads only an entity the run searched for.
 
 ### How many inputs a node takes
@@ -204,8 +206,11 @@ broken, and that is what the check catches.
 
 ### Declared output columns
 
-A node declares both the name and the type of every column its result has to carry. The logical
-planner writes them, since it is the component that knows what a later node will read.
+A node other than `SCAN` and `RETURN` declares both the name and the type of every column its
+result has to carry. The logical planner writes them, since it is the component that knows what a
+later node will read. A `SCAN` declares none: what it reads is its source's attributes, and copying
+them into a declaration only adds a place to misspell one. The physical planner writes the columns
+of each fragment, starting from its root's declaration ([the physical half](#the-physical-half)).
 
 ```python
 ColumnDataType = Literal["str", "int", "float", "bool"]
@@ -220,20 +225,20 @@ class OutputColumn:
 required_output_columns: list[OutputColumn]
 ```
 
-After an operator returns, `execute_physical_operator` checks the result against the list the
-fragment's root node declares: every named column has to be present, and every value in it has to
+After an operator returns, `execute_physical_operator` checks the result against the fragment's
+`required_output_columns`: every named column has to be present, and every value in it has to
 coerce to the declared type. A missing column, or a value spelling no such type, fails the call as a
 recoverable error, so the fragment is planned again
 ([04, failures that skip recovery](04-detailed-architecture.md#failures-that-skip-recovery)).
 A column the list does not name travels on unchanged: the declaration is a floor the result has to
 carry, not a projection.
-An empty list means no check, and a `RETURN` node carries none, since it names input columns to
-project instead of promising output. The node a `RETURN` reads is the one exception to the list
-being optional ([the logical half](#the-logical-half)).
+A `RETURN` node carries none, since it names input columns to project instead of promising output,
+and the node it reads has to declare the columns it projects
+([the logical half](#the-logical-half)), so a `RETURN` never reads a `SCAN` directly.
 
 The declarations on grouped nodes are checked against nothing, because a fragment call produces no
-intermediate tables. Every node still declares its columns, because any of them becomes a checked
-declaration as soon as that node is the root of a smaller fragment.
+intermediate tables. Every such node still declares its columns, because any of them is the starting
+point for a fragment's list as soon as that node is the root of a smaller fragment.
 
 The check exists because semantic operators return text for everything. A LOTUS operator that
 extracts a year gives back `"1815"`, and the numeric operator downstream rejects it. Coercing at the
@@ -296,10 +301,10 @@ class PhysicalPlan:
 | --- | --- |
 | Coverage | Every operator node of the logical plan appears in exactly one fragment. `RETURN`, `REPLAN`, and `DISCOVER` appear in none |
 | Shape | Each fragment is connected, convex, and single exit: only the root may have consumers outside it ([04, what a fragment may be](04-detailed-architecture.md#what-a-fragment-may-be)) |
-| Sources | `scan_sources` is copied from the fragment's `SCAN` nodes: each scan naming a source maps to that path, and a world-knowledge scan is left out. An operator declaring `source_kinds` takes a fragment only when every scan in it names a source of one of those kinds, and an operator declaring none only when every scan is left out. A fragment containing no `SCAN` is bound to an operator that owns its engine (ADR-020) |
+| Sources | `scan_sources` is copied from the fragment's `SCAN` nodes: each scan naming a source maps to that path, and a scan naming none is left out. An operator declaring `source_kinds` takes a fragment only when every scan in it names a source of one of those kinds, and an operator declaring none only when every scan is left out. A fragment containing no `SCAN` is bound to an operator that owns its engine (ADR-020) |
 | Instruction | One instruction to the operator, starting with a verb as a node instruction does, stating every condition the grouped nodes state and joining them with *and*, and saying what the fragment produces rather than how to produce it: "Find Bay Area job postings whose title is a data scientist role, with their title, company id, and location" |
 | Inputs | `input_data` lists the frontier nodes, which are the nodes outside the fragment feeding nodes inside it, in the order the fragment's nodes read them. The list is the plan's to decide, and only each entry's name and description are written during physical planning. One entry covers everything that node produced, so it may stand for more than one table; those tables share the name and keep their order |
-| Columns | `required_output_columns` is copied from the root node unless the model declares that the fragment cannot produce that list |
+| Columns | `required_output_columns` is written by the model and holds at least one column: the root node's declaration adjusted to what the operator produces, or, for a `SCAN` root, the columns its consumers declare |
 | Identity | `id` names one fragment, and a fragment carried into a new cover keeps it, so the exchange that wrote its parameters stays attached to the work. What the fragment is for is its signature, which covers everything deciding what it produces, so that is what says whether two covers ask for the same work |
 
 A cover is written whole rather than patched, and what carries over from the previous cover is
@@ -399,11 +404,7 @@ A `DataPipeline` serializes as its two maps and its two pointers. One version of
             "instruction": "load job postings",
             "source": "/source/jobs/database/jobs/collection/public/entity/postings"
           },
-          "required_output_columns": [
-            {"name": "title", "dtype": "str"},
-            {"name": "company_id", "dtype": "int"},
-            {"name": "location", "dtype": "str"}
-          ]
+          "required_output_columns": []
         },
         {
           "id": "n2",

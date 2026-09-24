@@ -563,13 +563,13 @@ Each builds the Pydantic model the model client is handed as a strict response s
 from the node schemas, so a plan naming an operation the vocabulary has no member for cannot be
 produced. `cover_choice_schema` is built for one binding decision from that decision's own
 candidates. It reads `plan` for one thing, which is the nodes feeding each candidate from outside
-it, and gives each one a name and a description field. No field names a source, since the plan's
-scans already name theirs. The candidate that reuses the fragment already covering the node is a
-choice and nothing else: it carries no instruction and no input names, because everything about
-that fragment is already written down. One further choice takes no
-candidate and carries a reason instead, which is how a binding says that nothing offered can do what
-the plan asks ([04, choosing among
-candidates](04-detailed-architecture.md#choosing-among-candidates)).
+it, and gives each one a name and a description field. Every candidate also takes a
+`required_output_columns` list holding at least one column. No field names a source, since the
+plan's scans already name theirs. The candidate that reuses the fragment already covering the node
+is a choice and nothing else: it carries no instruction and no input names, because everything about
+that fragment is already written down. One further choice takes no candidate and carries a reason
+instead, which is how a binding says that nothing offered can do what the plan asks ([04, choosing
+among candidates](04-detailed-architecture.md#choosing-among-candidates)).
 
 A response schema over a plan is a question about the plan's shape, which is what this module
 answers without a model. The fixed schemas a component sends every time — a review's decision, a
@@ -914,11 +914,11 @@ rejects its output. An operation that writes something of its own from a model, 
 does, writes it on the far side of that line, so what it got wrong costs an operator call where a
 bad parameter costs none, however many times it writes it again (ADR-020).
 
-The caller passes the fragment root's declarations and nothing else, because a fragment call produces
-no intermediate tables to check the grouped nodes against. Neither a zero-row table nor an empty
-bundle is a failure. A model call an operator makes internally, as LOTUS does, happens inside this
-call and is billed as part of it rather than tracked separately; an operation able to say what that
-call cost puts the figure in its report, which travels out on the result unchanged.
+The caller passes the fragment's `required_output_columns` and nothing else, because a fragment call
+produces no intermediate tables to check the grouped nodes against. Neither a zero-row table nor an
+empty bundle is a failure. A model call an operator makes internally, as LOTUS does, happens inside
+this call and is billed as part of it rather than tracked separately; an operation able to say what
+that call cost puts the figure in its report, which travels out on the result unchanged.
 
 `project_answer` turns a finished run into its answer. It takes the result of the node `RETURN`
 reads and the column names `RETURN` carries, and returns those columns and nothing else. Which
@@ -1376,7 +1376,8 @@ therefore reaches a prompt at the bottom of a ranked list, where a model weighs 
 
 Planning quality depends on whether a source has been enriched. A source that never was renders with
 names and kinds alone, which planning still works with. An entity nobody enriched still returns its
-attributes with their names and types, which is what a scan needs to declare its columns.
+attributes with their names and types, which is what the nodes reading a scan need to declare
+their columns.
 
 ### Opening a registry
 

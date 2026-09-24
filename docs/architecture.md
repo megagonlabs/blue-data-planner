@@ -111,8 +111,8 @@ output never enters the data flow.
 
 A plan is a DAG of typed nodes. Each operator node carries one instruction in plain language and
 names no operator: that is chosen during physical planning, and it can differ between passes over
-the same node. A `SCAN` also names the discovered entity it reads, or no source when it reads the
-model's world knowledge.
+the same node. A `SCAN` also names the discovered entity it reads, or no source when its operator
+produces the data itself, for example from the model's world knowledge.
 
 | Kind | Nodes | What happens |
 | --- | --- | --- |
