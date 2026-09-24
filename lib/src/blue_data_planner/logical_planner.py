@@ -152,10 +152,9 @@ def _node(payload: dict[str, Any]) -> PipelineNode:
     elif kind_name == LogicalOperator.SCAN.value:
         kind = LogicalOperator.SCAN
         attributes = {"instruction": payload["instruction"], "source": payload["source"]}
-        columns = [
-            OutputColumn(name=column["name"], dtype=column["dtype"])
-            for column in payload["required_output_columns"]
-        ]
+        # A SCAN declares no columns of its own; the nodes reading it declare the entity's
+        # columns they need (design/13-decision-log.md, ADR-008).
+        columns = []
     else:
         kind = LogicalOperator(kind_name)
         attributes = {"instruction": payload["instruction"]}

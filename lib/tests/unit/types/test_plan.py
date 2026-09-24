@@ -87,7 +87,7 @@ def a_scan_filter_return_plan() -> LogicalPlan:
                     "instruction": "job postings",
                     "source": "/source/jobs/database/jobs/collection/public/entity/postings",
                 },
-                required_output_columns=columns,
+                required_output_columns=[],
             ),
             PipelineNode(
                 id="n2",
@@ -276,7 +276,7 @@ def test_serialization_writes_enum_members_and_column_types_as_their_values() ->
     payload = a_scan_filter_return_plan().to_dict()
 
     assert payload["nodes"][0]["kind"] == "SCAN"
-    assert payload["nodes"][0]["required_output_columns"][0] == {"name": "title", "dtype": "str"}
+    assert payload["nodes"][1]["required_output_columns"][0] == {"name": "title", "dtype": "str"}
 
 
 _MALFORMED_PLAN_PAYLOADS: list[tuple[dict[str, object], str]] = [
@@ -383,6 +383,23 @@ _MALFORMED_PLAN_PAYLOADS: list[tuple[dict[str, object], str]] = [
         },
         "source",
     ),
+    (
+        {
+            "id": "p",
+            "parent_id": None,
+            "output_node_id": None,
+            "nodes": [
+                {
+                    "id": "n1",
+                    "kind": "SCAN",
+                    "input_node_ids": [],
+                    "attributes": {"instruction": "a", "source": None},
+                    "required_output_columns": [{"name": "title", "dtype": "str"}],
+                }
+            ],
+        },
+        "declares no columns",
+    ),
 ]
 
 
@@ -397,6 +414,7 @@ _MALFORMED_PLAN_PAYLOADS: list[tuple[dict[str, object], str]] = [
         "unknown-dtype",
         "scan-missing-source",
         "scan-source-not-a-string",
+        "scan-carrying-columns",
     ],
 )
 def test_reading_a_malformed_plan_raises_and_names_what_was_wrong(

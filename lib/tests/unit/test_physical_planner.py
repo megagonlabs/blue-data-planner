@@ -82,7 +82,7 @@ def a_plan(source: str | None = POSTINGS) -> LogicalPlan:
                 kind=LogicalOperator.SCAN,
                 input_node_ids=[],
                 attributes={"instruction": "do it", "source": source},
-                required_output_columns=[OutputColumn(name="title", dtype="str")],
+                required_output_columns=[],
             ),
             node("n2", LogicalOperator.FILTER, ["n1"]),
             node("n3", LogicalOperator.AGGREGATE, ["n2"]),
@@ -108,7 +108,7 @@ def a_scan_and_return(source: str | None = POSTINGS) -> LogicalPlan:
                 kind=LogicalOperator.SCAN,
                 input_node_ids=[],
                 attributes={"instruction": "name the planets", "source": source},
-                required_output_columns=[OutputColumn(name="title", dtype="str")],
+                required_output_columns=[],
             ),
             PipelineNode(
                 id="n2",
@@ -132,7 +132,7 @@ def a_scan_a_filter_and_return(source: str | None = POSTINGS) -> LogicalPlan:
                 kind=LogicalOperator.SCAN,
                 input_node_ids=[],
                 attributes={"instruction": "name the planets", "source": source},
-                required_output_columns=[OutputColumn(name="title", dtype="str")],
+                required_output_columns=[],
             ),
             PipelineNode(
                 id="n2",
@@ -181,7 +181,7 @@ def a_join_of_two_scans(left_source: str | None, right_source: str | None) -> Lo
             kind=LogicalOperator.SCAN,
             input_node_ids=[],
             attributes={"instruction": "read it", "source": source},
-            required_output_columns=[OutputColumn(name="title", dtype="str")],
+            required_output_columns=[],
         )
 
     return LogicalPlan(
@@ -247,7 +247,7 @@ def a_binding(label: str, inputs: tuple[str, ...] = (), **extra: Any) -> dict[st
     payload: dict[str, Any] = {
         "candidate": label,
         "instruction": "do the whole thing",
-        "required_output_columns": None,
+        "required_output_columns": [{"name": "title", "dtype": "str"}],
     }
     for node_id in inputs:
         payload[f"input_name_{node_id}"] = f"the {node_id} table"
@@ -402,6 +402,28 @@ def test_a_candidate_holding_a_scan_tells_the_model_which_source_it_reads() -> N
     assert f"reads {POSTINGS}" in client.conversations[0][-1][1]
 
 
+def test_a_candidate_turn_for_a_scan_root_shows_its_consumers_declared_columns() -> None:
+    """A SCAN declares no columns of its own, so its turn shows what reads it declares instead."""
+    client = ScriptedLLMClient(
+        [
+            a_binding("n2:builtin.filter:[n2]", inputs=("n1",)),
+            a_binding("n1:builtin.scan:[n1]"),
+        ]
+    )
+    planner = a_planner(
+        client,
+        a_router(
+            an_operator("builtin.scan", frozenset({LogicalOperator.SCAN})),
+            an_operator("builtin.filter", frozenset({LogicalOperator.FILTER})),
+        ),
+    )
+
+    planner.cover(a_scan_a_filter_and_return(), Conversation(), None, a_discovery())
+
+    scan_turn = client.conversations[1][-1][1]
+    assert "n2 needs title (str)" in scan_turn
+
+
 def test_a_fragments_scan_sources_is_copied_from_what_the_plans_scans_name() -> None:
     """The physical planner reads the source off the plan; the model never names one."""
     client = ScriptedLLMClient([a_binding("n1:op.one:[n1]")])
@@ -411,6 +433,30 @@ def test_a_fragments_scan_sources_is_copied_from_what_the_plans_scans_name() -> 
 
     assert result.plan is not None
     assert result.plan.fragments[0].scan_sources == {"n1": POSTINGS}
+
+
+def test_a_fragments_output_columns_is_what_the_binding_wrote() -> None:
+    """The physical planner writes the fragment's columns; nothing falls back to the root's."""
+    client = ScriptedLLMClient(
+        [
+            a_binding(
+                "n1:op.one:[n1]",
+                required_output_columns=[
+                    {"name": "planet_name", "dtype": "str"},
+                    {"name": "distance_au", "dtype": "float"},
+                ],
+            )
+        ]
+    )
+    planner = a_planner(client, a_router(an_operator("op.one", frozenset({LogicalOperator.SCAN}))))
+
+    result = planner.cover(a_scan_and_return(), Conversation(), None, a_discovery())
+
+    assert result.plan is not None
+    assert result.plan.fragments[0].required_output_columns == [
+        OutputColumn(name="planet_name", dtype="str"),
+        OutputColumn(name="distance_au", dtype="float"),
+    ]
 
 
 def test_a_fragments_inputs_are_the_nodes_feeding_it_and_not_a_model_choice() -> None:

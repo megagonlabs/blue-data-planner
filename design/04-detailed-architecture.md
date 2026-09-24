@@ -329,14 +329,16 @@ knows what it bound a moment earlier, and a repair continues the same exchange, 
 answers the binding that failed rather than being told about it. A new logical plan starts a new
 conversation, because the node ids already in the turns name a different graph.
 
-The run's catalog context opens the conversation, so it is sent once rather than once per node. The
-operator, row count, and column names of every node with a result are sent the same way, once, when
-the conversation opens. The failed fragment's node set and which operators were tried on it need no
-separate turn either: they are already there, in the turns that bound it the first time, so a repair
-adds only why the last attempt failed. Row counts matter because grouping a node that already ran
-throws its result away and pays for the work again, and how much that costs is how many rows are
-discarded ([the cover repair](#the-cover-repair)). Rows themselves stay out: the physical planner
-chooses boundaries and operators, and values are the fragment runner's reading.
+The logical plan and the run's catalog context open the conversation, so each is sent once rather
+than once per node. The plan shows every node with its instruction, a scan's source, and its
+declared columns, so a binding is made with the whole plan in view. The operator, row count, and
+column names of every node with a result are sent the same way, once, when the conversation opens.
+The failed fragment's node set and which operators were tried on it need no separate turn either:
+they are already there, in the turns that bound it the first time, so a repair adds only why the
+last attempt failed. Row counts matter because grouping a node that already ran throws its result
+away and pays for the work again, and how much that costs is how many rows are discarded ([the cover
+repair](#the-cover-repair)). Rows themselves stay out: the physical planner chooses boundaries and
+operators, and values are the fragment runner's reading.
 
 A candidate is named by its operator and its node set rather than by a position in the list it
 arrived in. The list differs from turn to turn, so a position means something different in each one,
@@ -372,10 +374,14 @@ fragments have run, and the parameters that depend on them are written then
 ([section 3](#3-running-a-fragment)).
 
 The model writes every fragment's `required_output_columns`, and the schema takes no fragment
-without at least one. It starts from the columns the root node declares and adjusts them to what the
-chosen operator produces. A `SCAN` declares none, so for a fragment rooted at one it starts from the
-columns the scan's consumers declare. For a scan that names no source, those columns are the only
-statement of what the operator is to produce.
+without at least one. A node's declared columns are what it outputs, not what it reads, so the
+root's declaration alone can leave out a column a later step filters or joins on, and a `SCAN`
+declares none at all. The list is therefore written from two things: the columns the root declares,
+and what reads the root. Bindings run consumers first and a fragment's root is its only exit, so
+every reader is known when a node is bound, and the turn shows each one: the instruction and columns
+of the fragment holding it, the columns of a `RETURN`, or the instruction of a `DISCOVER`. The model
+adds every column those readers use and adjusts the list to what the chosen operator produces. For a
+scan that names no source, this list is the only statement of what the operator is to produce.
 
 ### A cover is written whole
 

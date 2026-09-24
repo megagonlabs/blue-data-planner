@@ -74,7 +74,7 @@ class OperatorNodeModel(_Strict):
 
 
 class ScanNodeModel(_Strict):
-    """A node that reads one entity: the catalog path it names, and the columns it must produce."""
+    """A node that reads one entity, named by the catalog path it scans."""
 
     id: str = Field(
         description="A short name for this node, unique in the plan, used by the nodes reading it."
@@ -86,21 +86,14 @@ class ScanNodeModel(_Strict):
     instruction: str = Field(
         description=(
             "What this node does, in plain language, starting with a verb. Name no tool and no "
-            "query language. The columns the result has to carry are declared in "
-            "required_output_columns; do not restate them here."
+            "query language."
         )
     )
     source: str | None = Field(
         description=(
-            "The catalog path of the entity this scan reads, copied exactly from the paths under "
-            "'What the searches found', or null when this scan reads the model's own world "
-            "knowledge rather than registered data."
-        )
-    )
-    required_output_columns: list[OutputColumnModel] = Field(
-        description=(
-            "The columns this node's result has to carry so the nodes reading it can. A result "
-            "carrying further columns satisfies this."
+            "The catalog path copied exactly from the paths under 'What the searches found', or "
+            "null when the scan reads no registered source and its operator produces the data "
+            "itself, for example from the model's own world knowledge."
         )
     )
 
@@ -245,13 +238,14 @@ def _candidate_model(
             ),
         ),
         "required_output_columns": (
-            list[OutputColumnModel] | None,
+            list[OutputColumnModel],
             Field(
-                default=None,
+                min_length=1,
                 description=(
-                    "Leave this unset, and the fragment owes what its root node declares. Set "
-                    "it only when the operator's stated limitations mean it cannot produce that, "
-                    "naming what it does produce instead."
+                    "The columns the fragment's result has to carry. Start from the columns the "
+                    "root node declares, or, when the root is a SCAN, the columns its consumers "
+                    "declare, and adjust them to what this operator produces, naming each column "
+                    "as the result will spell it."
                 ),
             ),
         ),

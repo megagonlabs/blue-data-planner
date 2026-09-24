@@ -30,9 +30,12 @@ pass instead, so that the work left over can be written against real values.
 ### What a `SCAN` names
 
 A `SCAN` writes `source`: one of the paths listed under "What the searches found", copied exactly,
-or `null` when the scan reads what you already know rather than registered data.
-`required_output_columns` are that entity's own attributes, so a `SCAN` naming a source can only
-declare columns that section shows it holds.
+or `null` when the scan reads no registered source and its operator produces the data itself —
+from what you already know, for example. Write `null` exactly when that is true; otherwise name the
+path.
+
+A `SCAN` declares no columns. The nodes reading it declare the entity's columns they need, and only
+the columns that section shows the entity holds.
 
 ## How to write a plan
 
@@ -111,8 +114,7 @@ Four things to read off this plan:
 {"nodes": [
   {"id": "scan_postings", "kind": "SCAN", "input_node_ids": [],
    "instruction": "Read the job posting entity.",
-   "source": "/source/jobs/database/jobs/collection/public/entity/job_posting",
-   "required_output_columns": [{"name": "company_id", "dtype": "str"}, {"name": "company_description", "dtype": "str"}, {"name": "job_description", "dtype": "str"}, {"name": "title", "dtype": "str"}, {"name": "location", "dtype": "str"}]},
+   "source": "/source/jobs/database/jobs/collection/public/entity/job_posting"},
   {"id": "keep_data_scientist_roles", "kind": "FILTER", "input_node_ids": ["scan_postings"],
    "instruction": "Keep rows whose title names a data scientist role.",
    "required_output_columns": [{"name": "company_id", "dtype": "str"}, {"name": "company_description", "dtype": "str"}, {"name": "job_description", "dtype": "str"}, {"name": "location", "dtype": "str"}]},
@@ -121,8 +123,7 @@ Four things to read off this plan:
    "required_output_columns": [{"name": "company_id", "dtype": "str"}, {"name": "company_description", "dtype": "str"}, {"name": "job_description", "dtype": "str"}]},
   {"id": "scan_august_hires", "kind": "SCAN", "input_node_ids": [],
    "instruction": "Read the August 2026 hiring entity.",
-   "source": "/source/hiring/database/hiring/collection/public/entity/august_2026_hires",
-   "required_output_columns": [{"name": "company_id", "dtype": "str"}, {"name": "hire_count", "dtype": "int"}]},
+   "source": "/source/hiring/database/hiring/collection/public/entity/august_2026_hires"},
   {"id": "keep_fast_hiring", "kind": "FILTER", "input_node_ids": ["scan_august_hires"],
    "instruction": "Keep rows whose hire_count is greater than 10.",
    "required_output_columns": [{"name": "company_id", "dtype": "str"}]},
@@ -172,8 +173,7 @@ holds rows from pass 2.
 {"nodes": [
   {"id": "scan_companies", "kind": "SCAN", "input_node_ids": [],
    "instruction": "Read the company entity.",
-   "source": "/source/companies/database/companies/collection/public/entity/company",
-   "required_output_columns": [{"name": "company_id", "dtype": "str"}, {"name": "industry", "dtype": "str"}]},
+   "source": "/source/companies/database/companies/collection/public/entity/company"},
   {"id": "keep_finance_industry", "kind": "FILTER", "input_node_ids": ["scan_companies"],
    "instruction": "Keep rows whose industry is finance.",
    "required_output_columns": [{"name": "company_id", "dtype": "str"}]},
@@ -193,8 +193,8 @@ holds rows from pass 2.
 ### How to use `DISCOVER` and `REPLAN`
 
 - Write a `DISCOVER` node for each thing the request needs found in the catalog. Most first passes
-  do only this, because a `SCAN` can only declare columns an entity really holds, and `DISCOVER`
-  is what reveals them.
+  do only this, because the nodes reading a scan can only declare columns its entity really holds,
+  and `DISCOVER` is what reveals them.
 - Write a `REPLAN` node when the shape of the remaining work depends on an intermediate result,
   such as a branch you can only choose once you have seen what an earlier step returned. Write the
   steps it waits for in the same pass, and end the pass there. A `REPLAN` lists no inputs: it fires

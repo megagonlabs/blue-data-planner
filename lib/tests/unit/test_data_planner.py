@@ -44,7 +44,7 @@ from tests.doubles.llm import ScriptedLLMClient
 
 
 def a_scan_and_ending(plan_id: str) -> LogicalPlan:
-    """n1 SCAN declaring one column, ended by n2 RETURN projecting it."""
+    """n1 SCAN, ended by n2 RETURN projecting the title column it reads."""
     return LogicalPlan(
         id=plan_id,
         parent_id=None,
@@ -55,7 +55,7 @@ def a_scan_and_ending(plan_id: str) -> LogicalPlan:
                 kind=LogicalOperator.SCAN,
                 input_node_ids=[],
                 attributes={"instruction": "read the postings", "source": None},
-                required_output_columns=[OutputColumn(name="title", dtype="str")],
+                required_output_columns=[],
             ),
             PipelineNode(
                 id="n2",
@@ -116,7 +116,7 @@ def _a_scan_node() -> PipelineNode:
         kind=LogicalOperator.SCAN,
         input_node_ids=[],
         attributes={"instruction": "read the postings", "source": None},
-        required_output_columns=[OutputColumn(name="title", dtype="str")],
+        required_output_columns=[],
     )
 
 
@@ -439,7 +439,7 @@ def a_binding(label: str, inputs: tuple[str, ...] = ()) -> dict[str, Any]:
     payload: dict[str, Any] = {
         "candidate": label,
         "instruction": "do it",
-        "required_output_columns": None,
+        "required_output_columns": [{"name": "title", "dtype": "str"}],
     }
     for node_id in inputs:
         payload[f"input_name_{node_id}"] = f"the {node_id} table"

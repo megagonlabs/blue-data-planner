@@ -489,6 +489,12 @@ def _node_from_dict(node_payload: Any) -> PipelineNode:
                     f"the source of node {node_id!r} must be a string or null, got "
                     f"{type(source).__name__}"
                 )
+    columns = [
+        _column_from_dict(column)
+        for column in _require_list(payload, "required_output_columns", "node")
+    ]
+    if kind is LogicalOperator.SCAN and columns:
+        raise PlanFormatError(f"node {node_id!r} is a SCAN, and a SCAN declares no columns")
     return PipelineNode(
         id=node_id,
         kind=kind,
@@ -497,10 +503,7 @@ def _node_from_dict(node_payload: Any) -> PipelineNode:
             for input_id in _require_list(payload, "input_node_ids", "node")
         ],
         attributes=dict(attributes),
-        required_output_columns=[
-            _column_from_dict(column)
-            for column in _require_list(payload, "required_output_columns", "node")
-        ],
+        required_output_columns=columns,
     )
 
 

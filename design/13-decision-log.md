@@ -233,8 +233,9 @@ planner is the component that knows what a later node will read.
 A `SCAN` declaring columns only copies its entity's attribute list, and the copy is where names get
 misspelled and types guessed, failing a call on a column the source never held. What a fragment
 can produce depends on the operator it is bound to, which the physical planner knows and the
-logical planner does not, so the physical planner writes each fragment's list. A scan that names
-no source gets its columns there too, from what its consumers declare.
+logical planner does not, so the physical planner writes each fragment's list, from the root's
+declaration and from what the fragments reading the root use. A scan that names no source gets
+its columns there too.
 
 **Consequences:** An operator's description carries all the weight in the physical planner's prompt,
 because one plain-language instruction does not tell operators apart. The logical planner writes one type per column

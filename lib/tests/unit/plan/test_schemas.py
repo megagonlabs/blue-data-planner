@@ -122,7 +122,7 @@ def a_binding(candidate: str, inputs: tuple[str, ...] = (), **overrides: Any) ->
     payload: dict[str, Any] = {
         "candidate": candidate,
         "instruction": "count the postings per title",
-        "required_output_columns": None,
+        "required_output_columns": [{"name": "title", "dtype": "str"}],
     }
     for node_id in inputs:
         payload[f"input_name_{node_id}"] = f"the {node_id} table"
@@ -155,11 +155,13 @@ def test_a_plan_naming_an_operation_the_vocabulary_lacks_is_refused() -> None:
     [
         {"id": "n1", "kind": "RETURN", "input_node_ids": [], "instruction": "give the answer"},
         {"id": "n1", "kind": "REPLAN", "input_node_ids": [], "instruction": "wait for the rows"},
+        {"id": "n1", "kind": "SCAN", "input_node_ids": [], "instruction": "read the postings"},
         {
             "id": "n1",
             "kind": "SCAN",
             "input_node_ids": [],
             "instruction": "read the postings",
+            "source": None,
             "required_output_columns": [],
         },
     ],
@@ -167,10 +169,11 @@ def test_a_plan_naming_an_operation_the_vocabulary_lacks_is_refused() -> None:
         "a-return-carrying-an-instruction",
         "a-replan-listing-inputs",
         "a-scan-naming-no-source",
+        "a-scan-carrying-columns",
     ],
 )
 def test_each_node_kind_is_held_to_the_fields_its_kind_carries(node: dict[str, Any]) -> None:
-    """A RETURN names columns, a REPLAN lists no node, and a SCAN names a source, even null."""
+    """A RETURN names columns, a REPLAN lists no node, and a SCAN names a source and no columns."""
     with pytest.raises(ValidationError):
         logical_plan_schema().model_validate({"output_node_id": "n1", "nodes": [node]})
 
@@ -181,7 +184,7 @@ def test_each_node_kind_is_held_to_the_fields_its_kind_carries(node: dict[str, A
     ids=["a-catalog-path", "world-knowledge"],
 )
 def test_a_scan_naming_a_path_or_null_reads_back_with_its_source(source: str | None) -> None:
-    """The ordinary shape: one scan naming its source, or none, one ending, and one column."""
+    """The ordinary shape: one scan naming its source, or none, and one ending."""
     written = logical_plan_schema().model_validate(
         {
             "output_node_id": "n2",
@@ -192,7 +195,6 @@ def test_a_scan_naming_a_path_or_null_reads_back_with_its_source(source: str | N
                     "input_node_ids": [],
                     "instruction": "read the postings",
                     "source": source,
-                    "required_output_columns": [{"name": "title", "dtype": "str"}],
                 },
                 {"id": "n2", "kind": "RETURN", "input_node_ids": ["n1"], "columns": ["title"]},
             ],
@@ -255,10 +257,32 @@ def test_a_candidate_is_named_by_its_operator_and_its_node_set() -> None:
     schema = cover_choice_schema(a_scan_and_filter(), "n2", two_candidates(), None)
 
     written = schema.model_validate(
-        {"choice": {"candidate": "n2:op.wide:[n1,n2]", "instruction": "do it"}}
+        {
+            "choice": {
+                "candidate": "n2:op.wide:[n1,n2]",
+                "instruction": "do it",
+                "required_output_columns": [{"name": "title", "dtype": "str"}],
+            }
+        }
     )
 
     assert written.model_dump()["choice"]["candidate"] == "n2:op.wide:[n1,n2]"
+
+
+@pytest.mark.parametrize(
+    "required_output_columns",
+    [None, []],
+    ids=["missing", "empty"],
+)
+def test_a_binding_naming_no_output_columns_is_refused(required_output_columns: Any) -> None:
+    """The physical planner writes at least one column for every fragment it binds."""
+    schema = cover_choice_schema(a_scan_and_filter(), "n2", two_candidates(), None)
+    choice: dict[str, Any] = {"candidate": "n2:op.wide:[n1,n2]", "instruction": "do it"}
+    if required_output_columns is not None:
+        choice["required_output_columns"] = required_output_columns
+
+    with pytest.raises(ValidationError):
+        schema.model_validate({"choice": choice})
 
 
 def test_a_label_naming_no_candidate_of_this_call_is_refused() -> None:

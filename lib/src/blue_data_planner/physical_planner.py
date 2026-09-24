@@ -180,7 +180,7 @@ class PhysicalPlanner:
                 "of the candidates it was offered"
             )
         node_ids, operator = chosen
-        declared = choice.get("required_output_columns")
+        declared = choice["required_output_columns"]
         return PhysicalPlanFragment(
             id=f"f{uuid.uuid4().hex[:8]}",
             logical_node_ids=sorted(node_ids),
@@ -196,11 +196,9 @@ class PhysicalPlanner:
                 )
                 for frontier_id in fragment_frontier(plan, node_ids)
             ],
-            required_output_columns=(
-                [OutputColumn(name=c["name"], dtype=c["dtype"]) for c in declared]
-                if declared
-                else list(node.required_output_columns)
-            ),
+            required_output_columns=[
+                OutputColumn(name=column["name"], dtype=column["dtype"]) for column in declared
+            ],
         )
 
     def _no_candidate_reason(self, node: PipelineNode, entity_source_kinds: dict[str, str]) -> str:
@@ -334,7 +332,11 @@ def _render_candidates(
     reusable: PhysicalPlanFragment | None,
     results: dict[str, NodeResult],
 ) -> str:
-    lines = [f"Node {node.id} is uncovered. Its instruction: {node.attributes['instruction']}", ""]
+    lines = [
+        f"Node {node.id} is uncovered. Its instruction: {node.attributes['instruction']}",
+        _render_declared_columns(plan, node),
+        "",
+    ]
     if reusable is not None:
         lines.append(_render_reuse_candidate(node, reusable, results[node.id]))
     for node_ids, operator in candidates:
@@ -346,6 +348,26 @@ def _render_candidates(
             f"{operator.description}{limits}\n   Steps: {steps}"
         )
     return "\n".join(lines)
+
+
+def _render_declared_columns(plan: LogicalPlan, node: PipelineNode) -> str:
+    # A SCAN declares no columns of its own, so the columns a fragment rooted at one owes come
+    # from whichever nodes read it (design/04-detailed-architecture.md, "the model writes every
+    # fragment's required_output_columns").
+    if node.kind is not LogicalOperator.SCAN:
+        return f"Declared output columns: {_render_columns(node.required_output_columns)}"
+    consumers = plan.consumers(node.id)
+    if not consumers:
+        return "Declared output columns: none, and no consumer declares any"
+    parts = [
+        f"{consumer.id} needs {_render_columns(consumer.required_output_columns)}"
+        for consumer in consumers
+    ]
+    return f"Declares no columns of its own. Its consumer(s) declare: {'; '.join(parts)}"
+
+
+def _render_columns(columns: list[OutputColumn]) -> str:
+    return ", ".join(f"{column.name} ({column.dtype})" for column in columns)
 
 
 def _render_step(node: PipelineNode) -> str:
