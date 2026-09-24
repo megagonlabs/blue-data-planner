@@ -8,13 +8,38 @@ running server.
 from __future__ import annotations
 
 import ast
+import json
 from pathlib import Path
+from typing import Any
 
 import pytest
 from blue_data_planner import PlannerSettings
 from blue_data_planner.types import InvalidSettingError, RunLimits
 
 import blue_data_planner_mcp.config as config
+
+# Read as a file rather than imported, so the check needs nothing from the CLI package.
+_CLI_PROFILE_SPEC_PATH: Path = (
+    Path(__file__).parents[3] / "cli" / "src" / "blue_data_planner_cli" / "profile_spec.json"
+)
+_A_REGISTRY_ONLY_ENVIRONMENT: dict[str, str] = {"BLUE_DATA_REGISTRY_PATH": "/srv/registry.json"}
+
+
+def _cli_profile_parameters() -> dict[str, dict[str, Any]]:
+    return json.loads(_CLI_PROFILE_SPEC_PATH.read_text())
+
+
+def a_value_other_than_the_default(parameter: dict[str, Any]) -> str:
+    """A value the server accepts for this parameter and that differs from its default."""
+    cast = parameter["cast"]
+    if cast == "file":
+        return "/elsewhere/registry.json"
+    if cast == "int":
+        return str(parameter["default"] + 1)
+    if cast == "bool":
+        return str(not parameter["default"]).lower()
+    # A reasoning effort, and also a string no str parameter defaults to.
+    return "high"
 
 
 def test_an_environment_naming_only_a_registry_leaves_every_other_value_at_its_default():
@@ -50,6 +75,14 @@ def test_every_setting_the_environment_names_reaches_the_planner():
         enable_nl2table=True,
         limits=RunLimits(operator_calls=7, failure_replans=1, control_replans=3),
     )
+
+
+@pytest.mark.parametrize("name", sorted(_cli_profile_parameters()))
+def test_every_parameter_the_cli_profile_names_configures_the_server(name: str):
+    """The server promises the CLI's variable names, so a rename on either side fails here."""
+    value = a_value_other_than_the_default(_cli_profile_parameters()[name])
+    settings = config.planner_settings(_A_REGISTRY_ONLY_ENVIRONMENT | {name: value})
+    assert settings != config.planner_settings(_A_REGISTRY_ONLY_ENVIRONMENT)
 
 
 def test_the_family_wide_model_is_read_where_the_planner_names_none():
