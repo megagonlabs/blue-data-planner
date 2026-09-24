@@ -17,7 +17,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["pytest", "pytest-asyncio", "ruff", "pyright"]
+dev = ["pytest", "pytest-asyncio", "ruff", "pyright", "build"]
 
 [project.scripts]
 blue-data-planner-mcp = "blue_data_planner_mcp.server:main"

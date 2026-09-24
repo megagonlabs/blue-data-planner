@@ -34,7 +34,7 @@ and reads its result writes one import. Everything else is reached through the m
 | `blue_data_planner.operators` | `OperatorRouter`, `OperatorSuite`, `operator_suite`, `OPERATOR_SUITE_NAMES` |
 | `blue_data_planner.operators.adapters.blue`, `.adapters.lotus`, `.builtin` | `BlueSuite`, `LotusSuite`, `BuiltinSuite`, and the `blue_operators`, `lotus_operators`, and `builtin_operators` each is built over |
 | `blue_data_planner.data` | `DataCatalog`, `open_registry`, and the source-level reads |
-| `blue_data_planner.llm` | `LLMClient`, `Conversation`, `LLMError` |
+| `blue_data_planner.llm` | `LLMClient`, `Conversation`, `Turn`, `LLMError`, `LLMClientProvider`, `CachingLLMClientProvider`, `resolve_llm_client`, `UsageLedger`, `UsageRecord` |
 | `blue_data_planner.settings` | `PlannerSettings`, `build_data_planner_from_settings` |
 
 Public is the package root, every module directly inside it, and the `__init__.py` of `types/`,
@@ -472,11 +472,11 @@ showing what ran out. That is a successful tool call reporting a failed run, not
 | --- | --- |
 | A run that did not finish | Success, with a status in the payload |
 | An operator failing inside a run | Success. The fragment's attempt carries it |
-| Anything the tool raises: an unreadable registry, a missing API key, an invalid setting | A successful tool call whose payload is `{"error": "<message>"}` (ADR-036) |
+| Anything the tool raises: an unreadable registry, an unknown operator suite name, an invalid setting | A successful tool call whose payload is `{"error": "<message>"}` (ADR-036) |
 | An argument the tool's schema refuses | A protocol-level tool error, raised before the tool runs |
 
 Every raised failure carries the same one-key payload, so a client tells an unreadable registry
-from a missing API key only by reading the message. That is the price of the family's shared error
+from an invalid setting only by reading the message. That is the price of the family's shared error
 convention.
 
 ### Registry access

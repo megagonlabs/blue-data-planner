@@ -1,5 +1,5 @@
 # Benchmark inputs: downloaded and built by lib/scripts/tag_bench/, never committed
-/data/
+/data
 
 # Editor
 .vscode/

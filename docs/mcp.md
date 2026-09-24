@@ -44,10 +44,10 @@ saying why: `budget_exhausted`, `replan_exhausted`, `operator_failed`, `llm_fail
 
 ## Errors
 
-Anything the tool body raises — an unreadable registry, a missing API key, an invalid setting —
-comes back as `{"error": "<message>"}` in place of the run payload above. The server reports it
-as a successful tool result rather than a protocol-level error, so a client tells the two apart
-by the `error` key rather than by the protocol's error flag.
+Anything the tool body raises — an unreadable registry, an unknown operator suite name, an invalid
+setting — comes back as `{"error": "<message>"}` in place of the run payload above. The server
+reports it as a successful tool result rather than a protocol-level error, so a client tells the two
+apart by the `error` key rather than by the protocol's error flag.
 
 An argument that fails the tool's schema is rejected before the tool body runs, so it reaches
 the client as a tool error instead.

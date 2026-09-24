@@ -116,8 +116,8 @@ it. [`docs/mcp.md`](../../docs/mcp.md) covers the response keys and the error pa
 Each `results` key is shortened here; a full one is a sha256 signature of the work behind one
 node. A client reads an entry by iterating, since there is no fragment id to index by.
 
-An error the server catches — an unreadable registry, a missing API key, an invalid setting —
-returns `{"error": "<message>"}` instead.
+An error the server catches — an unreadable registry, an unknown operator suite name, an invalid
+setting — returns `{"error": "<message>"}` instead.
 
 ## Configuration reference
 
@@ -158,8 +158,8 @@ reads no CLI profile: `blue-planner`'s `~/.blue-planner/.profiles` never reaches
 developer's profile cannot silently reconfigure a server already running for a client.
 
 The planner is built on the first `query_data` call and held for the process lifetime. An
-unreachable registry or a missing API key therefore returns an error payload on that first call
-rather than stopping the server at startup.
+unreachable registry therefore returns an error payload on that first call rather than stopping the
+server at startup.
 
 ## Use it elsewhere
 
