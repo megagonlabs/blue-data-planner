@@ -45,8 +45,9 @@ _LIMITATIONS = (
 )
 
 _FILTER_LIMITATIONS = (
-    "judge what text means, such as a topic or a sentiment, so a condition on meaning belongs "
-    "to a semantic operator"
+    "compare one column with another, or compute over values before comparing them, or judge "
+    "what text means, such as a topic or a sentiment, so a condition on meaning belongs to a "
+    "semantic operator"
 )
 
 # What separates this entry from an operator that owns a query engine: it reads a whole entity
@@ -243,10 +244,10 @@ _ENTRIES: tuple[_Entry, ...] = (
     _Entry(
         "builtin.filter",
         LogicalOperator.FILTER,
-        "Keeps the rows a predicate accepts: comparisons of stored values and regular-expression "
-        "searches (re.search) over string columns, combined with and, or, and not. A condition "
-        "on a string's form, such as its first word, a prefix, or a code format, is a "
-        "regular-expression search.",
+        "Keeps the rows a predicate accepts: comparisons of one column against a literal value "
+        "and regular-expression searches (re.search) over string columns, combined with and, or, "
+        "and not. A condition on a string's form, such as its first word, a prefix, or a code "
+        "format, is a regular-expression search.",
         FilterParameters,
         _filter,
         limitations=_FILTER_LIMITATIONS,
