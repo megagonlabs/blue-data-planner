@@ -88,6 +88,7 @@ def a_discovery_of_one_match() -> DiscoveryResult:
                 attributes=[AttributeRecord(name="County", dtype="str", description=None)],
                 score=0.91,
                 search_term="schools",
+                row_count=17686,
             )
         ],
         dropped_terms=1,
