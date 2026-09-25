@@ -250,5 +250,4 @@ except BlueDataPlannerError as error:
 
 Every exception in `blue_data_planner.types` inherits `BlueDataPlannerError`, which inherits
 nothing from `blue-data-ops`, so an operator suite's own errors stay distinguishable from a
-planner's. `LLMError` is the one outside that tree: it is declared in `blue_data_planner.llm` and
-inherits `Exception`. The full list is in [api-reference.md](api-reference.md#exceptions).
+planner's. The full list is in [api-reference.md](api-reference.md#exceptions).

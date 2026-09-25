@@ -1446,7 +1446,7 @@ The only module that calls a provider (ADR-005).
 | `LLMClientProvider`, `resolve_llm_client` | Injection points, so a client is supplied rather than constructed in place |
 | `Conversation` | The turns of one exchange, so a later turn sees an earlier one |
 | `LLMUsage` | One model call: model, prompt and completion tokens, cost, and latency. Defined in `types/`, since it reaches a caller inside `RunResult` |
-| `LLMError` | Every failure originating at the provider |
+| `LLMError` | The provider failing after retries, or answering in a shape the client cannot read. Defined in `types/`, like every exception the library defines |
 
 The planner reaches a provider through one call: it returns a value constrained by a Pydantic
 response schema, over a conversation that keeps its turns.
@@ -1499,9 +1499,9 @@ dedicated type, and a run that exhausts an allowance returns a status.
 | `SourceQueryError` | A source refuses the query a read ran against it | The operator that read the source, which raises a recoverable failure |
 | `SourceUnreachableError` | The registry cannot resolve a source to a connectable object | The operator that read the source, which raises an unrecoverable failure |
 | `BudgetExhaustedError` | The operator call budget reaches its cap | `FragmentRunner`, which returns `budget_exhausted` |
-| `LLMError` | The provider fails after retries | `DataPlanner`, which ends the request with `llm_failed` |
+| `LLMError` | The provider fails after retries, or answers in a shape the client cannot read | `DataPlanner`, which ends the request with `llm_failed` |
 | `UnknownOperatorSuiteError` | A name registers no operator suite | Nothing. It propagates to whoever named the suite |
-| `InvalidSettingError` | A `PlannerSettings` field carries a value the planner cannot be built with | Nothing. It propagates to whoever built the settings |
+| `InvalidSettingError` | A `PlannerSettings` field, or the properties an `LLMClient` is built with, carry a value the planner cannot be built with | Nothing. It propagates to whoever built the settings or the client |
 | `RegistryUnreadableError` | The path a registry is opened from names no file, or the file cannot be read | Nothing. It propagates to whoever opened the registry |
 | `ValueError`, `TypeError`, and a suite's own validation errors | Malformed state or a missing required value | Nothing. These are bugs and they propagate |
 
@@ -1514,7 +1514,9 @@ anything else reaches the interface boundary as the bug it is (ADR-015).
 
 `LLMError` is the one failure caught at the top of the run loop rather than by the component that
 provoked it. A provider outage is neither a programming error nor malformed state, so 04's rule
-applies and it becomes a status, `llm_failed`, alongside `operator_failed`. Catching it there rather
+applies and it becomes a status, `llm_failed`, alongside `operator_failed`. A client that names no
+model, carries an unknown `llm.*` key, or asks for a cache it cannot open is a setting error, and
+`LLMClient` refuses it when it is built, so `llm_failed` always means the provider failed. Catching it there rather
 than in each component is what keeps provider handling out of all four, and what lets the run
 return everything it had already accumulated.
 

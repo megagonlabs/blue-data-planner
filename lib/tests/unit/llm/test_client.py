@@ -9,6 +9,7 @@ import pytest
 from pydantic import BaseModel
 
 from blue_data_planner.llm import Conversation, LLMClient, LLMError, Turn
+from blue_data_planner.types import BlueDataPlannerError, InvalidSettingError
 
 OP_PROPS: dict[str, Any] = {
     "service_prefix": "openai",
@@ -51,11 +52,18 @@ def test_reserved_fields_never_reach_the_provider() -> None:
 
 
 @pytest.mark.parametrize("key", ["llm.api", "llm.service_url", "llm.bogus"])
-def test_unknown_llm_overrides_rejected(key: str) -> None:
-    client = LLMClient("test", {**OP_PROPS, key: "x"})
-    with pytest.raises(LLMError, match="unknown adapter override"):
-        client.execute_api_call("hi")
-    assert litellm.calls == []  # rejected before any provider call
+def test_an_unknown_llm_override_is_refused_when_the_client_is_built(key: str) -> None:
+    """A key outside the accepted llm.* set is a setting error, not a provider failure."""
+    with pytest.raises(InvalidSettingError, match="unknown adapter override"):
+        LLMClient("test", {**OP_PROPS, key: "x"})
+
+
+def test_an_unknown_llm_override_passed_with_one_call_is_refused_before_the_provider() -> None:
+    """Per-call properties are checked the way the client's own properties are."""
+    client = LLMClient("test", OP_PROPS)
+    with pytest.raises(InvalidSettingError, match="unknown adapter override"):
+        client.execute_api_call("hi", properties={"llm.bogus": "x"})
+    assert litellm.calls == []
 
 
 def test_accepted_llm_override_wins() -> None:
@@ -64,11 +72,11 @@ def test_accepted_llm_override_wins() -> None:
     assert litellm.calls[-1]["model"] == "gpt-4o-mini"
 
 
-def test_no_model_is_an_error() -> None:
+def test_a_client_with_no_model_is_refused_when_it_is_built() -> None:
+    """Neither <prefix>.model nor llm.model names a model."""
     props = {k: v for k, v in OP_PROPS.items() if k != "openai.model"}
-    client = LLMClient("test", props)
-    with pytest.raises(LLMError, match="no model"):
-        client.execute_api_call("hi")
+    with pytest.raises(InvalidSettingError, match="no model"):
+        LLMClient("test", props)
 
 
 def test_per_call_properties_override_instance() -> None:
@@ -92,6 +100,14 @@ def test_provider_error_exhausts_retries() -> None:
         client.execute_api_call("hi")
 
 
+def test_a_provider_failure_is_caught_by_the_package_base_error() -> None:
+    """A caller driving the client directly needs one except clause for the whole package."""
+    client = LLMClient("test", OP_PROPS)
+    litellm.fail_next.extend([RuntimeError("down")] * 3)
+    with pytest.raises(BlueDataPlannerError):
+        client.execute_api_call("hi")
+
+
 def test_usage_ledger_accumulates() -> None:
     client = LLMClient("test", OP_PROPS)
     client.execute_api_call("hi")
@@ -112,9 +128,10 @@ def test_cache_roundtrip(tmp_path: Any) -> None:
     assert len(litellm.calls) == 1  # the second call was served from the cache
 
 
-def test_cache_requested_without_diskcache_is_deterministic(
+def test_a_cache_requested_without_diskcache_is_refused_when_the_client_is_built(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """The missing package is reported as a setting error before any call."""
     import builtins
 
     real_import = builtins.__import__
@@ -125,9 +142,8 @@ def test_cache_requested_without_diskcache_is_deterministic(
         return real_import(name, *args, **kwargs)
 
     monkeypatch.setattr(builtins, "__import__", no_diskcache)
-    client = LLMClient("test", {**OP_PROPS, "llm.cache": True})
-    with pytest.raises(LLMError, match="diskcache is not installed"):
-        client.execute_api_call("hi")
+    with pytest.raises(InvalidSettingError, match="diskcache is not installed"):
+        LLMClient("test", {**OP_PROPS, "llm.cache": True})
 
 
 STRUCTURED_PROPS: dict[str, Any] = {

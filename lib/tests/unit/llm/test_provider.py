@@ -5,12 +5,15 @@ from __future__ import annotations
 
 from typing import Any
 
+import pytest
+
 from blue_data_planner.llm import (
     CachingLLMClientProvider,
     LLMClient,
     LLMClientProvider,
     resolve_llm_client,
 )
+from blue_data_planner.types import InvalidSettingError
 
 PROPS: dict[str, Any] = {"service_prefix": "openai", "openai.model": "gpt-4o"}
 
@@ -32,8 +35,9 @@ def test_default_constructs_fresh_per_call() -> None:
     assert first is not second
 
 
-def test_none_properties_construct() -> None:
-    assert isinstance(resolve_llm_client(None), LLMClient)
+def test_none_properties_are_refused_for_naming_no_model() -> None:
+    with pytest.raises(InvalidSettingError, match="no model"):
+        resolve_llm_client(None)
 
 
 def test_custom_provider_is_dispatched() -> None:

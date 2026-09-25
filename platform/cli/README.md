@@ -184,13 +184,15 @@ An error reaches standard error as `ERROR: <CODE> <description>`.
 
 | Code | Raised for |
 | --- | --- |
-| `CONFIG_MISSING` | A required parameter with no value: the registry path, the API key |
-| `CONFIG_INVALID` | A parameter whose value cannot be used, such as an unknown operator suite |
+| `CONFIG_INVALID` | A required parameter with no value, such as the registry path, or a parameter whose value cannot be used, such as an unknown operator suite |
 | `REGISTRY_UNREADABLE` | A registry path that does not exist or does not parse |
 | `PROFILE_NOT_FOUND` | A named profile that does not exist |
 | `ABORTED` | A confirmation prompt, such as `profile remove` without `--confirm`, declined |
 | `INVALID_PLAN`, `REPLAN_EXHAUSTED`, `BUDGET_EXHAUSTED`, `OPERATOR_FAILED`, `LLM_FAILED`, `PLANNER_FAILED` | A run that ended with that status, carrying its failure reason |
 | `INTERNAL_ERROR` | An exception no command expected |
+
+A missing or rejected API key is reported by the provider on the first model call, so the run
+ends as `LLM_FAILED` and the provider's message is its failure reason.
 
 | Exit code | Meaning |
 | --- | --- |

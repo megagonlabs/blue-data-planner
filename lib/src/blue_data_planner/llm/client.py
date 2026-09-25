@@ -10,13 +10,12 @@ from typing import Any, TypeVar, cast
 from pydantic import BaseModel, ValidationError
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
 
-from blue_data_planner.llm.errors import LLMError
 from blue_data_planner.llm.templating import api_properties, build_message, extract_output
-from blue_data_planner.types import Conversation, LLMUsage, Turn
+from blue_data_planner.types import Conversation, InvalidSettingError, LLMError, LLMUsage, Turn
 
 M = TypeVar("M", bound=BaseModel)
 
-# The closed adapter-override key set; unknown llm.* keys are rejected (LLMError).
+# The closed adapter-override key set; unknown llm.* keys are rejected (InvalidSettingError).
 _ACCEPTED_LLM_KEYS = {
     "model",
     "stream",
@@ -83,6 +82,7 @@ class LLMClient:
     def __init__(self, name: str, properties: dict[str, Any] | None = None) -> None:
         self.name = name
         self.properties: dict[str, Any] = dict(properties or {})
+        _check_settings(self.properties, name.lower())
         self.ledger = UsageLedger()
         self.last_usage: UsageRecord | None = None
         self._caches: dict[str, Any] = {}  # cache_dir -> diskcache.Cache
@@ -98,6 +98,8 @@ class LLMClient:
     ) -> Any:
         started = time.monotonic()
         merged = {**self.properties, **(properties or {})}
+        if properties:
+            _check_settings(merged, self.name.lower())
         message = build_message(input, merged, self.name.lower())
         kwargs = self._build_call_kwargs(message, merged)
 
@@ -158,6 +160,8 @@ class LLMClient:
     ) -> Any:
         started = time.monotonic()
         merged = {**self.properties, **(properties or {})}
+        if properties:
+            _check_settings(merged, self.name.lower())
         message = build_message(input, merged, self.name.lower())
         kwargs = self._build_call_kwargs(message, merged)
 
@@ -187,25 +191,14 @@ class LLMClient:
         if input_field != "messages" and input_field in kwargs:
             kwargs["messages"] = kwargs.pop(input_field)
 
-        # Only the documented llm.* override keys are accepted.
+        # _check_settings has already refused any llm.* key outside _ACCEPTED_LLM_KEYS.
         for key, value in properties.items():
-            if key.startswith("llm."):
-                short = key[4:]
-                if short not in _ACCEPTED_LLM_KEYS:
-                    raise LLMError(
-                        f"unknown adapter override '{key}' — accepted: "
-                        f"{sorted('llm.' + k for k in _ACCEPTED_LLM_KEYS)}",
-                        code="bad_override",
-                    )
-                if short not in _CONTROL_KEYS:
-                    kwargs[short] = value
+            if key.startswith("llm.") and key[4:] not in _CONTROL_KEYS:
+                kwargs[key[4:]] = value
 
         # Remove transport-resolution fields after every override has been merged.
         for reserved in _RESERVED_FIELDS:
             kwargs.pop(reserved, None)
-
-        if not kwargs.get("model"):
-            raise LLMError("no model configured (set <prefix>.model or llm.model)", code="no_model")
         return kwargs
 
     def _cache_lookup(
@@ -218,13 +211,8 @@ class LLMClient:
         cache_dir = str(properties.get("llm.cache_dir", ".llm_cache"))
         cache = self._caches.get(cache_dir)
         if cache is None:
-            try:
-                import diskcache  # pyright: ignore[reportMissingTypeStubs]
-            except ImportError as e:
-                raise LLMError(
-                    "llm.cache requested but diskcache is not installed (pip install diskcache)",
-                    code="cache_unavailable",
-                ) from e
+            import diskcache  # pyright: ignore[reportMissingTypeStubs]
+
             cache = diskcache.Cache(cache_dir)
             self._caches[cache_dir] = cache
         return cache, json.dumps(kwargs, sort_keys=True, default=str)
@@ -332,6 +320,26 @@ class LLMClient:
             return float(litellm.completion_cost(completion_response=response))
         except Exception:
             return 0.0
+
+
+def _check_settings(properties: dict[str, Any], default_prefix: str) -> None:
+    # Every value checked here is fixed before the first call, so a mistake in it is refused
+    # while the client is built rather than reported later as a provider failure.
+    for key in properties:
+        if key.startswith("llm.") and key[4:] not in _ACCEPTED_LLM_KEYS:
+            raise InvalidSettingError(
+                f"unknown adapter override '{key}' — accepted: "
+                f"{sorted('llm.' + k for k in _ACCEPTED_LLM_KEYS)}"
+            )
+    if not (properties.get("llm.model") or api_properties(properties, default_prefix).get("model")):
+        raise InvalidSettingError("no model configured (set <prefix>.model or llm.model)")
+    if properties.get("llm.cache"):
+        try:
+            import diskcache  # noqa: F401  # pyright: ignore[reportMissingTypeStubs, reportUnusedImport]
+        except ImportError as error:
+            raise InvalidSettingError(
+                "llm.cache requested but diskcache is not installed (pip install diskcache)"
+            ) from error
 
 
 def _message_content(payload: dict[str, Any]) -> str:

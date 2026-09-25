@@ -247,18 +247,19 @@ than exceptions, so a caller holding a `DataPlanner` meets almost none of them.
 | `ReturnAnswerError` | `project_answer`, when the finished rows do not carry a column the answer names | The run loop answers it with a replan |
 | `OperatorRoutingError` | `OperatorRouter.register` on a repeated operator id, `OperatorRouter.resolve` on an unknown one | Always, including from `build_data_planner` |
 | `UnknownOperatorSuiteError` | `operator_suite`, on a name no suite answers to | Always |
+| `InvalidSettingError` | `PlannerSettings`, on a value it cannot be built with; `LLMClient`, on properties naming no model, carrying an unknown `llm.*` key, or asking for a cache without `diskcache` installed | Always, including from `build_data_planner` |
 | `BudgetExhaustedError` | `RunCounters.spend_operator_call`, at the cap | `FragmentRunner` catches it and returns `budget_exhausted` |
 | `RecoverableOperatorError` | An operator refusing input another operator might accept | `execute_physical_operator` turns it into a failed `ExecutionResult` |
 | `UnrecoverableOperatorError` | An operator failing for a reason no other operator would avoid | The same, with `ErrorKind.UNRECOVERABLE` |
 | `SourceQueryError` | `execute_query`, `execute_write`, when a source refuses | Always |
 | `SourceUnreachableError` | `connect_source`, when the registry holds no connectable source under the name | Always |
+| `LLMError` | `LLMClient`, when the provider fails after its retries or answers in a shape the client cannot read | `DataPlanner` catches it and ends the request as `llm_failed` |
 
 Both operator errors carry a `report: dict[str, Any] | None`, which reaches the caller on the
 `ExecutionResult`.
 
-`LLMError` is the one exception outside that tree. It is declared in `blue_data_planner.llm`,
-inherits `Exception`, and carries `message`, `code`, and `provider_error`. `DataPlanner` catches
-it and ends the request as `llm_failed`.
+`LLMError` carries `code` (`provider_error` or `bad_response`) and `provider_error`, the
+exception the provider raised when there was one. `blue_data_planner.llm` re-exports it.
 
 ---
 

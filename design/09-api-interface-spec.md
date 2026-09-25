@@ -222,13 +222,13 @@ does raise, in the order a caller meets it:
 | --- | --- | --- |
 | `PlanValidationError` | A generated plan fails a structural check | Only from a direct `validate_logical_plan` or `validate_physical_plan` call. `LogicalPlanner` catches it and regenerates |
 | `UnknownOperatorSuiteError` | A name registers no operator suite | Always, from `operator_suite`. An interface maps it to its own configuration error |
-| `InvalidSettingError` | A `PlannerSettings` field carries a value the planner cannot be built with | Always, from constructing `PlannerSettings`. An interface maps it to its own configuration error |
+| `InvalidSettingError` | A `PlannerSettings` field, or the properties an `LLMClient` is built with, carry a value the planner cannot be built with | Always, from constructing `PlannerSettings` or an `LLMClient`, `build_data_planner` included. An interface maps it to its own configuration error |
 | `RegistryUnreadableError` | The path a registry is opened from names no file, or the file cannot be read | Always, from `open_registry`. An interface maps it to its own configuration error |
 | Any other `BlueDataPlannerError` | A defect in the planner, raised where it is found | Only from a direct call to the component that raised it |
 | `RecoverableOperatorError` | An operator refuses its input in a way a different operator might not | Only from a direct `execute_physical_operator` call |
 | `UnrecoverableOperatorError` | An operator fails for a reason no other operator would avoid | The same |
 | `BudgetExhaustedError` | The operator call budget reaches its cap | Only from a direct `execute_physical_operator` call. `FragmentRunner` catches it and returns `budget_exhausted` |
-| `LLMError` | The provider fails after retries | Only from a direct `LLMClient` call. `DataPlanner` catches it and ends the request as `llm_failed` |
+| `LLMError` | The provider fails after retries, or answers in a shape the client cannot read | Only from a direct `LLMClient` call. `DataPlanner` catches it and ends the request as `llm_failed` |
 | `ValueError`, `TypeError`, and a suite's own validation errors | Malformed state, a missing configuration value, an unknown node or operator id | Always. These are bugs and they propagate |
 
 Every exception this library defines is in `types/errors.py` and inherits `BlueDataPlannerError`,
@@ -364,13 +364,15 @@ An error reaches standard error as `ERROR: <CODE> <description>`.
 
 | Code | Raised for |
 | --- | --- |
-| `CONFIG_MISSING` | A required parameter with no value: the registry path, the API key |
-| `CONFIG_INVALID` | A parameter whose value cannot be used, such as an unknown operator suite |
+| `CONFIG_INVALID` | A required parameter with no value, such as the registry path, or a parameter whose value cannot be used, such as an unknown operator suite |
 | `REGISTRY_UNREADABLE` | A registry path that does not exist or does not parse |
 | `PROFILE_NOT_FOUND` | A named profile that does not exist |
 | `ABORTED` | A confirmation prompt, such as `profile remove` without `--confirm`, declined |
 | `INVALID_PLAN`, `REPLAN_EXHAUSTED`, `BUDGET_EXHAUSTED`, `OPERATOR_FAILED`, `LLM_FAILED`, `PLANNER_FAILED` | A run that ended with that status, carrying its failure reason. The code is the status's own name, so this list is whichever endings `RunStatus` holds |
 | `INTERNAL_ERROR` | An exception the adapter did not expect |
+
+A missing or rejected API key is reported by the provider on the first model call, so the run
+ends as `LLM_FAILED` and the provider's message is its failure reason.
 
 | Exit code | Meaning |
 | --- | --- |

@@ -75,3 +75,15 @@ class InvalidSettingError(BlueDataPlannerError):
 
 class RegistryUnreadableError(BlueDataPlannerError):
     """The registry named could not be read."""
+
+
+class LLMError(BlueDataPlannerError):
+    """The provider failed after its retries, or answered in a shape the client cannot read."""
+
+    code: str
+    provider_error: Any | None
+
+    def __init__(self, message: str, code: str, provider_error: Any | None = None) -> None:
+        super().__init__(message)
+        self.code = code
+        self.provider_error = provider_error

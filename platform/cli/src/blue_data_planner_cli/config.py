@@ -174,7 +174,7 @@ def _require(resolver: ConfigResolver, name: str, override: str | int | None = N
     value = _get(resolver, name, override)
     if value is None:
         raise CliError(
-            "CONFIG_MISSING",
+            "CONFIG_INVALID",
             f"{name} is not configured. Set it with `profile config {name}`, "
             f"or export {name} in the environment.",
         )

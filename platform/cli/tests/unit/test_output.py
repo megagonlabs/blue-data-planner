@@ -90,8 +90,8 @@ def test_a_failed_run_carries_its_status_and_reason_rather_than_an_empty_answer(
 
 def test_an_error_line_names_its_code_first() -> None:
     """Every Blue CLI reports a failure in this one shape."""
-    assert error_line("CONFIG_MISSING", "BLUE_DATA_REGISTRY_PATH is not configured").startswith(
-        "ERROR: CONFIG_MISSING "
+    assert error_line("CONFIG_INVALID", "BLUE_DATA_REGISTRY_PATH is not configured").startswith(
+        "ERROR: CONFIG_INVALID "
     )
 
 

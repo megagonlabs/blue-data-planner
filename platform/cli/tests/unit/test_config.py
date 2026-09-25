@@ -273,7 +273,7 @@ def test_a_missing_required_parameter_names_what_to_set(tmp_path: Path) -> None:
     with pytest.raises(CliError) as raised:
         resolve_settings(resolver)
 
-    assert raised.value.code == "CONFIG_MISSING"
+    assert raised.value.code == "CONFIG_INVALID"
     assert "BLUE_DATA_REGISTRY_PATH" in raised.value.description
 
 

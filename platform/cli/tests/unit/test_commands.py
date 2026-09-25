@@ -147,7 +147,7 @@ def test_a_configuration_failure_names_the_parameter_and_exits_one(tmp_path: Pat
     )
 
     assert result.exit_code == 1
-    assert result.stderr.startswith("ERROR: CONFIG_MISSING ")
+    assert result.stderr.startswith("ERROR: CONFIG_INVALID ")
     assert "BLUE_DATA_REGISTRY_PATH" in result.stderr
     assert result.stdout == ""
 

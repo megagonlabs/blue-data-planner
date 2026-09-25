@@ -11,7 +11,7 @@ from blue_data_planner.catalog_searcher import CatalogSearcher
 from blue_data_planner.data import DataCatalog, DataRegistry
 from blue_data_planner.execution import project_answer
 from blue_data_planner.fragment_runner import FragmentRunner
-from blue_data_planner.llm import LLMClient, LLMError
+from blue_data_planner.llm import LLMClient
 from blue_data_planner.logical_planner import LogicalPlanner
 from blue_data_planner.operators import OperatorRouter, OperatorSuite
 from blue_data_planner.physical_planner import PhysicalPlanner
@@ -20,6 +20,7 @@ from blue_data_planner.types import (
     BlueDataPlannerError,
     ControlOperator,
     DataBundle,
+    LLMError,
     LogicalOperator,
     LogicalPlan,
     LogicalPlanResult,
@@ -78,7 +79,8 @@ class DataPlanner:
         try:
             status, failure_reason, answer = self._run_plans(state)
         except LLMError as error:
-            # The one try in the library, so no component handles a provider failure.
+            # The one try in the library, so no component handles a provider failure. It precedes
+            # the clause below, which would otherwise end a provider outage as planner_failed.
             status, failure_reason, answer = RunStatus.LLM_FAILED, str(error), None
         except BlueDataPlannerError as error:
             # A defect rather than an outcome a repair could answer: every recoverable failure is
