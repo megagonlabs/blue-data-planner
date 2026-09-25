@@ -36,15 +36,40 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
+import sys
+from io import TextIOWrapper
 from typing import Annotated, Any
 
+import anyio
 from blue_data_planner import RunResult
 from mcp.server.fastmcp import FastMCP
+from mcp.server.stdio import stdio_server
 from pydantic import Field
 
 import blue_data_planner_mcp.config as config
 
-mcp = FastMCP(
+
+class IsolatedStdoutFastMCP(FastMCP[Any]):
+    """A FastMCP server whose stdio transport owns stdout, with every other write sent to stderr."""
+
+    async def run_stdio_async(self) -> None:
+        # stdout is the transport's channel, and one stray line there is a malformed JSON-RPC
+        # message to the client. LiteLLM writes its INFO records to whatever sys.stdout is when
+        # they are emitted, so the transport gets a duplicate of the descriptor, and sys.stdout
+        # and descriptor 1 both point at stderr for the rest of the process.
+        protocol_stdout = anyio.wrap_file(
+            TextIOWrapper(os.fdopen(os.dup(sys.stdout.fileno()), "wb"), encoding="utf-8")
+        )
+        os.dup2(sys.stderr.fileno(), sys.stdout.fileno())
+        sys.stdout = sys.stderr
+        async with stdio_server(stdout=protocol_stdout) as (read_stream, write_stream):
+            await self._mcp_server.run(
+                read_stream, write_stream, self._mcp_server.create_initialization_options()
+            )
+
+
+mcp = IsolatedStdoutFastMCP(
     "blue-data-planner",
     instructions=(
         "Data planner — takes one self-contained question in plain language, plans it over the "
