@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 import dotenv
@@ -18,6 +19,10 @@ REQUEST = "Which product categories have the most products?"
 
 def main() -> None:
     dotenv.load_dotenv(override=True)
+    if not REGISTRY.is_file():
+        raise SystemExit(f"{REGISTRY} is missing; build it as examples/README.md describes")
+    if not os.environ.get("OPENAI_API_KEY"):
+        raise SystemExit("OPENAI_API_KEY is not set; every planning stage calls a model")
 
     planner = build_data_planner(
         open_registry(REGISTRY),
@@ -35,6 +40,11 @@ def main() -> None:
             print(f"  searched for: {found.search_terms}")
             for match in found.matches:
                 print(f"  matched:      {match.path}")
+
+    # A run that ended before it had a plan and a cover to run has nothing more to show.
+    if result.pipeline.current_physical_plan_id is None:
+        print(f"reason: {result.failure_reason}")
+        return
 
     plan = result.pipeline.logical_plan
     cover = result.pipeline.cover

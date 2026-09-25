@@ -50,7 +50,7 @@ blue-planner profile config OPENAI_API_KEY
 | `BLUE_DATA_PLANNER_MODEL` | str | `BLUE_DATA_LLM_MODEL`, then `openai/gpt-5.6-luna` | Yes |
 | `BLUE_DATA_PLANNER_REASONING_EFFORT` | str | `low` | No |
 | `BLUE_DATA_PLANNER_OPERATORS` | str | `builtin,lotus` | Yes |
-| `BLUE_DATA_PLANNER_LOTUS_MODEL` | str | Inherits `BLUE_DATA_PLANNER_MODEL` | No |
+| `BLUE_DATA_PLANNER_LOTUS_MODEL` | str | Unset: LOTUS uses the planner's model | No |
 | `BLUE_DATA_PLANNER_LOTUS_REASONING_EFFORT` | str | `none` | No |
 | `BLUE_DATA_PLANNER_LOTUS_MAX_ROWS` | int | `5000` | No |
 | `BLUE_DATA_PLANNER_ENABLE_NL2TABLE` | bool | `false` | No. Experimental: runs model-written Python, and is not a security boundary |
@@ -62,11 +62,12 @@ blue-planner profile config OPENAI_API_KEY
 
 The first row, `BLUE_DATA_CLI_FORMAT`, and `BLUE_DATA_CLI_LOG_LIMIT` are family-wide parameters,
 declared once for every Blue CLI rather than by `blue-planner` alone. `BLUE_DATA_PLANNER_MODEL`
-reads `BLUE_DATA_LLM_MODEL` where it is unset, and `BLUE_DATA_PLANNER_LOTUS_MODEL` reads
-`BLUE_DATA_PLANNER_MODEL` the same way. Either reasoning effort takes `minimal`, `low`, `medium`,
-`high`, `none`, or `off`, and anything else is refused where it is read. `off` omits the parameter
-from the LLM call, for a model that does not accept it; `none` is a different, real value that
-litellm still forwards to the provider, disabling reasoning rather than omitting the parameter.
+reads `BLUE_DATA_LLM_MODEL` where it is unset. LOTUS runs on the planner's model, `--model`
+included, unless `BLUE_DATA_PLANNER_LOTUS_MODEL` is set, and `--model` never overrides a value set
+there. Either reasoning effort takes `minimal`, `low`, `medium`, `high`, `none`, or `off`, and
+anything else is refused where it is read. `off` omits the parameter from the LLM call, for a model
+that does not accept it; `none` is a different, real value that litellm still forwards to the
+provider, disabling reasoning rather than omitting the parameter.
 `BLUE_DATA_PLANNER_LOTUS_REASONING_EFFORT` does not inherit from
 `BLUE_DATA_PLANNER_REASONING_EFFORT`: it defaults to `none` on its own, since a LOTUS operation
 spends many calls per row and gains little from added reasoning. A `MAX_` name is a bound on one

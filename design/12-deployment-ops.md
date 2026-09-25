@@ -115,7 +115,7 @@ precedence over the exported environment.
 | `BLUE_DATA_PLANNER_MODEL` | `BLUE_DATA_LLM_MODEL`, then `openai/gpt-5.6-luna` | The litellm model string every component uses |
 | `BLUE_DATA_PLANNER_REASONING_EFFORT` | `low` | The reasoning effort each component's model call spends: `minimal`, `low`, `medium`, `high`, or `none`, which is sent to the provider and disables reasoning. `off` omits the parameter, for a model that does not accept it. Anything else is refused where it is read |
 | `BLUE_DATA_PLANNER_OPERATORS` | `builtin,lotus` | Which operator suites are registered, as a comma-separated list over `builtin`, `lotus`, and `blue` |
-| `BLUE_DATA_PLANNER_LOTUS_MODEL` | `BLUE_DATA_PLANNER_MODEL` | The litellm model string an interface passes to `lotus_operators`, which LOTUS then configures for itself, and which a deployment can set away from `BLUE_DATA_PLANNER_MODEL` (ADR-005) |
+| `BLUE_DATA_PLANNER_LOTUS_MODEL` | The planner's model, wherever it came from | The litellm model string an interface passes to `lotus_operators`, which LOTUS then configures for itself, and which a deployment can set away from the planner's model (ADR-005). A value set here is never overridden by the CLI's `--model` |
 | `BLUE_DATA_PLANNER_LOTUS_REASONING_EFFORT` | `none` | The reasoning effort LOTUS's own model spends per call, passed to `lotus_operators`, and independent of `BLUE_DATA_PLANNER_REASONING_EFFORT` |
 | `BLUE_DATA_PLANNER_LOTUS_MAX_ROWS` | `5000` | The rows a LOTUS operation accepts before refusing the call, passed to `lotus_operators` |
 | `BLUE_DATA_PLANNER_ENABLE_NL2TABLE` | `false` | Whether `builtin.nl2table` is registered, which writes a Python program and runs it (ADR-020) |

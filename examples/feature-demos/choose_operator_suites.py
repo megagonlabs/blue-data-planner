@@ -29,6 +29,8 @@ MODEL = "openai/gpt-5.6-luna"
 
 def main() -> None:
     dotenv.load_dotenv(override=True)
+    if not REGISTRY.is_file():
+        raise SystemExit(f"{REGISTRY} is missing; build it as examples/README.md describes")
 
     registry = open_registry(REGISTRY)
     # The same client build_data_planner assembles: the name prefixes every property it reads.

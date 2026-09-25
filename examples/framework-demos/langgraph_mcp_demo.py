@@ -27,6 +27,7 @@ import shutil
 from pathlib import Path
 from typing import Any
 
+import dotenv
 from langchain.agents import create_agent
 from langchain_core.messages import AIMessage, ToolMessage
 from langchain_mcp_adapters.client import MultiServerMCPClient
@@ -56,6 +57,9 @@ TASK = (
 
 
 async def main() -> None:
+    dotenv.load_dotenv(override=True)
+    if not os.environ.get("OPENAI_API_KEY"):
+        raise SystemExit("OPENAI_API_KEY is not set; the agent and the planner both call a model")
     if shutil.which(SERVER_COMMAND) is None:
         raise SystemExit(f"{SERVER_COMMAND} is not on PATH; run platform/mcp/scripts/install.sh")
     if not REGISTRY_PATH.is_file():

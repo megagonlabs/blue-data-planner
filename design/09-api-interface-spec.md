@@ -277,7 +277,7 @@ command accepts a plan.
 | Option | Effect |
 | --- | --- |
 | `--registry-path PATH` | The `blue-data` registry to plan over. Overrides `BLUE_DATA_REGISTRY_PATH` |
-| `--model NAME` | The litellm model string the planner uses. Overrides `BLUE_DATA_PLANNER_MODEL` |
+| `--model NAME` | The litellm model string the planner uses. Overrides `BLUE_DATA_PLANNER_MODEL`, and reaches LOTUS only where `BLUE_DATA_PLANNER_LOTUS_MODEL` is unset |
 | `--format table\|json` | How the result is written. Defaults to `BLUE_DATA_CLI_FORMAT` |
 | `--explain` | Write the plan for the request and stop, running nothing |
 | `--log` | Report what the run did, fragment by fragment, after the run |

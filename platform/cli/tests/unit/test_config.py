@@ -49,7 +49,7 @@ def test_the_spec_declares_the_planner_parameters_beside_the_family_wide_ones() 
     spec = config_spec()
 
     assert spec["BLUE_DATA_PLANNER_MAX_OPERATOR_CALLS"].cast == "int"
-    assert spec["BLUE_DATA_PLANNER_LOTUS_MODEL"].inherits == ("BLUE_DATA_PLANNER_MODEL",)
+    assert spec["BLUE_DATA_PLANNER_LOTUS_MODEL"].inherits == ()
     assert spec["BLUE_DATA_PLANNER_REASONING_EFFORT"].default == "low"
     assert spec["BLUE_DATA_PLANNER_LOTUS_REASONING_EFFORT"].default == "none"
     assert spec["OPENAI_API_KEY"].is_secret
@@ -168,17 +168,38 @@ def test_a_command_option_outranks_the_profile(tmp_path: Path) -> None:
     assert settings.output_format == "json"
 
 
-def test_the_model_option_reaches_the_lotus_setting_as_well_as_the_planners_own(
+def test_an_unset_lotus_model_is_left_to_follow_whatever_model_the_planner_resolves(
     tmp_path: Path,
 ) -> None:
-    """--model names the model every component uses, and BLUE_DATA_PLANNER_LOTUS_MODEL inherits
-    BLUE_DATA_PLANNER_MODEL, so both settings resolve to the option even though the LOTUS
-    parameter never sees it."""
+    """With no LOTUS model of its own, the setting stays empty, so LOTUS runs on the planner's
+    model wherever that came from: --model here, BLUE_DATA_LLM_MODEL below."""
     resolver = a_resolver_over(tmp_path)
 
     settings: ResolvedSettings = resolve_settings(resolver, model="openai/gpt-4o-mini")
 
     assert settings.planner.model == "openai/gpt-4o-mini"
+    assert settings.planner.lotus_model is None
+
+
+def test_the_family_model_reaches_the_planner_when_no_planner_model_is_set(
+    tmp_path: Path,
+) -> None:
+    """BLUE_DATA_PLANNER_MODEL falls back to BLUE_DATA_LLM_MODEL, and LOTUS follows the planner."""
+    resolver = a_resolver_over(tmp_path, BLUE_DATA_LLM_MODEL="openai/gpt-4o")
+
+    settings: ResolvedSettings = resolve_settings(resolver)
+
+    assert settings.planner.model == "openai/gpt-4o"
+    assert settings.planner.lotus_model is None
+
+
+def test_the_model_option_leaves_a_set_lotus_model_alone(tmp_path: Path) -> None:
+    """--model overrides the planner's model only; a LOTUS model set on its own is kept."""
+    resolver = a_resolver_over(tmp_path, BLUE_DATA_PLANNER_LOTUS_MODEL="openai/gpt-4o-mini")
+
+    settings: ResolvedSettings = resolve_settings(resolver, model="openai/gpt-4o")
+
+    assert settings.planner.model == "openai/gpt-4o"
     assert settings.planner.lotus_model == "openai/gpt-4o-mini"
 
 

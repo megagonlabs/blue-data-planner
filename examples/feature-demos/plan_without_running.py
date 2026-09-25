@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 import dotenv
@@ -19,6 +20,10 @@ REQUEST = (
 
 def main() -> None:
     dotenv.load_dotenv(override=True)
+    if not REGISTRY.is_file():
+        raise SystemExit(f"{REGISTRY} is missing; build it as examples/README.md describes")
+    if not os.environ.get("OPENAI_API_KEY"):
+        raise SystemExit("OPENAI_API_KEY is not set; every planning stage calls a model")
 
     planner = build_data_planner(
         open_registry(REGISTRY),
@@ -31,12 +36,20 @@ def main() -> None:
     print(f"request: {REQUEST}")
     print(f"status:  {result.status}")
     print(f"answer:  {result.answer}")
+    # A pass that ended before writing a plan, or before covering one, has nothing more to show.
+    if result.pipeline.current_logical_plan_id is None:
+        print(f"reason:  {result.failure_reason}")
+        return
 
     plan = result.pipeline.logical_plan
     print("\nlogical plan")
     for node in plan.nodes:
         reads = ", ".join(node.input_node_ids) or "-"
         print(f"  {node.id:<4} {node.kind:<10} reads {reads}")
+
+    if result.pipeline.current_physical_plan_id is None:
+        print(f"\nno cover was written: {result.failure_reason}")
+        return
 
     cover = result.pipeline.cover
     print("\ncover")

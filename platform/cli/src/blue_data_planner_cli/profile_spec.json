@@ -26,10 +26,9 @@
   },
   "BLUE_DATA_PLANNER_LOTUS_MODEL": {
     "default": null,
-    "prompt": "litellm model string LOTUS configures for itself",
+    "prompt": "litellm model string LOTUS configures for itself; unset, LOTUS uses the planner's model",
     "required": false,
-    "cast": "str",
-    "inherits": ["BLUE_DATA_PLANNER_MODEL"]
+    "cast": "str"
   },
   "BLUE_DATA_PLANNER_LOTUS_REASONING_EFFORT": {
     "default": "none",

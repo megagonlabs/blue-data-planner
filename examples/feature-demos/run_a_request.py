@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 import dotenv
@@ -16,6 +17,10 @@ REQUEST = "Which three countries do the most customers come from?"
 
 def main() -> None:
     dotenv.load_dotenv(override=True)
+    if not REGISTRY.is_file():
+        raise SystemExit(f"{REGISTRY} is missing; build it as examples/README.md describes")
+    if not os.environ.get("OPENAI_API_KEY"):
+        raise SystemExit("OPENAI_API_KEY is not set; every planning stage calls a model")
 
     planner = build_data_planner(
         open_registry(REGISTRY),

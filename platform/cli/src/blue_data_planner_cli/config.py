@@ -99,7 +99,9 @@ def resolve_settings(
                 for name in str(_require(resolver, "BLUE_DATA_PLANNER_OPERATORS")).split(",")
                 if name.strip()
             ),
-            lotus_model=str(_require(resolver, "BLUE_DATA_PLANNER_LOTUS_MODEL", model)),
+            # Unset, LOTUS runs on the planner's model, so it follows --model; set, --model
+            # leaves it alone, which is what setting it apart from the planner's model is for.
+            lotus_model=_optional_text(resolver, "BLUE_DATA_PLANNER_LOTUS_MODEL"),
             lotus_reasoning_effort=str(
                 _require(resolver, "BLUE_DATA_PLANNER_LOTUS_REASONING_EFFORT")
             ),
@@ -150,6 +152,11 @@ def _message_naming_the_profile_parameter(error: InvalidSettingError) -> str:
         if message.startswith(f"{field} "):
             return parameter + message[len(field) :]
     return message
+
+
+def _optional_text(resolver: ConfigResolver, name: str) -> str | None:
+    value = _get(resolver, name)
+    return None if value is None else str(value)
 
 
 def _get(resolver: ConfigResolver, name: str, override: str | int | None = None) -> Any:

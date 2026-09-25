@@ -149,7 +149,7 @@ the same thing to both.
 | `BLUE_DATA_PLANNER_MODEL`, else `BLUE_DATA_LLM_MODEL` | `model` | `openai/gpt-5.6-luna` |
 | `BLUE_DATA_PLANNER_REASONING_EFFORT` | `reasoning_effort` | `low` |
 | `BLUE_DATA_PLANNER_OPERATORS` | `operator_suites`, comma separated | `builtin,lotus` |
-| `BLUE_DATA_PLANNER_LOTUS_MODEL` | `lotus_model` | Inherits `BLUE_DATA_PLANNER_MODEL` |
+| `BLUE_DATA_PLANNER_LOTUS_MODEL` | `lotus_model` | Unset: LOTUS uses the planner's model |
 | `BLUE_DATA_PLANNER_LOTUS_REASONING_EFFORT` | `lotus_reasoning_effort` | `none` |
 | `BLUE_DATA_PLANNER_LOTUS_MAX_ROWS` | `lotus_max_rows` | `5000` |
 | `BLUE_DATA_PLANNER_ENABLE_NL2TABLE` | `enable_nl2table` | `false` |
