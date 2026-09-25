@@ -15,11 +15,10 @@ Each script skips its work when its output is already there. `--force` rebuilds.
 
 | Script | Writes | Notes |
 | --- | --- | --- |
-| `fetch_northwind.py` | `northwind_sqlite.sql`, `northwind_descriptions.json` | Sparse-fetches the two files from `blue-data` at the revision `lib/pyproject.toml` pins, over SSH. `--help` gives the `gh api` alternative for an environment with a token but no SSH key |
+| `fetch_northwind.py` | `northwind_sqlite.sql`, `northwind_descriptions.json` | Copies the two files out of `../blue-data/data`, the `blue-data` checkout the install scripts also install from. `--blue-data-data-dir` names another one |
 | `register_northwind.py` | `northwind.db`, `registry.json` | Builds the database from the seed, registers it with `blue-data`, syncs it, collects statistics, and writes the fetched attribute descriptions onto it |
 
-Fetching needs SSH access to `github.com/megagon-internal`, the same access `uv` needs to install
-this package. Neither script calls a model: syncing and statistics are deterministic, and the
+Neither script calls a model: syncing and statistics are deterministic, and the
 descriptions are the ones `blue-data` generated once and committed beside the seed.
 
 ## What the registry holds

@@ -10,9 +10,8 @@ query_data — plan a question over the registered data sources, run the plan, r
 
 Quick start
 -----------
-    # Install
-    pip install -e ../../lib
-    pip install -e .
+    # Install, with blue-data and blue-data-ops checked out beside this repository
+    bash scripts/install.sh
 
     # Run (stdio transport for Claude Desktop / Claude Code / a LangGraph client)
     BLUE_DATA_REGISTRY_PATH=/srv/blue-data/registry.json blue-data-planner-mcp
@@ -36,6 +35,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import os
 import sys
 from io import TextIOWrapper
@@ -48,6 +48,10 @@ from mcp.server.stdio import stdio_server
 from pydantic import Field
 
 import blue_data_planner_mcp.config as config
+
+# LiteLLM logs two INFO records per model call, and a request makes dozens of calls. They reach
+# the client's stderr, which an agent framework prints to its user's terminal.
+LITELLM_LOGGER_NAMES: tuple[str, ...] = ("LiteLLM", "LiteLLM Router", "LiteLLM Proxy")
 
 
 class IsolatedStdoutFastMCP(FastMCP[Any]):
@@ -130,8 +134,17 @@ def _err(error: Exception) -> str:
     return json.dumps({"error": str(error)}, indent=2)
 
 
+def quiet_litellm() -> None:
+    """Keep LiteLLM's warnings and errors, and drop its per-call INFO and DEBUG records."""
+    # A level set before litellm is imported survives the import, which happens on the first
+    # query_data call.
+    for name in LITELLM_LOGGER_NAMES:
+        logging.getLogger(name).setLevel(logging.WARNING)
+
+
 def main() -> None:
     """Run the server over stdio, the transport a client launches it as a subprocess for."""
+    quiet_litellm()
     mcp.run()
 
 

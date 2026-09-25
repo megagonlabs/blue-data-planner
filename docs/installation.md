@@ -20,20 +20,30 @@ own install and requirements; this page collects them.
 | Requirement | Notes |
 | --- | --- |
 | Python 3.11 or later | The `lotus` extra narrows this to 3.11 or 3.12 |
-| SSH access to `github.com/megagon-internal` | `blue-data` and `blue-data-ops` are declared as git sources in [`lib/pyproject.toml`](../lib/pyproject.toml) and cloned over SSH |
+| `blue-data` and `blue-data-ops` checked out beside this repository | The install scripts install both, editable, from `../blue-data/lib` and `../blue-data-ops/lib` |
 | A model API key | Every planning stage calls a model, a plan-only run included |
 
 ### Install
 
-No package is published to an index yet, so all three install from a checkout. Each platform
-package depends on the library, and either one installs without the other.
+No package is published to an index yet, so all three install from checkouts:
+
+```text
+dev/
+├── blue-data/
+├── blue-data-ops/
+└── blue-data-planner/
+```
+
+Each package has a `scripts/install.sh`. The library's installs the two siblings and then the
+library, and each platform package's runs the library's and then installs itself, so either one
+installs without the other.
 
 ```bash
 python -m venv .venv && source .venv/bin/activate
 
-cd lib && pip install -e .                 # the library
-cd ../platform/cli && pip install -e .     # the blue-planner command
-cd ../mcp && pip install -e .              # the MCP server
+bash lib/scripts/install.sh            # the library
+bash platform/cli/scripts/install.sh   # + the blue-planner command
+bash platform/mcp/scripts/install.sh   # + the MCP server
 ```
 
 ### Extras

@@ -9,16 +9,16 @@ plans and runs a request, and writes nothing the registry holds.
 
 ```bash
 cd platform/mcp
-pip install -e ../../lib       # the library this server adapts
-pip install -e .               # the server itself
+bash scripts/install.sh        # ../../../blue-data, ../../../blue-data-ops, the library, the server
 ```
 
-`scripts/install.sh` runs the same two commands.
+`blue-data` and `blue-data-ops` are checked out beside this repository
+([installation.md](../../docs/installation.md)).
 
-The default operator suites (`BLUE_DATA_PLANNER_OPERATORS`) include `lotus`, and LOTUS is not among
-the library's runtime dependencies: it comes in only through the library's `lotus` extra. See
-[`lib/README.md`](../../lib/README.md)'s Install section for the exact command and the environment
-constraints LOTUS brings with it.
+The install does not include LOTUS. The default operator suites (`BLUE_DATA_PLANNER_OPERATORS`)
+name `lotus`, and the LOTUS suite registers no operators where LOTUS is not installed, so the
+server plans with `builtin` alone. Set `BLUE_DATA_PLANNER_OPERATORS=builtin` to say so
+explicitly.
 
 ## Running
 
@@ -27,7 +27,9 @@ BLUE_DATA_REGISTRY_PATH=/srv/blue-data/registry.json blue-data-planner-mcp
 ```
 
 The server speaks the stdio transport, so a client launches it as a subprocess rather than
-connecting to it as a running service.
+connecting to it as a running service. stdout carries the protocol and nothing else: anything else
+the process writes there goes to stderr. LiteLLM's logging is held at WARNING, so its per-call INFO
+records do not reach a client's terminal.
 
 ## Client configuration
 
@@ -168,5 +170,7 @@ The same two operations, plan and run, are reachable through
 and through [the `blue-planner` CLI](../cli/README.md), via `data query` with and without
 `--explain`.
 
-See [`docs/mcp.md`](../../docs/mcp.md) for the full tool reference and a LangGraph connection
-example.
+See [`docs/mcp.md`](../../docs/mcp.md) for the full tool reference and a LangChain connection
+example, and
+[`examples/framework-demos/langgraph_mcp_demo.py`](../../examples/framework-demos/langgraph_mcp_demo.py)
+for a runnable agent.

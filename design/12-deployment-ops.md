@@ -19,8 +19,8 @@ own `pyproject.toml`. There is no repository-wide version.
 
 The MCP package pins `blue-data-planner` to an exact version, so a library release requires an MCP
 release. That is deliberate: an adapter translates for one library version and has no reason to
-float ahead of it. Every operator suite is pinned rather than floating for the reason ADR-004 gives:
-an adapter names each operation and its parameters.
+float ahead of it. Every operator suite is version-bounded for the reason ADR-004 gives: an adapter
+names each operation and its parameters.
 
 ---
 
@@ -39,14 +39,18 @@ pip install blue-data-planner-mcp
 Installing the CLI package puts `blue-planner` on the path, and installing the MCP package puts
 `blue-data-planner-mcp` there.
 
-Development installs from a checkout instead, the same way `blue-data` and `blue-data-kb-source` are
-installed.
+Development installs from checkouts instead, the same way `blue-data-kb-source` installs `blue-data`.
+`blue-data` and `blue-data-ops` are checked out beside this repository, and every package is
+installed editable, so a change in either sibling reaches the planner without a reinstall.
 
 ```bash
-cd lib && pip install -e .
-cd ../platform/cli && pip install -e .
-cd ../mcp && pip install -e .
+bash lib/scripts/install.sh            # ../blue-data, ../blue-data-ops, then lib/
+bash platform/cli/scripts/install.sh   # the same, then the CLI
+bash platform/mcp/scripts/install.sh   # the same, then the MCP server
 ```
+
+`[tool.uv.sources]` in each `pyproject.toml` points at the same two sibling paths, so `uv sync`
+builds the same layout.
 
 The library's extras select what an install pays for.
 

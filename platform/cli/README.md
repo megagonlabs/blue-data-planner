@@ -8,9 +8,11 @@ plan and run, on the command line, in the shape the Blue CLI family uses:
 
 ```bash
 python -m venv .venv && source .venv/bin/activate
-pip install -e ../../lib       # the library this CLI adapts
-pip install -e .               # the CLI itself
+bash scripts/install.sh        # ../../../blue-data, ../../../blue-data-ops, the library, the CLI
 ```
+
+`blue-data` and `blue-data-ops` are checked out beside this repository
+([installation.md](../../docs/installation.md)).
 
 The default profile's operator suite (`BLUE_DATA_PLANNER_OPERATORS`) includes `lotus`, and LOTUS is
 not among the library's runtime dependencies: it comes in only through the `lotus` extra, and

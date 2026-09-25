@@ -252,7 +252,7 @@ writes each one.
 
 | Package | Where declared | Required or extra | Role |
 | --- | --- | --- | --- |
-| `blue-data-ops` | `lib/` | Required, pinned to an exact version | The Blue operators and their registry |
+| `blue-data-ops` | `lib/` | Required | The Blue operators and their registry |
 | `blue-data` | `lib/` | Required | Data source interfaces and the registry |
 | `pydantic` | `lib/`, `platform/mcp/` | Required | Response schemas for structured output in `lib/`; MCP tool parameter descriptions in `platform/mcp/` |
 | `jsonpath-ng` | `lib/` | Required | Path expressions in templating and JSON utilities |

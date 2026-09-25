@@ -21,13 +21,15 @@ blue-data-planner/
 │   └── internal/                      # background notes, git-ignored
 ├── data/                              # benchmark and demo inputs, fetched and built, not committed
 │   ├── tag_bench/
-│   └── demo/                          # Northwind, fetched from blue-data, and the registry over it
-├── examples/                          # runnable examples that use lib/
+│   └── demo/                          # Northwind, copied from blue-data, and the registry over it
+├── examples/
+│   ├── feature-demos/                 # one library feature per script
+│   └── framework-demos/               # the planner used from an agent framework, over MCP
 ├── lib/
 │   ├── pyproject.toml
 │   ├── scripts/
 │   │   ├── build.sh
-│   │   ├── install.sh              # installs the package into a local environment
+│   │   ├── install.sh              # installs the sibling blue-data checkouts, then the package
 │   │   ├── publish.sh
 │   │   ├── tag_bench/
 │   │   │   ├── fetch_queries.py       # reads a release and writes corrected queries
@@ -35,7 +37,7 @@ blue-data-planner/
 │   │   │   ├── register_databases.py  # builds one registry over them and serializes it
 │   │   │   └── benchmark/             # runs the queries, scores the answers, reports a run
 │   │   └── demo/
-│   │       ├── fetch_northwind.py     # reads blue-data's pinned revision and fetches its seed
+│   │       ├── fetch_northwind.py     # copies the seed out of the blue-data checkout beside this one
 │   │       └── register_northwind.py  # builds the database and the registry the examples use
 │   ├── src/blue_data_planner/
 │   │   ├── __init__.py                # __version__ and the run path
@@ -125,7 +127,7 @@ blue-data-planner/
 | `design/` | The numbered design documents and the decision log | Yes, in the repository |
 | `docs/` | Documentation for readers outside the project. `docs/internal/` holds notes and links and is git-ignored | Partly |
 | `data/` | Benchmark inputs, downloaded and built rather than committed | No |
-| `examples/` | Runnable examples that import `lib/` and demonstrate one feature each | Yes |
+| `examples/` | Runnable examples, grouped as `blue-data`'s are: one library feature per script, and the planner used from an agent framework | Yes |
 | `lib/` | All planning behavior. The `blue-data-planner` package | Yes, to PyPI |
 | `platform/` | One directory per external interface, each independently built and versioned | Yes, to PyPI |
 

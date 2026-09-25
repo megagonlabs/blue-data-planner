@@ -1,20 +1,19 @@
 # Quick start
 
-From a clean checkout to an answered question. Needs SSH access to `github.com/megagon-internal`
-and a provider key, both explained in [installation.md](installation.md).
+From a clean checkout to an answered question. Needs `blue-data` and `blue-data-ops` checked out
+beside this repository and a provider key, both explained in [installation.md](installation.md).
 
 ## 1. Install
 
 ```bash
 python -m venv .venv && source .venv/bin/activate
-cd lib && pip install -e . && cd ..
-cd platform/cli && pip install -e . && cd ../..
+bash platform/cli/scripts/install.sh
 ```
 
 ## 2. Build the demo registry
 
 The demo runs on Northwind, a seven-table retail schema that `blue-data` already holds. Two
-scripts fetch it at the revision this package pins and build a registry over it. Neither calls a
+scripts copy it out of the `blue-data` checkout and build a registry over it. Neither calls a
 model. Run them from the repository root, in the virtual environment step 1 created:
 
 ```bash
@@ -71,7 +70,7 @@ counters  operator calls 3/30   failure replans 0/2   control replans 1/2
 model     12 calls   $0.00
 ```
 
-[`examples/inspect_a_run.output.txt`](../examples/inspect_a_run.output.txt) shows the whole shape.
+[`examples/feature-demos/inspect_a_run.output.txt`](../examples/feature-demos/inspect_a_run.output.txt) shows the whole shape.
 
 ## 6. The same from Python
 

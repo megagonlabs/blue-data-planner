@@ -6,8 +6,8 @@ plan, and repairs what fails.
 ## Requirements
 
 - Python 3.11 or later; 3.11 or 3.12 with the `lotus` extra
-- SSH access to `github.com/megagon-internal`: `blue-data` and `blue-data-ops` are declared as git
-  sources in [pyproject.toml](pyproject.toml)
+- `blue-data` and `blue-data-ops` checked out beside this repository, as `../blue-data` and
+  `../blue-data-ops`: every install script installs both from there
 - A model API key, which every planning stage needs
 - [`uv`](https://docs.astral.sh/uv/getting-started/installation/), for every command in this
   repository other than the `pip` install above
@@ -16,8 +16,7 @@ plan, and repairs what fails.
 
 ```bash
 python -m venv .venv && source .venv/bin/activate
-pip install -e .            # the library
-pip install -e '.[dev]'     # + the test and lint gates
+bash scripts/install.sh     # ../blue-data, ../blue-data-ops, then this library with its dev extra
 pip install -e '.[lotus]'   # + the LOTUS operator suite
 ```
 
@@ -57,8 +56,8 @@ logical plan and one cover and then stops, spending no operator call.
 
 ## Development setup
 
-Every command runs from `lib/`. `uv` clones both dependencies at the commits pinned under
-`[tool.uv.sources]` and installs the package in editable mode.
+Every command runs from `lib/`. `[tool.uv.sources]` points at the two sibling checkouts, so `uv`
+installs them and this package in editable mode.
 
 ```bash
 uv sync --extra dev

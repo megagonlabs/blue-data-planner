@@ -52,29 +52,43 @@ apart by the `error` key rather than by the protocol's error flag.
 An argument that fails the tool's schema is rejected before the tool body runs, so it reaches
 the client as a tool error instead.
 
-## Connecting a LangGraph agent
+## Connecting a LangChain agent
 
-`langchain-mcp-adapters` turns the server's tool into a LangChain tool, so an agent calls it the
-way it calls any other.
+`langchain-mcp-adapters` turns the server's tool into a LangChain tool, so an agent built with
+`create_agent`, which runs on LangGraph, calls it the way it calls any other.
 
 ```python
+import os
+
+from langchain.agents import create_agent
 from langchain_mcp_adapters.client import MultiServerMCPClient
+from langchain_mcp_adapters.tools import load_mcp_tools
 
 client = MultiServerMCPClient(
     {
         "blue-data-planner": {
-            "command": "blue-data-planner-mcp",
             "transport": "stdio",
-            "env": {"BLUE_DATA_REGISTRY_PATH": "/srv/blue-data/registry.json"},
+            "command": "blue-data-planner-mcp",
+            "args": [],
+            "env": {**os.environ, "BLUE_DATA_REGISTRY_PATH": "/srv/blue-data/registry.json"},
         }
     }
 )
-tools = await client.get_tools()
+async with client.session("blue-data-planner") as session:
+    tools = await load_mcp_tools(session)
+    agent = create_agent(model, tools)
+    result = await agent.ainvoke({"messages": [{"role": "user", "content": "..."}]})
 ```
+
+Hold one session for the agent's run. Without one, `MultiServerMCPClient` opens a session per tool
+call, and over stdio that starts a new server, which builds a new planner, every time. Pass the
+parent environment on in `env`, since the server reads the provider key from it.
 
 The agent runs the conversation and decides when it needs data; the planner takes one
 self-contained request and answers it. A request that takes minutes returns one tool result, so
 give the agent a timeout that allows for it.
+[`examples/framework-demos/langgraph_mcp_demo.py`](../examples/framework-demos/langgraph_mcp_demo.py)
+is a runnable agent that asks several questions and writes a report from the rows.
 
 ## Elsewhere
 
