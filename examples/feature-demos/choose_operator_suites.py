@@ -23,7 +23,7 @@ from blue_data_planner.operators.adapters.lotus import lotus_is_installed
 from blue_data_planner.operators.builtin import BuiltinSuite
 from blue_data_planner.types import LogicalOperator
 
-REGISTRY = Path(__file__).resolve().parents[1] / "data" / "demo" / "registry.json"
+REGISTRY = Path(__file__).resolve().parents[2] / "data" / "demo" / "registry.json"
 MODEL = "openai/gpt-5.6-luna"
 
 

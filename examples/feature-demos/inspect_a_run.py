@@ -12,7 +12,7 @@ from blue_data_planner.operators.builtin import BuiltinSuite
 from blue_data_planner.plan import signatures
 from blue_data_planner.types import DiscoveryResult, FragmentResult
 
-REGISTRY = Path(__file__).resolve().parents[1] / "data" / "demo" / "registry.json"
+REGISTRY = Path(__file__).resolve().parents[2] / "data" / "demo" / "registry.json"
 REQUEST = "Which product categories have the most products?"
 
 

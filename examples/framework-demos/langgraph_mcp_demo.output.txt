@@ -1,0 +1,38 @@
+Tools from blue-data-planner-mcp: ['query_data']
+
+Task: Write a one-page brief on Northwind's orders: which customers order most often, which products sell the most units, and which countries the orders ship to.
+
+-> query_data: List the top 10 customers by number of orders, showing customer name and order count.
+-> query_data: List the top 10 products by total units ordered, showing product name and the sum of quantity.
+-> query_data: List all ship countries ranked by number of orders, showing ship country and order count.
+   ok, 10 rows: [{'ship_country': 'Mexico', 'order_count': 3}, {'ship_country': 'Germany', 'order_count': 2}, {'ship_country': 'UK', 'order_count': 2}]
+   ok, 10 rows: [{'product_name': 'Mishi Kobe Niku', 'total_units_ordered': 42}, {'product_name': 'Chef Antons Cajun Seasoning', 'total_units_ordered': 40}, {'product_name': 'Grandmas Boysenberry Spread', 'total_units_ordered': 40}]
+   replan_exhausted, 0 rows: []
+-> query_data: List the top 10 customer IDs by number of orders, showing customer ID and order count.
+   ok, 10 rows: [{'customer_id': 'ALFKI', 'order_count': 1}, {'customer_id': 'ANATR', 'order_count': 1}, {'customer_id': 'ANTON', 'order_count': 1}]
+-> query_data: List every customer ID and company name.
+   ok, 15 rows: [{'customer_id': 'ALFKI', 'company_name': 'Alfreds Futterkiste'}, {'customer_id': 'ANATR', 'company_name': 'Ana Trujillo Emparedados y helados'}, {'customer_id': 'ANTON', 'company_name': 'Antonio Moreno Taqueria'}]
+-> query_data: List every customer ID by number of orders, showing customer ID and order count.
+   ok, 15 rows: [{'customer_id': 'ALFKI', 'order_count': 1}, {'customer_id': 'ANATR', 'order_count': 1}, {'customer_id': 'ANTON', 'order_count': 1}]
+
+========================================================================
+
+# Northwind Orders Brief
+
+- **Customer frequency is evenly distributed:** all **15** customers in the order data placed **1 order** each. The customers include Alfreds Futterkiste, Ana Trujillo Emparedados y helados, Antonio Moreno Taqueria, Around the Horn, Berglunds snabbkop, Blauer See Delikatessen, Blondel pere et fils, Bolido Comidas preparadas, Bon app, Bottom-Dollar Marketse, Bs Beverages, Cactus Comidas para llevar, Centro comercial Moctezuma, Chop-suey Chinese, and Comercio Mineiro.
+- **Mishi Kobe Niku leads unit sales** with **42 units** ordered.
+- **Four products follow at 40 units each:** Chef Antons Cajun Seasoning, Grandmas Boysenberry Spread, Genen Shouyu, and Sir Rodneys Marmalade. Alice Mutton ranks next with **35 units**.
+- **Mexico is the leading shipping destination** with **3 orders**. Germany, the UK, and France each received **2 orders**, while six other countries received **1 order** each.
+
+| Ship country | Order count |
+|---|---:|
+| Mexico | 3 |
+| Germany | 2 |
+| UK | 2 |
+| France | 2 |
+| Sweden | 1 |
+| Spain | 1 |
+| Canada | 1 |
+| Argentina | 1 |
+| Switzerland | 1 |
+| Brazil | 1 |

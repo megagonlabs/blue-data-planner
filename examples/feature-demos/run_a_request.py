@@ -10,7 +10,7 @@ from blue_data_planner import RunStatus, build_data_planner
 from blue_data_planner.data import open_registry
 from blue_data_planner.operators.builtin import BuiltinSuite
 
-REGISTRY = Path(__file__).resolve().parents[1] / "data" / "demo" / "registry.json"
+REGISTRY = Path(__file__).resolve().parents[2] / "data" / "demo" / "registry.json"
 REQUEST = "Which three countries do the most customers come from?"
 
 
