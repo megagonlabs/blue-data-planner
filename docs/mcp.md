@@ -36,7 +36,7 @@ for, because it grows with the retries a request took rather than with its answe
 | --- | --- |
 | `query_data(request)` | Left out |
 | `query_data(request, include_plan=True)` | Present |
-| `query_data(request, explain=True)` | Present. `status` is `planned`, `answer` is `null`, and the plan is all that comes back |
+| `query_data(request, explain=True)` | Present. `status` is `planned`, or `invalid_plan`, `llm_failed`, or `planner_failed` when no plan could be written; `answer` is `null`, and the plan is all that comes back |
 
 A run that did not finish still returns the normal payload, with `status` and `failure_reason`
 saying why: `budget_exhausted`, `replan_exhausted`, `operator_failed`, `llm_failed`,

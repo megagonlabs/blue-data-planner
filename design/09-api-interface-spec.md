@@ -6,9 +6,10 @@ planning, operator selection, or execution logic lives in an interface; each one
 formats responses, maps errors, and loads configuration. Authentication and authorization belong to
 the deployment.
 
-This document covers what each interface accepts and returns.
-[10-data-model.md](10-data-model.md) specifies the shape of a plan and a result, including the JSON
-form they travel in, which is the part that has to stay stable across versions.
+This document covers what each interface accepts and returns. What each class does is in
+[06-library.md](06-library.md), the shape of a plan and a result and the JSON form they travel in is
+in [10-data-model.md](10-data-model.md), and every configuration value with its default is in
+[12-deployment-ops.md](12-deployment-ops.md#4-configuration).
 
 ---
 
@@ -18,280 +19,293 @@ The canonical interface. The CLI and the MCP server call it; neither adds behavi
 
 ### The public surface
 
-`blue_data_planner/__init__.py` holds `__version__` and the run path, so a caller who runs a planner
-and reads its result writes one import. Everything else is reached through the module that owns it.
-
 | Import | Holds |
 | --- | --- |
 | `blue_data_planner` | `DataPlanner`, `build_data_planner`, `PlannerSettings`, `build_data_planner_from_settings`, `RunResult`, `RunLimits`, `RunStatus`, `BlueDataPlannerError`, `__version__` |
-| `blue_data_planner.data_planner` | `DataPlanner`, `build_data_planner` |
+| `blue_data_planner.data_planner` | `DataPlanner`, `build_data_planner`, `DEFAULT_LLM_CLIENT_NAME` |
+| `blue_data_planner.settings` | `PlannerSettings`, `build_data_planner_from_settings`, `DEFAULT_MODEL`, `DEFAULT_OPERATOR_SUITES`, `REASONING_EFFORTS` |
 | `blue_data_planner.logical_planner`, `.physical_planner`, `.fragment_runner` | The three planning components, one module each |
 | `blue_data_planner.catalog_searcher` | `CatalogSearcher` |
 | `blue_data_planner.run_state` | `RunState` |
-| `blue_data_planner.types` | Plan, node, result, and limit types, the enums, `summarize_table`, and every exception this library defines, `BlueDataPlannerError` first |
-| `blue_data_planner.plan` | `validate_logical_plan`, `validate_physical_plan`, `candidate_fragments` |
+| `blue_data_planner.types` | Plan, node, result, catalog, and limit types, the enums, `summarize_table`, and every exception this library defines |
+| `blue_data_planner.plan` | `validate_logical_plan`, `validate_physical_plan`, `candidate_fragments`, `candidate_label`, `fragment_frontier`, `signatures`, the response schemas, and the `NONE` and `REUSE` markers |
 | `blue_data_planner.execution` | `execute_physical_operator`, `check_output_columns`, `project_answer` |
 | `blue_data_planner.operators` | `OperatorRouter`, `OperatorSuite`, `operator_suite`, `OPERATOR_SUITE_NAMES` |
-| `blue_data_planner.operators.adapters.blue`, `.adapters.lotus`, `.builtin` | `BlueSuite`, `LotusSuite`, `BuiltinSuite`, and the `blue_operators`, `lotus_operators`, and `builtin_operators` each is built over |
-| `blue_data_planner.data` | `DataCatalog`, `open_registry`, and the source-level reads |
+| `blue_data_planner.operators.builtin` | `BuiltinSuite`, `builtin_operators` |
+| `blue_data_planner.operators.adapters.blue` | `BlueSuite`, `blue_operators` |
+| `blue_data_planner.operators.adapters.lotus` | `LotusSuite`, `lotus_operators`, `lotus_is_installed` |
+| `blue_data_planner.data` | `DataCatalog`, `DataRegistry`, `open_registry`, `connect_source`, `execute_query`, `execute_write` |
 | `blue_data_planner.llm` | `LLMClient`, `Conversation`, `Turn`, `LLMError`, `LLMClientProvider`, `CachingLLMClientProvider`, `resolve_llm_client`, `UsageLedger`, `UsageRecord` |
-| `blue_data_planner.settings` | `PlannerSettings`, `build_data_planner_from_settings` |
 
-Public is the package root, every module directly inside it, and the `__init__.py` of `types/`,
-`plan/`, `execution/`, `operators/`, `data/`, and `llm/`. A module nested inside one of those
-directories is not, and can be split or renamed within a minor version. The adapters are the one
-exception: `operators/__init__.py` names the router and the suite lookup and nothing of a suite
-itself, so an adapter is imported from `adapters/`, under the name of its suite, and each of
-those modules is public where it sits. `operator_suite` imports the one it is asked for inside
-its own body, so naming a suite never loads another's dependency.
+Public is the package root, every module directly inside it, the `__init__.py` of `types/`,
+`plan/`, `execution/`, `operators/`, `data/`, and `llm/`, and the module of each suite listed above.
+A module nested anywhere else is not, and can be split or renamed within a minor version. A caller
+who wants physical operators alone reads a suite's module and `types`, and constructs no planner.
 
-That exception is what keeps the root cheap to import. Python runs a package's `__init__.py` before
-any module inside it, so what the root names is paid by every import from this package. The run path
-costs little — `types/` reaches nothing outside itself, `llm/` imports its provider inside
-`LLMClient`'s own methods, and `data/` imports a light dependency — while an operator suite is the
-one import heavy enough to be worth keeping off that path.
-
-Public means three things at once. A name here is covered by semantic versioning, so renaming or
-removing it breaks a version. `platform/*` imports these modules and no others
-([08-coding-style.md](08-coding-style.md)). And every signature here is typed, since the package
-ships `py.typed`.
-
-A caller who wants physical operators alone reads `operators.adapters.blue` and `types`, and
-constructs no planner.
-
-When an adapter needs something absent from this list, the library is missing a method, and the fix
-is to add one rather than to import a private module.
+A public name is covered by semantic versioning, so renaming or removing one breaks a version.
+`platform/*` imports these modules and no others ([08-coding-style.md](08-coding-style.md)), and
+every signature here is typed, since the package ships `py.typed`. When an interface needs
+something absent from this list, the library is missing a method, and the fix is to add one.
 
 ### Assembly
 
-Nothing reads the environment: every value a planner runs on is resolved by whoever builds it. What
-building it takes is one call.
+```python
+def build_data_planner(
+    data_registry: DataRegistry,
+    *,
+    suites: Sequence[OperatorSuite],
+    model: str,
+    reasoning_effort: str | None = None,
+    limits: RunLimits | None = None,
+    llm_client_name: str = "blue_data_planner",
+) -> DataPlanner: ...
+
+
+def build_data_planner_from_settings(
+    settings: PlannerSettings, *, llm_client_name: str = "blue_data_planner"
+) -> DataPlanner: ...
+
+
+@dataclass(frozen=True)
+class PlannerSettings:
+    registry_path: Path
+    model: str = DEFAULT_MODEL
+    reasoning_effort: str = "low"
+    operator_suites: tuple[str, ...] = DEFAULT_OPERATOR_SUITES
+    lotus_model: str | None = None            # None: use model
+    lotus_reasoning_effort: str = "none"
+    lotus_max_rows: int = 5000
+    enable_nl2table: bool = False
+    limits: RunLimits = RunLimits()
+
+
+class DataPlanner:
+    def __init__(
+        self,
+        logical_planner: LogicalPlanner,
+        physical_planner: PhysicalPlanner,
+        fragment_runner: FragmentRunner,
+        catalog_searcher: CatalogSearcher,
+        limits: RunLimits,
+    ) -> None: ...
+```
+
+The three ways to build a planner differ in what the caller already holds.
+
+| Caller holds | Calls |
+| --- | --- |
+| A registry and suite objects | `build_data_planner` |
+| Configured values, such as an interface resolving its own settings | `build_data_planner_from_settings`, which opens the registry and builds the suites the settings name |
+| Four components, such as a different model per component or a fake in a test | The `DataPlanner` constructor |
+
+The suites a caller passes are objects, each carrying its own options.
+
+```python
+def open_registry(registry_path: Path) -> DataRegistry: ...
+def operator_suite(name: str) -> OperatorSuite: ...
+
+
+@dataclass(frozen=True)
+class BuiltinSuite:
+    with_nl2table: bool = False
+
+
+@dataclass(frozen=True)
+class BlueSuite:
+    operator_registry: OperatorRegistry | None = None
+
+
+@dataclass(frozen=True)
+class LotusSuite:
+    model: str | None = None
+    max_rows: int = 5000
+    reasoning_effort: str | None = None
+```
+
+A registry is populated by `blue-data` before it reaches this package (ADR-003). `open_registry`
+reads a serialized one; a caller holding a `DataRegistry` it assembled itself passes that one
+instead. `operator_suite` maps a configured name (`builtin`, `blue`, or `lotus`) to a suite with its
+default options. A `LotusSuite` registers nothing where LOTUS is not installed.
 
 ```python
 from pathlib import Path
 
-from blue_data_planner import RunLimits, build_data_planner
+from blue_data_planner import build_data_planner
 from blue_data_planner.data import open_registry
-from blue_data_planner.operators.adapters.blue import BlueSuite
-from blue_data_planner.operators.adapters.lotus import LotusSuite
 from blue_data_planner.operators.builtin import BuiltinSuite
 
 planner = build_data_planner(
     open_registry(Path("registry.json")),
-    suites=[
-        BlueSuite(),
-        LotusSuite(),  # registers nothing where LOTUS is not installed
-        # with_nl2table registers the experimental entry that writes and runs a Python program;
-        # it is not a security boundary (ADR-020)
-        BuiltinSuite(with_nl2table=True),
-    ],
+    suites=[BuiltinSuite()],
     model="openai/gpt-4o",
-    limits=RunLimits(),
 )
+result = planner.run("Which three countries do the most customers come from?")
 ```
 
-The first argument is a `blue-data` registry, obtained from `data/` and passed back into it. A
-caller reads nothing off it and constructs no source from it. `open_registry` is the one way in: a
-registry is populated by `blue-data` before it reaches this package (ADR-003), so a caller that
-assembled one itself passes that one in place of this call. It reaches a suite adapter unchanged,
-because a suite that reads data takes a registry of its own (ADR-004).
-
-A suite arrives as an object rather than a name, and each one holds the options that suite takes, so
-this signature names no suite and grows no argument when one is added
-([06-library.md](06-library.md#what-each-suite-offers)). A caller holding configured names calls
-`operator_suite` for each, which raises `UnknownOperatorSuiteError` on a name no suite answers to.
-
-`build_data_planner` constructs the model client from `model` and `reasoning_effort`, registers what
-each suite returns, wraps the registry in a `DataCatalog`, and hands `DataPlanner` its four
-components and the limits.
-
-A caller holding the values rather than the objects passes a `PlannerSettings` to
-`build_data_planner_from_settings` instead, which opens the registry those values name and builds
-the suites they list ([06-library.md](06-library.md#the-values-a-planner-is-built-from)). That is
-the route both the CLI and the MCP server take: each resolves settings its own way and hands one
-over.
-
-A caller who wants a different model per component, or a fake component in a test, builds the four
-and calls the constructor:
+### Operations
 
 ```python
-from blue_data_planner import DataPlanner
-from blue_data_planner.catalog_searcher import CatalogSearcher
-from blue_data_planner.fragment_runner import FragmentRunner
-from blue_data_planner.logical_planner import LogicalPlanner
-from blue_data_planner.physical_planner import PhysicalPlanner
-
-planner = DataPlanner(
-    logical_planner=LogicalPlanner(llm_client=big_model, catalog=catalog),
-    physical_planner=PhysicalPlanner(llm_client=small_model, router=router),
-    fragment_runner=FragmentRunner(llm_client=small_model, catalog=catalog, router=router),
-    catalog_searcher=CatalogSearcher(llm_client=small_model, catalog=catalog),
-    limits=limits,
-)
+class DataPlanner:
+    def run(self, request: str) -> RunResult: ...
+    def plan(self, request: str) -> RunResult: ...
 ```
 
-A bound is set once, here. `DataPlanner` is the only object holding `RunLimits`, and a component that
-obeys a bound reads it off the `RunCounters` it is handed per call. A number a component's
-constructor does take is a number that is not a bound on a run, which is why `CatalogSearcher` can
-be given one for the search terms a `DISCOVER` node expands into.
-
-### `DataPlanner`
-
-```python
-def run(self, request: str) -> RunResult: ...
-def plan(self, request: str) -> RunResult: ...
-```
-
-| Operation | Does | Returns | Spends operator calls |
+| Operation | Does | Can end as | Spends operator calls |
 | --- | --- | --- | --- |
-| `run` | Plans, covers, executes, and repairs until the request ends | A `RunResult` whose status says how it ended | Yes |
-| `plan` | Writes one logical plan and one cover, then stops | A `RunResult` with status `planned` and `answer` set to `None` | No |
+| `run` | Plans, covers, executes, and repairs until the request ends | Any request ending in [Results](#results) except `planned` | Yes |
+| `plan` | Writes one logical plan and one cover, then stops | `planned`, `invalid_plan`, `llm_failed`, `planner_failed` | No |
 
-Both take a request in plain language and nothing else. A plan is what a request produced, so no
-entry point accepts one: `to_dict` writes a plan for a reader, and `from_dict` reads a recorded plan
-back rather than feeding one in ([06-library.md](06-library.md#two-operations)).
+Both take a request in plain language and nothing else. No operation accepts a plan, and neither
+takes a limit, since limits are fixed when the planner is built. A plan whose first pass ends in a
+`DISCOVER` node comes back from `plan` as it stands, with no search run.
 
-Limits are fixed when the planner is built, so neither operation takes an override. A planner
-configured for a benchmark run and one configured for an interactive session are two objects.
+### Results
 
-`plan` can end as `planned`, `invalid_plan`, or `llm_failed`, which are the three outcomes reachable
-without running anything. A plan whose first pass ends in a `DISCOVER` node comes back as it stands,
-with no search run, since resolving one would start the second pass.
-
-### Bounds on a run
-
-Every bound is a field of `RunLimits`, held by `DataPlanner` and read off the `RunCounters` it builds
-for each request. Three are counted across a whole request and reported in `RunCounters`; the other
-four reset inside one. How many search terms one `DISCOVER` node expands into is not among them:
-reaching that number drops the extra terms and changes nothing else, so `CatalogSearcher` holds it.
-How a deployment sets a bound is in
-[12-deployment-ops.md](12-deployment-ops.md#5-request-limits).
-
-| Bound | Counted | Enforced by | Reaching it |
-| --- | --- | --- | --- |
-| `operator_calls` | Per request | `RunCounters`, billed in `execute_physical_operator` | `budget_exhausted` |
-| `plan_corrections` | Per plan | `LogicalPlanner`, rewriting a plan validation turned down | `invalid_plan` |
-| `parameter_repairs` | Per fragment | `FragmentRunner`, writing parameters again after a rejected review | The cover repair |
-| `cover_repairs` | Per logical plan | The run loop's cover repair loop | The replan |
-| `failure_replans` | Per request | `RunCounters`, read by the run loop | `replan_exhausted` |
-| `control_replans` | Per request | `RunCounters`, read by the run loop | `replan_exhausted` |
-
-The three recovery bounds are one repair each, tried narrowest first
-([04-detailed-architecture.md](04-detailed-architecture.md#5-recovering-from-a-failure)).
-
-### `RunResult`
-
-Returned whichever way a request ends, and fixed in
-[10, what a run produces](10-data-model.md#3-what-a-run-produces). `to_dict` writes the JSON
-form the CLI and the MCP server both send.
+Both operations return a `RunResult`, whichever way the request ended. Its fields are fixed in [10,
+what a run produces](10-data-model.md#3-what-a-run-produces), and `to_dict` writes the JSON form
+every interface sends ([10, shapes that leave the
+process](10-data-model.md#5-shapes-that-leave-the-process)).
 
 | Field | Type | Holds |
 | --- | --- | --- |
-| `status` | `RunStatus` | `ok`, `planned`, `invalid_plan`, `replan_exhausted`, `budget_exhausted`, `operator_failed`, `llm_failed`, `planner_failed` |
+| `status` | `RunStatus` | How the request ended |
 | `answer` | `DataBundle \| None` | The `RETURN` node's rows. `None` unless `status` is `ok` |
-| `failure_reason` | `str \| None` | Why the run ended as it did. `None` when `status` is `ok` |
+| `failure_reason` | `str \| None` | Why the run ended as it did. Every failure status carries one; `ok` never does, and `planned` does only when no cover could be written |
 | `pipeline` | `DataPipeline` | Every logical plan and every cover the request produced, with the current pair named |
 | `results` | `dict[str, FragmentResult \| DiscoveryResult]` | How each fragment ended and what each search found, keyed by the signature of the work |
-| `counters` | `RunCounters` | What the run spent against the four bounds counted per request, and those bounds |
-| `conversations` | `RunConversations` | Every exchange with the model, by the component that had it |
+| `counters` | `RunCounters` | What the run spent against the three bounds counted per request, and the `RunLimits` it ran under |
+| `conversations` | `RunConversations` | Every exchange with the model, by the component that had it, with its usage |
 
 `answer` is `None` rather than `[]` on any status other than `ok`, so a caller who ignores the
-status cannot mistake a failed run for an empty answer (ADR-015). `failure_reason` is the mirror of
-that rule: every failure status carries one, in the words of whatever ended the run. `ok` never
-carries one, and `planned` carries one only when no cover could be written.
+status cannot mistake a failed run for an empty answer (ADR-015).
 
-No field reports a node's outcome on its own. How a node's work ended is the `status` of the entry
-`results` holds under the signature the current cover gives it, and which operator ran it is that
-fragment's `operator_id` ([10](10-data-model.md#3-what-a-run-produces)). A fragment a review turned
-down is filed there too, with the objection as its `failure_reason`, so which step of a cover sent
-the run to a repair is read off the record rather than out of the transcript.
+| `RunStatus` | The request ended because |
+| --- | --- |
+| `ok` | The plan finished and the answer was projected |
+| `planned` | `plan` wrote its plan and stopped |
+| `invalid_plan` | The logical planner ran out of corrections without a plan that passes validation |
+| `replan_exhausted` | `failure_replans` or `control_replans` was reached |
+| `budget_exhausted` | `operator_calls` was reached |
+| `operator_failed` | An operator failed for a reason no other operator would avoid |
+| `llm_failed` | The model provider failed after retries, or answered in a shape the client cannot read |
+| `planner_failed` | A defect in the planner, with its message as the failure reason |
 
-`conversations` is where the words of a run's rejected work are read: a plan validation turned down,
-a binding the physical planner replaced, every parameter set a review rejected and what it said
-about each. It also carries what the calls cost, for
-calls through `llm/` and nothing else. A model call an operator makes internally, as a LOTUS operator
-does, is billed as part of the one operator call that contains it. Planner spend is exact; operator
-spend is a call count.
+`RunStatus` has two more members, `needs_repair` and `needs_replan`, which a fragment returns inside
+a run. A `RunResult` never carries either.
+
+### Limits
+
+```python
+@dataclass(frozen=True)
+class RunLimits:
+    operator_calls: int = 30
+    plan_corrections: int = 5
+    parameter_repairs: int = 3
+    cover_repairs: int = 2
+    failure_replans: int = 2
+    control_replans: int = 5
+```
+
+| Bound | Counted | Reaching it |
+| --- | --- | --- |
+| `operator_calls` | Per request | `budget_exhausted` |
+| `plan_corrections` | Per plan | `invalid_plan` |
+| `parameter_repairs` | Per fragment | The cover repair |
+| `cover_repairs` | Per logical plan | The replan |
+| `failure_replans` | Per request | `replan_exhausted` |
+| `control_replans` | Per request | `replan_exhausted` |
+
+The three counted per request are the fields of `RunCounters`. The other three reset inside a
+request. What each bound limits is in [06-library.md](06-library.md#budgets-and-limits), and how a
+deployment sets one is in [12-deployment-ops.md](12-deployment-ops.md#5-request-limits).
 
 ### Exceptions
 
-Exhaustion, operator failure, and provider failure are statuses, never exceptions (ADR-015). What
-does raise, in the order a caller meets it:
+Every exception this library defines is in `types/errors.py` and inherits `BlueDataPlannerError`.
+Exhaustion, operator failure, and provider failure are statuses, not exceptions (ADR-015).
 
 | Exception | Raised when | Reaches a caller |
 | --- | --- | --- |
-| `PlanValidationError` | A generated plan fails a structural check | Only from a direct `validate_logical_plan` or `validate_physical_plan` call. `LogicalPlanner` catches it and regenerates |
-| `UnknownOperatorSuiteError` | A name registers no operator suite | Always, from `operator_suite`. An interface maps it to its own configuration error |
-| `InvalidSettingError` | A `PlannerSettings` field, or the properties an `LLMClient` is built with, carry a value the planner cannot be built with | Always, from constructing `PlannerSettings` or an `LLMClient`, `build_data_planner` included. An interface maps it to its own configuration error |
-| `RegistryUnreadableError` | The path a registry is opened from names no file, or the file cannot be read | Always, from `open_registry`. An interface maps it to its own configuration error |
-| Any other `BlueDataPlannerError` | A defect in the planner, raised where it is found | Only from a direct call to the component that raised it |
-| `RecoverableOperatorError` | An operator refuses its input in a way a different operator might not | Only from a direct `execute_physical_operator` call |
-| `UnrecoverableOperatorError` | An operator fails for a reason no other operator would avoid | The same |
+| `UnknownOperatorSuiteError` | A name registers no operator suite | Always, from `operator_suite` and `build_data_planner_from_settings` |
+| `InvalidSettingError` | A `PlannerSettings` field, or the properties an `LLMClient` is built with, carry a value the planner cannot be built with | Always, from constructing `PlannerSettings` or an `LLMClient`, `build_data_planner` included |
+| `RegistryUnreadableError` | The path a registry is opened from names no file, or the file cannot be read | Always, from `open_registry` and `build_data_planner_from_settings` |
+| `OperatorRoutingError` | Two suites register the same operator id, or an operator id is unknown | Always, from `build_data_planner` and a direct `OperatorRouter` call |
+| `PlanFormatError` | A plan payload read by `from_dict` is missing a key or carries a value its node kind does not take | Always, from `from_dict` |
+| `UnknownNodeError`, `UnknownFragmentError` | A node or fragment id the plan does not hold | Always, from the plan method that looked it up |
+| `PlanValidationError` | A plan fails a structural check | Only from a direct `validate_logical_plan` or `validate_physical_plan` call. Inside a run, `LogicalPlanner` catches it and writes the plan again, and a cover failing validation ends the request as `planner_failed` |
+| `ReturnAnswerError` | The finished rows do not carry a column the ending names | Only from a direct `project_answer` call. The run loop answers it with a replan |
 | `BudgetExhaustedError` | The operator call budget reaches its cap | Only from a direct `execute_physical_operator` call. `FragmentRunner` catches it and returns `budget_exhausted` |
-| `LLMError` | The provider fails after retries, or answers in a shape the client cannot read | Only from a direct `LLMClient` call. `DataPlanner` catches it and ends the request as `llm_failed` |
-| `ValueError`, `TypeError`, and a suite's own validation errors | Malformed state, a missing configuration value, an unknown node or operator id | Always. These are bugs and they propagate |
+| `RecoverableOperatorError`, `UnrecoverableOperatorError` | An operator refuses its input, or fails for a reason no other operator would avoid | Never. `execute_physical_operator` turns each into a failed `ExecutionResult` |
+| `SourceQueryError`, `SourceUnreachableError` | A source refuses a query, or the registry holds no connectable source under a name | Only from a direct call into `data/`. An operator reading the source turns each into an operator error |
+| `LLMError` | The provider fails after retries, or answers in a shape the client cannot read | Only from a direct `LLMClient` call. `DataPlanner` ends the request as `llm_failed` |
+| Any other `BlueDataPlannerError` | A defect in the planner | Only from a direct call to the component that raised it. `DataPlanner` ends the request as `planner_failed` |
+| `ValueError`, `TypeError`, and an operator suite's own exceptions | Malformed state, a missing required value, or an operator raising something other than the two operator errors | Always. These are bugs, and they propagate out of `run` and `plan` |
 
-Every exception this library defines is in `types/errors.py` and inherits `BlueDataPlannerError`,
-which is there too. It inherits nothing from `blue-data-ops`, so an operator suite's own exceptions stay distinguishable
-from a planner's. A caller using
-`DataPlanner` sees the last row and nothing above it. Each of the others is caught by the component
-that expects it, and one a component did not expect is caught by the run loop, which ends the
-request as `planner_failed` with the message in `failure_reason`.
+A caller using `DataPlanner` meets the first four rows while building the planner. After that, a
+request returns a `RunResult` unless one of the bugs in the last row propagates.
 
 ---
 
 ## 2. CLI
 
-`blue-planner` puts the two library operations on the command line, in the shape the Blue CLI family
-uses: `<cli> <component> <action> <parameters>` (ADR-027).
+`blue-planner` puts the two library operations on the command line, in the shape the Blue CLI
+family uses: `<cli> <component> <action> <parameters>` (ADR-027).
 
-```bash
-blue-planner data query "Which Bay Area data scientist postings are at healthcare companies?"
+### Global options
+
+```text
+blue-planner [--profile NAME] COMPONENT ACTION [PARAMETERS] [OPTIONS]
+blue-planner --version
 ```
 
-### Commands
-
-| Command | Does |
+| Option | Effect |
 | --- | --- |
-| `data query REQUEST` | Runs `run`: plans, covers, executes, and repairs until the request ends, then prints the answer |
-| `data query REQUEST --explain` | Runs `plan`: writes one logical plan and one physical plan, prints them, and spends no operator call |
-| `profile add NAME` | Creates a profile |
-| `profile remove NAME` | Deletes a profile, after a confirmation |
-| `profile list` | Names every profile, marking the selected one |
-| `profile config [PARAM [VALUE]]` | Prompts for every required parameter, prompts for one, or sets one |
-| `profile inspect` | Every parameter, the value in force, and the tier that supplied it |
-| `profile select NAME` | Makes one profile the one later commands read |
+| `--profile NAME` | Which profile supplies configuration. Given before the component |
+| `--version` | Print the version of the CLI package and exit |
 
-The request is a positional parameter, in plain language. A plan is an output rather than an input,
-so no command accepts one.
+### `blue-planner data`
 
-### Options
+```text
+blue-planner data query REQUEST [--registry-path PATH] [--model NAME] [--format table|json]
+                                [--explain] [--log] [--log-limit N]
+```
 
-| Option | Commands | Effect |
-| --- | --- | --- |
-| `--profile NAME` | All | Which profile supplies configuration |
-| `--registry-path PATH` | `data query` | The `blue-data` registry to plan over |
-| `--model NAME` | `data query` | The litellm model string every component uses |
-| `--format table\|json` | Anything printing a result | How the result is written, from `BLUE_DATA_CLI_FORMAT` where the option is absent |
-| `--explain` | `data query` | Write the plan for the request and stop, running nothing |
-| `--log` | `data query` | Report what the run did, after the run |
-| `--log-limit N` | `data query` | The characters each line of the log is cut to, 80 by default |
-| `--confirm` | `profile remove` | Answer the confirmation ahead of time |
-| `--version` | The root | The package version |
+`data query` runs `run` and prints the answer. With `--explain` it runs `plan` instead, prints the
+plan, and spends no operator call. The request is a positional parameter in plain language; no
+command accepts a plan.
 
-`--format` and `--log` choose different things, and each is set independently of the other
-(ADR-032). The first decides how a result is written; the second decides whether the run behind it
-is reported. `--log-limit` takes effect where `--log` does.
+| Option | Effect |
+| --- | --- |
+| `--registry-path PATH` | The `blue-data` registry to plan over. Overrides `BLUE_DATA_REGISTRY_PATH` |
+| `--model NAME` | The litellm model string the planner uses. Overrides `BLUE_DATA_PLANNER_MODEL` |
+| `--format table\|json` | How the result is written. Defaults to `BLUE_DATA_CLI_FORMAT` |
+| `--explain` | Write the plan for the request and stop, running nothing |
+| `--log` | Report what the run did, fragment by fragment, after the run |
+| `--log-limit N` | The characters each line of the log is cut to. Defaults to `BLUE_DATA_CLI_LOG_LIMIT` |
 
-A bound a run reports back is a profile parameter rather than a flag: a bound is configuration,
-and configuration belongs to a profile (ADR-028). The three that reset inside a request carry no
-parameter, since no number says what a request spent against them, and a caller who needs one
-builds the planner itself. `--registry-path` and `--model` are the two settings an operator
-changes between one invocation and the next, so each carries the name of the parameter it
-overrides.
+`--format` and `--log` are independent (ADR-032): the first decides how a result is written, the
+second whether the run behind it is reported. A bound on a run is set through its profile parameter
+(ADR-028). The formats are `table` and `json` (ADR-029).
 
-`nl` is not one of the formats. An answer is a set of rows, and phrasing rows as a sentence is
-behavior no library operation has (ADR-029).
+### `blue-planner profile`
+
+```text
+blue-planner profile add NAME
+blue-planner profile remove NAME [--confirm]
+blue-planner profile list [--format table|json]
+blue-planner profile config [PARAM [VALUE]]
+blue-planner profile inspect [--format table|json]
+blue-planner profile select NAME
+```
+
+| Action | Does |
+| --- | --- |
+| `add` | Creates a profile |
+| `remove` | Deletes a profile after a confirmation; `--confirm` skips the prompt |
+| `list` | Names every profile, marking the selected one |
+| `config` | Prompts for every required parameter, prompts for one, or sets one. A secret is always prompted for, never taken as a value |
+| `inspect` | Every parameter, the value in force, and the tier that supplied it |
+| `select` | Makes one profile the one later commands read |
 
 ### Output
 
@@ -299,254 +313,94 @@ Standard output carries the command's result: the answer, or the plan where `--e
 one. Standard error carries the progress indicator, the log, the closing summary, and errors, so
 redirecting standard output captures the result alone.
 
-`--format table` renders each table of the result under its own column names, and a terminal gets a
-progress indicator naming the stage that is running. `--format json` writes one document, and it is
-`RunResult.to_dict` ([10](10-data-model.md#5-shapes-that-leave-the-process)): the result asked
-for, how the run ended, how each fragment ended, what the run spent, and what its model calls
-cost. A JSON document is read where no terminal is attached, so it carries in the document what
-`--format table` leaves to the closing summary on standard error. Every plan version the request
-produced is the one part it holds back, since that grows with what the request tried: it travels
-where `--explain` asked for the plan as the result, or where `--log` asked for the run behind the
-answer.
+| `--format` | Standard output | `--log` |
+| --- | --- | --- |
+| `table` | Each table of the result under its own column names | One table per physical plan on standard error |
+| `json` | One document: `RunResult.to_dict` without `pipeline` ([10](10-data-model.md#5-shapes-that-leave-the-process)) | Adds `pipeline` to the document instead of drawing the log on standard error |
 
-`--log` reports what the run did, one physical plan at a time. Its fragments come in the order the
-logical plan's dependencies put them, which is the order a run could have reached them, and each
-names the operator that ran it, the logical nodes it covered with the instruction each carried, the
-source each scan read, the fragments whose output it read, and how it ended. A fragment that ran
-carries its ending — a row count where the review kept the result, and the ending's name with the
-objection where it did not — and one the pass never got to reads as "not reached under this
-physical plan" (ADR-033). A `DISCOVER` node leads the physical plan its logical plan was written
-for, with what its search matched, since a search resolves before the plan reading it exists. Work
-a later physical plan asks for again is named rather than reported twice, because an accepted
-result was not run again (ADR-024). A run that failed closes the log with one more line naming why.
-
-What a narrow column cannot hold follows its table, under the id of the fragment it belongs to: the
-source each scan read, the objection a review raised, the columns of the first table the fragment
-produced, and the first rows of it. `--log-limit` cuts each line of the columns and the rows. It
-reaches neither an instruction, a source path, a match, nor an objection, so each of those is read
-whole however long it is.
-
-Where the log is drawn is what `--format` decides. Under `--format table` it is drawn on standard
-error, one table per physical plan, which is what lets an instruction wrap inside its own column.
-Under `--format json` it is the two keys it adds to the document on standard output, so standard
-error carries the closing summary alone.
-
-```text
-physical plan 1   logical plan 8c4a71d0
-┏━━━━━━━━━━━━━━━━━━┳━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━┓
-┃ Fragment         ┃ Node   ┃ Instruction                ┃ Input   ┃ Result                ┃
-┡━━━━━━━━━━━━━━━━━━╇━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━┩
-│ f1               │ n2     │ load job postings          │         │ ok  140 rows          │
-│ builtin.scan     │ SCAN   │                            │         │                       │
-│                  │ n3     │ find the Bay Area postings │         │                       │
-│                  │ FILTER │                            │         │                       │
-├──────────────────┼────────┼────────────────────────────┼─────────┼───────────────────────┤
-│ f2               │ n4     │ keep the healthcare        │ from f1 │ needs_repair  31 rows │
-│ lotus.sem_filter │ FILTER │ postings                   │         │                       │
-└──────────────────┴────────┴────────────────────────────┴─────────┴───────────────────────┘
-  f1
-      reads  n2  /source/jobs/database/hiring/collection/public/entity/postings
-      columns  company, location, title
-      {'title': 'Senior Data Scientist', 'company': 'Corvus Health', 'location'…
-  f2
-      reason  the review said a keyword match cannot tell a healthcare employer apart
-
-counters  operator calls 7/30   failure replans 0/2   control replans 1/2
-model     11 calls   $0.42
-```
-
-A physical plan is written whole, so every fragment of it appears, and a fragment carried into a
-later one shows as the reuse it is.
+With `--explain`, the JSON document carries `pipeline`, since the plan is the result. What the log
+shows for each fragment, and how, is in [platform/cli/README.md](../platform/cli/README.md).
 
 ### Errors and exit codes
 
-An error reaches standard error as `ERROR: <CODE> <description>`.
+An error other than a usage error reaches standard error as `ERROR: <CODE> <description>`, whatever
+`--format` says. A usage error prints the usage message.
 
 | Code | Raised for |
 | --- | --- |
-| `CONFIG_INVALID` | A required parameter with no value, such as the registry path, or a parameter whose value cannot be used, such as an unknown operator suite |
+| `CONFIG_INVALID` | A required parameter with no value, such as the registry path, or a value that cannot be used, such as an unknown operator suite |
 | `REGISTRY_UNREADABLE` | A registry path that does not exist or does not parse |
 | `PROFILE_NOT_FOUND` | A named profile that does not exist |
-| `ABORTED` | A confirmation prompt, such as `profile remove` without `--confirm`, declined |
-| `INVALID_PLAN`, `REPLAN_EXHAUSTED`, `BUDGET_EXHAUSTED`, `OPERATOR_FAILED`, `LLM_FAILED`, `PLANNER_FAILED` | A run that ended with that status, carrying its failure reason. The code is the status's own name, so this list is whichever endings `RunStatus` holds |
-| `INTERNAL_ERROR` | An exception the adapter did not expect |
+| `ABORTED` | A declined confirmation prompt |
+| `INVALID_PLAN`, `REPLAN_EXHAUSTED`, `BUDGET_EXHAUSTED`, `OPERATOR_FAILED`, `LLM_FAILED`, `PLANNER_FAILED` | A run that ended with that status, carrying its failure reason |
+| `INTERNAL_ERROR` | An exception the CLI did not expect |
 
-A missing or rejected API key is reported by the provider on the first model call, so the run
-ends as `LLM_FAILED` and the provider's message is its failure reason.
+A missing or rejected API key is reported by the provider on the first model call, so the run ends
+as `LLM_FAILED` with the provider's message as its failure reason. Under `--format json`, a run that
+ended with a failure status still prints its document on standard output, so a failed run stays
+machine-readable.
 
 | Exit code | Meaning |
 | --- | --- |
-| 0 | The command succeeded; for a query action, the run ended `ok` or `planned` |
-| 1 | Any error above |
+| 0 | Success; for `data query`, the run ended `ok` or `planned` |
+| 1 | Any error above (ADR-030) |
 | 2 | A usage error: a missing argument, an unknown option, a value outside what an option allows |
-
-A configuration failure is told apart by its error code (ADR-030). A logical plan no cover can be
-written for is neither: physical planning returns to the logical planner instead of writing one, and
-a request that never finds a cover ends as `replan_exhausted`, which is code 1
-([06-library.md](06-library.md#operatorrouter)).
-
-Under `--format json`, a run that produced a result prints that result on standard output whatever
-its status, so a failed run stays machine-readable, and the status and failure reason in the wrapper
-say how it ended. An error outside a run — a configuration
-failure, an internal error, or a declined confirmation — always prints as the plain
-`ERROR: <CODE> <description>` line on standard error; `--format` has no effect on it.
 
 ---
 
 ## 3. MCP server
 
-The server hosts one tool, which is what an agent uses to hand over a whole question. Driving one
-operation directly is an operator suite's own concern.
+`blue-data-planner-mcp` hosts one tool, which an agent uses to hand over a whole question. It builds
+one planner from the environment on the first tool call and holds it for the process lifetime.
 
-### The tool
-
-```python
-query_data(request: str, explain: bool = False, include_plan: bool = False) -> str
-```
-
-| Parameter | Description carried in the schema |
+| Tool | Calls |
 | --- | --- |
-| `request` | The question to answer, in plain language, self-contained |
-| `explain` | Write the plan and stop. No operator runs, and no answer comes back |
-| `include_plan` | Return every plan the request produced alongside the answer. `explain` already returns them |
+| `query_data(request, explain=False, include_plan=False)` | `DataPlanner.run`, or `DataPlanner.plan` when `explain` is set |
 
-`query_data` reaches `DataPlanner.run`, or `DataPlanner.plan` when `explain` is set. The verb is the
-CLI's (`blue-planner data query`), and the noun is the CLI's component (ADR-038). No argument takes
-a limit. The server builds one planner from the environment on the first tool call and holds it for
-the process lifetime, so how much a run may spend is a deployment decision rather than something an
-agent has a basis for choosing.
+The tool returns `RunResult.to_dict` as a JSON string
+([10, shapes that leave the process](10-data-model.md#5-shapes-that-leave-the-process)), with
+`pipeline` only when `explain` or `include_plan` is set. No argument takes a limit: how much a run
+may spend is a deployment decision.
 
-### What the server deliberately does not expose
+The verb and the noun are the CLI's `data query` (ADR-038). Each parameter's description and an
+example response are in [platform/mcp/README.md](../platform/mcp/README.md#the-tool).
 
 | Not exposed | Because |
 | --- | --- |
-| Profile management | The server has no interactive user; it is configured by the `env` block of whoever launches it |
-| Registry and catalog lookups | `blue-data`'s `registry-mcp` already exposes `list_sources` and `search_records`. The operator registry is in-process (ADR-009) |
+| Profile management | The server has no interactive user; the `env` block of whoever launches it configures it |
+| Registry and catalog lookups | `blue-data`'s `registry-mcp` already exposes them, and the operator registry is in-process (ADR-009) |
 | One tool per operator | Driving a single operator is an operator suite's concern |
 | MCP resources | The family is tools-only (ADR-038) |
-
-### The response
-
-`RunResult.to_dict`, serialized to JSON. `pipeline` travels only where the call asked for it; every
-other key travels on every call: `status`, `answer`, `failure_reason`, `results`, `counters`,
-`conversations`.
-
-| Call | `pipeline` |
-| --- | --- |
-| `query_data(request)` | Left out |
-| `query_data(request, include_plan=True)` | Present |
-| `query_data(request, explain=True)` | Present. The plan is the answer |
-
-```json
-{
-  "status": "ok",
-  "answer": [
-    [
-      {"title": "Senior Data Scientist", "company": "Corvus Health", "location": "San Francisco, CA"}
-    ]
-  ],
-  "failure_reason": null,
-  "results": {
-    "a3f1c208": {"search_terms": ["job postings"], "matches": [{"...": {}}], "dropped_terms": 0},
-    "7b40de91": {"status": "ok", "failure_reason": null, "operator_id": "builtin.scan",
-                 "row_count": 48, "output": [{"row_count": 48, "columns": ["..."],
-                                              "sample_rows": [{"...": {}}]}]}
-  },
-  "counters": {"operator_calls": 7, "failure_replans": 0, "control_replans": 1,
-               "limits": {"...": {}}},
-  "conversations": {"calls": 11, "cost": 0.42}
-}
-```
-
-Two shapes differ from the library's, and each is a measure where the library carries the whole
-([10, shapes that leave the process](10-data-model.md#5-shapes-that-leave-the-process)): an
-exchange, which travels as a call count and a cost, and the rows a fragment returned, which
-travel as a table summary. Both grow with the work a request did rather than with its answer, so
-carrying either whole would bloat every response. Everything else travels whole, the bounds
-inside `counters` and a `DISCOVER` node's matches included.
-
-A run that did not finish returns the same object with its status, `answer` null, and the counters
-showing what ran out. That is a successful tool call reporting a failed run, not a tool error.
 
 ### Errors
 
 | Condition | Result |
 | --- | --- |
-| A run that did not finish | Success, with a status in the payload |
-| An operator failing inside a run | Success. The fragment's attempt carries it |
+| A run that did not finish, or an operator failing inside one | A successful tool call, with the status and the fragment's attempt in the payload |
 | Anything the tool raises: an unreadable registry, an unknown operator suite name, an invalid setting | A successful tool call whose payload is `{"error": "<message>"}` (ADR-036) |
 | An argument the tool's schema refuses | A protocol-level tool error, raised before the tool runs |
-
-Every raised failure carries the same one-key payload, so a client tells an unreadable registry
-from an invalid setting only by reading the message. That is the price of the family's shared error
-convention.
-
-### Registry access
-
-The operator registry and the router are in-process, built by whoever assembles the planner
-(ADR-009). Physical planning makes no network call to discover an operator, and which operators a
-deployment registered is fixed by what it installed and assembled.
 
 ---
 
 ## 4. REST API
 
 Not in the first release. `platform/api/` is reserved, and no package declares a web framework. A
-future REST API maps to the same two library operations the other interfaces use, so its endpoint
-shapes are specified when someone builds it.
+REST API maps to the same two library operations the other interfaces use, so its endpoint shapes
+are specified when it is built.
 
 ---
 
 ## Configuration
 
-The library takes settings as injected values and reads no environment variable itself. Each
-interface loads what it needs and passes it into the constructors.
+The library reads no environment variable: every value arrives through a constructor or a
+`PlannerSettings`. Each interface resolves its own values and hands them over.
 
-The MCP server reads no configuration file. It reads the environment, which is how a client that
-launches it as a subprocess configures it. `blue-planner` resolves each setting in one order —
-**command option > environment variable > profile > default** — and `profile inspect` reports the
-tier that supplied each value (ADR-028).
+| Interface | Reads | Order |
+| --- | --- | --- |
+| CLI | Command options, the environment, and a profile | Command option, then environment variable, then profile, then default (ADR-028). `profile inspect` shows the tier that supplied each value |
+| MCP server | The environment | Environment variable, then default |
 
-| Parameter | Cast | Default | Asked by `profile config` |
-| --- | --- | --- | --- |
-| `OPENAI_API_KEY` | secret | None, required | ✓ |
-| `BLUE_DATA_REGISTRY_PATH` | file | None, required | ✓ |
-| `BLUE_DATA_PLANNER_MODEL` | str | `BLUE_DATA_LLM_MODEL`, then `openai/gpt-5.6-luna` | ✓ |
-| `BLUE_DATA_PLANNER_REASONING_EFFORT` | str | `low` | |
-| `BLUE_DATA_PLANNER_OPERATORS` | str | `builtin,lotus` | ✓ |
-| `BLUE_DATA_PLANNER_LOTUS_MODEL` | str | Inherits `BLUE_DATA_PLANNER_MODEL` | |
-| `BLUE_DATA_PLANNER_LOTUS_REASONING_EFFORT` | str | `none` | |
-| `BLUE_DATA_PLANNER_LOTUS_MAX_ROWS` | int | `5000` | |
-| `BLUE_DATA_PLANNER_ENABLE_NL2TABLE` | bool | `false` | |
-| `BLUE_DATA_PLANNER_MAX_OPERATOR_CALLS` | int | `30` | |
-| `BLUE_DATA_PLANNER_MAX_FAILURE_REPLANS` | int | `2` | |
-| `BLUE_DATA_PLANNER_MAX_CONTROL_REPLANS` | int | `5` | |
-| `BLUE_DATA_CLI_FORMAT` | str | `table` | |
-| `BLUE_DATA_CLI_LOG_LIMIT` | int | `80` | |
-
-The first row, `BLUE_DATA_CLI_FORMAT`, and `BLUE_DATA_CLI_LOG_LIMIT` are family-wide parameters,
-declared once for every Blue CLI rather than by `blue-planner` alone.
-`BLUE_DATA_PLANNER_MODEL` reads
-`BLUE_DATA_LLM_MODEL` where it is unset, and
-`BLUE_DATA_PLANNER_LOTUS_MODEL` reads `BLUE_DATA_PLANNER_MODEL` the same way. Setting
-`BLUE_DATA_PLANNER_REASONING_EFFORT` to `off` omits the parameter from the LLM call, for a model
-that does not accept it; `none` is a different, real value that litellm still forwards to the
-provider, disabling reasoning rather than omitting the parameter.
-`BLUE_DATA_PLANNER_LOTUS_REASONING_EFFORT` does not inherit from
-`BLUE_DATA_PLANNER_REASONING_EFFORT`: it defaults to `none` on its own, since a LOTUS operation
-spends many calls per row and gains little from added reasoning.
-
-A `MAX_` name is a `RunLimits` field with a prefix saying the number is a cap, which the field name
-alone does not: `RunLimits` drops it because the type name already says limits, and a profile has no
-such container. The two `BLUE_DATA_CLI_` names are the family's, shared with the other Blue CLIs.
-
-The family-wide spec also contributes `ANTHROPIC_API_KEY`, `BLUE_DATA_LLM_PROVIDER`, and
-`BLUE_DATA_LLM_MODEL`, all visible through `profile inspect`. `BLUE_DATA_LLM_MODEL` is required,
-so `profile config` prompts for it as well as for the parameters the table marks.
-
-A secret is never a command-line value. `profile config OPENAI_API_KEY` prompts, and stores either
-an encoded value or a reference such as `$OPENAI_API_KEY`, resolved when a command runs.
-`profile inspect` masks a stored secret and shows a reference by name with whether it resolves.
-
-Where each value lands is [12-deployment-ops.md](12-deployment-ops.md#4-configuration), together
-with the directory a profile lives in.
+Every variable, its default, and what it sets is in
+[12-deployment-ops.md](12-deployment-ops.md#4-configuration), with the directory a CLI profile lives
+in. Which parameters `profile config` asks for, and each one's type, are in
+[platform/cli/README.md](../platform/cli/README.md).

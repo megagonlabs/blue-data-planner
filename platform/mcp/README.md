@@ -89,34 +89,50 @@ it. [`docs/mcp.md`](../../docs/mcp.md) covers the response keys and the error pa
   "status": "ok",
   "answer": [
     [
-      {"title": "Senior Data Scientist", "company": "Corvus Health", "location": "San Francisco, CA"}
+      {"country": "Mexico", "customer_count": 3},
+      {"country": "Germany", "customer_count": 2},
+      {"country": "UK", "customer_count": 2}
     ]
   ],
   "failure_reason": null,
   "results": {
+    "9d2f61b4…": {
+      "search_terms": ["customers"],
+      "matches": [
+        {
+          "path": "/source/northwind/database/northwind/collection/public/entity/customers",
+          "name": "customers",
+          "search_term": "customers",
+          "...": "..."
+        }
+      ],
+      "dropped_terms": 0
+    },
     "4b9e0c7a…": {
       "status": "ok",
       "failure_reason": null,
-      "operator_id": "lotus.sem_filter",
-      "row_count": 1,
+      "operator_id": "builtin.sort_superlative",
+      "row_count": 3,
       "output": [
         {
-          "row_count": 1,
-          "columns": ["company", "location", "title"],
-          "sample_rows": [
-            {"title": "Senior Data Scientist", "company": "Corvus Health", "location": "San Francisco, CA"}
-          ]
+          "row_count": 3,
+          "columns": ["country", "customer_count"],
+          "sample_rows": [{"country": "Mexico", "customer_count": 3}, "..."]
         }
       ]
     }
   },
-  "counters": {"operator_calls": 4, "failure_replans": 0, "control_replans": 0, "limits": {"...": "..."}},
-  "conversations": {"calls": 6, "cost": 0.11}
+  "counters": {
+    "operator_calls": 3, "failure_replans": 0, "control_replans": 0, "limits": {"...": "..."}
+  },
+  "conversations": {"calls": 12, "cost": 0.0}
 }
 ```
 
 Each `results` key is shortened here; a full one is a sha256 signature of the work behind one
-node. A client reads an entry by iterating, since there is no fragment id to index by.
+node. A client reads an entry by iterating, since there is no fragment id to index by. An entry
+carrying `search_terms` is what a `DISCOVER` node's registry search found; an entry carrying
+`status` is how one fragment ended, with its rows as a table summary.
 
 An error the server catches — an unreadable registry, an unknown operator suite name, an invalid
 setting — returns `{"error": "<message>"}` instead.

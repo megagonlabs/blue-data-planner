@@ -195,7 +195,7 @@ Frozen. Every bound a run obeys, set once when the planner is built.
 | `parameter_repairs` | `3` | Parameter rewrites within one fragment | The cover repair |
 | `cover_repairs` | `2` | Covers after the first, per logical plan | The replan |
 | `failure_replans` | `2` | Replans a failure forced | `replan_exhausted` |
-| `control_replans` | `2` | Replans a control node asked for | `replan_exhausted` |
+| `control_replans` | `5` | Replans a control node asked for | `replan_exhausted` |
 
 Model calls are not budgeted. The three repairs and their order are in
 [architecture.md](architecture.md#the-three-repairs).
@@ -251,6 +251,7 @@ than exceptions, so a caller holding a `DataPlanner` meets almost none of them.
 | `BudgetExhaustedError` | `RunCounters.spend_operator_call`, at the cap | `FragmentRunner` catches it and returns `budget_exhausted` |
 | `RecoverableOperatorError` | An operator refusing input another operator might accept | `execute_physical_operator` turns it into a failed `ExecutionResult` |
 | `UnrecoverableOperatorError` | An operator failing for a reason no other operator would avoid | The same, with `ErrorKind.UNRECOVERABLE` |
+| `RegistryUnreadableError` | `open_registry`, when the path names no file or the file cannot be read | Always |
 | `SourceQueryError` | `execute_query`, `execute_write`, when a source refuses | Always |
 | `SourceUnreachableError` | `connect_source`, when the registry holds no connectable source under the name | Always |
 | `LLMError` | `LLMClient`, when the provider fails after its retries or answers in a shape the client cannot read | `DataPlanner` catches it and ends the request as `llm_failed` |
@@ -279,7 +280,7 @@ Every data class that crosses a module boundary. The package imports nothing els
 | Catalog | `AttributeRef`, `AttributeRecord`, `AttributeView`, `EntityMatch`, `SourceRecord`, `CatalogPreview` |
 | Run | `RunResult`, `RunStatus`, `RunLimits`, `RunCounters`, `RunConversations`, `Conversation`, `Turn`, `LLMUsage` |
 | Per-step results | `ExecutionResult`, `ExecutionStatus`, `ErrorInfo`, `ErrorKind`, `FragmentResult`, `FragmentReviewDecision`, `DiscoveryResult`, `LogicalPlanResult`, `PhysicalPlanResult` |
-| Exceptions | The thirteen in the table above |
+| Exceptions | Every exception in the table above |
 
 `LogicalPlan`, `PhysicalPlan`, and `DataPipeline` each carry `to_dict` and `from_dict`, which is
 how a plan travels out of the process and back.
@@ -392,10 +393,11 @@ class DataCatalog:
     def attribute_views(self, entity_path: str) -> list[AttributeView]: ...
 ```
 
-`open_registry` raises `FileNotFoundError` on a missing file rather than handing back an empty
-registry, and `DataRegistry` is re-exported from `blue-data`. The three `DataCatalog` readings are
-all the planning components see of the catalog: `preview` for the logical planner,
-`search_records` for the catalog searcher, `attribute_views` for the fragment runner.
+`open_registry` raises `RegistryUnreadableError` on a missing or unreadable file rather than
+handing back an empty registry, and `DataRegistry` is re-exported from `blue-data`. The three
+`DataCatalog` readings are all the planning components see of the catalog: `preview` for the
+logical planner, `search_records` for the catalog searcher, `attribute_views` for the fragment
+runner.
 
 ### `blue_data_planner.llm`
 

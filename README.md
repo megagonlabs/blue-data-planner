@@ -23,8 +23,9 @@ read back afterwards and repaired at the level that was actually wrong.
 
 ## Relationship to other Blue repositories
 
-- **`blue-data-ops`** provides the operators and the operator registry. This repository binds
-  fragments to them through one adapter and never implements operators of its own.
+- **`blue-data-ops`** provides the Blue operators and the operator registry. This repository binds
+  fragments to them through one adapter, the way it binds LOTUS. Its own `builtin` suite is the one
+  set of operators implemented here.
 - **`blue-data`** provides data source abstractions and the data registry, reached only through
   `lib/src/blue_data_planner/data/`.
 

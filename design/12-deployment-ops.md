@@ -90,9 +90,9 @@ environment the server needs ([02-scenarios.md](02-scenarios.md#scenario-2-answe
 and the server reads everything else from the environment in [section 4](#4-configuration).
 
 On the first tool call the server builds one planner from the environment in section 4 and holds it
-for the process lifetime ([09-api-interface-spec.md](09-api-interface-spec.md#the-tool)). It needs a
-reachable registry and a model to build one, so an unreachable registry reaches the client as an
-error payload on that first call rather than stopping the server at startup.
+for the process lifetime ([09-api-interface-spec.md](09-api-interface-spec.md#3-mcp-server)). It
+needs a reachable registry and a model to build one, so an unreachable registry reaches the client
+as an error payload on that first call rather than stopping the server at startup.
 
 ---
 
@@ -113,7 +113,7 @@ precedence over the exported environment.
 | `OPENAI_API_KEY` | None, required | Every component that calls a model, and LOTUS operations |
 | `BLUE_DATA_REGISTRY_PATH` | None, required | The serialized registry an interface opens and plans against |
 | `BLUE_DATA_PLANNER_MODEL` | `BLUE_DATA_LLM_MODEL`, then `openai/gpt-5.6-luna` | The litellm model string every component uses |
-| `BLUE_DATA_PLANNER_REASONING_EFFORT` | `low` | The reasoning effort each component's model call spends: `minimal`, `low`, `medium`, `high`, `none`, or `off` to omit the parameter for a model that does not accept it. Anything else is refused where it is read |
+| `BLUE_DATA_PLANNER_REASONING_EFFORT` | `low` | The reasoning effort each component's model call spends: `minimal`, `low`, `medium`, `high`, or `none`, which is sent to the provider and disables reasoning. `off` omits the parameter, for a model that does not accept it. Anything else is refused where it is read |
 | `BLUE_DATA_PLANNER_OPERATORS` | `builtin,lotus` | Which operator suites are registered, as a comma-separated list over `builtin`, `lotus`, and `blue` |
 | `BLUE_DATA_PLANNER_LOTUS_MODEL` | `BLUE_DATA_PLANNER_MODEL` | The litellm model string an interface passes to `lotus_operators`, which LOTUS then configures for itself, and which a deployment can set away from `BLUE_DATA_PLANNER_MODEL` (ADR-005) |
 | `BLUE_DATA_PLANNER_LOTUS_REASONING_EFFORT` | `none` | The reasoning effort LOTUS's own model spends per call, passed to `lotus_operators`, and independent of `BLUE_DATA_PLANNER_REASONING_EFFORT` |
@@ -122,6 +122,11 @@ precedence over the exported environment.
 | `BLUE_DATA_PLANNER_MAX_*` | The `RunLimits` defaults | One per bound a run reports back, listed in [section 5](#5-request-limits) |
 | `BLUE_DATA_CLI_FORMAT` | `table` | The CLI's default output format |
 | `BLUE_DATA_CLI_LOG_LIMIT` | `80` | The characters each line of the log is cut to |
+
+Three of these — `OPENAI_API_KEY`, `BLUE_DATA_CLI_FORMAT`, and `BLUE_DATA_CLI_LOG_LIMIT` — are
+declared once for every Blue CLI. The family also declares `BLUE_DATA_LLM_MODEL`, which
+`BLUE_DATA_PLANNER_MODEL` falls back to, `ANTHROPIC_API_KEY`, and `BLUE_DATA_LLM_PROVIDER`, and
+`profile inspect` shows all of them.
 
 One model string serves every component. `DataPlanner`'s constructor takes a client per component,
 so a deployment that wants a stronger model for logical planning than for writing parameters builds

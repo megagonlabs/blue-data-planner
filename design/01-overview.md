@@ -76,8 +76,7 @@ Beyond the three stages, a planner:
 | Repair | What a failure rewrites |
 | --- | --- |
 | Parameter | The parameters of the call, against the same group and operator |
-| Fragment | The operator, or the way this group of nodes is cut |
-| Cover | The whole cover, against the same logical plan |
+| Cover | The whole cover, against the same logical plan: which operator takes each group, and how the nodes are grouped |
 | Replan | The logical plan |
 
 ### Operators

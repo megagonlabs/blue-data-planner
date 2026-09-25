@@ -176,7 +176,7 @@ the model changed.
 | `parameter_repairs` | 3 | Parameter rewrites within one fragment |
 | `cover_repairs` | 2 | Covers after the first, per logical plan |
 | `failure_replans` | 2 | Replans a failure forced |
-| `control_replans` | 2 | Replans a control node asked for |
+| `control_replans` | 5 | Replans a control node asked for |
 
 Model calls are not budgeted.
 

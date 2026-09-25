@@ -433,11 +433,12 @@ a failed node would make it read as a planning failure.
 **Consequences:** `answer` is `None` rather than an empty list when a run did not finish, so a
 caller who ignores the status cannot mistake a failed run for an empty answer. This sits alongside
 rather than against the fail-loudly rule: malformed state and missing required values still raise. A
-benchmark sweep aborts on the first operator bug unless its harness catches `BlueDataPlannerError`
-per query and scores that query as an error. A model client that cannot be built as configured
-raises `InvalidSettingError` when it is built, so `llm_failed` is reserved for a provider that
-failed, and a caller reading that status knows a retry, not a configuration change, is what might
-help.
+`BlueDataPlannerError` raised inside a run ends it as `planner_failed`, but an operator suite's own
+exception propagates, so a benchmark sweep aborts on the first operator bug unless its harness
+catches exceptions per query and scores that query as an error. A model client that cannot be built
+as configured raises `InvalidSettingError` when it is built, so `llm_failed` is reserved for a
+provider that failed, and a caller reading that status knows a retry, not a configuration change, is
+what might help.
 
 ---
 

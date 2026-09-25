@@ -42,32 +42,9 @@ rather than a copy of the code.
 
 ## The public entry point
 
-```python
-class DataPlanner:
-    def __init__(
-        self,
-        logical_planner: LogicalPlanner,
-        physical_planner: PhysicalPlanner,
-        fragment_runner: FragmentRunner,
-        catalog_searcher: CatalogSearcher,
-        limits: RunLimits,
-    ) -> None: ...
-
-    def run(self, request: str) -> RunResult: ...
-
-    def plan(self, request: str) -> RunResult: ...
-
-
-def build_data_planner(
-    data_registry: DataRegistry,
-    *,
-    suites: Sequence[OperatorSuite],
-    model: str,
-    reasoning_effort: str | None = None,
-    limits: RunLimits | None = None,
-    llm_client_name: str = "blue_data_planner",
-) -> DataPlanner: ...
-```
+`DataPlanner` and `build_data_planner` are the entry point. Their signatures are in [09,
+assembly](09-api-interface-spec.md#assembly) and [09,
+operations](09-api-interface-spec.md#operations).
 
 `DataPlanner` is given its four components rather than building them. It holds no model client, no
 router, and no catalog, because every one of those belongs to a component that reads it. What it
@@ -107,25 +84,6 @@ and calls `DataPlanner` directly.
 
 ### The values a planner is built from
 
-```python
-@dataclass(frozen=True)
-class PlannerSettings:
-    registry_path: Path
-    model: str
-    reasoning_effort: str
-    operator_suites: tuple[str, ...]
-    lotus_model: str | None
-    lotus_reasoning_effort: str
-    lotus_max_rows: int
-    enable_nl2table: bool
-    limits: RunLimits
-
-
-def build_data_planner_from_settings(
-    settings: PlannerSettings, *, llm_client_name: str = "blue_data_planner"
-) -> DataPlanner: ...
-```
-
 `PlannerSettings` holds every value a planner is built from and carries the default each one
 takes. Constructing one refuses a reasoning effort no model accepts. The defaults are in
 [12-deployment-ops.md](12-deployment-ops.md#4-configuration), beside the variable each interface
@@ -140,12 +98,8 @@ reads no environment variable: each interface resolves values its own way and ha
 
 Both take a request in plain language, and neither takes a plan. A plan is what a request produced,
 so there is no entry point that accepts one and runs it, and `from_dict` reads a recorded plan
-rather than feeding one back in.
-
-| Operation | Does | Returns |
-| --- | --- | --- |
-| `run` | Plans, covers, executes, repairs, until the request ends | A `RunResult` whose status says how it ended |
-| `plan` | Writes one logical plan and one cover, then stops | A `RunResult` with status `planned` and `answer` set to `None` |
+rather than feeding one back in. What each returns and how each can end is in
+[09, operations](09-api-interface-spec.md#operations).
 
 `plan` is what the CLI's `data query --explain` prints and what a measurement of where pushdown boundaries get
 drawn reads. It spends no operator call. A plan whose first pass ends in a `DISCOVER` node comes
@@ -381,9 +335,8 @@ Data = list[Record]  # one table
 DataBundle = list[Data]  # what one fragment passes to the next (ADR-012)
 ```
 
-These live at the package root rather than in `operators/types.py`. Root `types/` imports nothing
-outside itself, so a type it uses cannot live below it, and `ExecutionResult` and
-`PhysicalOperator` both name a bundle. `operators/types.py` re-exports all three.
+These live in `types/`, which imports nothing outside itself, because `ExecutionResult` and
+`PhysicalOperator` both name a bundle.
 
 `TableSummary` sits beside them: a table's row count, its column names, and its first few rows
 ([10](10-data-model.md#a-tables-summary)). A prompt and the CLI's trace show one in place of a
@@ -451,19 +404,20 @@ above, and `RunResult.conversations` holds one usage record per call so the spen
 ### What a caller receives
 
 `RunResult`, `RunCounters`, `RunConversations`, `ExecutionResult`, `DiscoveryResult`, and the four
-enums that travel in them are fixed in
-[10, what a run produces](10-data-model.md#3-what-a-run-produces). Every request returns a
-`RunResult` whether it worked or not: exhaustion, operator failure, and provider failure are
-statuses rather than exceptions, so a failed run is as inspectable as a successful one and one
-structure serves every adapter (ADR-015). `to_dict` writes the JSON form, and every interface
-sends that one shape: rows a fragment returned as a table summary, an exchange as a call count
-and a cost, everything else whole.
+enums that travel in them are fixed in [10, what a run
+produces](10-data-model.md#3-what-a-run-produces). A request returns a `RunResult` whether it worked
+or not, unless a bug propagates: exhaustion, operator failure, and provider failure are statuses
+rather than exceptions, so a failed run is as inspectable as a successful one and one structure
+serves every adapter (ADR-015). `to_dict` writes the JSON form, and every interface sends that one
+shape: rows a fragment returned as a table summary, an exchange as a call count and a cost,
+everything else whole.
 
 `RunStatus` has one member per way a request can end and one per way a fragment can end short of
-an answer, and [09-api-interface-spec.md](09-api-interface-spec.md#errors) lists the request endings
-against what each means to a caller. Each producer writes its own subset. `planned` is what `plan`
-returns, `llm_failed` is what a provider that fails after retries returns, and `planner_failed` is
-what a planner defect comes back as; none of the three is reachable from a component.
+an answer, and [09-api-interface-spec.md](09-api-interface-spec.md#results) lists the request
+endings against what each means to a caller. Each producer writes its own subset. `planned` is
+what `plan` returns, `llm_failed` is what a provider that fails after retries returns, and
+`planner_failed` is what a planner defect comes back as; none of the three is reachable from a
+component.
 `needs_repair` and `needs_replan` run the other way: `FragmentRunner` is the only writer, the run
 loop the only reader, and a `RunResult` never carries either, because both name work the loop still
 has left to do.
@@ -984,7 +938,8 @@ and one compound operation, `builtin.nl2table`, that writes a Python program fro
 instruction and runs it. It reaches the router the same way an adapter's operations do, through a
 function returning a list.
 
-`__init__.py` re-exports `OperatorRouter` alone, and every suite is imported from the module named
+`__init__.py` exports the router, `OperatorSuite`, `operator_suite`, and `OPERATOR_SUITE_NAMES`,
+and nothing of a suite itself. Every suite is imported from the module named
 for it, an outside suite's from `adapters/`, which re-exports no adapter of its own. Importing the
 router therefore loads no suite, and importing one adapter loads no other. A required suite is
 loaded when its adapter module is; an optional one only when one of its operators runs (ADR-004).
@@ -1443,8 +1398,9 @@ The only module that calls a provider (ADR-005).
 | Name | Role |
 | --- | --- |
 | `LLMClient` | One provider call, through litellm, with retry and rate limiting |
-| `LLMClientProvider`, `resolve_llm_client` | Injection points, so a client is supplied rather than constructed in place |
-| `Conversation` | The turns of one exchange, so a later turn sees an earlier one |
+| `LLMClientProvider`, `CachingLLMClientProvider`, `resolve_llm_client` | Injection points, so a client is supplied rather than constructed in place |
+| `Conversation`, `Turn` | The turns of one exchange, so a later turn sees an earlier one |
+| `UsageLedger`, `UsageRecord` | One record per general provider call a client makes, with totals. A run reads its spend off its conversations instead |
 | `LLMUsage` | One model call: model, prompt and completion tokens, cost, and latency. Defined in `types/`, since it reaches a caller inside `RunResult` |
 | `LLMError` | The provider failing after retries, or answering in a shape the client cannot read. Defined in `types/`, like every exception the library defines |
 
@@ -1488,22 +1444,15 @@ repository (ADR-005).
 ## Errors
 
 Fail fast and loudly, with one exception: a failure a planner is expected to recover from gets a
-dedicated type, and a run that exhausts an allowance returns a status.
+dedicated type, and a run that exhausts an allowance returns a status. Every exception, where it is
+raised, and whether it reaches a caller is in
+[09, exceptions](09-api-interface-spec.md#exceptions).
 
-| Raised | When | Caught by |
-| --- | --- | --- |
-| `PlanValidationError` | A generated plan fails a structural check | `LogicalPlanner`, which regenerates |
-| `ReturnAnswerError` | The rows a finished run holds do not carry a column the ending names | `DataPlanner`, which replans |
-| `RecoverableOperatorError` | An operator refuses its input in a way a different operator might not | `execute_physical_operator`, which returns a recoverable failure |
-| `UnrecoverableOperatorError` | An operator fails for a reason no other operator would avoid | `execute_physical_operator`, which returns an unrecoverable failure |
-| `SourceQueryError` | A source refuses the query a read ran against it | The operator that read the source, which raises a recoverable failure |
-| `SourceUnreachableError` | The registry cannot resolve a source to a connectable object | The operator that read the source, which raises an unrecoverable failure |
-| `BudgetExhaustedError` | The operator call budget reaches its cap | `FragmentRunner`, which returns `budget_exhausted` |
-| `LLMError` | The provider fails after retries, or answers in a shape the client cannot read | `DataPlanner`, which ends the request with `llm_failed` |
-| `UnknownOperatorSuiteError` | A name registers no operator suite | Nothing. It propagates to whoever named the suite |
-| `InvalidSettingError` | A `PlannerSettings` field, or the properties an `LLMClient` is built with, carry a value the planner cannot be built with | Nothing. It propagates to whoever built the settings or the client |
-| `RegistryUnreadableError` | The path a registry is opened from names no file, or the file cannot be read | Nothing. It propagates to whoever opened the registry |
-| `ValueError`, `TypeError`, and a suite's own validation errors | Malformed state or a missing required value | Nothing. These are bugs and they propagate |
+A recoverable failure is caught by the component positioned to answer it. `LogicalPlanner` catches
+`PlanValidationError` and writes the plan again, `DataPlanner` answers `ReturnAnswerError` with a
+replan, and `FragmentRunner` turns `BudgetExhaustedError` into `budget_exhausted`. An operator
+reading a source turns `SourceQueryError` into a recoverable operator error and
+`SourceUnreachableError` into an unrecoverable one.
 
 Every exception this library defines inherits `BlueDataPlannerError`, defined in `types/errors.py`.
 It does not inherit `blue-data-ops`'s base, so one `except` never silently covers both a planner bug
@@ -1524,6 +1473,6 @@ return everything it had already accumulated.
 
 ## Using it
 
-Assembling a planner, running a request, and reading a cover off the result are shown end to end in
+Assembling a planner and running a request are shown in
 [09, assembly](09-api-interface-spec.md#assembly) and in
 [02-scenarios.md](02-scenarios.md#scenario-3-embedding-the-planner-in-an-application).

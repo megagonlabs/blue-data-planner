@@ -13,7 +13,7 @@ Three things before the first call.
 
 | Needed | How |
 | --- | --- |
-| The library | `cd lib && pip install -e .`, per [installation.md](installation.md) |
+| The library | `bash lib/scripts/install.sh`, per [installation.md](installation.md) |
 | A model provider key | `OPENAI_API_KEY` in the environment. `litellm` reads it on each call, so a library-only caller sets it too |
 | A serialized `blue-data` registry | Built by `blue-data` before it reaches this package — see [quickstart.md](quickstart.md) |
 
@@ -234,7 +234,7 @@ request as `llm_failed`, and catches any other `BlueDataPlannerError` and ends i
 
 | Raised by | Exception | Cause |
 | --- | --- | --- |
-| `open_registry` | `FileNotFoundError` | The path holds no registry |
+| `open_registry` | `RegistryUnreadableError` | The path names no file, or the file cannot be read |
 | `operator_suite` | `UnknownOperatorSuiteError` | A configured name registers no suite |
 | `build_data_planner` | `OperatorRoutingError` | Two suites register the same operator id |
 | A component called directly | `PlanValidationError`, `RecoverableOperatorError`, `BudgetExhaustedError`, and the rest | Each is caught by the stage that expects it during a run |

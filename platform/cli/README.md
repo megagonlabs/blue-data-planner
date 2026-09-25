@@ -60,19 +60,20 @@ blue-planner profile config OPENAI_API_KEY
 | `BLUE_DATA_CLI_FORMAT` | str | `table` | No |
 | `BLUE_DATA_CLI_LOG_LIMIT` | int | `80` | No |
 
-The first row and `BLUE_DATA_CLI_FORMAT` are family-wide parameters, declared once for every Blue
-CLI rather than by `blue-planner` alone. `BLUE_DATA_PLANNER_MODEL` reads
-`BLUE_DATA_LLM_MODEL` where it is unset, and `BLUE_DATA_PLANNER_LOTUS_MODEL` reads
-`BLUE_DATA_PLANNER_MODEL` the same way. Either reasoning effort takes `minimal`, `low`,
-`medium`, `high`, `none`, or `off`, and anything else is refused where it is read. `off` omits the parameter from the LLM call, for a model that
-does not accept it; `none` is a different, real value that litellm still forwards to the provider,
-disabling reasoning rather than omitting the parameter. `BLUE_DATA_PLANNER_LOTUS_REASONING_EFFORT` does not inherit from
+The first row, `BLUE_DATA_CLI_FORMAT`, and `BLUE_DATA_CLI_LOG_LIMIT` are family-wide parameters,
+declared once for every Blue CLI rather than by `blue-planner` alone. `BLUE_DATA_PLANNER_MODEL`
+reads `BLUE_DATA_LLM_MODEL` where it is unset, and `BLUE_DATA_PLANNER_LOTUS_MODEL` reads
+`BLUE_DATA_PLANNER_MODEL` the same way. Either reasoning effort takes `minimal`, `low`, `medium`,
+`high`, `none`, or `off`, and anything else is refused where it is read. `off` omits the parameter
+from the LLM call, for a model that does not accept it; `none` is a different, real value that
+litellm still forwards to the provider, disabling reasoning rather than omitting the parameter.
+`BLUE_DATA_PLANNER_LOTUS_REASONING_EFFORT` does not inherit from
 `BLUE_DATA_PLANNER_REASONING_EFFORT`: it defaults to `none` on its own, since a LOTUS operation
 spends many calls per row and gains little from added reasoning. A `MAX_` name is a bound on one
 run, and the three that carry one are the three a run reports back in its counters; the bounds that
-reset inside a request reach a run from a caller that builds the planner itself.
-`--registry` and `--model` are the two settings an operator changes between one invocation and the
-next, so each has its own command option in addition to its profile parameter.
+reset inside a request reach a run from a caller that builds the planner itself. `--registry-path`
+and `--model` are the two settings an operator changes between one invocation and the next, so each
+has its own command option in addition to its profile parameter.
 
 The family-wide spec also contributes `ANTHROPIC_API_KEY`, `BLUE_DATA_LLM_PROVIDER`, and
 `BLUE_DATA_LLM_MODEL`, all visible through `profile inspect`; `BLUE_DATA_LLM_MODEL` is required, so

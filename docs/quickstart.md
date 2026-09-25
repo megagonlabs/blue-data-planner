@@ -66,7 +66,7 @@ blue-planner data query "Which three countries do the most customers come from?"
 Its closing two lines are the bounds the run spent against:
 
 ```text
-counters  operator calls 3/30   failure replans 0/2   control replans 1/2
+counters  operator calls 3/30   failure replans 0/2   control replans 1/5
 model     12 calls   $0.00
 ```
 

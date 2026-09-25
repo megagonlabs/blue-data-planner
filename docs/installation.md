@@ -55,7 +55,7 @@ bash platform/mcp/scripts/install.sh   # + the MCP server
 | `dev` | `pytest`, `ruff`, `pyright`, `diskcache` | The quality gates |
 
 ```bash
-pip install -e '.[lotus]'
+pip install -e './lib[lotus]'
 ```
 
 ### The `lotus` extra needs an environment of its own
@@ -85,7 +85,7 @@ alone.
 never reaches the shell history. An MCP client sets them in the `env` block it launches the server
 with ([`platform/mcp/README.md`](../platform/mcp/README.md#configuration-reference)). The remaining parameters (LOTUS settings, run bounds, output
 format) are in [`platform/cli/README.md`](../platform/cli/README.md#parameters) and
-[`design/09-api-interface-spec.md`](../design/09-api-interface-spec.md#configuration).
+[`design/12-deployment-ops.md`](../design/12-deployment-ops.md#4-configuration).
 
 ## To work on it
 

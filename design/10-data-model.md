@@ -829,7 +829,15 @@ that resets has no one number to report.
 {
   "operator_calls": 7,
   "failure_replans": 0,
-  "control_replans": 1
+  "control_replans": 1,
+  "limits": {
+    "operator_calls": 30,
+    "plan_corrections": 5,
+    "parameter_repairs": 3,
+    "cover_repairs": 2,
+    "failure_replans": 2,
+    "control_replans": 5
+  }
 }
 ```
 
@@ -1064,7 +1072,7 @@ its answer: a transcript and a run's intermediate tables. Each becomes a measure
 document the size of what a reader can act on (ADR-032). `pipeline` travels only where it was asked
 for: the CLI sends it under `--explain` or `--log`
 ([09](09-api-interface-spec.md#output)), and the MCP server sends it under `explain` or
-`include_plan` ([09](09-api-interface-spec.md#the-response)).
+`include_plan` ([09](09-api-interface-spec.md#3-mcp-server)).
 
 A run that did not finish comes back as the same object in every interface, with its status,
 `answer` null, and its counters.
