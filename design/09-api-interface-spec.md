@@ -153,11 +153,12 @@ class DataPlanner:
 | Operation | Does | Can end as | Spends operator calls |
 | --- | --- | --- | --- |
 | `run` | Plans, covers, executes, and repairs until the request ends | Any request ending in [Results](#results) except `planned` | Yes |
-| `plan` | Writes one logical plan and one cover, then stops | `planned`, `invalid_plan`, `llm_failed`, `planner_failed` | No |
+| `plan` | Plans, resolves the discovery it can, and covers, stopping before the first operator call | `planned`, `invalid_plan`, `replan_exhausted`, `llm_failed`, `planner_failed` | No |
 
 Both take a request in plain language and nothing else. No operation accepts a plan, and neither
-takes a limit, since limits are fixed when the planner is built. A plan whose first pass ends in a
-`DISCOVER` node comes back from `plan` as it stands, with no search run.
+takes a limit, since limits are fixed when the planner is built. `plan` returns the plan and the
+cover `run` would start executing: the catalog searches, continuations, and replans that need no
+operator call have already run. A `DISCOVER` node waiting on a fragment's rows stays unresolved.
 
 ### Results
 
@@ -170,7 +171,7 @@ process](10-data-model.md#5-shapes-that-leave-the-process)).
 | --- | --- | --- |
 | `status` | `RunStatus` | How the request ended |
 | `answer` | `DataBundle \| None` | The `RETURN` node's rows. `None` unless `status` is `ok` |
-| `failure_reason` | `str \| None` | Why the run ended as it did. Every failure status carries one; `ok` never does, and `planned` does only when no cover could be written |
+| `failure_reason` | `str \| None` | Why the run ended as it did. Every failure status carries one; `ok` and `planned` never do |
 | `pipeline` | `DataPipeline` | Every logical plan and every cover the request produced, with the current pair named |
 | `results` | `dict[str, FragmentResult \| DiscoveryResult]` | How each fragment ended and what each search found, keyed by the signature of the work |
 | `counters` | `RunCounters` | What the run spent against the three bounds counted per request, and the `RunLimits` it ran under |
@@ -182,7 +183,7 @@ status cannot mistake a failed run for an empty answer (ADR-015).
 | `RunStatus` | The request ended because |
 | --- | --- |
 | `ok` | The plan finished and the answer was projected |
-| `planned` | `plan` wrote its plan and stopped |
+| `planned` | `plan` reached the first operator call and stopped before it |
 | `invalid_plan` | The logical planner ran out of corrections without a plan that passes validation |
 | `replan_exhausted` | `failure_replans` or `control_replans` was reached |
 | `budget_exhausted` | `operator_calls` was reached |
@@ -279,7 +280,7 @@ command accepts a plan.
 | `--registry-path PATH` | The `blue-data` registry to plan over. Overrides `BLUE_DATA_REGISTRY_PATH` |
 | `--model NAME` | The litellm model string the planner uses. Overrides `BLUE_DATA_PLANNER_MODEL`, and reaches LOTUS only where `BLUE_DATA_PLANNER_LOTUS_MODEL` is unset |
 | `--format table\|json` | How the result is written. Defaults to `BLUE_DATA_CLI_FORMAT` |
-| `--explain` | Write the plan for the request and stop, running nothing |
+| `--explain` | Write the plan for the request and stop before the first operator call |
 | `--log` | Report what the run did, fragment by fragment, after the run |
 | `--log-limit N` | The characters each line of the log is cut to. Defaults to `BLUE_DATA_CLI_LOG_LIMIT` |
 

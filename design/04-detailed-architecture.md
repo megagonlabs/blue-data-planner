@@ -32,7 +32,8 @@ flowchart TB
 The diagram shows the endings the flow itself produces. `operator_failed` and `llm_failed` can end a
 request from any stage, so both appear in the table under
 [what the caller receives](#what-the-caller-receives) and not here. `planned` is the ending of the
-planning-only operation, which stops after the first cover
+planning-only operation, which follows the same flow and stops where it would first write
+parameters and execute, or would project an answer
 ([03-high-level-architecture.md](03-high-level-architecture.md#dataplanner)).
 
 A request is the only input. A plan is what a request produced, never something handed in, so there
@@ -798,7 +799,7 @@ objection the last rejected plan drew.
 | Status | Meaning |
 | --- | --- |
 | `ok` | The `RETURN` node produced rows. `answer` holds them |
-| `planned` | The planning-only operation finished. One logical plan and one cover, nothing run |
+| `planned` | The planning-only operation reached the first operator call and stopped before it |
 | `invalid_plan` | Plan generation ran out of corrections without producing a valid plan |
 | `replan_exhausted` | A replan limit was reached. The counters in the result show which one |
 | `budget_exhausted` | The operator call budget ran out |

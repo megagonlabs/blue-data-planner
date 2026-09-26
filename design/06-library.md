@@ -101,14 +101,19 @@ so there is no entry point that accepts one and runs it, and `from_dict` reads a
 rather than feeding one back in. What each returns and how each can end is in
 [09, operations](09-api-interface-spec.md#operations).
 
-`plan` is what the CLI's `data query --explain` prints and what a measurement of where pushdown boundaries get
-drawn reads. It spends no operator call. A plan whose first pass ends in a `DISCOVER` node comes
-back as it stands, with no search run, since resolving one would start the second pass.
+`plan` is what the CLI's `data query --explain` prints and what a measurement of where pushdown
+boundaries get drawn reads. It runs the same loop as `run` and ends where that loop would first
+call an operator: at a ready fragment, or at a plan with nothing left to run. Everything before
+that point runs as it does in `run`. A `DISCOVER` node with nothing to wait for is searched, the
+continuation is written and covered, and a plan no operator can cover is replanned. None of it
+spends an operator call. What comes back is the plan and the cover `run` would start executing. A
+`DISCOVER` node that waits on rows a fragment produces is left unresolved, since resolving it would
+take that fragment's call.
 
 `planned` is a `RunStatus` member alongside `ok` and the failure statuses. One result type serves
 both operations, and the rule that `answer` is `None` unless the status is `ok` survives unchanged.
-`plan` can also return `invalid_plan`, `llm_failed`, and `planner_failed`, which are the three
-failures it can reach.
+`plan` can also return `invalid_plan`, `replan_exhausted`, `llm_failed`, and `planner_failed`, which
+are the failures reachable without an operator call.
 
 ### The run loop
 
@@ -141,6 +146,12 @@ once. A plan with nothing left ends the request as `ok`, and `project_answer` ta
 node's columns off the result of the node it reads; rows that cannot answer what the ending names
 send the run to the replan instead. The fragment's own status then says whether the
 pass continues, ends the request with that status, replans, or goes to a repair.
+
+`plan` enters the same loop under the same `try` and differs in one place: a pass that `next_ready`
+hands a fragment, or nothing, ends the request as `planned` instead of running the fragment or
+projecting the answer. Control nodes, the replans they ask for, and the replan a plan no operator
+can cover all run as they do under `run`, so the two operations cannot drift apart on anything
+before the first operator call.
 
 `next_ready` returns the next fragment whose frontier all has results, a control node whose inputs
 all have results, or `None` when the plan is finished. A union return is what lets one scheduler
@@ -423,7 +434,7 @@ loop the only reader, and a `RunResult` never carries either, because both name 
 has left to do.
 
 `failure_reason` says why a run ended as it did, in the words of whatever ended it. Every failure
-status carries one; `ok` never does, and `planned` does only when no cover could be written.
+status carries one; `ok` and `planned` never do.
 
 `LogicalPlanResult` and `PhysicalPlanResult` never leave the process. `DataPlanner` reads each one,
 records what it holds on the run state, and moves on.
@@ -832,11 +843,9 @@ changed has a different signature and finds nothing to reuse, while one whose wo
 finds its result whatever cover or plan version it now sits in. A fragment fed by changed work is
 covered by the same rule, since its inputs' signatures are part of its own.
 
-While a request is executing, the two pointers always name a matching pair: a logical version enters
-the pipeline alongside a cover for it, so a plan no operator could cover leaves nothing behind and
-every signature describes the plan and the cover that are current. The planning-only operation is
-the exception, and installs the plan it wrote whether or not a cover followed, since showing that
-plan is the whole of what it was asked for.
+The two pointers always name a matching pair: a logical version enters the pipeline alongside a
+cover for it, so a plan no operator could cover leaves nothing behind and every signature describes
+the plan and the cover that are current.
 
 Three methods carry the rules that would otherwise be scattered through the loop.
 

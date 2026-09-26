@@ -95,7 +95,7 @@ takes a plan: a plan is what a request produced, not something a caller hands in
 | Operation | Returns | Spends operator calls |
 | --- | --- | --- |
 | Run a request | The rows that answer it, together with every plan and every attempt the run produced | Yes |
-| Plan a request | The same record with status `planned` and no rows: the logical plan and the cover over it, and nothing run | No |
+| Plan a request | The same record with status `planned` and no rows: every plan, search, and cover written up to the first operator call | No |
 
 The second is what the CLI's `data query --explain` prints, and what a measurement of where pushdown
 boundaries get drawn reads. Argument and return shapes are in

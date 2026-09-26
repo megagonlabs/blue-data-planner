@@ -1154,6 +1154,30 @@ can rewrite it.
 
 ---
 
+## ADR-042 — Planning Runs the Run Loop Up to the First Operator Call
+
+**Decision:** `plan` runs the loop `run` runs and ends as `planned` at the first point that loop
+would call an operator: a ready fragment, or a plan with nothing left to run. Control nodes, the
+catalog searches they ask for, continuations, and the replan a plan no operator can cover all run
+before that point.
+
+**Rationale:** A request over registered data is planned at least twice, because its first plan
+asks the catalog what exists, so a planning-only operation that stops after the first plan shows
+the question rather than the plan that answers it. A search reads the catalog and spends no
+operator call, so nothing about the promise `--explain` makes requires stopping before it. Two
+stopping rules fit that promise. Skipping every fragment while resolving every control node would
+show more for a plan mixing both, but the plans it writes are ones `run` would never write, since a
+run's continuation sees the rows its fragments produced. Stopping at the first operator call shows
+exactly what `run` would start executing, and it reuses the loop instead of keeping a second path
+beside it.
+
+**Consequences:** `plan` and `run` share every step before execution, so a change to either
+reaches both. `plan` spends model calls and `control_replans` on the way and can end as
+`replan_exhausted`. A `DISCOVER` node waiting on a fragment's rows is shown unresolved. `planned`
+always names a matching plan and cover and never carries a failure reason.
+
+---
+
 ## Open Questions
 
 Design questions first, then defects in the code.

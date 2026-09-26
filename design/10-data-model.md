@@ -556,10 +556,9 @@ class RunResult:
 cannot mistake a failed run for an empty answer (ADR-015). `failure_reason` runs the other way: every
 failure status carries one, holding why the run ended in the words of whatever ended it — the reason
 no repair answered, the operator failure that stopped the run, the objection the last rejected plan
-drew, the defect the run loop caught. `ok` never carries one, and `planned` carries one only when no
-cover could be written. That covers the planning-only operation
-too: it returns the same object with status `planned`, holding the logical plan and the cover
-written for it and nothing run
+drew, the defect the run loop caught. `ok` and `planned` never carry one. The planning-only
+operation returns the same object with status `planned`, holding every plan and cover written up to
+the first operator call, and what each catalog search found on the way
 ([03-high-level-architecture.md](03-high-level-architecture.md#dataplanner)).
 
 `pipeline` holds every plan the request produced, superseded versions included, so a reader sees not

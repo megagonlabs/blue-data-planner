@@ -270,12 +270,12 @@ expensive question over a large source.
 blue-planner data query "Which Bay Area data scientist postings are at healthcare companies?" --explain
 ```
 
-For this question, `--explain` shows the first plan and stops at the two `DISCOVER` nodes.
-Everything after them depends on what the searches return, and no search has run. That is what it
-shows for any question over registered data, since the first plan over registered data is the one
-that asks the catalog. For a question the planner answers from its own world knowledge it
-prints the complete plan and the cover over it, which is the pushdown boundary before anything is
-spent on it.
+For this question, `--explain` shows the first plan with its two `DISCOVER` nodes, then the
+continuation written against what the two searches found, and the cover over it. The searches read
+the catalog and call no operator, so they run; the fragments of the cover do not. What the analyst
+reads is the plan and the pushdown boundary the run would start executing, before anything is spent
+on it. A question whose discovery needs rows from an earlier fragment is shown up to that
+fragment.
 
 ---
 
