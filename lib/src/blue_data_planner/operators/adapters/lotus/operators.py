@@ -155,7 +155,7 @@ def _build_call(
         table = frame_conversion.table_from_frame(frame)
         _check_created(entry.operator_id, table, created)
         return OperatorOutput(
-            data=[frame_conversion.blanks_to_none(table, created)],
+            data=[frame_conversion.missing_to_none(table, created, required_output_columns)],
             report=_report(lotus, spent_before),
         )
 

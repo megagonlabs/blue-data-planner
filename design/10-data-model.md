@@ -255,6 +255,9 @@ Being told the type lets the check accept spellings that inference has to refuse
 only because a node said the column is one. The job is narrow, and three rules follow from that.
 
 - `None` passes every declared type. A missing value is a value the source holds, not a type error.
+    Reading a model's written "no answer" as `None` is the job of the adapter that called the
+    model ([06](06-library.md#what-each-suite-offers)), so the check itself refuses `"null"` in a
+    `float` column.
 - A value declared `str` passes through unchanged and is not stringified. `str` rejects nothing, and
     turning `42` into `"42"` would be a value change, not a type check.
 - A comma-formatted number such as `"142,984"` declared as `int` is refused, not repaired. Reading

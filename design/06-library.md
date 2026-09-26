@@ -1076,6 +1076,10 @@ adapter needs is open question 41 in [13-decision-log.md](13-decision-log.md#ope
 LOTUS adapter converts at its own edge, building one data frame per table going in and flattening
 coming out, and imports LOTUS inside the callable rather than at module import time, so the package
 imports with LOTUS absent and the router simply gains no LOTUS operators (ADR-004).
+A column the operation created holds the model's text, including where the model had no answer.
+The adapter reads a blank cell in such a column as `None`. In a created column declared other than
+`str`, it also reads `null`, `none`, `nan`, and `n/a` as `None`, ignoring case. A column declared
+`str`, or not declared at all, keeps those words, since `"None"` can be a real value there.
 
 ### The Blue suite
 

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any, cast
 
-from blue_data_planner.types import Data, RecoverableOperatorError
+from blue_data_planner.types import Data, OutputColumn, RecoverableOperatorError
 
 if TYPE_CHECKING:
     import pandas as pd  # pyright: ignore[reportMissingTypeStubs]  # pandas ships no py.typed
@@ -13,6 +13,11 @@ if TYPE_CHECKING:
 # design/06 fixes '_right' for every JOIN this repository answers.
 _LEFT_TAG = ":left"
 _RIGHT_TAG = ":right"
+
+# What a model writes in a text answer when it has no value. Read as missing only in a column
+# declared other than str, where none of them can be a real value; in a str column "None" may be
+# a name, so there only a blank counts.
+MISSING_VALUE_SPELLINGS: frozenset[str] = frozenset({"null", "none", "nan", "n/a"})
 
 
 def frame_from_table(table: Data) -> pd.DataFrame:
@@ -45,17 +50,27 @@ def rename_join_columns(frame: pd.DataFrame) -> pd.DataFrame:
     return frame.rename(columns=renamed)
 
 
-def blanks_to_none(table: Data, columns: list[str]) -> Data:
-    """Return rows whose named columns read a blank value as no answer."""
-    named = set(columns)
+def missing_to_none(
+    table: Data, created: list[str], required_output_columns: list[OutputColumn]
+) -> Data:
+    """Return rows whose created columns read a model's spelling of no answer as None."""
+    named = set(created)
+    # A created column the node did not declare is text, like one declared str.
+    typed = {column.name for column in required_output_columns if column.dtype != "str"}
     return [
-        {name: None if name in named and _is_blank(value) else value for name, value in row.items()}
+        {
+            name: None if name in named and _is_missing(value, name in typed) else value
+            for name, value in row.items()
+        }
         for row in table
     ]
 
 
-def _is_blank(value: Any) -> bool:
-    return isinstance(value, str) and not value.strip()
+def _is_missing(value: Any, typed: bool) -> bool:
+    if not isinstance(value, str):
+        return False
+    normalized = value.strip().lower()
+    return not normalized or (typed and normalized in MISSING_VALUE_SPELLINGS)
 
 
 def _join_name(name: str) -> str:

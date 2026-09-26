@@ -6,12 +6,12 @@ import pandas as pd  # pyright: ignore[reportMissingTypeStubs]  # pandas ships n
 import pytest
 
 from blue_data_planner.operators.adapters.lotus.frame_conversion import (
-    blanks_to_none,
     frame_from_table,
+    missing_to_none,
     rename_join_columns,
     table_from_frame,
 )
-from blue_data_planner.types import RecoverableOperatorError
+from blue_data_planner.types import ColumnDataType, OutputColumn, RecoverableOperatorError
 
 
 def test_a_table_crossing_to_a_frame_and_back_is_unchanged() -> None:
@@ -55,11 +55,30 @@ def test_a_join_whose_renaming_collides_is_refused() -> None:
         rename_join_columns(frame)
 
 
-def test_a_blank_cell_in_a_created_column_becomes_none() -> None:
-    """A semantic operation that had no answer wrote a blank, and None says so to the type check."""
-    table = [{"city": "Reno", "mood": "  "}, {"city": "  ", "mood": "calm"}]
+@pytest.mark.parametrize("dtype", ["int", "float", "bool"])
+@pytest.mark.parametrize("spelling", ["  ", "null", "None", " NaN ", "N/A"])
+def test_a_spelling_of_no_answer_in_a_created_typed_column_becomes_none(
+    dtype: ColumnDataType, spelling: str
+) -> None:
+    """A semantic operation with no answer writes it as text, and None says so to the type check.
 
-    assert blanks_to_none(table, ["mood"]) == [
-        {"city": "Reno", "mood": None},
-        {"city": "  ", "mood": "calm"},
+    A column the operation did not create keeps what its source held.
+    """
+    table = [{"city": "null", "rate": spelling}, {"city": "Reno", "rate": "0.5"}]
+
+    assert missing_to_none(table, ["rate"], [OutputColumn(name="rate", dtype=dtype)]) == [
+        {"city": "null", "rate": None},
+        {"city": "Reno", "rate": "0.5"},
+    ]
+
+
+@pytest.mark.parametrize("declared", [[OutputColumn(name="mood", dtype="str")], []])
+def test_only_a_blank_in_a_created_text_column_becomes_none(declared: list[OutputColumn]) -> None:
+    """In a column declared str, or not declared at all, "None" may be a real value."""
+    table = [{"mood": "  "}, {"mood": "None"}, {"mood": "null"}]
+
+    assert missing_to_none(table, ["mood"], declared) == [
+        {"mood": None},
+        {"mood": "None"},
+        {"mood": "null"},
     ]
