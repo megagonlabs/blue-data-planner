@@ -11,10 +11,10 @@ agents. This document is the source of truth; that file follows it.
 
 | Concern | Tool | Config |
 | --- | --- | --- |
-| Formatting | `ruff format` | `pyproject.toml` |
-| Linting | `ruff` | `pyproject.toml` |
-| Type checking | `pyright` (strict) | `pyproject.toml` |
-| Tests | `pytest` | `pyproject.toml` |
+| Formatting | `ruff format` | `[tool.ruff]` in `lib/pyproject.toml`, `platform/cli/pyproject.toml`, `platform/mcp/pyproject.toml` |
+| Linting | `ruff` | `[tool.ruff.lint]` in the same three files |
+| Type checking | `pyright` (strict) | `[tool.pyright]` in the same three files |
+| Tests | `pytest` | `[tool.pytest.ini_options]` in the same three files |
 
 All four pass before work is reported as complete, in every package, and they run through `uv run`.
 

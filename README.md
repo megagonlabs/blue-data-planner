@@ -32,11 +32,40 @@ read back afterwards and repaired at the level that was actually wrong.
 Agents and UI are out of scope; they come from other Blue repositories or from third-party
 frameworks such as LangChain.
 
+## Requirements
+
+- Python 3.11 or later; 3.11 or 3.12 with the `lotus` extra
+- `blue-data` and `blue-data-ops` checked out beside this repository, which the install scripts
+  install from
+- An OpenAI API key: every planning stage calls a model
+
+## Quick start
+
+From the repository root, with the two sibling checkouts in place:
+
+```bash
+python -m venv .venv && source .venv/bin/activate
+bash platform/cli/scripts/install.sh
+
+python lib/scripts/demo/fetch_northwind.py
+python lib/scripts/demo/register_northwind.py
+
+export OPENAI_API_KEY=sk-...                      # a real key, not this placeholder
+export BLUE_DATA_REGISTRY_PATH=$PWD/data/demo/registry.json
+export BLUE_DATA_PLANNER_MODEL=openai/gpt-5.6-luna
+export BLUE_DATA_PLANNER_OPERATORS=builtin        # builtin alone: the lotus extra is not installed
+
+blue-planner data query "Which three countries do the most customers come from?"
+```
+
+[`docs/quickstart.md`](docs/quickstart.md) walks through the same steps and is the source of truth
+for them.
+
 ## Documentation
 
 - [`docs/`](docs/README.md) — the documentation set, and what to read when
 - [`docs/quickstart.md`](docs/quickstart.md) — a clean checkout to an answered question
-- [`examples/`](examples/README.md) — four runnable scripts with captured output
+- [`examples/`](examples/README.md) — five runnable scripts with captured output
 
 ## Layout
 
@@ -46,8 +75,7 @@ blue-data-planner/
 ├── docs/          # documentation for readers outside the project
 ├── examples/      # runnable examples over the demo registry
 ├── lib/           # the blue_data_planner package, its tests, and its scripts
-├── platform/      # one thin adapter per interface
-└── data/          # benchmark and demo inputs, fetched and built, not committed
+└── platform/      # one thin adapter per interface
 ```
 
 ## Packages

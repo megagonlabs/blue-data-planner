@@ -7,7 +7,7 @@
 | [quickstart.md](quickstart.md) | Go from a clean checkout to an answered question |
 | [installation.md](installation.md) | Install the library and the CLI, with every extra and environment variable |
 | [features.md](features.md) | See what the planner does, one section per capability with a snippet |
-| [examples/](../examples/README.md) | Run something: four scripts with captured output |
+| [examples/](../examples/README.md) | Run something: five scripts with captured output |
 
 ## Using it
 
@@ -38,4 +38,5 @@ These pages track what the code does, not what is planned for it. A page that ha
 in the page. The source of truth is the code, plus [`lib/README.md`](../lib/README.md) for the
 development setup and the test commands, and
 [`platform/cli/README.md`](../platform/cli/README.md) for the CLI, which [cli.md](cli.md) forwards
-to.
+to, and [`platform/mcp/README.md`](../platform/mcp/README.md) for installing, running, and
+configuring the MCP server.

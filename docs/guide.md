@@ -23,7 +23,7 @@ from pathlib import Path
 from blue_data_planner import RunLimits, RunStatus, build_data_planner
 from blue_data_planner.data import open_registry
 
-registry = open_registry(Path("registry.json"))
+registry = open_registry(Path("data/demo/registry.json"))
 ```
 
 A caller that built a `DataRegistry` in process passes that object in place of this call.
@@ -62,7 +62,7 @@ components itself and calls the `DataPlanner` constructor directly
 `run` plans, covers, executes, and repairs until the request ends.
 
 ```python
-request = "Which customers in Oregon ordered more than ten items?"
+request = "Which three countries do the most customers come from?"
 result = planner.run(request)
 
 if result.status is RunStatus.OK:
@@ -254,3 +254,10 @@ except BlueDataPlannerError as error:
 Every exception in `blue_data_planner.types` inherits `BlueDataPlannerError`, which inherits
 nothing from `blue-data-ops`, so an operator suite's own errors stay distinguishable from a
 planner's. The full list is in [api-reference.md](api-reference.md#exceptions).
+
+## Next steps
+
+- [api-reference.md](api-reference.md): every signature and field used above.
+- [architecture.md](architecture.md): the run loop, the three repairs, and how a request flows.
+- [extending.md](extending.md): add an operator suite or swap the model provider.
+- [examples/](../examples/README.md): the tasks above as runnable scripts with their output.

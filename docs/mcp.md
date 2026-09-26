@@ -17,7 +17,9 @@ in [`platform/mcp/README.md`](../platform/mcp/README.md); this page covers the t
 | `include_plan` | Return every plan the request produced alongside the answer. `explain` already returns them. |
 
 Each parameter carries its description in the MCP schema, so a client renders it without reading
-this page.
+this page. The schema in `platform/mcp/src/blue_data_planner_mcp/server.py` is the source of truth
+for these descriptions; this table and the one in
+[`platform/mcp/README.md`](../platform/mcp/README.md#the-tool) copy it.
 
 ## The response
 

@@ -40,13 +40,13 @@ from blue_data_planner.operators.adapters.lotus import LotusSuite
 from blue_data_planner.operators.builtin import BuiltinSuite
 
 planner = build_data_planner(
-    open_registry(Path("registry.json")),
+    open_registry(Path("data/demo/registry.json")),
     suites=[BuiltinSuite(), LotusSuite()],
     model="openai/gpt-5.6-luna",
     limits=RunLimits(),
 )
 
-result = planner.run("Which Bay Area data scientist postings are at healthcare companies?")
+result = planner.run("Which three countries do the most customers come from?")
 print(result.status)  # "ok" where the request was answered
 print(result.answer)  # the rows the plan's RETURN named, or None where the run did not finish
 ```

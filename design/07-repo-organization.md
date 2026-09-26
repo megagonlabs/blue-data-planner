@@ -13,19 +13,16 @@ where each one sits and why.
 
 ```text
 blue-data-planner/
-├── LICENSE
-├── README.md
-├── AGENTS.md                          # canonical instructions; .claude/CLAUDE.md symlinks to it
+├── .gitignore                         # build outputs, virtual environments, and data/
+├── LICENSE                            # the license every package ships under
+├── README.md                          # what the repository is, its layout, and its packages
+├── example.envrc                      # the variables an interface reads; copied to a local .envrc
 ├── design/                            # numbered design documents and the decision log
-├── docs/
-│   └── internal/                      # background notes, git-ignored
-├── data/                              # benchmark and demo inputs, fetched and built, not committed
-│   ├── tag_bench/
-│   └── demo/                          # Northwind, copied from blue-data, and the registry over it
-├── examples/
+├── docs/                              # documentation for readers outside the project
+├── examples/                          # runnable scripts over the demo registry, each with its output
 │   ├── feature-demos/                 # one library feature per script
 │   └── framework-demos/               # the planner used from an agent framework, over MCP
-├── lib/
+├── lib/                               # the blue-data-planner library package
 │   ├── pyproject.toml
 │   ├── scripts/
 │   │   ├── build.sh
@@ -58,13 +55,14 @@ blue-data-planner/
 │   │   ├── plan/                      # functions over a plan; no model, no source, no operator
 │   │   │   ├── validation.py          # validate_logical_plan, validate_physical_plan
 │   │   │   ├── fragments.py           # candidate_fragments
+│   │   │   ├── signatures.py          # signatures, the key each result is filed under
 │   │   │   └── schemas.py             # the response schemas the planning stages send
 │   │   ├── execution/
 │   │   │   ├── physical_operator.py   # execute_physical_operator, the one operator call site
 │   │   │   ├── output_columns.py      # check_output_columns and its coercions
 │   │   │   └── return_answer.py       # project_answer, the columns a RETURN names
 │   │   ├── operators/                 # the router, one adapter per outside suite, and the owned suite
-│   │   │   ├── __init__.py            # OperatorRouter only
+│   │   │   ├── __init__.py            # the router and the suite lookup, no suite itself
 │   │   │   ├── router.py              # OperatorRouter
 │   │   │   ├── adapters/              # one per outside suite
 │   │   │   │   ├── blue/              # blue_operators, over blue-data-ops
@@ -76,8 +74,7 @@ blue-data-planner/
 │   │   └── llm/
 │   │       ├── client.py              # LLMClient, Conversation
 │   │       ├── provider.py
-│   │       ├── templating.py
-│   │       └── errors.py
+│   │       └── templating.py
 │   └── tests/
 │       ├── conftest.py
 │       ├── doubles/                   # in-memory replacements for I/O boundaries
@@ -86,7 +83,7 @@ blue-data-planner/
 │       ├── unit/                      # mirrors src/blue_data_planner/ and scripts/
 │       ├── lotus/                     # against an installed LOTUS; excluded from the default run
 │       └── end_to_end/                # one real request through a provider; excluded by default
-└── platform/
+└── platform/                          # one package per interface, each a thin adapter over lib/
     ├── cli/
     │   ├── README.md
     │   ├── pyproject.toml              # blue-planner = commands:main
@@ -95,7 +92,7 @@ blue-data-planner/
     │   │   └── install.sh
     │   ├── src/blue_data_planner_cli/
     │   │   ├── __init__.py             # __version__, read by --version
-    │   │   ├── commands.py             # the data, plan, and profile groups
+    │   │   ├── commands.py             # the root command and the data group
     │   │   ├── config.py               # resolved settings, and the planner they assemble
     │   │   ├── profile.py              # the profile actions
     │   │   ├── profile_spec.json       # the parameters a profile holds
@@ -125,8 +122,7 @@ blue-data-planner/
 | Directory | Owns | Published |
 | --- | --- | --- |
 | `design/` | The numbered design documents and the decision log | Yes, in the repository |
-| `docs/` | Documentation for readers outside the project. `docs/internal/` holds notes and links and is git-ignored | Partly |
-| `data/` | Benchmark inputs, downloaded and built rather than committed | No |
+| `docs/` | Documentation for readers outside the project | Yes, in the repository |
 | `examples/` | Runnable examples, grouped as `blue-data`'s are: one library feature per script, and the planner used from an agent framework | Yes |
 | `lib/` | All planning behavior. The `blue-data-planner` package | Yes, to PyPI |
 | `platform/` | One directory per external interface, each independently built and versioned | Yes, to PyPI |

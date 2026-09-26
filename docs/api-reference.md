@@ -3,7 +3,10 @@
 Signatures and types for the `blue_data_planner` library, grouped by the module that owns them.
 [guide.md](guide.md) is the task-oriented walkthrough of the same surface, and
 [architecture.md](architecture.md) explains the run loop these types describe. The `blue-planner`
-command is documented in [cli.md](cli.md), and the MCP server in [mcp.md](mcp.md).
+command is documented in [cli.md](cli.md), and the MCP server in [mcp.md](mcp.md). The interface
+this page describes is specified in
+[design/09-api-interface-spec.md](../design/09-api-interface-spec.md), which it is kept in sync
+with.
 
 ---
 
@@ -229,6 +232,91 @@ Each entry in `RunResult.results` is one of the first two.
 | `FragmentResult` | `status`, the last call's `ExecutionResult` in `result`, and `failure_reason`. Filed even when the review turned the result down |
 | `DiscoveryResult` | `search_terms`, the `EntityMatch` list they found in `matches`, and `dropped_terms`, the count the per-node cap cut |
 | `ExecutionResult` | `status` (`ExecutionStatus`), `output`, `operator_id`, `error` (`ErrorInfo`), `row_count` across every table, and the operator's own `report` |
+
+### Plan types
+
+What `RunResult.pipeline` holds, and what a caller reads a run through. All are in
+`blue_data_planner.types`; every one but `DataPipeline` is frozen.
+
+#### `DataPipeline`
+
+| Member | Type | Holds |
+| --- | --- | --- |
+| `logical_plans` | `dict[str, LogicalPlan]` | Every logical plan version the request produced, by id |
+| `physical_plans` | `dict[str, PhysicalPlan]` | Every cover the request produced, by id |
+| `current_logical_plan_id` | `str \| None` | The logical plan in force. `None` when the request ended before one was installed |
+| `current_physical_plan_id` | `str \| None` | The cover in force, always one written for the current logical plan |
+| `logical_plan` | property, `LogicalPlan` | The current logical plan. Raises `BlueDataPlannerError` when there is none |
+| `cover` | property, `PhysicalPlan` | The current cover. Raises `BlueDataPlannerError` when there is none |
+
+Check `current_physical_plan_id` before reading `cover` on a run that did not end `ok` or `planned`.
+
+#### `LogicalPlan`
+
+| Member | Type | Holds |
+| --- | --- | --- |
+| `id` | `str` | This version's id |
+| `parent_id` | `str \| None` | The version this one continues. `None` on the first |
+| `nodes` | `list[PipelineNode]` | The nodes, in the order the planner wrote them |
+| `output_node_id` | `str \| None` | The `RETURN` node. `None` only while the plan ends in control nodes |
+| `node(node_id)` | `-> PipelineNode` | One node. Raises `UnknownNodeError` |
+| `consumers(node_id)` | `-> list[PipelineNode]` | Every node reading this one. Raises `UnknownNodeError` |
+| `nodes_in_dependency_order()` | `-> list[PipelineNode]` | Every node after the nodes it reads |
+
+#### `PipelineNode`
+
+| Member | Type | Holds |
+| --- | --- | --- |
+| `id` | `str` | The node's id, written by the planner |
+| `kind` | `LogicalOperator \| ControlOperator` | `SCAN`, `FILTER`, `PROJECT`, `EXPAND`, `AGGREGATE`, `DISTINCT`, `SORT_SUPERLATIVE`, `JOIN`, `UNION`, `RETURN`; or `REPLAN`, `DISCOVER` |
+| `input_node_ids` | `list[str]` | The nodes it reads |
+| `attributes` | `dict[str, Any]` | What its kind carries: an `instruction`, a `SCAN`'s source, a `RETURN`'s `columns` |
+| `required_output_columns` | `list[OutputColumn]` | The columns its result has to carry, each a `name` and a `dtype` of `str`, `int`, `float`, or `bool` |
+| `instruction` | property, `str` | The instruction in plain language. Empty on a `RETURN` node |
+| `is_operator_node` | property, `bool` | Whether an operator runs it: a logical operator other than `RETURN` |
+
+#### `PhysicalPlan`
+
+| Member | Type | Holds |
+| --- | --- | --- |
+| `id` | `str` | This cover's id |
+| `parent_id` | `str \| None` | The cover this one replaces. `None` on the first for a logical plan |
+| `logical_plan_id` | `str` | The logical plan it covers |
+| `fragments` | `list[PhysicalPlanFragment]` | The fragments, together covering every operator node |
+| `fragment(fragment_id)` | `-> PhysicalPlanFragment` | One fragment. Raises `UnknownFragmentError` |
+| `fragment_for_node(node_id)` | `-> PhysicalPlanFragment` | The fragment covering a node. Raises `UnknownFragmentError` |
+| `fragment_for_root(node_id)` | `-> PhysicalPlanFragment \| None` | The fragment whose output is this node's, or `None` |
+
+#### `PhysicalPlanFragment`
+
+| Field | Type | Holds |
+| --- | --- | --- |
+| `id` | `str` | The fragment's id |
+| `logical_node_ids` | `list[str]` | The nodes one operator call covers |
+| `root_logical_node_id` | `str` | The last of them, whose output the fragment produces |
+| `operator_id` | `str` | The operator bound to it, such as `builtin.filter` |
+| `scan_sources` | `dict[str, str]` | Each `SCAN` node's id, mapped to the catalog path it reads |
+| `instruction` | `str` | What the call has to do, in plain language |
+| `input_data` | `list[InputData]` | The outputs it reads from other fragments, each a `logical_node_id`, a `name`, and a `description` |
+| `required_output_columns` | `list[OutputColumn]` | The columns its result has to carry |
+
+`signatures(plan, cover)` in `blue_data_planner.plan` maps each fragment's root node, and each
+control node, to the key its entry in `RunResult.results` is filed under.
+
+#### `EntityMatch`
+
+One entity a `DISCOVER` node's search found, in `DiscoveryResult.matches`.
+
+| Field | Type | Holds |
+| --- | --- | --- |
+| `path` | `str` | The entity's catalog path, which a `SCAN` names as its source |
+| `name` | `str` | The entity's name |
+| `description` | `str \| None` | Its description in the registry |
+| `source_kind` | `str` | The connection protocol of the source above it, such as `sql/sqlite` |
+| `attributes` | `list[AttributeRecord]` | Every attribute it holds |
+| `score` | `float` | How well it matched |
+| `search_term` | `str` | The term that found it |
+| `row_count` | `int \| None` | The row count the registry records. `None` when it records none |
 
 ---
 

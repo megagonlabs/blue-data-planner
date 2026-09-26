@@ -4,12 +4,17 @@ Each entry records a decision that had a real alternative and that other documen
 against. Anything still provisional, and anything that only says what a release leaves out, is an
 open question at the end rather than an entry here.
 
-No entry carries a date or a status, and nothing here is superseded. The open questions at the end
-are everything not yet decided.
+Every entry carries its date and its status. An entry is not rewritten once written: a changed
+decision is a new entry, and the entry it replaces keeps its text under the status
+`Superseded by ADR-NNN`. An entry found to rest on a guess is `Withdrawn`, and its question moves to
+the open questions at the end, which are everything not yet decided.
 
 ---
 
 ## ADR-001 — Python Packaging and Tooling
+
+**Date:** 2026-09-25
+**Status:** Accepted
 
 **Decision:** Python 3.11 or newer. One `pyproject.toml` per package, `src/` layout, setuptools as
 the build backend. Runtime dependencies in `dependencies`, development tooling in
@@ -32,6 +37,9 @@ never rewritten into `uv` commands.
 
 ## ADR-002 — Behavior Lives in `lib/`; Platform Packages Translate Only
 
+**Date:** 2026-09-25
+**Status:** Accepted
+
 **Decision:** `lib/` owns all behavior. A package under `platform/` parses requests, formats
 responses, maps errors, and loads configuration, and imports only the library's public surface.
 Planning, operator selection, and execution never live in an adapter.
@@ -48,6 +56,9 @@ deliberate act.
 ---
 
 ## ADR-003 — Data Access Through a Single `blue-data` Boundary
+
+**Date:** 2026-09-25
+**Status:** Accepted
 
 **Decision:** Within `lib/src/`, all access to `blue-data` goes through `blue_data_planner/data/`.
 No other packaged module imports `blue-data`, and no application code talks to Redis, vector stores,
@@ -83,6 +94,9 @@ path exclusion.
 
 ## ADR-004 — Operator Suites Enter Through Adapters, Never Vendored
 
+**Date:** 2026-09-25
+**Status:** Accepted
+
 **Decision:** Every operator suite with an owner elsewhere, `blue-data-ops` included, is integrated
 by an adapter under `operators/` that describes each of the suite's operations as a
 `PhysicalOperator` and calls the suite as an outside dependency. No such suite's source is copied
@@ -108,6 +122,9 @@ becomes a git URL against a fork rather than a submodule.
 ---
 
 ## ADR-005 — Model Calls Go Through litellm, in One Module
+
+**Date:** 2026-09-25
+**Status:** Accepted
 
 **Decision:** Every model call the library makes goes through `lib/src/blue_data_planner/llm/`,
 which wraps `litellm`, and a provider is named by a model string rather than by an import. Every
@@ -135,6 +152,9 @@ operator call's report rather than beside the planner's own calls, which keeps t
 ---
 
 ## ADR-006 — Three-Stage Planning: Logical, Physical, Fragment Execution
+
+**Date:** 2026-09-25
+**Status:** Accepted
 
 **Decision:** Planning happens in three stages, and the middle one decides how much of the plan each
 operator takes on.
@@ -171,6 +191,9 @@ make every node of that kind runnable.
 ---
 
 ## ADR-007 — A Plan Is a DAG of Typed Nodes, and Plans Are Versioned
+
+**Date:** 2026-09-25
+**Status:** Accepted
 
 **Decision:** A plan is a directed acyclic graph of typed nodes held as structured data, not as
 generated text or code, and it is checked before it runs. A node is one of three kinds.
@@ -210,6 +233,9 @@ a grouped node forces the fragment that grouped it to run again.
 
 ## ADR-008 — A Logical Node Carries One Instruction and Typed Output Columns
 
+**Date:** 2026-09-25
+**Status:** Accepted
+
 **Decision:** An operator node carries an instruction written in plain language. It names no
 operator, because the operator can differ between covers of the same node. A `SCAN` also names the
 source it reads (ADR-022). The columns a later node depends on are recorded on the node as
@@ -247,6 +273,9 @@ such as `"142,984"` declared `int` is refused rather than repaired.
 
 ## ADR-009 — Operator Routing Is Separate from the Operator Registry
 
+**Date:** 2026-09-25
+**Status:** Accepted
+
 **Decision:** Two lookups answer different questions. `blue-data-ops`'s `OperatorRegistry`, the
 versioned catalog of Blue operator classes, answers which classes exist and at what version.
 `operators/router.py` answers which operators, from any suite, declare a given logical operator,
@@ -276,6 +305,9 @@ asserted directly in a test.
 
 ## ADR-010 — An Operator's Parameter Schema Is Hand-Written
 
+**Date:** 2026-09-25
+**Status:** Accepted
+
 **Decision:** One Pydantic model per operator, defined in the adapter, refusing unknown keys. It is
 never generated from the operator's own attribute declarations.
 
@@ -300,6 +332,9 @@ validator wherever declaration and validator disagree.
 
 ## ADR-011 — `execution/` Invokes Operators; `DataPlanner` Owns the Run Loop
 
+**Date:** 2026-09-25
+**Status:** Accepted
+
 **Decision:** `execution/` is a directory of its own beside the modules that plan, holding
 `execute_physical_operator` and `check_output_columns` and nothing else. It runs one operator its caller resolved and handed to it,
 bills the call against the operator budget, and checks the result against the output columns its
@@ -322,6 +357,9 @@ the package root `types/`, so `execution/` can name them without importing a pla
 ---
 
 ## ADR-012 — A Fragment Passes a List of Tables
+
+**Date:** 2026-09-25
+**Status:** Accepted
 
 **Decision:** The value one fragment passes to the next is a list of tables, where a table is a list
 of row dicts.
@@ -359,6 +397,9 @@ output indexes a table before a row, so the rows of a single-output fragment are
 
 ## ADR-013 — A Fragment's Result Is Checked, Then Reviewed
 
+**Date:** 2026-09-25
+**Status:** Accepted
+
 **Decision:** A result is judged in two passes. `execute_physical_operator` checks it against the
 fragment root's `required_output_columns`, coercing each column to its declared type and failing the
 call as a recoverable error when it cannot. A result clearing that check goes to a model review turn
@@ -385,6 +426,9 @@ it owes, so an incomplete one leaves the review nothing to catch a bad call with
 ---
 
 ## ADR-014 — One Operator-Call Budget; Model Calls Go Unmetered
+
+**Date:** 2026-09-25
+**Status:** Accepted
 
 **Decision:** A request carries one budget, counting calls through `execute_physical_operator`;
 reaching its cap ends the request. Every bound the run loop obeys is a field of `RunLimits`, set
@@ -413,6 +457,9 @@ more than it otherwise would.
 ---
 
 ## ADR-015 — Recoverable Failures Are Statuses; Everything Else Raises
+
+**Date:** 2026-09-25
+**Status:** Accepted
 
 **Decision:** A request that runs out of attempts, replans, or budget, that hits an unrecoverable
 operator failure, or whose provider fails after retries, returns a result whose status says why,
@@ -444,6 +491,9 @@ what might help.
 
 ## ADR-017 — The Package Root Exports the Run Path
 
+**Date:** 2026-09-25
+**Status:** Accepted
+
 **Decision:** `blue_data_planner/__init__.py` holds `__version__` and the run path: `DataPlanner`,
 `build_data_planner`, `PlannerSettings`, `build_data_planner_from_settings`, `RunResult`,
 `RunLimits`, `RunStatus`, and `BlueDataPlannerError`. Public is the root, every module directly
@@ -471,6 +521,9 @@ obeys names a shape rather than a list of modules ([08-coding-style.md](08-codin
 ---
 
 ## ADR-018 — Intersection Is a `JOIN`; the Vocabulary Gains No Set Operations
+
+**Date:** 2026-09-25
+**Status:** Accepted
 
 **Decision:** A request meaning "the rows in both" is a `JOIN` node whose instruction says so. The
 logical vocabulary holds no `INTERSECT` and no set-difference operator, and the ten operators stay
@@ -501,6 +554,9 @@ kind is declared in an operator's `limitations` and reported as a recoverable fa
 
 ## ADR-019 — The MCP Server Runs Over stdio
 
+**Date:** 2026-09-25
+**Status:** Accepted
+
 **Decision:** `blue-data-planner-mcp` runs over stdio. A client launches it as a subprocess and owns
 its lifetime, so the server binds no socket and has no host, port, or path. Each platform package
 names a console script under `[project.scripts]`, which is the command a client is configured with.
@@ -522,6 +578,9 @@ entry and to the two documents written against it
 ---
 
 ## ADR-020 — This Repository Owns a Suite of Built-in Operators
+
+**Date:** 2026-09-25
+**Status:** Accepted
 
 **Decision:** A suite named `builtin`, written here rather than depended on, holding two kinds of
 entry. A deterministic entry holds no model call and does what the parameters the fragment runner
@@ -627,6 +686,9 @@ operator declaring `source_kinds`.
 
 ## ADR-021 — The Catalog Readings Rank and Cap, and the Entity Search Drops What Matched Nothing
 
+**Date:** 2026-09-25
+**Status:** Accepted
+
 **Decision:** Every catalog reading that searches asks the registry to rank and takes the top
 results. `preview` takes its cap from the logical planner and keeps every source it ranked, so a
 registry holding any source never previews as empty. `search_records` takes a cap fixed when the
@@ -664,6 +726,9 @@ and the general thing a specific one belongs to.
 ---
 
 ## ADR-022 — Catalog Detail Below the Source Level Enters Only Through `DISCOVER`
+
+**Date:** 2026-09-25
+**Status:** Accepted
 
 **Decision:** A `DISCOVER` node is the one way a run learns anything below the source level. The
 search runs at the entity level, and a hit returns that entity together with every attribute it
@@ -734,6 +799,9 @@ repair.
 
 ## ADR-023 — A Bind Join's Table Is Dropped by the Operator That Wrote It
 
+**Date:** 2026-09-25
+**Status:** Accepted
+
 **Decision:** The temporary-table realization of a bind join writes an ordinary table under a name
 unique to the call, and the operator that wrote it drops it before its call returns, on the failing
 path as much as on the succeeding one ([06-library.md](06-library.md#data)). A drop that itself
@@ -754,6 +822,9 @@ repair would write a second table rather than remove the first.
 ---
 
 ## ADR-024 — A Result Is Reused by Signature
+
+**Date:** 2026-09-25
+**Status:** Accepted
 
 **Decision:** Every node that produces a result has a signature covering what decides that result,
 the signatures of the work feeding it included. A run files results by signature, and installing a
@@ -787,6 +858,9 @@ parameters stays attached to the work those parameters were written for.
 
 ## ADR-025 — One Conversation per Component, Continued Through Repairs
 
+**Date:** 2026-09-25
+**Status:** Accepted
+
 **Decision:** Each component talks to the model in a conversation the run owns: one per request for
 the logical planner, one per logical plan for the physical planner, one per fragment for the fragment
 runner, and one per `DISCOVER` node for the catalog searcher. A repair continues the conversation it
@@ -807,6 +881,9 @@ a list, because the list differs from turn to turn.
 ---
 
 ## ADR-026 — One Cover Repair Answers Every Physical Failure
+
+**Date:** 2026-09-25
+**Status:** Accepted
 
 **Decision:** A fragment whose parameter repairs ran out sends the run to the cover repair, which
 covers the whole logical plan again. That one repair carries every fix physical planning has: binding
@@ -829,6 +906,9 @@ after its first, and a request those cannot fix replans.
 ---
 
 ## ADR-027 — The CLI Follows the Blue CLI Family's Command Shape
+
+**Date:** 2026-09-25
+**Status:** Accepted
 
 **Decision:** The command is `blue-planner`, and every invocation reads
 `<cli> <component> <action> <parameters>`. Components are `data` and `profile`; actions come from the
@@ -855,6 +935,9 @@ argument of it, because a tool's arguments are its flags.
 
 ## ADR-028 — CLI Configuration Lives in a Profile
 
+**Date:** 2026-09-25
+**Status:** Accepted
+
 **Decision:** `blue-planner` resolves every setting as command option, then environment variable,
 then the selected profile, then the default. Profiles live in `~/.blue-planner/.profiles`, over the
 configuration engine `blue-data` publishes, and `BLUE_DATA_PLANNER_HOME` relocates the directory. A
@@ -877,6 +960,9 @@ directory it did not choose.
 
 ## ADR-029 — The CLI Prints Rows, and Offers No Prose Format
 
+**Date:** 2026-09-25
+**Status:** Accepted
+
 **Decision:** `--format` accepts `table` and `json`. The family's third name, `nl`, is not offered.
 
 **Rationale:** The family offers `nl` where a source answers in prose. A planner's answer is the
@@ -891,6 +977,9 @@ be able to phrase an answer is open question 54, and the format arrives with it 
 ---
 
 ## ADR-030 — Three Exit Codes, and an Error Code for What They Do Not Separate
+
+**Date:** 2026-09-25
+**Status:** Accepted
 
 **Decision:** The CLI exits 0 when the command succeeded, 2 for a usage error, and 1 for everything
 else, including a run that did not finish and a configuration failure. What kind of failure it was
@@ -908,6 +997,9 @@ code or the JSON payload rather than `$?`. A run that did not finish still print
 ---
 
 ## ADR-031 — The Benchmark Is a Script, Not a Test Tier
+
+**Date:** 2026-09-25
+**Status:** Accepted
 
 **Decision:** The TAG-Bench harness lives at `lib/scripts/tag_bench/benchmark/`, beside the three
 scripts that build its inputs, and runs as a module. `pytest` runs no part of it; the harness's own
@@ -929,6 +1021,9 @@ the opt-in tier that remains there is `end_to_end/`, one real request through a 
 ---
 
 ## ADR-032 — Format and Detail Are Separate Options
+
+**Date:** 2026-09-25
+**Status:** Accepted
 
 **Decision:** `--format` decides how the CLI writes a result, and `--log` decides whether the run
 behind it is reported. Without `--log`, both formats write the result alone — the answer, or the
@@ -967,6 +1062,9 @@ file.
 
 ## ADR-033 — A Fragment's Ending Is Filed Whether Its Result Was Kept or Not
 
+**Date:** 2026-09-25
+**Status:** Accepted
+
 **Decision:** `results` maps a signature to the `FragmentResult` the run came to under it, rejections
 included, and a `FragmentResult` carries the last call's result whatever the ending. What makes a
 fragment done is an accepted entry rather than an entry, so a rejected one is offered again and its
@@ -993,6 +1091,9 @@ ending is filed.
 
 ## ADR-034 — An Ending the Rows Cannot Answer Is a Replan
 
+**Date:** 2026-09-25
+**Status:** Accepted
+
 **Decision:** The columns holding the answer are named by the logical planner and by nothing else.
 When the rows a finished run holds do not carry one of them, the run returns to the logical planner
 with the reason, and the ending is written again against the rows the run now holds. The prompt that
@@ -1018,6 +1119,9 @@ a caller receives.
 
 ## ADR-035 — A Cover of Work Already Done Is Carried Over, Unasked
 
+**Date:** 2026-09-25
+**Status:** Accepted
+
 **Decision:** A logical plan whose operator nodes all have results keeps the cover the run already
 has, under the new plan's id. No binding is offered to a model and no candidate is enumerated.
 
@@ -1036,6 +1140,9 @@ fragments are the previous cover's, and the signatures under which results sit a
 
 ## ADR-036 — The MCP Server Reports a Failure in Its Payload
 
+**Date:** 2026-09-25
+**Status:** Accepted
+
 **Decision:** A run that ended on a failure status, and an operator that failed inside one, are
 successful tool calls whose payload carries the status. Anything raised becomes
 `{"error": "<message>"}`, also a successful tool call.
@@ -1051,6 +1158,9 @@ codes in the payload is open question 57.
 
 ## ADR-037 — The Values a Planner Is Built From Are a Library Type
 
+**Date:** 2026-09-25
+**Status:** Accepted
+
 **Decision:** `PlannerSettings` holds them with their defaults and their validation; each interface
 resolves its own way and hands one over.
 
@@ -1065,6 +1175,9 @@ those parameters as unset. A test guards the two against drift.
 
 ## ADR-038 — The MCP Surface Is Tools-Only, and a Tool Name Borrows the CLI's Verb
 
+**Date:** 2026-09-25
+**Status:** Accepted
+
 **Decision:** No Blue Data server exposes MCP resources. Where a tool and a CLI command name the
 same operation, the tool takes the command's verb and its component as the noun.
 
@@ -1077,6 +1190,9 @@ resources are not added without revisiting this.
 ---
 
 ## ADR-039 — A `REPLAN` Reads Nothing, and Waits for Work the Same Pass Wrote
+
+**Date:** 2026-09-25
+**Status:** Accepted
 
 **Decision:** A `REPLAN` node lists no inputs. It is ready once no fragment is, and what it hands
 the planner is what the pass's fragments produced. A plan holding one has to write at least one step
@@ -1109,6 +1225,9 @@ are for ([04](04-detailed-architecture.md#writing-a-continuation)).
 
 ## ADR-040 — A Binding May Turn Down Every Candidate
 
+**Date:** 2026-09-25
+**Status:** Accepted
+
 **Decision:** The schema one binding decision is written into carries one choice beyond the
 candidates and the reuse candidate: taking none of them, with a reason. Choosing it ends the cover,
 and the run goes back to the logical planner with that reason. It is the answer where every
@@ -1136,6 +1255,9 @@ two cases, and the status mix of a benchmark run is what measures whether they d
 
 ## ADR-041 — The Built-In Filter Searches Strings by Regular Expression
 
+**Date:** 2026-09-25
+**Status:** Accepted
+
 **Decision:** A comparison in `builtin.filter`'s predicate can be a `re.search` over a string
 column, alongside the value, membership, and null comparisons.
 
@@ -1155,6 +1277,9 @@ can rewrite it.
 ---
 
 ## ADR-042 — Planning Runs the Run Loop Up to the First Operator Call
+
+**Date:** 2026-09-25
+**Status:** Accepted
 
 **Decision:** `plan` runs the loop `run` runs and ends as `planned` at the first point that loop
 would call an operator: a ready fragment, or a plan with nothing left to run. Control nodes, the

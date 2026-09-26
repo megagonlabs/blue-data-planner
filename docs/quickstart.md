@@ -94,7 +94,7 @@ print(result.answer)   # [[{'country': 'Mexico', 'customer_count': 3}, ...]]
 
 ## Next steps
 
-- [examples/](../examples/README.md) — four runnable scripts with captured output
+- [examples/](../examples/README.md) — five runnable scripts with captured output
 - [guide.md](guide.md) — the library task by task
 - [features.md](features.md) — what the planner can do, one section per capability
 - [architecture.md](architecture.md) — the three stages, the repairs, and how a run flows
