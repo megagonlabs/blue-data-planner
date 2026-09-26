@@ -989,8 +989,9 @@ built without stats records no row count, and for its entities `row_count` is `N
 
 `search_records` takes one query string and returns the entities that match it, ranked. A discovery
 node that expands into several terms calls it once per term. `score` is the registry's own relevance
-score, where a higher number is a better match, and the list is ordered by it. The list is capped
-rather than filtered, so a weak match appears at the bottom rather than not at all (ADR-021).
+score, where a higher number is a better match, and the list is ordered by it. The list is capped,
+and it holds only entities scoring above zero: a weak match appears at the bottom, and a term that
+matches nothing returns an empty list (ADR-021).
 
 An entity is found by its own name and description. Reaching one through an attribute's name or
 through a value stored in it is not something the search offers, so a request whose vocabulary

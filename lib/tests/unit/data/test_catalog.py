@@ -243,7 +243,7 @@ def test_a_matched_entitys_row_count_reflects_what_the_registry_recorded(
     assert catalog.search_records("stores in a city")[0].row_count == expected
 
 
-def a_registry_with_two_store_tables() -> DataRegistry:
+def a_registry_with_two_store_tables_and_a_supplier_table() -> DataRegistry:
     warehouses = AttributeRef(
         source="retail",
         database="shop",
@@ -265,7 +265,13 @@ def a_registry_with_two_store_tables() -> DataRegistry:
             "entity",
             "warehouses",
             "/source/retail/database/shop/collection/public",
-            "one row per warehouse",
+            "one row per warehouse that restocks a store",
+        ),
+        a_record(
+            "entity",
+            "suppliers",
+            "/source/retail/database/shop/collection/public",
+            "one row per supplier",
         ),
         an_attribute(CITY),
         an_attribute(warehouses),
@@ -273,22 +279,31 @@ def a_registry_with_two_store_tables() -> DataRegistry:
 
 
 def test_a_search_ranks_its_matches_and_names_the_term_that_found_them() -> None:
-    """A search is ranked rather than filtered, so the best match leads the list."""
-    catalog = DataCatalog(a_registry_with_two_store_tables())
+    """The entity matching more of the term leads the list."""
+    catalog = DataCatalog(a_registry_with_two_store_tables_and_a_supplier_table())
 
-    matches = catalog.search_records("stores")
+    matches = catalog.search_records("store warehouse")
 
-    assert [match.name for match in matches] == ["stores", "warehouses"]
-    assert [match.search_term for match in matches] == ["stores", "stores"]
+    assert [match.name for match in matches] == ["warehouses", "stores"]
+    assert [match.search_term for match in matches] == ["store warehouse", "store warehouse"]
     assert matches == sorted(matches, key=lambda match: match.score, reverse=True)
+
+
+def test_a_search_matching_no_entity_returns_nothing() -> None:
+    """An entity the term does not match is never presented as a hit, however few matched."""
+    catalog = DataCatalog(a_registry_with_two_store_tables_and_a_supplier_table())
+
+    assert catalog.search_records("customer") == []
 
 
 def test_a_search_returns_no_more_matches_than_the_catalog_was_built_to_return() -> None:
     """max_search_results is what bounds how much catalog one prompt carries."""
-    catalog = DataCatalog(a_registry_with_two_store_tables(), max_search_results=1)
+    catalog = DataCatalog(
+        a_registry_with_two_store_tables_and_a_supplier_table(), max_search_results=1
+    )
 
-    # The registry holds two entities, so the cap is what makes this one.
-    assert len(catalog.search_records("stores")) == 1
+    # Both entities match "store", so the cap is what makes this one.
+    assert len(catalog.search_records("store")) == 1
 
 
 def a_registry_holding_a_profiled_city_column() -> DataRegistry:

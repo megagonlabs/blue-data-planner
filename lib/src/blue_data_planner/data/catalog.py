@@ -128,10 +128,13 @@ class DataCatalog:
         )
 
     def search_records(self, term: str) -> list[EntityMatch]:
-        """Return the entities one term found, each with every attribute it holds."""
+        """Return the entities one term matched, each with every attribute it holds."""
+        # The registry fills a page with unmatched records at score 0, always in the same order,
+        # so keeping them would present an arbitrary entity as a hit (ADR-021).
         return [
             self._match(raw, term)
             for raw in self._search(term, self._max_search_results, record_type="entity")
+            if float(raw["_score"]) > 0
         ]
 
     def attribute_views(self, entity_path: str) -> list[AttributeView]:

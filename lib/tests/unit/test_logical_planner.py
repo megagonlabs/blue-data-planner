@@ -426,6 +426,24 @@ def test_the_opening_turn_shows_each_discovered_entitys_row_count() -> None:
     assert f"- {REVIEWS_PATH} (sql/sqlite, row count not recorded): company reviews" in asked
 
 
+def test_a_discovery_that_matched_nothing_is_shown_with_the_terms_it_searched_for() -> None:
+    """The planner can tell a search that found nothing from a node that never searched."""
+    conversation = Conversation()
+    a_planner_over(ScriptedLLMClient([a_complete_plan()])).generate(
+        "customers paying in euros",
+        conversation,
+        counters(),
+        results={
+            "n1": DiscoveryResult(
+                search_terms=["customer", "customers"], matches=[], dropped_terms=0
+            )
+        },
+    )
+
+    asked = [turn for turn in conversation.turns if turn.role == "user"][-1].content
+    assert 'n1 searched for "customer", "customers" and found no entity.' in asked
+
+
 def test_a_plan_validation_turned_down_is_written_again_with_the_error_in_the_conversation() -> (
     None
 ):

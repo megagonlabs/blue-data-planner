@@ -548,7 +548,9 @@ instead of to a downstream node.
 
 It reads the node's instruction and, when the node has inputs, the tables those inputs produced. A
 model turns the two into concrete search terms, and the number of terms one node may expand into is
-capped.
+capped. A term finds an entity only through words its name or description uses, so the model writes
+several forms of what it looks for: a noun in the singular and the plural, and the general thing a
+specific one belongs to, such as `users` for a post's owner.
 
 Each term goes to `blue-data`'s registry search through `data/`, which ranks catalog records by
 keyword match, value match, and vector similarity together. Vector similarity needs a vector source
@@ -560,6 +562,11 @@ type, and the description enrichment wrote for it
 ([10-data-model.md](10-data-model.md#what-a-search-returns)). The run keeps the hits under the
 node's id, and every resolved node's hits together are the run's catalog context. Nothing is
 converted into rows, and no operator call is spent.
+
+A term that matches no entity finds nothing, and a node whose every term found nothing resolves to
+an empty result (ADR-021). The logical planner reads the catalog context node by node, each with the
+terms it searched for, so a search that found nothing reaches it as that fact. It can write a new
+`DISCOVER` node with other terms, or write that part of the plan from world knowledge.
 
 The attribute list is why discovery answers more than "which source." A continuation written against
 it names a source for each `SCAN`, and the nodes reading a scan declare their output columns from

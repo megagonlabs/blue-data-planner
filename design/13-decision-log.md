@@ -625,28 +625,41 @@ operator declaring `source_kinds`.
 
 ---
 
-## ADR-021 — The Catalog Readings Rank and Cap, and Never Filter by Score
+## ADR-021 — The Catalog Readings Rank and Cap, and the Entity Search Drops What Matched Nothing
 
 **Decision:** Every catalog reading that searches asks the registry to rank and takes the top
-results, and none of them drops a record for scoring below a bar. `preview` takes its cap from the
-logical planner, and `search_records` takes one fixed when the catalog is built. What a component
-sees is therefore the best matches the registry can offer, in order, and never nothing.
+results. `preview` takes its cap from the logical planner and keeps every source it ranked, so a
+registry holding any source never previews as empty. `search_records` takes a cap fixed when the
+catalog is built and keeps only the entities scoring above zero, so a term that matches nothing
+finds nothing. That zero-score cut is the only filter, and `data/` applies it itself; where the
+registry exposes score thresholds, `data/` sets them out of the way. The logical planner is shown
+each `DISCOVER` node's terms next to what they found, a node that found nothing included.
 
 **Rationale:** A search engine's score threshold is tuned for a consumer, and the consumer here is a
 model reading a prompt rather than a user reading a result list. A model weighs a weak match at the
-bottom of a ranked list against the rest of the list and discounts it. An empty list it cannot
-weigh at all: nothing in one distinguishes a registry holding nothing relevant from a registry
-holding nothing, so a logical planner handed an empty preview has no way to tell a bad search from
-an empty catalog and will plan as though there were no sources. Ranking also degrades gracefully
-where a registry has no vector index, which is the state a registry built by ingestion alone is in.
-Choosing what each component sees is this repository's business, and a threshold chosen for a
-different consumer is not that choice ([06-library.md](06-library.md#datacatalog)).
+bottom of a ranked list against the rest of the list and discounts it, so a match that is weak but
+real stays. A zero score is not a weak match. It means no signal matched at all, and the records
+filling the page are whichever ones the registry happens to list first, the same ones for every
+term. Handed those, a planner binds a `SCAN` to an unrelated entity, and nothing in a ranked list
+tells it that the entity at the top was a filler. In TAG-Bench runs, `customer` came back as three
+unrelated tables at score 0.0 while the `customers` table went unfound.
 
-**Consequences:** A weak match reaches a prompt, so a component has to be written to expect
+The preview keeps its fillers because its failure runs the other way. Its query is the whole
+request and its records are the few registered sources, so the list is short and a filler costs
+little. An empty preview cannot be told apart from an empty registry, though, and a planner handed
+one plans as though there were no sources. An empty discovery result can be told apart, as long as
+the planner sees which node searched and for which terms: a search that found nothing is a fact the
+planner can act on, by searching with other terms or by answering that part from world knowledge.
+
+**Consequences:** A weak match still reaches a prompt, so a component has to be written to expect
 irrelevant records in a ranked list rather than to trust that everything returned is relevant. The
 caps are the only bound on how much catalog a prompt carries, which makes them the number to tune
-when a prompt grows too large. Where the underlying registry exposes score thresholds, `data/` sets
-them out of the way rather than relying on their defaults.
+when a prompt grows too large.
+
+What a discovery finds depends on whether a term uses the words an entity's name and description
+use, since a term matching none of them now finds nothing rather than a filler. The catalog searcher
+therefore writes several forms of what it looks for: a noun in both the singular and the plural,
+and the general thing a specific one belongs to.
 
 ---
 

@@ -1367,6 +1367,8 @@ prompt shaping.
 
 Every reading that searches ranks its results and takes the top of the list (ADR-021). A weak match
 therefore reaches a prompt at the bottom of a ranked list, where a model weighs it against the rest.
+`search_records` also drops every entity scoring zero, which is one no signal matched, so a term that
+matches nothing returns nothing; `preview` keeps every source it ranked.
 
 Planning quality depends on whether a source has been enriched. A source that never was renders with
 names and kinds alone, which planning still works with. An entity nobody enriched still returns its

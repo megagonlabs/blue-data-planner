@@ -11,8 +11,13 @@
 {% if catalog_context %}
 ## What the searches found
 
-Each entity below carries every attribute it holds. Declare column names from these, and name a
+Each `DISCOVER` node below is listed with the terms it searched for and the entities they
+matched. Each entity carries every attribute it holds. Declare column names from these, and name a
 `SCAN`'s source by one of the paths below, copied exactly.
+
+A node that found no entity means the catalog holds nothing those terms match. Search again with
+different terms in a new `DISCOVER` node, or write that part of the plan from what you already
+know.
 
 {{ catalog_context }}
 {% endif %}

@@ -182,9 +182,14 @@ def _render_preview(preview: Any) -> str:
 
 def _render_context(results: dict[str, ExecutionResult | DiscoveryResult]) -> str:
     lines: list[str] = []
-    for result in results.values():
+    for node_id, result in results.items():
         if not isinstance(result, DiscoveryResult):
             continue
+        terms = ", ".join(f'"{term}"' for term in result.search_terms)
+        if not result.matches:
+            lines.append(f"{node_id} searched for {terms} and found no entity.")
+            continue
+        lines.append(f"{node_id} searched for {terms} and found:")
         for match in result.matches:
             described = match.description or "no description recorded"
             rows = (
