@@ -321,3 +321,20 @@ def test_the_prompt_names_the_entity_path_each_scan_is_bound_to() -> None:
         a_fragment(scan_sources={"n1": POSTINGS}), conversation, ROWS, counters()
     )
     assert POSTINGS in conversation.turns[1].content
+
+
+EIGHT_ROWS: DataBundle = [[{"title": f"posting {number}"} for number in range(8)]]
+
+
+def test_every_table_the_model_is_shown_counts_the_rows_it_leaves_out() -> None:
+    """Both the input table and the result list five rows and say three more were not shown."""
+    conversation = Conversation()
+    a_runner([{"predicate": "title is not null"}, a_review("accept")], keeps_everything).run(
+        a_fragment(), conversation, EIGHT_ROWS, counters()
+    )
+
+    opening, review = (turn.content for turn in conversation.turns if turn.role == "user")
+    for shown in (opening, review):
+        assert "{'title': 'posting 4'}" in shown
+        assert "{'title': 'posting 5'}" not in shown
+        assert "(+3 more row(s))" in shown

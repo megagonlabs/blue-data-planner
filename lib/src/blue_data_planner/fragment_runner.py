@@ -25,6 +25,7 @@ from blue_data_planner.types import (
     PhysicalPlanFragment,
     RunCounters,
     RunStatus,
+    TableSummary,
     summarize_table,
 )
 
@@ -240,8 +241,7 @@ def _render_inputs(fragment: PhysicalPlanFragment, inputs: DataBundle) -> str:
         lines.append(
             f"- {name}: {described}. {summary.row_count} row(s), columns {summary.columns}"
         )
-        for row in summary.sample_rows:
-            lines.append(f"    {row}")
+        lines.extend(_sample_lines(summary, "    "))
     return "\n".join(lines)
 
 
@@ -254,5 +254,14 @@ def _render_result(fragment: PhysicalPlanFragment, result: ExecutionResult) -> s
         f"Rows: {result.row_count}",
     ]
     if summary is not None:
-        lines.extend(f"  {row}" for row in summary.sample_rows)
+        lines.extend(_sample_lines(summary, "  "))
     return "\n".join(lines)
+
+
+def _sample_lines(summary: TableSummary, indent: str) -> list[str]:
+    # The rows not shown are counted, so a model does not take the sample for the whole table.
+    lines = [f"{indent}{row}" for row in summary.sample_rows]
+    remaining = summary.row_count - len(summary.sample_rows)
+    if remaining:
+        lines.append(f"{indent}(+{remaining} more row(s))")
+    return lines

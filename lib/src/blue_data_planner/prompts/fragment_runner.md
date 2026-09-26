@@ -16,6 +16,10 @@ A single call asked to scan, filter, and join returns one table and no evidence 
 it, so hold the rows against everything the instruction asks for. A call handed a condition it
 cannot express tends to return rows that ignore the condition.
 
+The row count is the size of the whole result. The rows listed under it are only the first few, and
+a `(+N more row(s))` line counts the ones left out. The same holds for the tables the fragment was
+handed. Never reject a result because it lists fewer rows than its count.
+
 Which columns the result carries is not yours to judge. The columns the fragment owes are checked
 before you see the result, and one carrying further columns has done nothing wrong. Never ask for a
 projection.
