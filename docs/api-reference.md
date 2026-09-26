@@ -43,13 +43,14 @@ def plan(self, request: str) -> RunResult: ...
 | Operation | Does | Status it can return | Spends operator calls |
 | --- | --- | --- | --- |
 | `run` | Plans, covers, executes, and repairs until the request ends | Any member of `RunStatus` other than `planned`, `needs_repair`, and `needs_replan` | Yes |
-| `plan` | Writes one logical plan and one cover, then stops | `planned`, `invalid_plan`, `llm_failed`, `planner_failed` | No |
+| `plan` | Plans, searches the catalog, and covers as `run` does, then stops before the first operator call | `planned`, `invalid_plan`, `replan_exhausted`, `llm_failed`, `planner_failed` | No |
 
 Both take a request in plain language and nothing else. A plan is what a request produced, so
 neither operation accepts one: `LogicalPlan.from_dict` reads a recorded plan back for inspection.
-Limits are fixed when the planner is built, so neither takes an override. A `plan` call whose
-first pass ends in a `DISCOVER` node comes back as it stands, with no search run, and sets
-`failure_reason` only when no cover could be written.
+Limits are fixed when the planner is built, so neither takes an override. `plan` returns the plan
+and the cover `run` would start executing: a `DISCOVER` node with nothing to wait for has been
+searched and the continuation written and covered. A `DISCOVER` node waiting on rows a fragment
+produces is left unresolved. On `planned`, `failure_reason` is `None`.
 
 The constructor takes the four components and the limits — `DataPlanner(logical_planner,
 physical_planner, fragment_runner, catalog_searcher, limits)` — which is how a caller gives one
@@ -176,7 +177,7 @@ A `StrEnum`, so `print(result.status)` prints `ok`.
 | `OK` | `ok` | The request was answered, or one fragment's review accepted its result |
 | `NEEDS_REPAIR` | `needs_repair` | Fragment only: the parameter repairs ran out, so the run loop writes the cover again |
 | `NEEDS_REPLAN` | `needs_replan` | Fragment only: the review judged the plan wrong, so the run loop writes the logical plan again |
-| `PLANNED` | `planned` | `plan` finished: one logical plan and one cover, nothing run |
+| `PLANNED` | `planned` | `plan` reached the first operator call and stopped before it |
 | `INVALID_PLAN` | `invalid_plan` | Plan generation ran out of corrections |
 | `REPLAN_EXHAUSTED` | `replan_exhausted` | `failure_replans` or `control_replans` was reached |
 | `BUDGET_EXHAUSTED` | `budget_exhausted` | The operator call budget ran out |

@@ -188,7 +188,7 @@ statuses rather than exceptions, and `answer` is `None` unless the status is `ok
 | `RunStatus` | Means |
 | --- | --- |
 | `ok` | The `RETURN` node produced rows, and `answer` holds them |
-| `planned` | `plan` finished: one logical plan and one cover, nothing run |
+| `planned` | `plan` reached the first operator call and stopped before it |
 | `invalid_plan` | Plan generation ran out of corrections |
 | `replan_exhausted` | A replan bound was reached |
 | `budget_exhausted` | The operator call budget ran out |
@@ -283,20 +283,22 @@ plans again, and the continuation is written against every result the pass produ
 
 ## Data flow: plan
 
-`DataPlanner.plan(request)` stops after the first cover and spends no operator call.
+`DataPlanner.plan(request)` runs the same loop as `run` and stops at the first point that loop
+would call an operator.
 
 ```text
 plan(request)
-  ├─ LogicalPlanner.generate(request, catalog preview)
-  │    → invalid_plan when the corrections run out
-  ├─ install the plan
-  └─ PhysicalPlanner.cover(request, plan)
-       → install the cover, whatever it came back with
-         status planned, answer None
+  └─ the run loop, with one change in a pass:
+       next_ready() is a fragment, or nothing
+         → status planned, answer None
+       next_ready() is a control node
+         → CatalogSearcher.search for each DISCOVER, then replan, as in run
 ```
 
-A plan whose first pass ends in a `DISCOVER` node comes back as it stands, with no search run; it
-is what `blue-planner data query --explain` prints, and it can also end in `llm_failed` or
+Catalog searches, continuations, and the replan a plan no operator can cover all run, since none
+calls an operator. What comes back is the plan and the cover `run` would start executing, and it is
+what `blue-planner data query --explain` prints. A `DISCOVER` node waiting on a fragment's rows is
+left unresolved. `plan` can also end in `invalid_plan`, `replan_exhausted`, `llm_failed`, or
 `planner_failed`.
 
 ## Data flow: running a fragment

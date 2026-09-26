@@ -10,6 +10,7 @@ import dotenv
 from blue_data_planner import build_data_planner
 from blue_data_planner.data import open_registry
 from blue_data_planner.operators.builtin import BuiltinSuite
+from blue_data_planner.types import DiscoveryResult
 
 REGISTRY = Path(__file__).resolve().parents[2] / "data" / "demo" / "registry.json"
 REQUEST = (
@@ -36,31 +37,32 @@ def main() -> None:
     print(f"request: {REQUEST}")
     print(f"status:  {result.status}")
     print(f"answer:  {result.answer}")
-    # A pass that ended before writing a plan, or before covering one, has nothing more to show.
+    # A pass that ended before a plan and its cover were installed has nothing more to show.
     if result.pipeline.current_logical_plan_id is None:
         print(f"reason:  {result.failure_reason}")
         return
 
+    print(f"\nplan versions written: {len(result.pipeline.logical_plans)}")
+    for found in result.results.values():
+        if isinstance(found, DiscoveryResult):
+            paths = ", ".join(match.path for match in found.matches) or "-"
+            print(f"  searched {', '.join(found.search_terms)}: found {paths}")
+
     plan = result.pipeline.logical_plan
-    print("\nlogical plan")
+    print("\nlogical plan the operators would run against")
     for node in plan.nodes:
         reads = ", ".join(node.input_node_ids) or "-"
-        print(f"  {node.id:<4} {node.kind:<10} reads {reads}")
-
-    if result.pipeline.current_physical_plan_id is None:
-        print(f"\nno cover was written: {result.failure_reason}")
-        return
+        print(f"  {node.id:<28} {node.kind:<10} reads {reads}")
 
     cover = result.pipeline.cover
     print("\ncover")
     for fragment in cover.fragments:
         covered = ", ".join(fragment.logical_node_ids)
-        print(f"  {fragment.id:<4} {fragment.operator_id:<20} covers {covered}")
+        print(f"  {fragment.id:<10} {fragment.operator_id:<16} covers {covered}")
         for bound in fragment.input_data:
-            print(f"       reads {bound.logical_node_id} as {bound.name}")
+            print(f"{'':<13}reads {bound.logical_node_id} as {bound.name}")
 
     print(f"\noperator calls: {result.counters.operator_calls}")
-    print(f"failure reason: {result.failure_reason}")
 
 
 if __name__ == "__main__":

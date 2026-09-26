@@ -78,8 +78,10 @@ node named. It is almost always one table, and it is `None` on every status othe
 
 ## Planning without running
 
-`plan` writes one logical plan and one cover, then stops. It spends no operator call, and it still
-calls a model: once to write the plan, and once per node the cover binds.
+`plan` runs the same loop as `run` and stops before the first operator call. A request that has to
+find its data gets its catalog searches run and its plan written again against what they found, so
+the plan that comes back is the one `run` would start executing. It spends no operator call, and
+it still calls a model: to write each plan, to search the catalog, and to cover each plan.
 
 ```python
 result = planner.plan(request)
@@ -92,9 +94,10 @@ for fragment in result.pipeline.cover.fragments:
     print(fragment.id, fragment.operator_id, fragment.logical_node_ids, fragment.instruction)
 ```
 
-On `planned` the result carries a `failure_reason` only when no cover could be written, in which
-case `pipeline.cover` raises and `pipeline.current_physical_plan_id` is `None`. The statuses `plan`
-can end in are in [api-reference.md](api-reference.md#dataplanner).
+On `planned`, `pipeline.logical_plan` and `pipeline.cover` are always a matching pair and
+`failure_reason` is `None`. Earlier plan versions, such as the one of `DISCOVER` nodes, stay in
+`pipeline.logical_plans`, and what each search found is in `results`. The statuses `plan` can end in
+are in [api-reference.md](api-reference.md#dataplanner).
 
 ---
 

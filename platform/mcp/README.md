@@ -77,7 +77,7 @@ Any MCP client that launches a stdio server and sets its `env` block works the s
 | Parameter | Type | Description |
 | --- | --- | --- |
 | `request` | `str` | The question to answer, in plain language, self-contained. |
-| `explain` | `bool` | Write the plan and stop. No operator runs and no answer comes back. Default `False`. |
+| `explain` | `bool` | Write the plan and stop before the first operator call. Catalog searches run; no operator runs and no answer comes back. Default `False`. |
 | `include_plan` | `bool` | Return every plan the request produced alongside the answer. `explain` already returns them. Default `False`. |
 
 `query_data` reaches `DataPlanner.run`, or `DataPlanner.plan` when `explain` is set, and returns the

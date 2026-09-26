@@ -2,10 +2,26 @@ request: From the products and suppliers tables, list the supplier company name 
 status:  planned
 answer:  None
 
-logical plan
-  discover_product_supplier_data DISCOVER   reads -
+plan versions written: 2
+  searched products, product, inventory, inventories, stock, catalog, catalogs: found /source/northwind/database/northwind/collection/public/entity/products
+  searched supplier, suppliers, vendor, vendors, company, companies: found /source/northwind/database/northwind/collection/public/entity/suppliers
+
+logical plan the operators would run against
+  find_products_table          DISCOVER   reads -
+  find_suppliers_table         DISCOVER   reads -
+  scan_products                SCAN       reads -
+  keep_out_of_stock            FILTER     reads scan_products
+  scan_suppliers               SCAN       reads -
+  match_suppliers              JOIN       reads keep_out_of_stock, scan_suppliers
+  return_supplier_names        RETURN     reads match_suppliers
 
 cover
+  fe0c58fb1  builtin.join     covers match_suppliers
+             reads keep_out_of_stock as out_of_stock_products
+             reads scan_suppliers as suppliers
+  fb08d7bdd  builtin.filter   covers keep_out_of_stock
+             reads scan_products as products
+  f1c3d4805  builtin.scan     covers scan_suppliers
+  f6320c660  builtin.scan     covers scan_products
 
 operator calls: 0
-failure reason: None

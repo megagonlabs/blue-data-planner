@@ -561,33 +561,42 @@ def test_a_defect_in_a_component_ends_the_request_instead_of_raising_at_the_call
     assert result.pipeline.logical_plans == {}
 
 
-def test_the_planning_only_operation_stops_after_the_first_cover() -> None:
-    """It spends no operator call, and returns planned with no answer."""
+def test_planning_searches_the_catalog_and_stops_before_the_first_operator_call() -> None:
+    """The searches and the continuation they ask for run; the continuation's fragment does not."""
+    searcher = FakeCatalogSearcher()
     runner = FakeFragmentRunner([])
     result = a_planner(
-        FakeLogicalPlanner([ok(a_scan_and_ending("p1"))]),
-        FakePhysicalPlanner([covered(a_grouped_cover("c1", "p1"))]),
+        FakeLogicalPlanner([ok(two_discovery_nodes("p1")), ok(a_scan_and_ending("p2"))]),
+        FakePhysicalPlanner(
+            [covered(an_empty_cover("c1", "p1")), covered(a_grouped_cover("c2", "p2"))]
+        ),
         runner,
-        FakeCatalogSearcher(),
-    ).plan("list the job titles")
+        searcher,
+    ).plan("Python jobs at Fortune 500")
+
     assert result.status is RunStatus.PLANNED
-    assert result.answer is None
+    assert (result.answer, result.failure_reason) == (None, None)
+    assert searcher.searched == ["d1", "d2"]
+    assert result.pipeline.current_logical_plan_id == "p2"
+    assert result.pipeline.current_physical_plan_id == "c2"
     assert runner.ran == []
+    assert result.counters.operator_calls == 0
 
 
-def test_the_planning_only_operation_stops_even_when_nothing_covers_the_plan() -> None:
-    """An uncoverable plan is not a failure plan reaches; it stops with what it wrote."""
-    physical = FakePhysicalPlanner(
-        [PhysicalPlanResult(plan=None, failure_reason="no operator can run n1")]
-    )
+def test_planning_replans_a_plan_no_operator_can_cover() -> None:
+    """Replanning spends no operator call, so planning answers an uncovered plan as a run does."""
+    logical = FakeLogicalPlanner([ok(a_scan_and_ending("p1")), ok(a_scan_and_ending("p2"))])
+    uncoverable = PhysicalPlanResult(plan=None, failure_reason="no operator can run n1")
     result = a_planner(
-        FakeLogicalPlanner([ok(a_scan_and_ending("p1")), ok(a_scan_and_ending("p2"))]),
-        physical,
+        logical,
+        FakePhysicalPlanner([uncoverable, covered(a_grouped_cover("c1", "p2"))]),
         FakeFragmentRunner([]),
         FakeCatalogSearcher(),
     ).plan("list the job titles")
+
     assert result.status is RunStatus.PLANNED
-    assert physical.covered_plan_ids == ["p1"]
+    assert logical.reasons == [None, uncoverable.failure_reason]
+    assert result.pipeline.current_logical_plan_id == "p2"
 
 
 def test_a_provider_that_fails_after_its_retries_ends_the_request_as_llm_failed() -> None:

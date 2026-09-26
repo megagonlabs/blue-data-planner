@@ -51,8 +51,8 @@ print(result.status)  # "ok" where the request was answered
 print(result.answer)  # the rows the plan's RETURN named, or None where the run did not finish
 ```
 
-`LotusSuite` registers nothing where LOTUS is not installed. `planner.plan(request)` writes one
-logical plan and one cover and then stops, spending no operator call.
+`LotusSuite` registers nothing where LOTUS is not installed. `planner.plan(request)` plans,
+searches the catalog, and covers as `run` does, then stops before the first operator call.
 
 ## Development setup
 

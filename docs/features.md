@@ -59,7 +59,7 @@ and values earlier nodes produce; `DISCOVER` searches the data registry and come
 tables it matched. Either ends the pass and returns to the logical planner.
 
 ```python
-result = planner.plan(request)  # one plan and one cover, no operator call spent
+result = planner.plan(request)  # searches the catalog and covers, no operator call spent
 for node in result.pipeline.logical_plan.nodes_in_dependency_order():
     print(node.id, node.kind, node.attributes)
 ```

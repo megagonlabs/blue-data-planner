@@ -49,8 +49,9 @@ python examples/feature-demos/run_a_request.py
 
 ### Plan without running (`plan_without_running.py`)
 
-`planner.plan` spends no operator call. A request that has to find its data stops at the
-discovery step, so the pass produces a plan of one `DISCOVER` node and an empty cover.
+`planner.plan` spends no operator call. A request that has to find its data has its catalog
+search run and its plan written again against what the search found, so the pass prints the plan
+and the cover the operators would run against.
 
 ```bash
 python examples/feature-demos/plan_without_running.py

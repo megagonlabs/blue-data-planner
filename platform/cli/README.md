@@ -89,8 +89,9 @@ ends, then prints the answer.
 blue-planner data query "Which Bay Area data scientist postings are at healthcare companies?"
 ```
 
-`--explain` writes one logical plan and one physical plan, prints them, and spends no operator
-call.
+`--explain` plans the request as a run would, searching the catalog and writing the plan again
+against what it found, and prints every plan and cover up to the first operator call. It spends no
+operator call.
 
 ```bash
 blue-planner data query "Which Bay Area data scientist postings are at healthcare companies?" --explain

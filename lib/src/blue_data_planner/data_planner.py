@@ -75,9 +75,16 @@ class DataPlanner:
 
     def run(self, request: str) -> RunResult:
         """Plan, cover, execute, and repair until the request ends."""
+        return self._run_request(request, execute=True)
+
+    def plan(self, request: str) -> RunResult:
+        """Plan, search the catalog, and cover as run would, stopping before any operator call."""
+        return self._run_request(request, execute=False)
+
+    def _run_request(self, request: str, *, execute: bool) -> RunResult:
         state = RunState(request=request, counters=RunCounters(self._limits))
         try:
-            status, failure_reason, answer = self._run_plans(state)
+            status, failure_reason, answer = self._run_plans(state, execute)
         except LLMError as error:
             # The one try in the library, so no component handles a provider failure. It precedes
             # the clause below, which would otherwise end a provider outage as planner_failed.
@@ -89,25 +96,9 @@ class DataPlanner:
             status, failure_reason, answer = RunStatus.PLANNER_FAILED, str(error), None
         return state.to_result(status, failure_reason, answer)
 
-    def plan(self, request: str) -> RunResult:
-        """Write one logical plan and one cover, then stop."""
-        state = RunState(request=request, counters=RunCounters(self._limits))
-        try:
-            written = self._write_plan(state, {}, frozenset[str](), None, None)
-            if written.plan is None:
-                return state.to_result(written.status, written.failure_reason)
-            state.install_logical_plan(written.plan)
-            cover = self._write_cover(state, written.plan, {}, None)
-        except LLMError as error:
-            return state.to_result(RunStatus.LLM_FAILED, str(error))
-        except BlueDataPlannerError as error:
-            return state.to_result(RunStatus.PLANNER_FAILED, str(error))
-        if cover.plan is not None:
-            state.install_cover(cover.plan)
-        # Whatever the one cover attempt came back with, the planning-only operation stops here.
-        return state.to_result(RunStatus.PLANNED, cover.failure_reason)
-
-    def _run_plans(self, state: RunState) -> tuple[RunStatus, str | None, DataBundle | None]:
+    def _run_plans(
+        self, state: RunState, execute: bool
+    ) -> tuple[RunStatus, str | None, DataBundle | None]:
         """The replan loop: write a plan, run it, and write another while a replan is allowed."""
         reason: str | None = None
         while True:
@@ -120,7 +111,7 @@ class DataPlanner:
             written = self._write_plan(state, held, carried, parent, reason)
             if written.plan is None:
                 return written.status, written.failure_reason, None
-            ending = self._run_covers(state, written.plan, held, reason)
+            ending = self._run_covers(state, written.plan, held, reason, execute)
             if ending.status is not None:
                 return ending.status, ending.failure_reason, ending.answer
             reason = ending.failure_reason
@@ -133,7 +124,12 @@ class DataPlanner:
                 return RunStatus.REPLAN_EXHAUSTED, reason, None
 
     def _run_covers(
-        self, state: RunState, plan: LogicalPlan, held: dict[str, NodeResult], reason: str | None
+        self,
+        state: RunState,
+        plan: LogicalPlan,
+        held: dict[str, NodeResult],
+        reason: str | None,
+        execute: bool,
     ) -> _Ending:
         """The cover loop: cover this plan, run the cover, and cover it again while allowed."""
         for _repair in range(self._limits.cover_repairs + 1):
@@ -148,17 +144,21 @@ class DataPlanner:
             # matching pair and every signature describes the plan and cover that are current.
             state.install_logical_plan(plan)
             state.install_cover(written.plan)
-            ending = self._run_passes(state)
+            ending = self._run_passes(state, execute)
             if ending.next_step is not _Next.COVER_REPAIR:
                 return ending
             reason = ending.failure_reason
             held = self._results_by_node_id(state)
         return _Ending(failure_reason=reason, next_step=_Next.FAILURE_REPLAN)
 
-    def _run_passes(self, state: RunState) -> _Ending:
+    def _run_passes(self, state: RunState, execute: bool) -> _Ending:
         """Run everything the current cover makes ready, one fragment or one pass at a time."""
         while True:
             ready = state.next_ready()
+            if not execute and (ready is None or isinstance(ready, PhysicalPlanFragment)):
+                # A ready fragment is the first operator call, and the planning-only operation
+                # ends just before it; it never reaches an answer, so it never projects one.
+                return _Ending(status=RunStatus.PLANNED)
             if ready is None:
                 return self._answer(state)
             if not isinstance(ready, PhysicalPlanFragment):
