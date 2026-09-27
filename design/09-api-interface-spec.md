@@ -334,7 +334,7 @@ An error other than a usage error reaches standard error as `ERROR: <CODE> <desc
 | `PROFILE_NOT_FOUND` | A named profile that does not exist |
 | `ABORTED` | A declined confirmation prompt |
 | `INVALID_PLAN`, `REPLAN_EXHAUSTED`, `BUDGET_EXHAUSTED`, `OPERATOR_FAILED`, `LLM_FAILED`, `PLANNER_FAILED` | A run that ended with that status, carrying its failure reason |
-| `INTERNAL_ERROR` | An exception the CLI did not expect |
+| `INTERNAL_ERROR` | A `BlueDataPlannerError` no code above covers. Any other exception is a bug and propagates with its traceback (ADR-043) |
 
 A missing or rejected API key is reported by the provider on the first model call, so the run ends
 as `LLM_FAILED` with the provider's message as its failure reason. Under `--format json`, a run that

@@ -203,7 +203,7 @@ def a_rerun_whose_second_cover_keeps_the_scan() -> RunResult:
 
 
 def a_planning_run() -> RunResult:
-    """Return what --explain produces: one logical plan, one cover, and nothing run."""
+    """Return what --explain produces: a plan and its cover, with no operator call spent."""
     return dataclasses.replace(
         a_run_over_one_cover_of_two_fragments(),
         status=RunStatus.PLANNED,

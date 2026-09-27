@@ -63,11 +63,15 @@ the client as a tool error instead.
 ```python
 import asyncio
 import os
+from pathlib import Path
 
 from langchain.agents import create_agent
 from langchain_mcp_adapters.client import MultiServerMCPClient
 from langchain_mcp_adapters.tools import load_mcp_tools
 from langchain_openai import ChatOpenAI
+
+# The demo registry, resolved from the repository root.
+REGISTRY = str(Path("data/demo/registry.json").resolve())
 
 client = MultiServerMCPClient(
     {
@@ -75,7 +79,7 @@ client = MultiServerMCPClient(
             "transport": "stdio",
             "command": "blue-data-planner-mcp",
             "args": [],
-            "env": {**os.environ, "BLUE_DATA_REGISTRY_PATH": "/srv/blue-data/registry.json"},
+            "env": {**os.environ, "BLUE_DATA_REGISTRY_PATH": REGISTRY},
         }
     }
 )
@@ -93,9 +97,6 @@ async def main() -> None:
 
 asyncio.run(main())
 ```
-
-`/srv/blue-data/registry.json` stands for the path of a serialized registry; the demo registry
-is `data/demo/registry.json`.
 
 Hold one session for the agent's run. Without one, `MultiServerMCPClient` opens a session per tool
 call, and over stdio that starts a new server, which builds a new planner, every time. Pass the

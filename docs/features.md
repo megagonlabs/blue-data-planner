@@ -233,8 +233,12 @@ gets rows back.
 
 ```python
 import os
+from pathlib import Path
 
 from langchain_mcp_adapters.client import MultiServerMCPClient
+
+# The demo registry, resolved from the repository root.
+REGISTRY = str(Path("data/demo/registry.json").resolve())
 
 client = MultiServerMCPClient(
     {
@@ -242,7 +246,7 @@ client = MultiServerMCPClient(
             "transport": "stdio",
             "command": "blue-data-planner-mcp",
             "args": [],
-            "env": {**os.environ, "BLUE_DATA_REGISTRY_PATH": "/srv/blue-data/registry.json"},
+            "env": {**os.environ, "BLUE_DATA_REGISTRY_PATH": REGISTRY},
         }
     }
 )

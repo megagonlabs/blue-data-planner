@@ -6,7 +6,7 @@ can hand over a whole data question and get rows back.
 Tools
 -----
 query_data — plan a question over the registered data sources, run the plan, repair what fails,
-             and return the rows. With `explain`, write the plan and stop.
+             and return the rows. With `explain`, stop before the first operator call.
 
 Quick start
 -----------
@@ -75,7 +75,12 @@ async def query_data(
     ],
     explain: Annotated[
         bool,
-        Field(description="Write the plan and stop. No operator runs and no answer comes back."),
+        Field(
+            description=(
+                "Write the plan and stop before the first operator call. Catalog searches run; "
+                "no operator runs and no answer comes back."
+            )
+        ),
     ] = False,
     include_plan: Annotated[
         bool,

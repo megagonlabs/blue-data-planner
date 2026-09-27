@@ -233,7 +233,7 @@ An error reaches standard error as `ERROR: <CODE> <description>`.
 | `PROFILE_NOT_FOUND` | A named profile that does not exist |
 | `ABORTED` | A confirmation prompt, such as `profile remove` without `--confirm`, declined |
 | `INVALID_PLAN`, `REPLAN_EXHAUSTED`, `BUDGET_EXHAUSTED`, `OPERATOR_FAILED`, `LLM_FAILED`, `PLANNER_FAILED` | A run that ended with that status, carrying its failure reason |
-| `INTERNAL_ERROR` | An exception no command expected |
+| `INTERNAL_ERROR` | A library error no code above covers. Any other exception is a bug and prints its traceback |
 
 A missing or rejected API key is reported by the provider on the first model call, so the run
 ends as `LLM_FAILED` and the provider's message is its failure reason.

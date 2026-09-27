@@ -195,6 +195,21 @@ def an_environment_seen_by_the_planner(monkeypatch: pytest.MonkeyPatch) -> dict[
     return seen
 
 
+def test_a_named_profile_that_does_not_exist_stops_the_query_as_not_found(
+    tmp_path: Path, planner: FakeDataPlanner
+) -> None:
+    """A typo in --profile names a profile nobody added, so the query stops rather than running
+    on no profile at all."""
+    result = CliRunner().invoke(
+        cli, ["--profile", "ghost", "data", "query", "q"], env=a_configured_environment(tmp_path)
+    )
+
+    assert result.exit_code == 1
+    assert result.stderr.startswith("ERROR: PROFILE_NOT_FOUND ")
+    assert "profile add ghost" in result.stderr
+    assert planner.requests == []
+
+
 def test_a_key_held_only_in_the_profile_reaches_the_environment_a_model_call_reads(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

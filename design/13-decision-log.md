@@ -1303,6 +1303,26 @@ always names a matching plan and cover and never carries a failure reason.
 
 ---
 
+## ADR-043 — The CLI Reports the Library's Errors; Anything Else Propagates
+
+**Date:** 2026-09-27
+**Status:** Accepted
+
+**Decision:** The CLI turns a `BlueDataPlannerError` into an `ERROR: <CODE> <description>` line,
+`INTERNAL_ERROR` where no more specific code covers it. Any other exception reaches the terminal
+with its traceback.
+
+**Rationale:** An exception from outside the library's tree is a bug, and a bug fails loudly: a
+traceback says where it happened, and one `ERROR:` line would hide that. Catching every exception
+would also add a fourth broad `except` to the three the coding style permits, each of which exists
+because its boundary reaches backends sharing no failure type or has to answer with a payload. The
+CLI has neither reason. `blue-data-kb-source`'s CLI maps its own base error the same way.
+
+**Consequences:** A script reading the CLI's output gets an error code for every failure the
+library defines, and a traceback, still with exit code 1, for a defect.
+
+---
+
 ## Open Questions
 
 Design questions first, then defects in the code.

@@ -57,7 +57,9 @@ def data_group() -> None:
 )
 @click.option("--model", default=None, help="The litellm model string every component uses.")
 @format_option
-@click.option("--explain", is_flag=True, help="Write the plan and stop, running nothing.")
+@click.option(
+    "--explain", is_flag=True, help="Write the plan and stop before the first operator call."
+)
 @click.option("--log", is_flag=True, help="Report what the run did, after the run.")
 @click.option(
     "--log-limit", type=int, default=None, help="Characters each line of the log is cut to."
@@ -113,8 +115,8 @@ def _run_query(
         result = planner.plan(request) if explain else planner.run(request)
     printer = print_plan if explain else print_answer
     printer(result, settings.output_format, Console(), log=log)
-    # Under --format json the log is two more keys in the document on standard output, so
-    # there is nothing left to draw here.
+    # Under --format json the log is the plan versions added to the document on standard
+    # output, so there is nothing left to draw here.
     if log and settings.output_format == "table":
         print_log(result, stderr_console, max_output_chars=settings.log_limit)
     stderr_console.print(summary_line(result), markup=False)
