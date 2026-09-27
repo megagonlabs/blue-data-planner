@@ -30,6 +30,9 @@ dev = [
     "pytest",
     "ruff",
     "pyright",
+    # scripts/build.sh and scripts/publish.sh.
+    "build",
+    "twine",
 ]
 # LOTUS narrows numpy, pandas, and the Python range, so it is an extra rather than a
 # dependency, and the tier that uses it gets an environment of its own.

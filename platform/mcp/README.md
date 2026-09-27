@@ -23,8 +23,11 @@ explicitly.
 
 ## Running
 
+From the repository root, over the demo registry
+([quickstart.md](../../docs/quickstart.md#2-build-the-demo-registry) builds it):
+
 ```bash
-BLUE_DATA_REGISTRY_PATH=/srv/blue-data/registry.json blue-data-planner-mcp
+BLUE_DATA_REGISTRY_PATH=$PWD/data/demo/registry.json blue-data-planner-mcp
 ```
 
 The server speaks the stdio transport, so a client launches it as a subprocess rather than
@@ -39,8 +42,12 @@ LangChain's `langchain-mcp-adapters`:
 
 ```python
 import os
+from pathlib import Path
 
 from langchain_mcp_adapters.client import MultiServerMCPClient
+
+# The demo registry, resolved from the repository root.
+REGISTRY = str(Path("data/demo/registry.json").resolve())
 
 client = MultiServerMCPClient(
     {
@@ -48,7 +55,7 @@ client = MultiServerMCPClient(
             "transport": "stdio",
             "command": "blue-data-planner-mcp",
             "args": [],
-            "env": {**os.environ, "BLUE_DATA_REGISTRY_PATH": "/srv/blue-data/registry.json"},
+            "env": {**os.environ, "BLUE_DATA_REGISTRY_PATH": REGISTRY},
         }
     }
 )

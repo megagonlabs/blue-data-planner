@@ -294,7 +294,7 @@ The library and the MCP package release together whenever the pin between them c
 builds and uploads one package at a time:
 
 ```bash
-cd lib && python -m build && twine upload dist/*
+bash lib/scripts/build.sh && bash lib/scripts/publish.sh
 ```
 
 ---
