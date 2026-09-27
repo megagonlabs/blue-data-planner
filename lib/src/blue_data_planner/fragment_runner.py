@@ -200,8 +200,8 @@ class FragmentRunner:
 
 
 def _escalation_reason(assessment: str | None, error: str | None) -> str:
-    # This is passed straight into the cover repair's non-optional reason, so it must never come
-    # back None. A trailing recoverable failure left no review turn to quote.
+    # This becomes the failure reason a cover repair reads off the FailedFragment, so it must
+    # never come back None. A trailing recoverable failure left no review turn to quote.
     return assessment or error or "no attempt produced a result"
 
 

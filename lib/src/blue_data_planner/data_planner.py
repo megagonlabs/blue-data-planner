@@ -20,6 +20,7 @@ from blue_data_planner.types import (
     BlueDataPlannerError,
     ControlOperator,
     DataBundle,
+    FailedFragment,
     LLMError,
     LogicalOperator,
     LogicalPlan,
@@ -51,9 +52,12 @@ class _Ending:
     """How one loop ended: with the request's status, or with work for the loop outside it."""
 
     status: RunStatus | None = None
-    failure_reason: str | None = None
+    # Why the loop ended, which is not always a failure: a resolved DISCOVER ends a pass too.
+    reason: str | None = None
     answer: DataBundle | None = None
     next_step: _Next | None = None
+    # Set on a cover repair alone; its result carries the failure reason.
+    failed_fragment: FailedFragment | None = None
 
 
 class DataPlanner:
@@ -100,7 +104,7 @@ class DataPlanner:
         self, state: RunState, execute: bool
     ) -> tuple[RunStatus, str | None, DataBundle | None]:
         """The replan loop: write a plan, run it, and write another while a replan is allowed."""
-        reason: str | None = None
+        replan_reason: str | None = None
         while True:
             has_cover = state.pipeline.current_physical_plan_id is not None
             # Read before the new version is installed: the signatures the results sit under
@@ -108,38 +112,32 @@ class DataPlanner:
             held = self._results_by_node_id(state)
             carried = state.carried_node_ids() if has_cover else frozenset[str]()
             parent = state.pipeline.logical_plan if has_cover else None
-            written = self._write_plan(state, held, carried, parent, reason)
+            written = self._write_plan(state, held, carried, parent, replan_reason)
             if written.plan is None:
                 return written.status, written.failure_reason, None
-            ending = self._run_covers(state, written.plan, held, reason, execute)
+            ending = self._run_covers(state, written.plan, held, execute)
             if ending.status is not None:
-                return ending.status, ending.failure_reason, ending.answer
-            reason = ending.failure_reason
+                return ending.status, ending.reason, ending.answer
+            replan_reason = ending.reason
             spent = (
                 state.counters.spend_control_replan()
                 if ending.next_step is _Next.CONTROL_REPLAN
                 else state.counters.spend_failure_replan()
             )
             if not spent:
-                return RunStatus.REPLAN_EXHAUSTED, reason, None
+                return RunStatus.REPLAN_EXHAUSTED, replan_reason, None
 
     def _run_covers(
-        self,
-        state: RunState,
-        plan: LogicalPlan,
-        held: dict[str, NodeResult],
-        reason: str | None,
-        execute: bool,
+        self, state: RunState, plan: LogicalPlan, held: dict[str, NodeResult], execute: bool
     ) -> _Ending:
         """The cover loop: cover this plan, run the cover, and cover it again while allowed."""
+        failed_fragment: FailedFragment | None = None
         for _repair in range(self._limits.cover_repairs + 1):
-            written = self._write_cover(state, plan, held, reason)
+            written = self._write_cover(state, plan, held, failed_fragment)
             if written.plan is None:
                 # A plan no operator can cover goes back to the logical planner, with no operator
                 # call spent, and never enters the pipeline.
-                return _Ending(
-                    failure_reason=written.failure_reason, next_step=_Next.FAILURE_REPLAN
-                )
+                return _Ending(reason=written.failure_reason, next_step=_Next.FAILURE_REPLAN)
             # The version and its cover are installed together, so the two pointers always name a
             # matching pair and every signature describes the plan and cover that are current.
             state.install_logical_plan(plan)
@@ -147,9 +145,14 @@ class DataPlanner:
             ending = self._run_passes(state, execute)
             if ending.next_step is not _Next.COVER_REPAIR:
                 return ending
-            reason = ending.failure_reason
+            failed_fragment = ending.failed_fragment
             held = self._results_by_node_id(state)
-        return _Ending(failure_reason=reason, next_step=_Next.FAILURE_REPLAN)
+        if failed_fragment is None:
+            raise BlueDataPlannerError(
+                "the cover repairs ran out with no failed fragment recorded; every cover repair "
+                "is asked for by a fragment that failed"
+            )
+        return _Ending(reason=failed_fragment.result.failure_reason, next_step=_Next.FAILURE_REPLAN)
 
     def _run_passes(self, state: RunState, execute: bool) -> _Ending:
         """Run everything the current cover makes ready, one fragment or one pass at a time."""
@@ -179,13 +182,18 @@ class DataPlanner:
         if result.status is RunStatus.OK:
             return None
         if result.status is RunStatus.NEEDS_REPLAN:
-            return _Ending(failure_reason=result.failure_reason, next_step=_Next.FAILURE_REPLAN)
+            return _Ending(reason=result.failure_reason, next_step=_Next.FAILURE_REPLAN)
         if result.status is RunStatus.NEEDS_REPAIR:
+            if result.failure_reason is None:
+                raise BlueDataPlannerError(
+                    f"fragment {fragment.id!r} ended needing a repair with no failure reason; "
+                    "the fragment runner always writes one"
+                )
             return _Ending(
-                failure_reason=result.failure_reason or "the fragment was rejected",
                 next_step=_Next.COVER_REPAIR,
+                failed_fragment=FailedFragment(fragment=fragment, result=result),
             )
-        return _Ending(status=result.status, failure_reason=result.failure_reason)
+        return _Ending(status=result.status, reason=result.failure_reason)
 
     def _resolve_control_nodes(self, state: RunState) -> _Ending:
         """Resolve every control node ready at once, then return to the logical planner."""
@@ -200,7 +208,7 @@ class DataPlanner:
                 state.inputs_for_node(node),
             )
             state.record_discovery(node, found)
-        return _Ending(failure_reason="\n".join(reasons), next_step=_Next.CONTROL_REPLAN)
+        return _Ending(reason="\n".join(reasons), next_step=_Next.CONTROL_REPLAN)
 
     def _write_plan(
         self,
@@ -208,7 +216,7 @@ class DataPlanner:
         held: dict[str, NodeResult],
         carried_node_ids: frozenset[str],
         parent: LogicalPlan | None,
-        reason: str | None,
+        replan_reason: str | None,
     ) -> LogicalPlanResult:
         return self._logical_planner.generate(
             state.request,
@@ -217,7 +225,7 @@ class DataPlanner:
             parent=parent,
             carried_node_ids=carried_node_ids,
             results=held,
-            reason=reason,
+            replan_reason=replan_reason,
         )
 
     def _write_cover(
@@ -225,7 +233,7 @@ class DataPlanner:
         state: RunState,
         plan: LogicalPlan,
         held: dict[str, NodeResult],
-        reason: str | None,
+        failed_fragment: FailedFragment | None,
     ) -> PhysicalPlanResult:
         current = state.pipeline.current_physical_plan_id
         return self._physical_planner.cover(
@@ -234,7 +242,7 @@ class DataPlanner:
             state.conversations.for_physical_planner(plan.id),
             state.pipeline.physical_plans.get(current) if current else None,
             held,
-            reason,
+            failed_fragment,
         )
 
     def _results_by_node_id(self, state: RunState) -> dict[str, NodeResult]:
@@ -272,7 +280,7 @@ class DataPlanner:
         ]
         if unfinished:
             return _Ending(
-                failure_reason=(
+                reason=(
                     f"the answer reads node(s) {unfinished}, which produced no rows the run may "
                     "read; write an ending over a node that finished"
                 ),
@@ -284,7 +292,7 @@ class DataPlanner:
         except ReturnAnswerError as error:
             # The columns holding the answer are the logical planner's to name, so a name the
             # rows do not carry is answered by writing the ending again rather than by failing.
-            return _Ending(failure_reason=str(error), next_step=_Next.FAILURE_REPLAN)
+            return _Ending(reason=str(error), next_step=_Next.FAILURE_REPLAN)
         return _Ending(status=RunStatus.OK, answer=answer)
 
 

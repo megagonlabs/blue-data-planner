@@ -8,6 +8,7 @@ from blue_data_planner.types import (
     Conversation,
     DataBundle,
     DiscoveryResult,
+    FailedFragment,
     FragmentResult,
     LogicalPlan,
     LogicalPlanResult,
@@ -24,7 +25,7 @@ class FakeLogicalPlanner:
 
     def __init__(self, results: list[LogicalPlanResult]) -> None:
         self.results = list(results)
-        self.reasons: list[str | None] = []
+        self.replan_reasons: list[str | None] = []
         self.conversations: list[Conversation] = []
 
     def generate(
@@ -35,9 +36,9 @@ class FakeLogicalPlanner:
         parent: LogicalPlan | None = None,
         carried_node_ids: frozenset[str] = frozenset(),
         results: dict[str, Any] | None = None,
-        reason: str | None = None,
+        replan_reason: str | None = None,
     ) -> LogicalPlanResult:
-        self.reasons.append(reason)
+        self.replan_reasons.append(replan_reason)
         self.conversations.append(conversation)
         if not self.results:
             raise AssertionError("the fake logical planner ran out of results")
@@ -51,6 +52,7 @@ class FakePhysicalPlanner:
         self.covers = list(covers)
         self.covered_plan_ids: list[str] = []
         self.conversations: list[Conversation] = []
+        self.failed_fragments: list[FailedFragment | None] = []
 
     def cover(
         self,
@@ -59,10 +61,11 @@ class FakePhysicalPlanner:
         conversation: Conversation,
         previous: PhysicalPlan | None,
         results: dict[str, Any],
-        reason: str | None = None,
+        failed_fragment: FailedFragment | None = None,
     ) -> PhysicalPlanResult:
         self.covered_plan_ids.append(plan.id)
         self.conversations.append(conversation)
+        self.failed_fragments.append(failed_fragment)
         if not self.covers:
             raise AssertionError("the fake physical planner ran out of covers")
         return self.covers.pop(0)

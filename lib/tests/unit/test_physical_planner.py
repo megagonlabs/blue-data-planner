@@ -19,11 +19,15 @@ from blue_data_planner.types import (
     EntityMatch,
     ExecutionResult,
     ExecutionStatus,
+    FailedFragment,
+    FragmentResult,
     LogicalOperator,
     LogicalPlan,
     OutputColumn,
     PhysicalOperator,
+    PhysicalPlanFragment,
     PipelineNode,
+    RunStatus,
 )
 from tests.doubles.llm import ScriptedLLMClient
 
@@ -361,6 +365,30 @@ def a_binding(label: str, inputs: tuple[str, ...] = (), **extra: Any) -> dict[st
 def a_none_choice(reason: str) -> dict[str, Any]:
     """A binding decision that turns every candidate offered down."""
     return {"choice": {"candidate": "none", "reason": reason}}
+
+
+def a_failed_fragment(fragment: PhysicalPlanFragment) -> FailedFragment:
+    """The fragment rejected after returning two rows, one of which the repair turn shows."""
+    return a_failed_fragment_that_returned(fragment, [{"title": "Mercury"}, {"title": "Venus"}])
+
+
+def a_failed_fragment_that_returned(
+    fragment: PhysicalPlanFragment, rows: list[dict[str, Any]]
+) -> FailedFragment:
+    """The fragment rejected after a successful last call that returned these rows."""
+    return FailedFragment(
+        fragment=fragment,
+        result=FragmentResult(
+            status=RunStatus.NEEDS_REPAIR,
+            result=ExecutionResult(
+                status=ExecutionStatus.OK,
+                output=[rows],
+                operator_id="op.one",
+                row_count=len(rows),
+            ),
+            failure_reason="it kept the gas giants",
+        ),
+    )
 
 
 def a_planner(client: ScriptedLLMClient, router: OperatorRouter) -> PhysicalPlanner:
@@ -872,7 +900,14 @@ def test_a_reader_covered_by_a_reused_fragment_is_listed_by_that_fragment() -> N
 
     first = planner.cover(REQUEST, plan, Conversation(), None, a_discovery())
     assert first.plan is not None
-    planner.cover(REQUEST, plan, Conversation(), first.plan, a_discovery_holding_n2(), "try again")
+    planner.cover(
+        REQUEST,
+        plan,
+        Conversation(),
+        first.plan,
+        a_discovery_holding_n2(),
+        a_failed_fragment(first.plan.fragments[0]),
+    )
 
     kept = first.plan.fragment_for_root("n2")
     assert kept is not None
@@ -970,7 +1005,12 @@ def test_a_node_whose_fragment_produced_a_result_can_reuse_it_unchanged() -> Non
     first = planner.cover(REQUEST, plan, Conversation(), None, a_discovery())
     assert first.plan is not None
     again = planner.cover(
-        REQUEST, plan, Conversation(), first.plan, a_discovery_holding_n1(), "try again"
+        REQUEST,
+        plan,
+        Conversation(),
+        first.plan,
+        a_discovery_holding_n1(),
+        a_failed_fragment(first.plan.fragments[0]),
     )
 
     assert again.plan is not None
@@ -1013,11 +1053,61 @@ def test_a_node_with_no_result_is_offered_no_way_to_reuse_its_fragment() -> None
     first = planner.cover(REQUEST, plan, Conversation(), None, a_discovery())
     assert first.plan is not None
     again = planner.cover(
-        REQUEST, plan, Conversation(), first.plan, a_discovery(), "it returned nothing"
+        REQUEST,
+        plan,
+        Conversation(),
+        first.plan,
+        a_discovery(),
+        a_failed_fragment(first.plan.fragments[0]),
     )
 
     assert again.plan is not None
     assert again.plan.fragments[0].id != first.plan.fragments[0].id
+
+
+def test_a_repair_turn_shows_why_the_fragment_failed_and_its_rows_marked_unreadable() -> None:
+    """The repair turn names the fragment, quotes why it failed, and says its rows cannot be
+    read."""
+    client = ScriptedLLMClient([a_binding("n2:op.one:[n1,n2]"), a_binding("n2:op.one:[n1,n2]")])
+    planner = a_planner(
+        client,
+        a_router(an_operator("op.one", frozenset({LogicalOperator.SCAN, LogicalOperator.PROJECT}))),
+    )
+    conversation = Conversation()
+    plan = a_scan_and_return()
+    first = planner.cover(REQUEST, plan, conversation, None, a_discovery())
+    assert first.plan is not None
+    failed = first.plan.fragments[0]
+
+    planner.cover(REQUEST, plan, conversation, first.plan, a_discovery(), a_failed_fragment(failed))
+
+    repair_turn = conversation.turns[-2].content
+    section = repair_turn.split("## The fragment that failed", 1)[1]
+    assert f"Fragment {failed.id} covering ['n1', 'n2'], bound to op.one, was rejected" in section
+    assert "it kept the gas giants" in section
+    assert "{'title': 'Mercury'}" in section
+    assert "nothing can read or reuse it" in section
+
+
+def test_a_repair_turn_for_a_fragment_that_returned_no_rows_shows_the_reason_alone() -> None:
+    """The repair turn for a fragment whose last call returned no rows shows only its reason."""
+    client = ScriptedLLMClient([a_binding("n2:op.one:[n1,n2]"), a_binding("n2:op.one:[n1,n2]")])
+    planner = a_planner(
+        client,
+        a_router(an_operator("op.one", frozenset({LogicalOperator.SCAN, LogicalOperator.PROJECT}))),
+    )
+    conversation = Conversation()
+    plan = a_scan_and_return()
+    first = planner.cover(REQUEST, plan, conversation, None, a_discovery())
+    assert first.plan is not None
+    failed = a_failed_fragment_that_returned(first.plan.fragments[0], [])
+
+    planner.cover(REQUEST, plan, conversation, first.plan, a_discovery(), failed)
+
+    section = conversation.turns[-2].content.split("## The fragment that failed", 1)[1]
+    assert "it kept the gas giants" in section
+    assert "row(s)" not in section
+    assert "nothing can read or reuse it" not in section
 
 
 def test_a_repair_answers_the_binding_it_is_replacing_in_the_same_conversation() -> None:
@@ -1037,10 +1127,17 @@ def test_a_repair_answers_the_binding_it_is_replacing_in_the_same_conversation()
 
     first = planner.cover(REQUEST, plan, conversation, None, a_discovery())
     assert first.plan is not None
-    planner.cover(REQUEST, plan, conversation, first.plan, a_discovery(), "it returned nothing")
+    planner.cover(
+        REQUEST,
+        plan,
+        conversation,
+        first.plan,
+        a_discovery(),
+        a_failed_fragment(first.plan.fragments[0]),
+    )
 
     assert sum(1 for turn in conversation.turns if turn.role == "system") == 1
-    assert "it returned nothing" in conversation.turns[-2].content
+    assert "it kept the gas giants" in conversation.turns[-2].content
     # The discovered entities were already sent on the opening turn; a repair must not
     # resend them, or the prefix the model already cached stops matching (ADR-025).
     assert "The data the searches found" in conversation.turns[1].content

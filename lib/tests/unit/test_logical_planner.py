@@ -382,7 +382,7 @@ def test_a_continuation_carries_the_nodes_the_run_has_something_for() -> None:
         parent=first.plan,
         carried_node_ids=frozenset({"n1"}),
         results={},
-        reason="the searches returned",
+        replan_reason="the searches returned",
     )
     assert continuation.plan is not None
     assert continuation.plan.parent_id == first.plan.id
@@ -401,7 +401,7 @@ def test_a_carried_node_is_shown_with_its_columns_and_the_first_few_of_its_rows(
         parent=a_parent_plan_holding_a_scan(),
         carried_node_ids=frozenset({"n1"}),
         results=five_rows_from_n1(),
-        reason="the ending named a column the rows do not carry",
+        replan_reason="the ending named a column the rows do not carry",
     )
 
     asked = [turn for turn in conversation.turns if turn.role == "user"][-1].content
@@ -494,7 +494,7 @@ def test_a_continuation_is_a_turn_on_top_of_the_plans_already_written() -> None:
         parent=first.plan,
         carried_node_ids=frozenset({"n1"}),
         results={},
-        reason="the discovery found two tables",
+        replan_reason="the discovery found two tables",
     )
 
     assert [turn.role for turn in conversation.turns] == [

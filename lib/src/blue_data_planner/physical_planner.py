@@ -19,10 +19,13 @@ from blue_data_planner.plan import (
     validate_physical_plan,
 )
 from blue_data_planner.prompts import prompt_text
+from blue_data_planner.prompts.rendering import render_sample_rows
 from blue_data_planner.types import (
     BlueDataPlannerError,
     DiscoveryResult,
     ExecutionResult,
+    ExecutionStatus,
+    FailedFragment,
     InputData,
     LogicalOperator,
     LogicalPlan,
@@ -53,13 +56,13 @@ class PhysicalPlanner:
         conversation: Conversation,
         previous: PhysicalPlan | None,
         results: dict[str, NodeResult],
-        reason: str | None = None,
+        failed_fragment: FailedFragment | None = None,
     ) -> PhysicalPlanResult:
         """Write a whole cover for this plan, appending to the conversation this cover continues."""
         carried = _carried_cover(plan, previous, results)
         if carried is not None:
             return PhysicalPlanResult(plan=carried, failure_reason=None)
-        return self._walk(request, plan, conversation, previous, results, reason)
+        return self._walk(request, plan, conversation, previous, results, failed_fragment)
 
     def _walk(
         self,
@@ -68,7 +71,7 @@ class PhysicalPlanner:
         conversation: Conversation,
         previous: PhysicalPlan | None,
         results: dict[str, NodeResult],
-        reason: str | None,
+        failed_fragment: FailedFragment | None,
     ) -> PhysicalPlanResult:
         confined_to = _coverable(plan)
         entity_source_kinds = _entity_source_kinds(results)
@@ -81,7 +84,9 @@ class PhysicalPlanner:
         # What changed since the last call rides on this call's first candidate turn, so no two
         # user turns ever sit next to each other.
         preamble = _opening_preamble(request, plan, results) if opening else dict(_EMPTY_PREAMBLE)
-        preamble["reason"] = reason or ""
+        preamble["failed_fragment"] = (
+            _render_failed_fragment(failed_fragment) if failed_fragment else ""
+        )
         fragments: list[PhysicalPlanFragment] = []
         covered: set[str] = set()
         # Every node id a fragment bound so far covers, root or grouped, so a later root's
@@ -255,8 +260,46 @@ _EMPTY_PREAMBLE: dict[str, str] = {
     "plan": "",
     "catalog_context": "",
     "node_results": "",
-    "reason": "",
+    "failed_fragment": "",
 }
+
+# How many rows of a result one prompt shows, the same as the logical planner's sample.
+SAMPLE_ROWS = 3
+
+_REJECTED_NOTE = (
+    "This result was rejected: nothing can read or reuse it. It is shown only to explain the "
+    "failure above."
+)
+
+
+def _render_failed_fragment(failed: FailedFragment) -> str:
+    fragment = failed.fragment
+    reason = failed.result.failure_reason
+    if reason is None:
+        raise BlueDataPlannerError(
+            f"fragment {fragment.id!r} is handed to a cover repair with no failure reason; "
+            "a fragment ending needs_repair always carries one"
+        )
+    lines = [
+        f"Fragment {fragment.id} covering {sorted(fragment.logical_node_ids)}, bound to "
+        f"{fragment.operator_id}, was rejected:",
+        "",
+        reason,
+    ]
+    rejected = failed.result.result
+    # A failed last call's error is already the reason above, and an empty table adds nothing
+    # to it, so either way the reason stands alone.
+    if (
+        rejected is not None
+        and rejected.status is ExecutionStatus.OK
+        and rejected.output
+        and rejected.output[0]
+    ):
+        summary = summarize_table(rejected.output[0], SAMPLE_ROWS)
+        lines.extend(["", f"It returned {rejected.row_count} row(s), columns {summary.columns}:"])
+        lines.extend(render_sample_rows(summary, "    "))
+        lines.append(_REJECTED_NOTE)
+    return "\n".join(lines)
 
 
 def _opening_preamble(

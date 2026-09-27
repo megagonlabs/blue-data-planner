@@ -20,6 +20,7 @@ from blue_data_planner.types import (
     Conversation,
     ExecutionResult,
     ExecutionStatus,
+    FailedFragment,
     FragmentResult,
     LogicalOperator,
     LogicalPlan,
@@ -315,7 +316,7 @@ def test_an_ending_the_finished_rows_cannot_answer_is_written_again_rather_than_
 
     assert result.status is RunStatus.OK
     assert result.answer == [[{"title": "SWE"}]]
-    assert logical.reasons[-1] is not None
+    assert logical.replan_reasons[-1] is not None
 
 
 def test_every_control_node_ready_at_once_is_resolved_before_the_run_plans_again() -> None:
@@ -359,7 +360,7 @@ def test_a_rejected_fragment_reaches_the_repairs_in_order_narrowest_first() -> N
     result = planner.run("a request")
 
     assert len(physical.covered_plan_ids) == 3  # one cover plus cover_repairs=2
-    assert len(logical.reasons) == 2
+    assert len(logical.replan_reasons) == 2
     assert result.status is RunStatus.INVALID_PLAN
 
 
@@ -500,6 +501,41 @@ def test_a_cover_repair_carries_an_unchanged_fragment_forward_without_rerunning_
     assert runner.ran.count(next(iter(n1_fragment_ids))) == 1
 
 
+def test_a_cover_repair_hands_the_physical_planner_the_fragment_that_failed_and_how_it_ended() -> (
+    None
+):
+    """The repair's cover call receives the rejected fragment and the FragmentResult it ended on."""
+    escalated = an_escalating_fragment()
+    physical = FakePhysicalPlanner(
+        [covered(a_grouped_cover("c1", "p1")), covered(a_grouped_cover("c2", "p1"))]
+    )
+    a_planner(
+        FakeLogicalPlanner([ok(a_scan_and_ending("p1"))]),
+        physical,
+        FakeFragmentRunner([escalated, an_accepted_fragment()]),
+        FakeCatalogSearcher(),
+    ).run("a request")
+
+    first, repair = physical.failed_fragments
+    assert first is None
+    assert repair is not None
+    assert repair.fragment == a_grouped_cover("c1", "p1").fragments[0]
+    assert repair.result == escalated
+
+
+def test_the_first_cover_of_a_replanned_plan_is_handed_no_failed_fragment() -> None:
+    """A replan's reason goes to the logical planner alone, so the new plan's first cover gets
+    none."""
+    uncoverable = PhysicalPlanResult(plan=None, failure_reason="no operator can run n1")
+    logical = FakeLogicalPlanner([ok(a_scan_and_ending("p1")), ok(a_scan_and_ending("p2"))])
+    physical = FakePhysicalPlanner([uncoverable, covered(a_grouped_cover("c1", "p2"))])
+    a_planner(
+        logical, physical, FakeFragmentRunner([an_accepted_fragment()]), FakeCatalogSearcher()
+    ).run("a request")
+
+    assert physical.failed_fragments == [None, None]
+
+
 def test_a_plan_no_operator_can_cover_is_replanned_with_the_reason_in_hand() -> None:
     """Nothing ran, so the repair is a fresh plan written against why the cover failed."""
     logical = FakeLogicalPlanner([ok(a_scan_and_ending("p1")), ok(a_scan_and_ending("p2"))])
@@ -515,7 +551,7 @@ def test_a_plan_no_operator_can_cover_is_replanned_with_the_reason_in_hand() -> 
     ).run("list the job titles")
 
     assert result.status is RunStatus.OK
-    assert logical.reasons == [None, uncoverable.failure_reason]
+    assert logical.replan_reasons == [None, uncoverable.failure_reason]
 
 
 def test_a_replan_limit_ends_the_request_as_replan_exhausted() -> None:
@@ -542,7 +578,7 @@ def test_a_defect_in_a_component_ends_the_request_instead_of_raising_at_the_call
             conversation: Conversation,
             previous: PhysicalPlan | None,
             results: dict[str, Any],
-            reason: str | None = None,
+            failed_fragment: FailedFragment | None = None,
         ) -> PhysicalPlanResult:
             raise PlanValidationError("fragment 'f1' reads ['n9'], the nodes feeding it are []")
 
@@ -595,7 +631,7 @@ def test_planning_replans_a_plan_no_operator_can_cover() -> None:
     ).plan("list the job titles")
 
     assert result.status is RunStatus.PLANNED
-    assert logical.reasons == [None, uncoverable.failure_reason]
+    assert logical.replan_reasons == [None, uncoverable.failure_reason]
     assert result.pipeline.current_logical_plan_id == "p2"
 
 

@@ -49,7 +49,7 @@ class LogicalPlanner:
         parent: LogicalPlan | None = None,
         carried_node_ids: frozenset[str] = frozenset(),
         results: dict[str, ExecutionResult | DiscoveryResult] | None = None,
-        reason: str | None = None,
+        replan_reason: str | None = None,
     ) -> LogicalPlanResult:
         """Write a plan, or a continuation of one, correcting it until validation accepts."""
         held = results or {}
@@ -59,7 +59,10 @@ class LogicalPlanner:
                 Turn(role="system", content=prompt_text("logical_planner.md"))
             )
         conversation.turns.append(
-            Turn(role="user", content=self._ask(request, carried_node_ids, held, reason, parent))
+            Turn(
+                role="user",
+                content=self._ask(request, carried_node_ids, held, replan_reason, parent),
+            )
         )
         failure_reason: str | None = None
         for _attempt in range(counters.limits.plan_corrections + 1):
@@ -89,7 +92,7 @@ class LogicalPlanner:
         request: str,
         carried_node_ids: frozenset[str],
         results: dict[str, ExecutionResult | DiscoveryResult],
-        reason: str | None,
+        replan_reason: str | None,
         parent: LogicalPlan | None,
     ) -> str:
         first_pass = parent is None
@@ -103,7 +106,7 @@ class LogicalPlanner:
             ),
             catalog_context=_render_context(results),
             carried_nodes=_render_carried(parent, carried_node_ids, results),
-            reason=reason or "",
+            replan_reason=replan_reason or "",
         )
 
 

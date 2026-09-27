@@ -33,7 +33,9 @@ fragment's last step, and the fragment may also take in nodes upstream of it. Yo
 - **Candidates**: the fragments rooted at this node, each naming one operator, its description and
   limitations, and the nodes it groups — by id, which the plan above already describes. Every
   candidate contains the root.
-- **Why the last attempt failed**: shown when the turn follows a failure.
+- **The fragment that failed**: shown on a repair: the fragment the last cover ran that failed,
+  why, and the rows it returned. Nothing can read or reuse those rows; they show what the failure
+  is about.
 
 Pick one candidate, or none. Pick none only when no candidate can do the work correctly, because
 it discards the physical plan and sends the request back to logical planning.

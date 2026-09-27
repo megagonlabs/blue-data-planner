@@ -13,6 +13,7 @@ from blue_data_planner.types.plan import (
     DataPipeline,
     LogicalPlan,
     PhysicalPlan,
+    PhysicalPlanFragment,
     summarize_table,
 )
 
@@ -202,6 +203,16 @@ class FragmentResult:
             "row_count": None if call is None else call.row_count,
             "output": [summarize_table(one, SUMMARY_SAMPLE_ROWS).to_dict() for one in tables],
         }
+
+
+@dataclass(frozen=True)
+class FailedFragment:
+    """A fragment the cover being repaired ran, and how it ended."""
+
+    fragment: PhysicalPlanFragment
+    # status needs_repair; failure_reason says why, and result is the last call, which may
+    # hold no rows.
+    result: FragmentResult
 
 
 @dataclass(frozen=True)

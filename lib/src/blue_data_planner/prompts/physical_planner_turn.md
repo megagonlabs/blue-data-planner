@@ -25,10 +25,10 @@ throws its result away and pays for the work again; the row counts say how much.
 {{ node_results }}
 
 {% endif -%}
-{% if reason -%}
-## Why the last attempt failed
+{% if failed_fragment -%}
+## The fragment that failed
 
-{{ reason }}
+{{ failed_fragment }}
 
 {% endif -%}
 {{ candidates }}

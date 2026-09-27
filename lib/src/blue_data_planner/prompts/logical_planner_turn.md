@@ -33,10 +33,10 @@ really carry.
 {{ carried_nodes }}
 {% endif %}
 
-{% if reason %}
+{% if replan_reason %}
 ## Why the last pass ended
 
-{{ reason }}
+{{ replan_reason }}
 {% endif %}
 
 Write the plan.
