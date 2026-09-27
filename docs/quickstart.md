@@ -89,7 +89,7 @@ planner = build_data_planner(
 
 result = planner.run("Which three countries do the most customers come from?")
 print(result.status)   # ok
-print(result.answer)   # [[{'country': 'Mexico', 'customer_count': 3}, ...]]
+print(result.answer)   # one table of rows, such as [[{'country': 'Mexico', ...}, ...]]
 ```
 
 ## Next steps

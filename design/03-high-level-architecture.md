@@ -217,7 +217,7 @@ callers go through this boundary.
 
 Every entity a `SCAN` can name reached the run through a `DISCOVER` node, so `PhysicalPlanner`
 reads the kind of each source from the run's results, and reads the registry only for the attribute
-views of the entities its plan scans (ADR-044).
+views of the entities its plan scans (ADR-045).
 
 Concrete implementations are supplied at startup rather than constructed in place.
 

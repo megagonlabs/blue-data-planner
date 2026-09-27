@@ -9,6 +9,7 @@ plans and runs a request, and writes nothing the registry holds.
 
 ```bash
 cd platform/mcp
+python -m venv .venv && source .venv/bin/activate
 bash scripts/install.sh        # ../../../blue-data, ../../../blue-data-ops, the library, the server
 ```
 
@@ -22,8 +23,11 @@ explicitly.
 
 ## Running
 
+From the repository root, over the demo registry
+([quickstart.md](../../docs/quickstart.md#2-build-the-demo-registry) builds it):
+
 ```bash
-BLUE_DATA_REGISTRY_PATH=/srv/blue-data/registry.json blue-data-planner-mcp
+BLUE_DATA_REGISTRY_PATH=$PWD/data/demo/registry.json blue-data-planner-mcp
 ```
 
 The server speaks the stdio transport, so a client launches it as a subprocess rather than
@@ -31,44 +35,38 @@ connecting to it as a running service. stdout carries the protocol and nothing e
 the process writes there goes to stderr. LiteLLM's logging is held at WARNING, so its per-call INFO
 records do not reach a client's terminal.
 
-## Client configuration
+## Launching it from an agent framework
 
-Add it to Claude Desktop's configuration file —
-`~/Library/Application Support/Claude/claude_desktop_config.json` on macOS,
-`%APPDATA%\Claude\claude_desktop_config.json` on Windows:
+An agent framework's MCP client starts the server as a subprocess and sets its environment. With
+LangChain's `langchain-mcp-adapters`:
 
-```json
-{
-  "mcpServers": {
-    "blue-data-planner": {
-      "command": "blue-data-planner-mcp",
-      "env": {
-        "BLUE_DATA_REGISTRY_PATH": "/srv/blue-data/registry.json",
-        "OPENAI_API_KEY": "sk-..."
-      }
+```python
+import os
+from pathlib import Path
+
+from langchain_mcp_adapters.client import MultiServerMCPClient
+
+# The demo registry, resolved from the repository root.
+REGISTRY = str(Path("data/demo/registry.json").resolve())
+
+client = MultiServerMCPClient(
+    {
+        "blue-data-planner": {
+            "transport": "stdio",
+            "command": "blue-data-planner-mcp",
+            "args": [],
+            "env": {**os.environ, "BLUE_DATA_REGISTRY_PATH": REGISTRY},
+        }
     }
-  }
-}
+)
 ```
 
-If `blue-data-planner-mcp` is not on the client's `PATH`, give the full path to the console script
-instead:
-
-```json
-{
-  "mcpServers": {
-    "blue-data-planner": {
-      "command": "/path/to/venv/bin/blue-data-planner-mcp",
-      "env": {
-        "BLUE_DATA_REGISTRY_PATH": "/srv/blue-data/registry.json",
-        "OPENAI_API_KEY": "sk-..."
-      }
-    }
-  }
-}
-```
-
-Any MCP client that launches a stdio server and sets its `env` block works the same way.
+If `blue-data-planner-mcp` is not on the `PATH` the client runs with, give the full path to the
+console script as `command`, such as `/path/to/venv/bin/blue-data-planner-mcp`. Any MCP client that
+launches a stdio server and sets its environment works the same way.
+[`docs/mcp.md`](../../docs/mcp.md#connecting-a-langchain-agent) builds an agent over it, and
+[`examples/framework-demos/langgraph_mcp_demo.py`](../../examples/framework-demos/langgraph_mcp_demo.py)
+runs one.
 
 ## The tool
 
@@ -135,7 +133,9 @@ carrying `search_terms` is what a `DISCOVER` node's registry search found; an en
 `status` is how one fragment ended, with its rows as a table summary.
 
 An error the server catches — an unreadable registry, an unknown operator suite name, an invalid
-setting — returns `{"error": "<message>"}` instead.
+setting — returns `{"error": "<message>", "code": "<CODE>"}` instead. `code` is
+`REGISTRY_UNREADABLE`, `CONFIG_INVALID`, or `INTERNAL_ERROR`, the same codes the `blue-planner`
+CLI prints.
 
 ## Configuration reference
 
@@ -190,3 +190,13 @@ See [`docs/mcp.md`](../../docs/mcp.md) for the full tool reference and a LangCha
 example, and
 [`examples/framework-demos/langgraph_mcp_demo.py`](../../examples/framework-demos/langgraph_mcp_demo.py)
 for a runnable agent.
+
+## Running tests
+
+```bash
+cd platform/mcp
+python -m pytest
+```
+
+`install.sh` installs `pytest` with the server. The tests replace the planner with a double, so
+they run offline and need no API key.

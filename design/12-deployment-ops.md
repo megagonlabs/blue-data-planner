@@ -78,8 +78,8 @@ which is where the decorator-based registration the server uses still sits under
 
 ## 3. Running the MCP server
 
-`blue-data-planner-mcp` runs over stdio, so an agent framework or a desktop client launches it as a
-subprocess and owns its lifetime. Installing the package puts the command on the path.
+`blue-data-planner-mcp` runs over stdio, so an agent framework launches it as a subprocess and owns
+its lifetime. Installing the package puts the command on the path.
 
 ```bash
 blue-data-planner-mcp
@@ -294,7 +294,7 @@ The library and the MCP package release together whenever the pin between them c
 builds and uploads one package at a time:
 
 ```bash
-cd lib && python -m build && twine upload dist/*
+bash lib/scripts/build.sh && bash lib/scripts/publish.sh
 ```
 
 ---

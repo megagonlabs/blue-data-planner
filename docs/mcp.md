@@ -3,8 +3,9 @@
 `platform/mcp/` ships `blue-data-planner-mcp`, an MCP server exposing one tool, `query_data`, over
 stdio. It plans a request over the registered data sources, runs the plan, repairs what fails, and
 returns the rows — the same two operations the library and the CLI offer, reachable by an agent
-that speaks MCP. Installation, running, client configuration, and the configuration reference are
-in [`platform/mcp/README.md`](../platform/mcp/README.md); this page covers the tool itself.
+that speaks MCP. Installation, running, launching it from an agent framework, and the
+configuration reference are in [`platform/mcp/README.md`](../platform/mcp/README.md); this page
+covers the tool itself.
 
 ## Tool reference
 
@@ -47,9 +48,17 @@ saying why: `budget_exhausted`, `replan_exhausted`, `operator_failed`, `llm_fail
 ## Errors
 
 Anything the tool body raises — an unreadable registry, an unknown operator suite name, an invalid
-setting — comes back as `{"error": "<message>"}` in place of the run payload above. The server
-reports it as a successful tool result rather than a protocol-level error, so a client tells the two
-apart by the `error` key rather than by the protocol's error flag.
+setting — comes back as `{"error": "<message>", "code": "<CODE>"}` in place of the run payload
+above. The server reports it as a successful tool result rather than a protocol-level error, so a
+client tells the two apart by the `error` key rather than by the protocol's error flag.
+
+| `code` | Meaning |
+| --- | --- |
+| `REGISTRY_UNREADABLE` | The registry path does not exist or does not parse |
+| `CONFIG_INVALID` | A setting has no value, or a value that cannot be used, such as an unknown operator suite |
+| `INTERNAL_ERROR` | Anything else. The message names the exception's type |
+
+These are the codes the `blue-planner` CLI prints, so a client that reads both branches on one set.
 
 An argument that fails the tool's schema is rejected before the tool body runs, so it reaches
 the client as a tool error instead.
@@ -60,11 +69,17 @@ the client as a tool error instead.
 `create_agent`, which runs on LangGraph, calls it the way it calls any other.
 
 ```python
+import asyncio
 import os
+from pathlib import Path
 
 from langchain.agents import create_agent
 from langchain_mcp_adapters.client import MultiServerMCPClient
 from langchain_mcp_adapters.tools import load_mcp_tools
+from langchain_openai import ChatOpenAI
+
+# The demo registry, resolved from the repository root.
+REGISTRY = str(Path("data/demo/registry.json").resolve())
 
 client = MultiServerMCPClient(
     {
@@ -72,14 +87,23 @@ client = MultiServerMCPClient(
             "transport": "stdio",
             "command": "blue-data-planner-mcp",
             "args": [],
-            "env": {**os.environ, "BLUE_DATA_REGISTRY_PATH": "/srv/blue-data/registry.json"},
+            "env": {**os.environ, "BLUE_DATA_REGISTRY_PATH": REGISTRY},
         }
     }
 )
-async with client.session("blue-data-planner") as session:
-    tools = await load_mcp_tools(session)
-    agent = create_agent(model, tools)
-    result = await agent.ainvoke({"messages": [{"role": "user", "content": "..."}]})
+
+
+async def main() -> None:
+    async with client.session("blue-data-planner") as session:
+        tools = await load_mcp_tools(session)
+        agent = create_agent(ChatOpenAI(model="gpt-5.6-luna"), tools)
+        result = await agent.ainvoke(
+            {"messages": [{"role": "user", "content": "Which countries do our customers come from?"}]}
+        )
+        print(result["messages"][-1].content)
+
+
+asyncio.run(main())
 ```
 
 Hold one session for the agent's run. Without one, `MultiServerMCPClient` opens a session per tool

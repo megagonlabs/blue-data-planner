@@ -93,6 +93,17 @@ def test_selecting_a_profile_that_does_not_exist_reports_it_as_not_found(tmp_pat
     assert result.exception.code == "PROFILE_NOT_FOUND"
 
 
+def test_inspecting_a_profile_that_does_not_exist_reports_it_as_not_found(tmp_path: Path) -> None:
+    """`profile inspect` under a name nobody added would otherwise show defaults as if they were
+    that profile's values."""
+    runner, env = a_runner(tmp_path)
+
+    result = runner.invoke(cli, ["--profile", "ghost", "profile", "inspect"], env=env)
+
+    assert isinstance(result.exception, CliError)
+    assert result.exception.code == "PROFILE_NOT_FOUND"
+
+
 def test_configuring_a_profile_that_does_not_exist_reports_it_as_not_found(tmp_path: Path) -> None:
     """`profile config` writes, so a name nobody added is the typo `profile select` already
     refuses, and a profile the user removed has to stay removed."""

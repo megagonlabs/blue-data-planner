@@ -10,6 +10,7 @@ from blue_data.utils.config import (  # pyright: ignore[reportMissingTypeStubs] 
     ConfigError,
     ConfigResolver,
     ConfigSpec,
+    ProfileStore,
     SecretError,
     base_spec,
     load_spec,
@@ -77,6 +78,15 @@ class ResolvedSettings:
 
 def build_resolver(profile: str | None, environ: dict[str, str]) -> ConfigResolver:
     """Return a resolver over this CLI's spec, its profiles, and the given environment."""
+    # The resolver reads a missing profile as an empty one, which is right for the default
+    # profile before anyone has added it, and wrong for one a user named: a typo would run on
+    # no profile at all.
+    named = profile or environ.get("BLUE_DATA_PROFILE")
+    if named and not ProfileStore(cli_home(environ)).exists(named):
+        raise CliError(
+            "PROFILE_NOT_FOUND",
+            f"no such profile: {named!r}. Create it with `profile add {named}`.",
+        )
     return build_config_resolver(config_spec(), cli_home(environ), profile=profile, environ=environ)
 
 

@@ -26,7 +26,12 @@ from blue_data_planner_cli.config import (
     config_spec,
     resolve_output_format,
 )
-from blue_data_planner_cli.output import format_option, print_json, print_table
+from blue_data_planner_cli.output import (
+    format_option,
+    print_json,
+    print_table,
+    record_output_format,
+)
 
 
 @click.group("profile")
@@ -34,7 +39,21 @@ def profile_group() -> None:
     """Manage the named sets of configuration this CLI reads."""
 
 
-@profile_group.command("add")
+_NAME_EPILOG = "NAME is the profile's name, as `profile list` shows it."
+
+_CONFIG_EPILOG = """PARAM is a parameter name as `profile inspect` lists it, and VALUE the value
+to store. The profile is the selected one, or the one --profile names on the root command.
+
+\b
+Examples:
+  blue-planner profile config                    # every required parameter
+  blue-planner profile config OPENAI_API_KEY     # one, prompted; a secret always is
+  blue-planner profile config BLUE_DATA_PLANNER_OPERATORS builtin
+  blue-planner --profile staging profile config BLUE_DATA_REGISTRY_PATH "$PWD/registry.json"
+"""
+
+
+@profile_group.command("add", epilog=_NAME_EPILOG)
 @click.argument("name")
 @click.pass_context
 def profile_add(ctx: click.Context, name: str) -> None:
@@ -44,9 +63,9 @@ def profile_add(ctx: click.Context, name: str) -> None:
     click.echo(f"Added profile: {name}")
 
 
-@profile_group.command("remove")
+@profile_group.command("remove", epilog=_NAME_EPILOG)
 @click.argument("name")
-@click.option("--confirm", is_flag=True, help="Answer the confirmation ahead of time.")
+@click.option("--confirm", is_flag=True, help="Skip the confirmation prompt, for scripts.")
 @click.pass_context
 def profile_remove(ctx: click.Context, name: str, confirm: bool) -> None:
     """Delete a profile and the values it holds."""
@@ -62,10 +81,12 @@ def profile_remove(ctx: click.Context, name: str, confirm: bool) -> None:
 @click.pass_context
 def profile_list(ctx: click.Context, output_format: str | None) -> None:
     """Name every profile, marking the selected one."""
+    chosen_format = resolve_output_format(_resolver(ctx), output_format)
+    record_output_format(ctx, chosen_format)
     store = _store(ctx)
     selected = store.selected()
     names = store.list_profiles() or [DEFAULT_PROFILE]
-    if resolve_output_format(_resolver(ctx), output_format) == "json":
+    if chosen_format == "json":
         print_json({"profiles": names, "selected": selected}, Console())
         return
     print_table(
@@ -75,7 +96,7 @@ def profile_list(ctx: click.Context, output_format: str | None) -> None:
     )
 
 
-@profile_group.command("config")
+@profile_group.command("config", epilog=_CONFIG_EPILOG)
 @click.argument("param", required=False)
 @click.argument("value", required=False)
 @click.pass_context
@@ -106,19 +127,21 @@ def profile_config(ctx: click.Context, param: str | None, value: str | None) -> 
 def profile_inspect(ctx: click.Context, output_format: str | None) -> None:
     """Every parameter, the value in force, and the tier that supplied it."""
     resolver = _resolver(ctx)
+    chosen_format = resolve_output_format(resolver, output_format)
+    record_output_format(ctx, chosen_format)
     with _as_cli_error():
         rows = [
             (one.name, _displayed_value(resolver, one), resolver.source_of(one.name))
             for one in config_spec()
         ]
-    if resolve_output_format(resolver, output_format) == "json":
+    if chosen_format == "json":
         keys = ("parameter", "value", "source")
         print_json([dict(zip(keys, row)) for row in rows], Console())
         return
     print_table(("Parameter", "Value", "Source"), rows, Console())
 
 
-@profile_group.command("select")
+@profile_group.command("select", epilog=_NAME_EPILOG)
 @click.argument("name")
 @click.pass_context
 def profile_select(ctx: click.Context, name: str) -> None:

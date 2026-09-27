@@ -1,4 +1,9 @@
-"""Plan a request without running it, and print what a planning-only pass produces."""
+"""Plan a request without running it, and print what a planning-only pass produces.
+
+Run, from the repository root, after building the demo registry (examples/README.md):
+    export OPENAI_API_KEY=sk-...
+    python examples/feature-demos/plan_without_running.py
+"""
 
 from __future__ import annotations
 

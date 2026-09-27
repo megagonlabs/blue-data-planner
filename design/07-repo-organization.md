@@ -25,9 +25,9 @@ blue-data-planner/
 ├── lib/                               # the blue-data-planner library package
 │   ├── pyproject.toml
 │   ├── scripts/
-│   │   ├── build.sh
-│   │   ├── install.sh              # installs the sibling blue-data checkouts, then the package
-│   │   ├── publish.sh
+│   │   ├── build.sh                   # the wheel and sdist, into lib/dist/
+│   │   ├── install.sh                 # the sibling blue-data checkouts, then the package
+│   │   ├── publish.sh                 # uploads lib/dist/ to PyPI
 │   │   ├── tag_bench/
 │   │   │   ├── fetch_queries.py       # reads a release and writes corrected queries
 │   │   │   ├── fetch_databases.py     # downloads the five BIRD databases

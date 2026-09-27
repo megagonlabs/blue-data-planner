@@ -1094,6 +1094,10 @@ for: the CLI sends it under `--explain` or `--log`
 A run that did not finish comes back as the same object in every interface, with its status,
 `answer` null, and its counters.
 
+A failure that ends a request before any run exists has no `RunResult`. Both interfaces write it as
+`{"error": "<message>", "code": "<CODE>"}`: the MCP server as its payload, the CLI on standard
+output under `--format json` ([09](09-api-interface-spec.md#errors-and-exit-codes)).
+
 ---
 
 ## 6. Benchmark inputs and runs

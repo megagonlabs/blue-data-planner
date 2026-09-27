@@ -6,29 +6,15 @@ can hand over a whole data question and get rows back.
 Tools
 -----
 query_data — plan a question over the registered data sources, run the plan, repair what fails,
-             and return the rows. With `explain`, write the plan and stop.
+             and return the rows. With `explain`, stop before the first operator call.
 
 Quick start
 -----------
     # Install, with blue-data and blue-data-ops checked out beside this repository
     bash scripts/install.sh
 
-    # Run (stdio transport for Claude Desktop / Claude Code / a LangGraph client)
+    # Run over stdio; an agent framework's MCP client launches it as a subprocess
     BLUE_DATA_REGISTRY_PATH=/srv/blue-data/registry.json blue-data-planner-mcp
-
-Claude Desktop config — ~/Library/Application Support/Claude/claude_desktop_config.json on
-macOS, %APPDATA%\Claude\claude_desktop_config.json on Windows:
-    {
-      "mcpServers": {
-        "blue-data-planner": {
-          "command": "blue-data-planner-mcp",
-          "env": {
-            "BLUE_DATA_REGISTRY_PATH": "/srv/blue-data/registry.json",
-            "OPENAI_API_KEY": "sk-..."
-          }
-        }
-      }
-    }
 """
 
 from __future__ import annotations
@@ -43,6 +29,11 @@ from typing import Annotated, Any
 
 import anyio
 from blue_data_planner import RunResult
+from blue_data_planner.types import (
+    InvalidSettingError,
+    RegistryUnreadableError,
+    UnknownOperatorSuiteError,
+)
 from mcp.server.fastmcp import FastMCP
 from mcp.server.stdio import stdio_server
 from pydantic import Field
@@ -89,7 +80,12 @@ async def query_data(
     ],
     explain: Annotated[
         bool,
-        Field(description="Write the plan and stop. No operator runs and no answer comes back."),
+        Field(
+            description=(
+                "Write the plan and stop before the first operator call. Catalog searches run; "
+                "no operator runs and no answer comes back."
+            )
+        ),
     ] = False,
     include_plan: Annotated[
         bool,
@@ -112,8 +108,8 @@ async def query_data(
         result = await asyncio.to_thread(operation, request)
         return _ok(_payload(result, with_plans=explain or include_plan))
     except Exception as error:
-        # The one broad catch in this package, and the shape every Blue Data MCP server
-        # reports a failure in: a payload rather than a tool error.
+        # The one broad catch in this package. A failure is a payload rather than a tool error,
+        # as in every Blue Data MCP server, and its `error` key reads the same as theirs.
         return _err(error)
 
 
@@ -131,7 +127,14 @@ def _ok(data: Any) -> str:
 
 
 def _err(error: Exception) -> str:
-    return json.dumps({"error": str(error)}, indent=2)
+    # The codes are the CLI's, so a client reading both interfaces branches on one set.
+    if isinstance(error, RegistryUnreadableError):
+        payload = {"error": str(error), "code": "REGISTRY_UNREADABLE"}
+    elif isinstance(error, (InvalidSettingError, UnknownOperatorSuiteError)):
+        payload = {"error": str(error), "code": "CONFIG_INVALID"}
+    else:
+        payload = {"error": f"{type(error).__name__}: {error}", "code": "INTERNAL_ERROR"}
+    return json.dumps(payload, indent=2)
 
 
 def quiet_litellm() -> None:
