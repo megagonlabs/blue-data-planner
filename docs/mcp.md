@@ -48,9 +48,17 @@ saying why: `budget_exhausted`, `replan_exhausted`, `operator_failed`, `llm_fail
 ## Errors
 
 Anything the tool body raises — an unreadable registry, an unknown operator suite name, an invalid
-setting — comes back as `{"error": "<message>"}` in place of the run payload above. The server
-reports it as a successful tool result rather than a protocol-level error, so a client tells the two
-apart by the `error` key rather than by the protocol's error flag.
+setting — comes back as `{"error": "<message>", "code": "<CODE>"}` in place of the run payload
+above. The server reports it as a successful tool result rather than a protocol-level error, so a
+client tells the two apart by the `error` key rather than by the protocol's error flag.
+
+| `code` | Meaning |
+| --- | --- |
+| `REGISTRY_UNREADABLE` | The registry path does not exist or does not parse |
+| `CONFIG_INVALID` | A setting has no value, or a value that cannot be used, such as an unknown operator suite |
+| `INTERNAL_ERROR` | Anything else. The message names the exception's type |
+
+These are the codes the `blue-planner` CLI prints, so a client that reads both branches on one set.
 
 An argument that fails the tool's schema is rejected before the tool body runs, so it reaches
 the client as a tool error instead.

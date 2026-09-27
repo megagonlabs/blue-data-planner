@@ -133,7 +133,9 @@ carrying `search_terms` is what a `DISCOVER` node's registry search found; an en
 `status` is how one fragment ended, with its rows as a table summary.
 
 An error the server catches — an unreadable registry, an unknown operator suite name, an invalid
-setting — returns `{"error": "<message>"}` instead.
+setting — returns `{"error": "<message>", "code": "<CODE>"}` instead. `code` is
+`REGISTRY_UNREADABLE`, `CONFIG_INVALID`, or `INTERNAL_ERROR`, the same codes the `blue-planner`
+CLI prints.
 
 ## Configuration reference
 

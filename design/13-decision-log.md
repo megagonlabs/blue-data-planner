@@ -1141,7 +1141,7 @@ fragments are the previous cover's, and the signatures under which results sit a
 ## ADR-036 — The MCP Server Reports a Failure in Its Payload
 
 **Date:** 2026-09-25
-**Status:** Accepted
+**Status:** Superseded by ADR-044
 
 **Decision:** A run that ended on a failure status, and an operator that failed inside one, are
 successful tool calls whose payload carries the status. Anything raised becomes
@@ -1303,23 +1303,58 @@ always names a matching plan and cover and never carries a failure reason.
 
 ---
 
-## ADR-043 — The CLI Reports the Library's Errors; Anything Else Propagates
+## ADR-043 — An Unexpected Exception Is One Error Line; `--log` Adds Its Traceback
 
 **Date:** 2026-09-27
 **Status:** Accepted
 
-**Decision:** The CLI turns a `BlueDataPlannerError` into an `ERROR: <CODE> <description>` line,
-`INTERNAL_ERROR` where no more specific code covers it. Any other exception reaches the terminal
-with its traceback.
+**Decision:** The CLI reports any exception no error code covers as
+`ERROR: INTERNAL_ERROR <type>: <message>` on standard error and exits 1. `data query --log` prints
+the traceback after that line. The catch sits in `main`, for every command, and in `data query`,
+the one command that carries `--log`.
 
-**Rationale:** An exception from outside the library's tree is a bug, and a bug fails loudly: a
-traceback says where it happened, and one `ERROR:` line would hide that. Catching every exception
-would also add a fourth broad `except` to the three the coding style permits, each of which exists
-because its boundary reaches backends sharing no failure type or has to answer with a payload. The
-CLI has neither reason. `blue-data-kb-source`'s CLI maps its own base error the same way.
+**Rationale:** The Blue CLI checklist asks that an unexpected exception not show a stack trace
+unless debugging or logging is asked for, and both sibling CLIs catch broadly at their commands:
+`blue-registry` reports `COMMAND_FAILED`, and `blue-kb` wraps the exception in a `ClickException`.
+One error line keeps a script reading standard error on the family's format, and `--log` is the
+switch a user already turns on to see what a run did, so it is where the traceback belongs.
 
-**Consequences:** A script reading the CLI's output gets an error code for every failure the
-library defines, and a traceback, still with exit code 1, for a defect.
+**Consequences:** The CLI is the fourth place `design/08` permits `except Exception`, beside the
+source read, the provider call, and the MCP tool handler. A defect in a command other than
+`data query` shows its type and message only; reproducing it with a traceback means calling the
+library directly.
+
+---
+
+## ADR-044 — An Error Is a Document Carrying Its Code, in Both Interfaces
+
+**Date:** 2026-09-27
+**Status:** Accepted
+
+**Decision:** Under `--format json`, a CLI command that takes `--format` writes an error as
+`{"error": "<description>", "code": "<CODE>"}` on standard output, and still writes the `ERROR:
+<CODE> <description>` line on standard error. Where the error came before the format was resolved,
+or is that it cannot be, `--format` and then `BLUE_DATA_CLI_FORMAT` in the environment decide the
+format, and neither saying `json` means the plain line alone. A usage error stays Click's usage
+message and exit code 2. The MCP server's payload for anything raised is the same document, with
+`REGISTRY_UNREADABLE`, `CONFIG_INVALID`, or `INTERNAL_ERROR` as its code. A run that ended on a
+failure status keeps its run document in both interfaces.
+
+**Rationale:** A caller that asked for JSON parses standard output, and a failed run already gives
+it a document there, so every other failure should as well; standard error cannot carry one, since
+the closing summary shares it. The error line stays because it is the family's format for a person
+reading the terminal and for a script reading standard error (ADR-030). The shape is the family's
+MCP payload with one key added: a client reading `error` as a string reads it unchanged, and a
+client that wants to act on why a call failed reads `code` rather than the message text. One shape
+and one set of codes keep the CLI and the MCP server from drifting. A usage error is left out
+because the option that would select the format may be what failed to parse, and it is fixed when a
+script is written rather than handled when one runs.
+
+**Consequences:** Under `--format json`, standard output holds either a run document, carrying
+`status`, or an error document, carrying `error`; a failure exits 1 with either. A format set only
+in a profile does not reach an error raised before the profile was read. `profile add`, `remove`,
+`config`, and `select` take no `--format`, so their errors stay plain. The MCP server maps the
+library's exceptions to the CLI's codes itself, since it imports nothing from the CLI.
 
 ---
 
@@ -1350,7 +1385,6 @@ Design questions first, then defects in the code.
 | 54 | Should the library be able to phrase an answer, and the CLI then offer `--format nl`? The family offers a natural-language format where a source answers in prose, and ADR-029 leaves it out because a planner answers in rows. A benchmark whose expected answers are single values, and an agent that wants a sentence rather than a table, both suggest the phrasing has to happen somewhere; doing it in an interface is behavior in an adapter (ADR-002), so the question is whether a library operation should return prose alongside the rows, and what it costs in model calls per request. | Whether `--format nl` and the MCP response ever carry a sentence, and which component writes it |
 | 55 | Should a run be kept on disk so a plan can be read back? The CLI's home directory holds profiles and nothing else, so a plan printed by `data query --explain` is gone when the terminal scrolls, and `data query` keeps no record a later command could inspect. The family's storage convention has a place for one (`~/.<cli>/<profile>/<component>/`), and `from_dict` already reads a recorded plan back ([06-library.md](06-library.md#two-operations)). What is unsettled is whether a CLI should accumulate state at all for a planner that holds none between requests, and what would remove an old run. | Whether the CLI grows an action that reads a plan it wrote earlier |
 | 56 | Should the CLI be able to write a run's whole record to a file? A fragment's result reaches a person as a summary, and the JSON on standard output carries the answer and how the run ended, so every intermediate table and every model turn is reachable only by a caller who embeds the library (ADR-032). Diagnosing a wrong answer is the case that wants them: a summary says a fragment returned 140 rows over three columns and not which 140, and a review that rejected a fragment is readable only in the conversation. A file is where they would go, since what makes them unwelcome on standard output is size rather than secrecy, and the family's storage convention already has a place for per-profile state. Against adding one: a record holds whatever the sources held, so writing one puts source data on disk, and whether a CLI over a planner that keeps nothing between requests should accumulate state at all is question 55. | Whether a wrong answer can be diagnosed from the CLI alone |
-| 57 | Should the MCP server's payload carry the CLI's error codes? Anything raised reaches a client as `{"error": "<message>"}` (ADR-036), so an unreadable registry, an unknown operator suite name, and an invalid setting are one shape, and a client that wants to act on the difference has nothing to read but the message text. The codes the CLI already prints — `CONFIG_INVALID`, `REGISTRY_UNREADABLE`, and the rest ([09-api-interface-spec.md](09-api-interface-spec.md#errors-and-exit-codes)) — would give it a stable field. Against carrying them: a client loading several Blue Data servers reads one payload shape, and this would be the one server whose shape is its own. | Whether a client can branch on why a call failed, and whether the family's payload shape stays uniform |
 | 58 | Should the response cache in `llm/client.py` be removed or promoted? `LLMClient` opens a per-directory `diskcache` when a call carries the `llm.cache` property, and nothing in this repository sets that property, so the path answers no caller here. `diskcache` is declared under the `dev` extra alone, so an installed consumer that did request the cache would get an `InvalidSettingError` when its client is built rather than a cache. [05-software-stack.md](05-software-stack.md#what-is-deliberately-absent) says the stack has no model response cache, on the reasoning that a planner's requests carry the catalog, an input sample, and the conversation so far, so a key on the request rarely hits, and what a cache reliably does is make a run's cost depend on invisible state from an earlier run. That reasoning holds for every call the planning components make. What argues for keeping the code is a caller outside the planner reaching `execute_api_call` directly, which is the use the property was written for. Removing it deletes a path nothing calls; keeping it means a runtime dependency and a design row that has to say so. | Whether `llm/` offers a cache at all, and whether `diskcache` becomes a runtime dependency |
 | 59 | Does a model-written pattern need a time bound? `builtin.filter` runs the regular expression the fragment runner writes (ADR-041) with no bound on how long one search takes, so a catastrophically backtracking pattern over a large column could stall one filter call, and nothing in the run loop or the operator stops it. `builtin.nl2table` runs model-written code under the same absence, so the question is not specific to patterns. | Whether an operator call that runs model-written logic is bounded in time, and which component enforces the bound |
 

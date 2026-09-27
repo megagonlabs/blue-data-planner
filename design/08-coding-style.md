@@ -305,15 +305,17 @@ classes as recoverable would reach the caller as a crash. Both boundaries conver
 the original error in its message and keeping it as the cause: the source read raises
 `SourceQueryError`, the provider call raises `LLMError`.
 
-The MCP server's tool handler is the one other place it is permitted, and the only broad catch in
-that package. A tool call answers with a payload rather than an exception, so anything raised below
-the handler leaves as `{"error": "<message>"}`.
+The two interfaces are the other places it is permitted, each at its boundary and nowhere else in
+its package. The MCP server's tool handler answers with a payload rather than an exception, so
+anything raised below it leaves as `{"error": "<message>", "code": "<CODE>"}`. The CLI's `main`,
+and `data query`, which alone carries `--log`, report anything unexpected as `ERROR: INTERNAL_ERROR`
+with the exception's type and message, and print the traceback only under `--log` (ADR-043).
 
 | Interface | Handling |
 | --- | --- |
 | Python library | Exceptions propagate to the caller |
-| MCP server | A run that did not finish, and an operator failing inside one, are successful tool calls whose payload carries the status and the attempt. An exception raised in the adapter itself is also a successful tool call, and its payload is `{"error": "<message>"}` ([09-api-interface-spec.md](09-api-interface-spec.md#errors)) |
-| CLI | A top-level handler renders the message through Rich and sets an exit code |
+| MCP server | A run that did not finish, and an operator failing inside one, are successful tool calls whose payload carries the status and the attempt. An exception raised in the adapter itself is also a successful tool call, and its payload is `{"error": "<message>", "code": "<CODE>"}` ([09-api-interface-spec.md](09-api-interface-spec.md#errors)) |
+| CLI | A top-level handler renders the message through Rich, writes it as a document on standard output as well under `--format json`, and sets an exit code. An unexpected exception is `INTERNAL_ERROR`, with its traceback only under `--log` |
 
 The library has one `try` of its own that is not a conversion: `LLMError` is caught at the top of
 the run loop, so a provider outage becomes the `llm_failed` status with everything the run had

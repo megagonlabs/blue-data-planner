@@ -312,7 +312,9 @@ blue-planner profile select NAME
 
 Standard output carries the command's result: the answer, or the plan where `--explain` asked for
 one. Standard error carries the progress indicator, the log, the closing summary, and errors, so
-redirecting standard output captures the result alone.
+redirecting standard output captures the result alone. Under `--format json`, standard output
+carries exactly one document whatever happened: the result, or an error document where the command
+failed before producing one.
 
 | `--format` | Standard output | `--log` |
 | --- | --- | --- |
@@ -324,8 +326,18 @@ shows for each fragment, and how, is in [platform/cli/README.md](../platform/cli
 
 ### Errors and exit codes
 
-An error other than a usage error reaches standard error as `ERROR: <CODE> <description>`, whatever
-`--format` says. A usage error prints the usage message.
+An error other than a usage error reaches standard error as `ERROR: <CODE> <description>`. Under
+`--format json`, it also reaches standard output as one document (ADR-044):
+
+```json
+{"error": "<description>", "code": "<CODE>"}
+```
+
+The format is the one in force for the command. Where the error came before the format was resolved,
+or is that it cannot be — a named profile that does not exist, `BLUE_DATA_CLI_FORMAT` naming no
+format — `--format` decides it, then `BLUE_DATA_CLI_FORMAT` in the environment, and the plain line
+alone is written when neither says `json`. A command without `--format` writes the plain line alone.
+A usage error prints the usage message alone, whatever `--format` says.
 
 | Code | Raised for |
 | --- | --- |
@@ -334,12 +346,13 @@ An error other than a usage error reaches standard error as `ERROR: <CODE> <desc
 | `PROFILE_NOT_FOUND` | A named profile that does not exist |
 | `ABORTED` | A declined confirmation prompt |
 | `INVALID_PLAN`, `REPLAN_EXHAUSTED`, `BUDGET_EXHAUSTED`, `OPERATOR_FAILED`, `LLM_FAILED`, `PLANNER_FAILED` | A run that ended with that status, carrying its failure reason |
-| `INTERNAL_ERROR` | A `BlueDataPlannerError` no code above covers. Any other exception is a bug and propagates with its traceback (ADR-043) |
+| `INTERNAL_ERROR` | Any exception no code above covers, reported with its type and message. Under `--log`, its traceback follows (ADR-043) |
 
 A missing or rejected API key is reported by the provider on the first model call, so the run ends
 as `LLM_FAILED` with the provider's message as its failure reason. Under `--format json`, a run that
-ended with a failure status still prints its document on standard output, so a failed run stays
-machine-readable.
+ended with a failure status prints its run document rather than an error document, so standard
+output holds either a run document, which carries `status`, or an error document, which carries
+`error`.
 
 | Exit code | Meaning |
 | --- | --- |
@@ -378,8 +391,13 @@ example response are in [platform/mcp/README.md](../platform/mcp/README.md#the-t
 | Condition | Result |
 | --- | --- |
 | A run that did not finish, or an operator failing inside one | A successful tool call, with the status and the fragment's attempt in the payload |
-| Anything the tool raises: an unreadable registry, an unknown operator suite name, an invalid setting | A successful tool call whose payload is `{"error": "<message>"}` (ADR-036) |
+| Anything the tool raises: an unreadable registry, an unknown operator suite name, an invalid setting | A successful tool call whose payload is `{"error": "<message>", "code": "<CODE>"}` (ADR-044) |
 | An argument the tool's schema refuses | A protocol-level tool error, raised before the tool runs |
+
+The codes are the CLI's, for the failures the two interfaces share: `REGISTRY_UNREADABLE` for a
+registry path that does not exist or does not parse, `CONFIG_INVALID` for a setting with no value or
+one that cannot be used, and `INTERNAL_ERROR` for anything else, whose message names the exception's
+type.
 
 ---
 

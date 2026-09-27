@@ -29,6 +29,11 @@ from typing import Annotated, Any
 
 import anyio
 from blue_data_planner import RunResult
+from blue_data_planner.types import (
+    InvalidSettingError,
+    RegistryUnreadableError,
+    UnknownOperatorSuiteError,
+)
 from mcp.server.fastmcp import FastMCP
 from mcp.server.stdio import stdio_server
 from pydantic import Field
@@ -103,8 +108,8 @@ async def query_data(
         result = await asyncio.to_thread(operation, request)
         return _ok(_payload(result, with_plans=explain or include_plan))
     except Exception as error:
-        # The one broad catch in this package, and the shape every Blue Data MCP server
-        # reports a failure in: a payload rather than a tool error.
+        # The one broad catch in this package. A failure is a payload rather than a tool error,
+        # as in every Blue Data MCP server, and its `error` key reads the same as theirs.
         return _err(error)
 
 
@@ -122,7 +127,14 @@ def _ok(data: Any) -> str:
 
 
 def _err(error: Exception) -> str:
-    return json.dumps({"error": str(error)}, indent=2)
+    # The codes are the CLI's, so a client reading both interfaces branches on one set.
+    if isinstance(error, RegistryUnreadableError):
+        payload = {"error": str(error), "code": "REGISTRY_UNREADABLE"}
+    elif isinstance(error, (InvalidSettingError, UnknownOperatorSuiteError)):
+        payload = {"error": str(error), "code": "CONFIG_INVALID"}
+    else:
+        payload = {"error": f"{type(error).__name__}: {error}", "code": "INTERNAL_ERROR"}
+    return json.dumps(payload, indent=2)
 
 
 def quiet_litellm() -> None:

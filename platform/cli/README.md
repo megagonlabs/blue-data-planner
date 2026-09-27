@@ -121,7 +121,8 @@ second decides whether the run behind it is reported. Every command that prints 
 
 Standard output carries the command's result: the answer, or the plan where `--explain` asked for
 one. Redirecting it captures that alone. Standard error carries the progress indicator, the log,
-the closing summary, and every error.
+the closing summary, and every error. Under `--format json`, standard output always holds exactly
+one document: the result, or an error document if the command failed before producing one.
 
 `--format table` renders each table of the result under its own column names, and a terminal shows a
 progress indicator naming the stage that is running; a redirected stream gets none of it.
@@ -224,7 +225,14 @@ and model calls it spent, and their cost.
 
 ## Errors and exit codes
 
-An error reaches standard error as `ERROR: <CODE> <description>`.
+An error reaches standard error as `ERROR: <CODE> <description>`. Under `--format json`, it also
+reaches standard output as one document:
+
+```json
+{"error": "BLUE_DATA_REGISTRY_PATH is not configured. ...", "code": "CONFIG_INVALID"}
+```
+
+The MCP server reports its errors in the same shape.
 
 | Code | Raised for |
 | --- | --- |
@@ -233,7 +241,7 @@ An error reaches standard error as `ERROR: <CODE> <description>`.
 | `PROFILE_NOT_FOUND` | A named profile that does not exist |
 | `ABORTED` | A confirmation prompt, such as `profile remove` without `--confirm`, declined |
 | `INVALID_PLAN`, `REPLAN_EXHAUSTED`, `BUDGET_EXHAUSTED`, `OPERATOR_FAILED`, `LLM_FAILED`, `PLANNER_FAILED` | A run that ended with that status, carrying its failure reason |
-| `INTERNAL_ERROR` | A library error no code above covers. Any other exception is a bug and prints its traceback |
+| `INTERNAL_ERROR` | Any exception no code above covers, with its type and message. `data query --log` also prints its traceback |
 
 A missing or rejected API key is reported by the provider on the first model call, so the run
 ends as `LLM_FAILED` and the provider's message is its failure reason.
@@ -244,10 +252,15 @@ ends as `LLM_FAILED` and the provider's message is its failure reason.
 | 1 | Any error above |
 | 2 | A usage error: a missing argument, an unknown option, a value outside what an option allows |
 
-Under `--format json`, a run that produced a result prints that result on standard output whatever
-its status, so a failed run stays machine-readable. An error outside a run, such as a configuration
-failure, an internal error, or a declined confirmation, always prints as the plain
-`ERROR: <CODE> <description>` line on standard error; `--format` has no effect on it.
+Under `--format json`, a run that ended on a failure status prints its run document, not an error
+document, so standard output holds either a document with `status` or a document with `error`.
+
+The format of an error document is the one the command would have written its result in. If the
+error comes before the format is known, or the format itself cannot be resolved (for example, a
+named profile that does not exist), `--format` decides, then `BLUE_DATA_CLI_FORMAT` in the
+environment. A format set only in a profile does not apply in that case. `profile add`, `remove`,
+`config`, and `select` take no `--format`, so their errors are always the plain line. A usage error
+prints Click's usage message and exits 2, whatever `--format` says.
 
 ## TAG-Bench walkthrough
 

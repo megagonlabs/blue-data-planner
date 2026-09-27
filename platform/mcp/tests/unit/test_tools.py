@@ -6,7 +6,7 @@ import json
 import threading
 
 import pytest
-from blue_data_planner.types import RegistryUnreadableError
+from blue_data_planner.types import RegistryUnreadableError, UnknownOperatorSuiteError
 
 import blue_data_planner_mcp.config as config
 from blue_data_planner_mcp.server import mcp, query_data
@@ -69,17 +69,34 @@ async def test_the_schema_a_client_reads_describes_every_parameter():
     assert all(one.get("description") for one in properties.values())
 
 
-async def test_a_failure_the_server_meets_returns_an_error_payload(
-    monkeypatch: pytest.MonkeyPatch,
+@pytest.mark.parametrize(
+    ("raised", "expected"),
+    [
+        (
+            RegistryUnreadableError("no registry file at /srv/registry.json"),
+            {"error": "no registry file at /srv/registry.json", "code": "REGISTRY_UNREADABLE"},
+        ),
+        (
+            UnknownOperatorSuiteError("no operator suite named 'blu'"),
+            {"error": "no operator suite named 'blu'", "code": "CONFIG_INVALID"},
+        ),
+        (
+            RuntimeError("disk gone"),
+            {"error": "RuntimeError: disk gone", "code": "INTERNAL_ERROR"},
+        ),
+    ],
+)
+async def test_a_failure_the_server_meets_returns_an_error_payload_carrying_its_code(
+    monkeypatch: pytest.MonkeyPatch, raised: Exception, expected: dict[str, str]
 ):
-    """A tool error would end the call; the agent is told what went wrong instead."""
+    """A tool error would end the call; the agent is told what went wrong, and why, instead."""
 
     def refuse() -> FakePlanner:
-        raise RegistryUnreadableError("no registry file at /srv/registry.json")
+        raise raised
 
     monkeypatch.setattr(config, "get_planner", refuse)
     payload = json.loads(await query_data("which postings"))
-    assert payload == {"error": "no registry file at /srv/registry.json"}
+    assert payload == expected
 
 
 async def test_the_planner_runs_off_the_event_loop_thread(planner: FakePlanner):

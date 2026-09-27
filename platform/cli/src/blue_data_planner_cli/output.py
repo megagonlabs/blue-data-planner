@@ -1,4 +1,4 @@
-"""What the CLI writes: the answer, the plan, a run's JSON document, a table, an error line."""
+"""What the CLI writes: the answer, the plan, a run's JSON document, a table, an error."""
 
 from __future__ import annotations
 
@@ -21,8 +21,29 @@ def format_option(command: Callable[..., Any]) -> Callable[..., Any]:
         "output_format",
         type=click.Choice(OUTPUT_FORMATS),
         default=None,
-        help="How the result is written; BLUE_DATA_CLI_FORMAT where this is absent.",
+        callback=_record_given_format,
+        help="How the result is written. Default: BLUE_DATA_CLI_FORMAT, else table.",
     )(command)
+
+
+def record_output_format(ctx: click.Context, output_format: str) -> None:
+    """Record the format in force, so an error raised after this point is written in it."""
+    ctx.obj["output_format"] = output_format
+
+
+def error_format(state: dict[str, Any]) -> str:
+    """Return the format an error is written in: the one a command recorded, else table."""
+    # A command without --format records nothing, so its errors stay the plain line.
+    return state.get("output_format", "table")
+
+
+def _record_given_format(
+    ctx: click.Context, param: click.Parameter, value: str | None
+) -> str | None:
+    # An error can come before the profile is read, or be that it cannot be, so until the
+    # command resolves the format, --format and then the environment variable stand in for it.
+    record_output_format(ctx, value or ctx.obj["environ"].get("BLUE_DATA_CLI_FORMAT", "table"))
+    return value
 
 
 def print_answer(
@@ -85,6 +106,19 @@ def summary_line(result: RunResult) -> str:
 def error_line(code: str, description: str) -> str:
     """Return the one shape every Blue CLI reports a failure in."""
     return f"ERROR: {code} {description}"
+
+
+def error_document(code: str, description: str) -> dict[str, str]:
+    """Return the document a failure is written as under --format json."""
+    # The MCP server's payload with the code added, so a reader of either reads one shape.
+    return {"error": description, "code": code}
+
+
+def report_error(code: str, description: str, output_format: str) -> None:
+    """Print one failure as the error line, and as a document on standard output under json."""
+    if output_format == "json":
+        print_json(error_document(code, description), Console())
+    print_error(Console(stderr=True), code, description)
 
 
 def print_error(console: Console, code: str, description: str) -> None:

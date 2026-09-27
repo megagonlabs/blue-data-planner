@@ -10,6 +10,7 @@ from typing import Any
 
 import pytest
 from blue_data.utils.config import (  # pyright: ignore[reportMissingTypeStubs]
+    ProfileStore,
     encode,
 )
 from blue_data_planner import RunResult, RunStatus
@@ -138,6 +139,7 @@ def test_a_run_that_did_not_finish_reports_its_status_as_the_error_code(
 
     assert result.exit_code == 1
     assert "ERROR: BUDGET_EXHAUSTED 30 calls spent" in result.stderr
+    assert result.stderr.count("ERROR:") == 1
 
 
 def test_a_configuration_failure_names_the_parameter_and_exits_one(tmp_path: Path) -> None:
@@ -245,6 +247,51 @@ def test_the_log_limit_on_the_command_line_outranks_the_profile(
     assert "Alameda" not in overridden.stderr
 
 
+class RaisingDataPlanner(FakeDataPlanner):
+    """A planner whose run fails with an exception from outside the library's tree."""
+
+    def run(self, request: str) -> RunResult:
+        raise ValueError("boom")
+
+
+def a_planner_raising(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Replace the assembled planner with one whose run raises a ValueError."""
+    double = RaisingDataPlanner(a_run_result())
+
+    def _assemble(settings: ResolvedSettings) -> RaisingDataPlanner:
+        return double
+
+    monkeypatch.setattr(commands, "assemble_planner", _assemble)
+
+
+def test_an_unexpected_exception_in_a_query_is_one_error_line_without_a_traceback(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A defect reaches the user as the family's error line, not as a stack trace."""
+    a_planner_raising(monkeypatch)
+
+    result = CliRunner().invoke(cli, ["data", "query", "q"], env=a_configured_environment(tmp_path))
+
+    assert result.exit_code == 1
+    assert "ERROR: INTERNAL_ERROR ValueError: boom" in result.stderr
+    assert "Traceback" not in result.stderr
+
+
+def test_the_log_flag_adds_the_traceback_of_an_unexpected_exception(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """--log is the switch that asks for diagnostics, so it is what shows where a defect was."""
+    a_planner_raising(monkeypatch)
+
+    result = CliRunner().invoke(
+        cli, ["data", "query", "q", "--log"], env=a_configured_environment(tmp_path)
+    )
+
+    assert result.exit_code == 1
+    assert "ERROR: INTERNAL_ERROR ValueError: boom" in result.stderr
+    assert "Traceback" in result.stderr
+
+
 def a_process_environment(monkeypatch: pytest.MonkeyPatch, variables: dict[str, str]) -> None:
     """Set each variable in the real process environment `main()` reads through `os.environ`."""
     for key, value in variables.items():
@@ -277,6 +324,130 @@ def test_main_exits_zero_after_a_successful_run(
         commands.main()
 
     assert excinfo.value.code == 0
+
+
+def test_main_reports_an_unexpected_exception_in_any_command_as_an_internal_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A command without --log still reports a defect as one error line and exit code 1."""
+    monkeypatch.setattr(sys, "argv", ["blue-planner", "profile", "list"])
+    a_process_environment(monkeypatch, {"BLUE_DATA_PLANNER_HOME": str(tmp_path / "home")})
+
+    def _fail(self: ProfileStore) -> list[str]:
+        raise RuntimeError("disk gone")
+
+    monkeypatch.setattr(ProfileStore, "list_profiles", _fail)
+
+    with pytest.raises(SystemExit) as excinfo:
+        commands.main()
+
+    assert excinfo.value.code == 1
+    stderr = capsys.readouterr().err
+    assert "ERROR: INTERNAL_ERROR RuntimeError: disk gone" in stderr
+    assert "Traceback" not in stderr
+
+
+def a_query_missing_its_registry(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> tuple[list[str], dict[str, str]]:
+    """Return a query whose environment names no registry, so it fails as CONFIG_INVALID."""
+    return ["data", "query", "q"], {"BLUE_DATA_PLANNER_HOME": str(tmp_path / "home")}
+
+
+def a_query_naming_a_missing_profile(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> tuple[list[str], dict[str, str]]:
+    """Return a query naming a profile nobody added, so it fails as PROFILE_NOT_FOUND."""
+    return ["--profile", "ghost", "data", "query", "q"], a_configured_environment(tmp_path)
+
+
+def a_query_whose_planner_raises(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> tuple[list[str], dict[str, str]]:
+    """Return a query whose planner raises a ValueError, so it fails as INTERNAL_ERROR."""
+    a_planner_raising(monkeypatch)
+    return ["data", "query", "q"], a_configured_environment(tmp_path)
+
+
+@pytest.mark.parametrize(
+    ("a_failing_query", "code"),
+    [
+        (a_query_missing_its_registry, "CONFIG_INVALID"),
+        (a_query_naming_a_missing_profile, "PROFILE_NOT_FOUND"),
+        (a_query_whose_planner_raises, "INTERNAL_ERROR"),
+    ],
+)
+def test_under_json_an_error_before_any_run_is_a_document_on_standard_output(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, a_failing_query: Any, code: str
+) -> None:
+    """A caller that asked for JSON parses standard output, so every failure leaves one
+    document there, while the error line stays on standard error."""
+    arguments, env = a_failing_query(tmp_path, monkeypatch)
+
+    result = CliRunner().invoke(cli, [*arguments, "--format", "json"], env=env)
+
+    document = json.loads(result.stdout)
+    assert document["code"] == code
+    assert f"ERROR: {code} {document['error']}" in result.stderr
+    assert result.exit_code == 1
+
+
+@pytest.mark.parametrize("where", ["environment", "profile"])
+def test_a_format_set_outside_the_command_line_decides_how_an_error_is_written(
+    tmp_path: Path, where: str
+) -> None:
+    """A script that sets its format once, in the environment or a profile, still reads its
+    errors as documents."""
+    home = str(tmp_path / "home")
+    env = {"BLUE_DATA_PLANNER_HOME": home}
+    if where == "environment":
+        env["BLUE_DATA_CLI_FORMAT"] = "json"
+    else:
+        a_profile_holding(home, BLUE_DATA_CLI_FORMAT="json")
+
+    result = CliRunner().invoke(cli, ["data", "query", "q"], env=env)
+
+    assert json.loads(result.stdout)["code"] == "CONFIG_INVALID"
+
+
+def test_main_writes_an_error_in_the_format_the_failing_command_was_writing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A command other than data query reports through main, which has to know the format."""
+    monkeypatch.setattr(sys, "argv", ["blue-planner", "profile", "list", "--format", "json"])
+    a_process_environment(monkeypatch, {"BLUE_DATA_PLANNER_HOME": str(tmp_path / "home")})
+
+    def _fail(self: ProfileStore) -> list[str]:
+        raise RuntimeError("disk gone")
+
+    monkeypatch.setattr(ProfileStore, "list_profiles", _fail)
+
+    with pytest.raises(SystemExit):
+        commands.main()
+
+    assert json.loads(capsys.readouterr().out) == {
+        "error": "RuntimeError: disk gone",
+        "code": "INTERNAL_ERROR",
+    }
+
+
+def test_a_command_without_format_writes_its_error_as_the_plain_line_alone(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The environment's format belongs to commands that print a result, so an interactive
+    command ignores it."""
+    monkeypatch.setattr(sys, "argv", ["blue-planner", "profile", "select", "ghost"])
+    a_process_environment(
+        monkeypatch,
+        {"BLUE_DATA_PLANNER_HOME": str(tmp_path / "home"), "BLUE_DATA_CLI_FORMAT": "json"},
+    )
+
+    with pytest.raises(SystemExit):
+        commands.main()
+
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert captured.err.startswith("ERROR: PROFILE_NOT_FOUND ")
 
 
 def test_explaining_prints_the_cover_and_spends_no_operator_call(
