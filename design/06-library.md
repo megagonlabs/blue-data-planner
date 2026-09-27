@@ -31,6 +31,7 @@ rather than a copy of the code.
 | `blue_data_planner/physical_planner.py` | `PhysicalPlanner` |
 | `blue_data_planner/fragment_runner.py` | `FragmentRunner` |
 | `blue_data_planner/catalog_searcher.py` | `CatalogSearcher` |
+| `blue_data_planner/prompts/rendering.py` | `render_sample_rows`, `render_attribute_views`: the run data every component that writes prompts renders the same way |
 | `blue_data_planner/types/` | Every data class that crosses a module boundary: plans, nodes, fragments, operators, results, catalog readings, model usage, limits. `summarize_table` sits there too, since it builds one of those shapes from another and reaches nothing else |
 | `blue_data_planner/plan/` | `validate_logical_plan`, `validate_physical_plan`, `candidate_fragments`, `signatures`, and the response schemas the planning stages send |
 | `blue_data_planner/execution/` | `execute_physical_operator`, `check_output_columns`, `project_answer` |
@@ -53,7 +54,7 @@ owns is the loop.
 | Component | Built with | Because |
 | --- | --- | --- |
 | `LogicalPlanner` | `llm_client`, `catalog` | Writes plans, reads a catalog preview ranked against the request, and rewrites a plan validation turned down |
-| `PhysicalPlanner` | `llm_client`, `router` | Enumerates candidates from what operators declare and the kinds of the sources the plan's scans name. It is the one component built without a catalog, since the kind of every source a scan can name arrives in `results` |
+| `PhysicalPlanner` | `llm_client`, `router`, `catalog` | Enumerates candidates from what operators declare and the kinds of the sources the plan's scans name, and reads the attribute views of the entities the plan scans |
 | `FragmentRunner` | `llm_client`, `catalog`, `router` | Resolves a fragment's operator id, reads the attribute views of the entities it scans, writes parameters, reviews the result, and writes them again when the review rejects one |
 | `CatalogSearcher` | `llm_client`, `catalog`, `max_search_terms` | Turns an instruction into search terms and searches the registry for entities |
 | `DataPlanner` | The four above, and `limits` | Creates the run state, schedules, chooses repairs, and assembles the result |
@@ -76,8 +77,9 @@ signature says about it.
 run. It opens no configuration and reads no environment variable; what it does is construct — the
 model client, the router, the operators each named suite registers, the catalog, and the four
 components — so the CLI, the MCP server, the benchmark harness, and a future REST API each write
-the same five lines instead of the same forty. Wiring is not translation
-([07-repo-organization.md](07-repo-organization.md)).
+the same five lines instead of the same forty. The one catalog goes to every component the table
+above builds with one: the logical planner, the physical planner, the fragment runner, and the
+catalog searcher. Wiring is not translation ([07-repo-organization.md](07-repo-organization.md)).
 
 A caller who wants a different model per component, or a fake component in a test, builds the four
 and calls `DataPlanner` directly.
@@ -202,7 +204,7 @@ to the logical planner, and the one return spends one `control_replans`, however
 
 One path leads into both planners, used for the first plan, for every continuation, and for the
 cover that follows each. The logical planner writes a plan from the request, the parent plan, the
-nodes carried over, the results the run holds, and the reason if there is one; a plan it could not
+nodes carried over, the results the run holds, and the replan reason if there is one; a plan it could not
 write ends the request with its status. The physical planner then covers whatever was installed, and
 a cover it could not write sends the run to the replan.
 
@@ -443,6 +445,18 @@ and `FragmentResult`'s beside them. A `FragmentResult` does leave: the run files
 signature of the work it came from, whether the review kept its result or turned it down, and
 `CatalogSearcher`'s `DiscoveryResult` is filed the same way.
 
+`FailedFragment` never leaves the process either. It is what `DataPlanner` hands the physical
+planner on a cover repair: a fragment the cover being repaired ran, and the `FragmentResult` it came
+to, whose status is `needs_repair`
+([10, what each component returns](10-data-model.md#what-each-component-returns)).
+
+```python
+@dataclass(frozen=True)
+class FailedFragment:
+    fragment: PhysicalPlanFragment
+    result: FragmentResult
+```
+
 Each component returns what it did instead of writing it down as it goes, so one that raises cannot
 leave a half-written record behind and the run state keeps one writer.
 
@@ -593,7 +607,7 @@ class LogicalPlanner:
         parent: LogicalPlan | None = None,
         carried_node_ids: frozenset[str] = frozenset(),
         results: dict[str, FragmentResult | DiscoveryResult] | None = None,
-        reason: str | None = None,
+        replan_reason: str | None = None,
     ) -> LogicalPlanResult: ...
 ```
 
@@ -613,8 +627,9 @@ found and every attribute each one holds, which is what lets the continuation's 
 and declare column names the registry actually carries. One argument covers both because both live
 in the same map.
 
-`reason` is either a failure reason from the review or the physical planner, or the instruction from
-the control node that ended the pass. It stays at the level the planner works in: it says what could
+`replan_reason` is `None` on the first pass. Otherwise it says why the plan is written again: a
+failure reason from the review, from the physical planner, or from an ending the answer's columns
+could not satisfy, or the instruction of the control node that ended the pass. It stays at the level the planner works in: it says what could
 not be done rather than which operator failed to do it, because naming an operator would invite the
 planner to work around an implementation it does not choose.
 
@@ -644,7 +659,9 @@ request needs found, and the continuation is the complete plan
 
 ```python
 class PhysicalPlanner:
-    def __init__(self, llm_client: LLMClient, router: OperatorRouter) -> None: ...
+    def __init__(
+        self, llm_client: LLMClient, router: OperatorRouter, catalog: DataCatalog
+    ) -> None: ...
 
     def cover(
         self,
@@ -653,7 +670,7 @@ class PhysicalPlanner:
         conversation: Conversation,
         previous: PhysicalPlan | None,
         results: dict[str, FragmentResult | DiscoveryResult],
-        reason: str | None = None,
+        failed_fragment: FailedFragment | None = None,
     ) -> PhysicalPlanResult: ...
 ```
 
@@ -681,7 +698,24 @@ the model would weigh there is work the run already holds rows for (ADR-035).
 may name, which decides the operators a fragment holding that scan can be bound to. And an operator
 node's entry says that node already ran, which is both what puts a reuse candidate in front of the
 model and the cost it weighs when it considers grouping that node into a wider fragment ([04, the
-cover repair](04-detailed-architecture.md#the-cover-repair)).
+cover repair](04-detailed-architecture.md#the-cover-repair)). Every turn that starts a cover shows
+each accepted result held at that moment, with its row count, its operator, its columns, and its
+first rows.
+
+`failed_fragment` is set only on a cover repair. It is the fragment of the cover being repaired that
+ran out of parameter repairs, with the `FragmentResult` it ended on: the failure reason and the last
+call, which may have returned no rows. The repair turn shows it beside the results held now, and
+marks its rows as rejected, since nothing can read or reuse them. The first cover of a logical plan
+is passed none, so the physical planner never sees how a previous plan ended; that is the logical
+planner's `replan_reason`. A `FailedFragment` whose result carries no failure reason is a defect and
+raises.
+
+The catalog is read for the entities the plan scans: one `attribute_views` call per distinct entity
+path a `SCAN` names, the way `FragmentRunner` reads its fragment's scans. The opening turn shows
+each entity's header from its `EntityMatch` and, below it, every attribute's type, description,
+sample values, and counts, because whether a condition can go to an operator comparing stored
+values or needs one reading meaning depends on what the column holds. A scan that names no source
+contributes nothing, and no entity the plan does not scan is read.
 
 Inside, the planner works top down from the root of the plan. For each uncovered node it asks
 `candidate_fragments` for the node sets each operator the router offers could cover, pairs each set
@@ -1349,14 +1383,14 @@ class DataCatalog:
     def attribute_views(self, entity_path: str) -> list[AttributeView]: ...
 ```
 
-Three readings of the same registry, one per caller, all fixed in
+Three readings of the same registry, all fixed in
 [10, catalog readings](10-data-model.md#4-catalog-readings).
 
 | Method | Read by | Answers |
 | --- | --- | --- |
 | `preview` | `LogicalPlanner`, once per request, until the first cover installs | Which sources exist. Source-level records only, ranked against the request and capped, with the total count so the planner can tell a complete list from a sample |
 | `search_records` | `CatalogSearcher`, for a `DISCOVER` node | Which entities the request needs and what each holds. One call per search term |
-| `attribute_views` | `FragmentRunner`, for each entity its fragment scans | How each of that entity's attributes spells its values |
+| `attribute_views` | `FragmentRunner`, for each entity its fragment scans, and `PhysicalPlanner`, for each entity its plan scans | How each of that entity's attributes spells its values |
 
 `CatalogSearcher` is the only caller of `search_records`. A `SCAN` names an entity the run's catalog
 context already holds, and a path reaches that context only by having been searched for, so no

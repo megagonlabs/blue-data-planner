@@ -92,8 +92,8 @@ group of nodes touches no source at all.
 An operator declares the set of logical operations it can carry out, the kinds of source it can
 read, whether it accepts tables bound in from elsewhere, and what it cannot do. One that declares a
 single operation covers a single node; one that declares several covers a region. That declaration
-is all the physical planner reads, which is what lets an outside suite and a Blue operator compete
-for the same work.
+is all the physical planner reads of an operator, which is what lets an outside suite and a Blue
+operator compete for the same work.
 
 A planner is reachable three ways: as an importable Python library, as a CLI for asking a question
 and getting an answer directly, and as an MCP server that gives agent frameworks such as LangChain a

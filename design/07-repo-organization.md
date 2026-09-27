@@ -46,6 +46,7 @@ blue-data-planner/
 │   │   ├── fragment_runner.py         # FragmentRunner
 │   │   ├── catalog_searcher.py        # CatalogSearcher
 │   │   ├── prompts/                   # hand-written, versioned prompt text
+│   │   │   └── rendering.py           # run data rendered as prompt text
 │   │   ├── types/                     # every data class crossing a module boundary
 │   │   │   ├── __init__.py            # re-exports the four modules as blue_data_planner.types
 │   │   │   ├── errors.py              # BlueDataPlannerError and everything inheriting it
@@ -145,7 +146,7 @@ benchmark and demo scripts hold an import the library does not allow itself.
 | `data_planner.py`, `run_state.py` | The entry point and the state its loop writes. At the root because a package that is a planner has no inner level to put them in |
 | `logical_planner.py`, `physical_planner.py`, `fragment_runner.py` | The three planning components (ADR-006), one module each, beside the loop that drives them |
 | `catalog_searcher.py` | The discovery step. Beside the planning components rather than one of them: it resolves a `DISCOVER` node and writes no plan |
-| `prompts/` | Prompt text, one file per component that writes prompts, read by those components and written nowhere else (ADR-005) |
+| `prompts/` | Prompt text, one file per component that writes prompts, and `rendering.py`, the functions that render run data into that text. Read by those components and written nowhere else (ADR-005) |
 | `types/` | Every data class that crosses a module boundary, the catalog readings and `LLMUsage` included, since a type `RunResult` names has to be nameable by everything that reads one. Its four modules split those classes by subject, and `__init__.py` re-exports them under the one name `blue_data_planner.types`. Imports nothing outside itself |
 | `plan/` | The functions over a plan that need no model, no source, and no operator: checking one, enumerating the fragments an operator could cover, and building the response schema a planning stage sends. Imports only `types/` |
 | `execution/` | Beside the planning components rather than inside one, so invoking an operator, checking what it returned, and projecting the answer all need no model |
@@ -248,7 +249,7 @@ One `LICENSE` sits at the repository root and covers everything published from i
 | A way to reach the library | `platform/<interface>/`, its own package | Its own `pyproject.toml` naming a console script, `scripts/`, and `tests/` |
 | A logical operator | Nowhere. The vocabulary of ten is fixed ([10-data-model.md](10-data-model.md)) | A decision log entry arguing the exception |
 | A check, a graph function, or a response schema over a plan | `plan/`, if it needs no model and no source | Nothing else |
-| A prompt | `prompts/`, one file per component that writes prompts | Nothing else writes prompt text (ADR-005) |
+| A prompt | `prompts/`, one file per component that writes prompts; a function rendering run data into prompt text goes in `prompts/rendering.py` | Nothing else writes prompt text (ADR-005) |
 | Anything reading `blue-data` | `data/`, and called from elsewhere | No other packaged module imports `blue-data` |
 | Anything calling a model | `llm/`, and called from elsewhere | Nothing else calls a provider |
 

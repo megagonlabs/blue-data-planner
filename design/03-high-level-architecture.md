@@ -204,19 +204,20 @@ between that shape and its own suite's at its own edge (ADR-012).
 ### `data/`
 
 The only place in the shipped package where `blue-data` is imported. `DataCatalog` selects and
-renders what `blue-data` has already collected and enriched, and profiles nothing of its own. Four
+renders what `blue-data` has already collected and enriched, and profiles nothing of its own. Five
 callers go through this boundary.
 
 | Caller | Reads |
 | --- | --- |
 | `LogicalPlanner` | A preview of the catalog: which sources exist, and what each is for |
 | `CatalogSearcher` | A registry search, one call per search term. A hit is one entity and every attribute it holds |
-| `FragmentRunner` | A view of every attribute of each entity its own fragment scans: sample values as they are spelled, and what `blue-data` inferred about them |
+| `PhysicalPlanner` | A view of every attribute of each entity its plan scans, so a binding knows whether a condition falls on stored values or on text to be read for meaning |
+| `FragmentRunner` | The same view of every attribute of each entity its own fragment scans: sample values as they are spelled, and what `blue-data` inferred about them |
 | An operator bound to a fragment | Its own source, for reading and for the few calls that write |
 
-`PhysicalPlanner` is not among them. Every entity a `SCAN` can name reached the run through a
-`DISCOVER` node, so it reads the kind of each from the run's results rather than from the registry
-(ADR-022).
+Every entity a `SCAN` can name reached the run through a `DISCOVER` node, so `PhysicalPlanner`
+reads the kind of each source from the run's results, and reads the registry only for the attribute
+views of the entities its plan scans (ADR-043).
 
 Concrete implementations are supplied at startup rather than constructed in place.
 

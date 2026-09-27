@@ -300,8 +300,8 @@ one whose kind no registered operator declares, and that node has no operator.
 
 Where a fragment's boundary falls is decided by what an operator can do with the values inside the
 nodes and with the number of rows it reads, which its description and its limitations state. For a
-`SCAN` that has not run yet, the size the planner judges by is the entity's recorded row count in
-the catalog context. A candidate grouping a node whose condition crosses those limits returns rows
+`SCAN` that has not run yet, the size the planner judges by is the entity's recorded row count,
+shown with its attributes when the conversation opens. A candidate grouping a node whose condition crosses those limits returns rows
 that ignore that condition, so the cut follows the limit and the work on the other side of it
 becomes a fragment of its own. A declaration names the kinds an operator groups and says nothing
 about the values, so a candidate the enumeration offers can still be one no cover should take.
@@ -331,18 +331,33 @@ knows what it bound a moment earlier, and a repair continues the same exchange, 
 answers the binding that failed rather than being told about it. A new logical plan starts a new
 conversation, because the node ids already in the turns name a different graph.
 
-The request, the logical plan, and the run's catalog context open the conversation, so each is sent
-once rather than once per node. The request says what the plan is for, and the plan is what the
-cover follows. The plan shows every node with its instruction, a scan's source, and its declared
-columns, so a binding is made with the whole plan in view, and a candidate names its operator and
-its nodes without restating them. The operator, row count, and column names of every node with a
-result are sent the same way, once, when the conversation opens. The failed fragment's node set and
-which operators were tried on it need no separate turn either: they are already there, in the turns
-that bound it the first time, so a repair adds only why the last attempt failed. Row counts matter
-because grouping a node that already ran throws its result away and pays for the work again, and how
-much that costs is how many rows are discarded ([the cover repair](#the-cover-repair)). Rows
-themselves stay out: the physical planner chooses boundaries and operators, and values are the
-fragment runner's reading.
+The opening turn carries what stays fixed while the plan is covered, so each part is sent once
+rather than once per node or once per cover. The request says what the plan is for, and the plan is
+what the cover follows. The plan shows every node with its instruction, a scan's source, and its
+declared columns, so a binding is made with the whole plan in view, and a candidate names its
+operator and its nodes without restating them. For every entity a `SCAN` names, the turn also
+carries the catalog's view of each attribute: its type, its description, sample values, and the
+distinct and null counts where the catalog recorded them. Values decide the operator as much as
+capability does. A condition on a stored number, flag, or category can go to an operator that
+compares stored values, and the same condition on free text needs one that reads meaning.
+
+Every turn that starts a cover, the opening turn and each repair turn, carries what the run holds at
+that moment: for each result, its row count, the operator that produced it, its columns, and its
+first rows with a count of the rows left out. Each such turn shows the whole state, because the
+planner keeps nothing between calls, and an entry repeated in an appended turn leaves the cached
+turns before it intact. Row counts matter because grouping a node that already ran throws its result
+away and pays for the work again, and the number of rows discarded is what that costs
+([the cover repair](#the-cover-repair)).
+
+A repair turn adds the fragment that failed: its nodes, its operator, the failure reason, and the
+rows its last call returned, if it returned any. Those rows are marked as rejected, since nothing
+can read or reuse them, and they are shown only to explain the reason beside them. Which operators
+the failed node set was bound to before is already in the conversation, in the turns that bound it.
+
+The first cover of a new logical plan is shown nothing about how the previous plan ended. That
+ending was the logical planner's input, and the plan in front of the physical planner is what the
+logical planner made of it. The results its opening turn shows are the ones the new plan carried
+over, which are exactly the results it can read or reuse.
 
 A candidate is named by its operator and its node set rather than by a position in the list it
 arrived in. The list differs from turn to turn, so a position means something different in each one,
@@ -370,12 +385,12 @@ operator's `parameter_schema` is built from that operator. Every candidate on of
 the sources its scans name, so the choice is the operator and the cut. The fragment's
 `scan_sources` is copied from its scans.
 
-The physical planner takes no reading of the catalog of its own. The kind of each source a scan
-names comes from the `DISCOVER` result that found it.
+The physical planner reads the catalog for the entities its plan scans and for no others. The kind
+of each source a scan names comes from the `DISCOVER` result that found it.
 
-Everything else waits for execution. Column names, types, and rows are not known until the upstream
-fragments have run, and the parameters that depend on them are written then
-([section 3](#3-running-a-fragment)).
+Everything else waits for execution. The columns and rows a fragment receives from the fragments
+upstream of it are not known until those have run, and the parameters that depend on them are
+written then ([section 3](#3-running-a-fragment)).
 
 The model writes every fragment's `required_output_columns`, and the schema takes no fragment
 without at least one. A node's declared columns are what it outputs, not what it reads, so the
@@ -605,7 +620,7 @@ any other. Whether the operator vocabulary gains one is an open question
 
 Returning to the planner does not discard the run. `DataPlanner` calls the logical planner again
 with the request, the catalog preview, the nodes that already succeeded, everything discovery
-found, and the reason the pass ended.
+found, and the replan reason: why the pass ended.
 
 A node that already ran is shown with its column names, its row count, and a sample of its rows.
 Since a `REPLAN` hands the planner nothing of its own, that sample is where the values a
@@ -698,8 +713,10 @@ wrong.
 
 ### The cover repair
 
-The physical planner covers the whole logical plan again, with the failure reason in context. Every
-binding is decided afresh, and every fragment that already produced a result is on offer to be kept,
+The physical planner covers the whole logical plan again. The repair turn shows the fragment that
+failed: its nodes, its operator, the failure reason, and the rows its last call returned, marked as
+rejected. The same turn shows every result the run holds at that moment, including those produced
+after the conversation opened. Every binding is decided afresh, and every fragment that already produced a result is on offer to be kept,
 so what the repair changes is what the model chooses to change.
 
 Three fixes are reachable, and between them they are everything short of a new plan.

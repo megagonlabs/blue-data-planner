@@ -187,8 +187,10 @@ rows down to 48 inside the database, against three calls whose middle step can b
 own. The planner takes all three.
 
 The kind of source behind the entity each scan names is what admits `nl2sql` for `postings` and
-rules it out for `company_profiles`. Physical planning takes no reading of the catalog of its own,
-and each fragment's `scan_sources` is copied from its scans.
+rules it out for `company_profiles`. What the entities hold is what places the conditions: the
+catalog's view of `postings` shows `location` as short stored values a SQL comparison can match,
+and a profile is free text that has to be read for meaning. Each fragment's `scan_sources` is
+copied from its scans.
 
 ```json
 {

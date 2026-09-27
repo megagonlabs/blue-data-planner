@@ -709,6 +709,20 @@ are ordered ([04, recovering from a
 failure](04-detailed-architecture.md#5-recovering-from-a-failure)). The two remaining statuses end
 the run, and each is the status the caller's `RunResult` carries.
 
+A `needs_repair` reaches the cover repair as a `FailedFragment`, which never leaves the process.
+
+```python
+@dataclass(frozen=True)
+class FailedFragment:
+    fragment: PhysicalPlanFragment  # a fragment the cover being repaired ran
+    result: FragmentResult  # status needs_repair
+```
+
+`result.failure_reason` says why the fragment failed, and a `FailedFragment` without one is a
+defect. `result.result` is the last call, which may be a failed call that returned no rows. The
+physical planner shows those rows as rejected: nothing reads or reuses them
+([04, the cover repair](04-detailed-architecture.md#the-cover-repair)).
+
 Each component returns what it did instead of writing it down as it goes, so one that raises cannot
 leave a half-written record behind, and plans and results have one writer.
 
@@ -880,13 +894,13 @@ that basis would draw a line no reader could see
 | Reading | Read by | Answers |
 | --- | --- | --- |
 | `CatalogPreview` | The logical planner, once per request, until the first cover installs | Which sources exist and what each is for |
-| `EntityMatch` | The logical planner and the physical planner, as the run's catalog context | Which entities exist and what each holds |
-| `AttributeView` | The fragment runner, for the entities its own fragment scans | How an attribute's values are actually spelled |
+| `EntityMatch` | The logical planner, as the run's catalog context; the physical planner, for the header of each entity its plan scans | Which entities exist and what each holds |
+| `AttributeView` | The fragment runner, for the entities its fragment scans; the physical planner, for the entities its plan scans | How an attribute's values are actually spelled |
 
 The last two differ in shape rather than in degree. An `EntityMatch` is broad and shallow — one
 entity and every attribute's name, type, and description — so a run can carry it in every prompt. An
 `AttributeView` is narrow and deep, and its size is set by how long the stored sample values are, so
-it is read for one fragment's scans and goes no further.
+it is read only for entities a component's own work scans.
 
 Catalog detail below the source level enters a run one way, through a `DISCOVER` node
 ([04, resolving a discovery node](04-detailed-architecture.md#resolving-a-discovery-node)). What
