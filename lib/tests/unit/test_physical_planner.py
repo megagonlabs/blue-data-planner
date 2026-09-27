@@ -12,6 +12,8 @@ from blue_data_planner.operators import OperatorRouter
 from blue_data_planner.physical_planner import PhysicalPlanner
 from blue_data_planner.types import (
     AttributeRecord,
+    AttributeRef,
+    AttributeView,
     BlueDataPlannerError,
     ControlOperator,
     Conversation,
@@ -29,6 +31,7 @@ from blue_data_planner.types import (
     PipelineNode,
     RunStatus,
 )
+from tests.doubles.catalog import FakeCatalog
 from tests.doubles.llm import ScriptedLLMClient
 
 POSTINGS = "/source/jobs/database/jobs/collection/public/entity/postings"
@@ -391,11 +394,17 @@ def a_failed_fragment_that_returned(
     )
 
 
-def a_planner(client: ScriptedLLMClient, router: OperatorRouter) -> PhysicalPlanner:
+def a_planner(
+    client: ScriptedLLMClient, router: OperatorRouter, catalog: FakeCatalog | None = None
+) -> PhysicalPlanner:
     """A planner over this router, whose model answers come from this scripted client."""
-    # ScriptedLLMClient stands in for LLMClient structurally; pyright's strict nominal
-    # check does not see the two as related.
-    return PhysicalPlanner(client, router)  # pyright: ignore[reportArgumentType]
+    # ScriptedLLMClient and FakeCatalog stand in for LLMClient and DataCatalog
+    # structurally; pyright's strict nominal check does not see them as related.
+    return PhysicalPlanner(
+        client,  # pyright: ignore[reportArgumentType]
+        router,
+        catalog or FakeCatalog(),  # pyright: ignore[reportArgumentType]
+    )
 
 
 def test_a_plan_one_operator_can_absorb_comes_back_as_one_fragment() -> None:
@@ -634,13 +643,32 @@ def test_the_opening_turn_shows_the_request_and_the_plan_and_a_later_turn_repeat
     assert "## Plan" not in later_turn
 
 
-def test_the_opening_turn_shows_each_discovered_entitys_row_count() -> None:
-    """A row count the registry recorded renders as a count; an unrecorded one says so."""
+def a_remote_flag_view() -> AttributeView:
+    """The postings entity's remote attribute, with samples and both counts recorded."""
+    return AttributeView(
+        ref=AttributeRef(
+            source="jobs",
+            database="jobs",
+            collection="public",
+            entity="postings",
+            attribute="remote",
+        ),
+        dtype="bool",
+        description="whether the role is remote",
+        sample_values=[True, False],
+        distinct_count=2,
+        null_count=0,
+        min=None,
+        max=None,
+        semantic_type=None,
+    )
+
+
+def test_the_opening_turn_shows_each_scanned_entitys_attribute_views_and_no_other_entity() -> None:
+    """A scanned entity's attributes show type, values, and counts; an unscanned entity is
+    absent."""
     client = ScriptedLLMClient(
-        [
-            a_binding("n2:builtin.filter:[n2]", inputs=("n1",)),
-            a_binding("n1:builtin.scan:[n1]"),
-        ]
+        [a_binding("n2:builtin.filter:[n2]", inputs=("n1",)), a_binding("n1:builtin.scan:[n1]")]
     )
     planner = a_planner(
         client,
@@ -648,6 +676,7 @@ def test_the_opening_turn_shows_each_discovered_entitys_row_count() -> None:
             an_operator("builtin.scan", frozenset({LogicalOperator.SCAN})),
             an_operator("builtin.filter", frozenset({LogicalOperator.FILTER})),
         ),
+        FakeCatalog({POSTINGS: [a_remote_flag_view()]}),
     )
 
     planner.cover(
@@ -658,9 +687,76 @@ def test_the_opening_turn_shows_each_discovered_entitys_row_count() -> None:
         a_discovery_of_a_sized_and_an_unsized_entity(),
     )
 
-    opening_turn = client.conversations[0][-1][1]
-    assert f"- {POSTINGS} (sql/sqlite, 11060 row(s)): job postings" in opening_turn
-    assert f"- {REVIEWS} (vector/chroma, row count not recorded): company reviews" in opening_turn
+    section = client.conversations[0][-1][1].split("## The data the plan scans", 1)[1]
+    assert f"- {POSTINGS} (sql/sqlite, 11060 row(s)): job postings" in section
+    assert "- postings.remote [bool]: whether the role is remote" in section
+    assert "values look like: True, False; 2 distinct, 0 null" in section
+    assert REVIEWS not in section
+
+
+def a_discovery_holding_five_rows_under_n1() -> dict[str, Any]:
+    """A discovery, plus five rows already sitting under n1."""
+    rows = [{"title": f"planet {index}"} for index in range(5)]
+    return {
+        **a_discovery(),
+        "n1": ExecutionResult(
+            status=ExecutionStatus.OK, output=[rows], operator_id="op.one", row_count=5
+        ),
+    }
+
+
+def test_a_held_result_is_shown_with_its_first_rows_and_a_count_of_the_rows_left_out() -> None:
+    """Three of five rows are shown, and the two left out are counted."""
+    client = ScriptedLLMClient([a_binding("n2:op.one:[n2]", inputs=("n1",))])
+    planner = a_planner(
+        client, a_router(an_operator("op.one", frozenset({LogicalOperator.PROJECT})))
+    )
+
+    planner.cover(
+        REQUEST, a_scan_and_return(), Conversation(), None, a_discovery_holding_five_rows_under_n1()
+    )
+
+    section = client.conversations[0][-1][1].split("## What has run so far", 1)[1]
+    assert "- n1: 5 row(s) from op.one, columns ['title']" in section
+    assert "{'title': 'planet 2'}" in section
+    assert "{'title': 'planet 3'}" not in section
+    assert "(+2 more row(s))" in section
+
+
+def test_a_repair_turn_shows_every_result_held_now_including_ones_run_after_opening() -> None:
+    """A result that did not exist when the conversation opened appears on the repair turn."""
+    client = ScriptedLLMClient(
+        [
+            a_binding("n2:op.one:[n2]", inputs=("n1",)),
+            a_binding("n1:op.one:[n1]"),
+            a_binding("n2:op.one:[n2]", inputs=("n1",)),
+            {"choice": {"candidate": "n1:reuse:[n1]"}},
+        ]
+    )
+    planner = a_planner(
+        client,
+        a_router(an_operator("op.one", frozenset({LogicalOperator.SCAN, LogicalOperator.PROJECT}))),
+    )
+    conversation = Conversation()
+    plan = a_scan_and_return()
+    first = planner.cover(REQUEST, plan, conversation, None, a_discovery())
+    assert first.plan is not None
+    rejected = next(one for one in first.plan.fragments if one.root_logical_node_id == "n2")
+
+    planner.cover(
+        REQUEST,
+        plan,
+        conversation,
+        first.plan,
+        a_discovery_holding_n1(),
+        a_failed_fragment(rejected),
+    )
+
+    assert "## What has run so far" not in conversation.turns[1].content
+    repair_turn = next(
+        turn.content for turn in conversation.turns[3:] if "## What has run so far" in turn.content
+    )
+    assert "- n1: 1 row(s) from op.one" in repair_turn
 
 
 def a_three_step_router() -> OperatorRouter:
@@ -1140,8 +1236,8 @@ def test_a_repair_answers_the_binding_it_is_replacing_in_the_same_conversation()
     assert "it kept the gas giants" in conversation.turns[-2].content
     # The discovered entities were already sent on the opening turn; a repair must not
     # resend them, or the prefix the model already cached stops matching (ADR-025).
-    assert "The data the searches found" in conversation.turns[1].content
-    assert "The data the searches found" not in conversation.turns[-2].content
+    assert "The data the plan scans" in conversation.turns[1].content
+    assert "The data the plan scans" not in conversation.turns[-2].content
     assert "## Request" in conversation.turns[1].content
     assert "## Request" not in conversation.turns[-2].content
     assert "## Plan" in conversation.turns[1].content

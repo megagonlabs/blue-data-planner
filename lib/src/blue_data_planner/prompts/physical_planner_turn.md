@@ -10,14 +10,14 @@
 {{ plan }}
 
 {% endif -%}
-{% if catalog_context -%}
-## The data the searches found
+{% if scanned_entities -%}
+## The data the plan scans
 
-{{ catalog_context }}
+{{ scanned_entities }}
 
 {% endif -%}
 {% if node_results -%}
-## What has already run
+## What has run so far
 
 A candidate marked `reuse` keeps what ran and costs nothing. Grouping a node that already ran
 throws its result away and pays for the work again; the row counts say how much.

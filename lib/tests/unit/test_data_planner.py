@@ -35,6 +35,7 @@ from blue_data_planner.types import (
     RunLimits,
     RunStatus,
 )
+from tests.doubles.catalog import FakeCatalog
 from tests.doubles.components import (
     FakeCatalogSearcher,
     FakeFragmentRunner,
@@ -473,7 +474,7 @@ def test_a_cover_repair_carries_an_unchanged_fragment_forward_without_rerunning_
             {"choice": {"candidate": "n1:reuse:[n1]"}},
         ]
     )
-    physical = PhysicalPlanner(client, router)  # pyright: ignore[reportArgumentType]
+    physical = PhysicalPlanner(client, router, FakeCatalog())  # pyright: ignore[reportArgumentType]
     runner = FakeFragmentRunner(
         [
             an_accepted_fragment(),  # n1

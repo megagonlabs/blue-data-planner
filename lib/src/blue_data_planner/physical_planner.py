@@ -6,6 +6,7 @@ import json
 import uuid
 from typing import Any
 
+from blue_data_planner.data import DataCatalog
 from blue_data_planner.llm import Conversation, LLMClient, Turn
 from blue_data_planner.llm.templating import render_prompt
 from blue_data_planner.operators import OperatorRouter
@@ -19,7 +20,7 @@ from blue_data_planner.plan import (
     validate_physical_plan,
 )
 from blue_data_planner.prompts import prompt_text
-from blue_data_planner.prompts.rendering import render_sample_rows
+from blue_data_planner.prompts.rendering import render_attribute_views, render_sample_rows
 from blue_data_planner.types import (
     BlueDataPlannerError,
     DiscoveryResult,
@@ -45,9 +46,10 @@ NodeResult = ExecutionResult | DiscoveryResult
 class PhysicalPlanner:
     """Covers a plan's operator nodes with fragments and binds each fragment to an operator."""
 
-    def __init__(self, llm_client: LLMClient, router: OperatorRouter) -> None:
+    def __init__(self, llm_client: LLMClient, router: OperatorRouter, catalog: DataCatalog) -> None:
         self._llm_client = llm_client
         self._router = router
+        self._catalog = catalog
 
     def cover(
         self,
@@ -81,12 +83,15 @@ class PhysicalPlanner:
             conversation.turns.append(
                 Turn(role="system", content=prompt_text("physical_planner.md"))
             )
-        # What changed since the last call rides on this call's first candidate turn, so no two
-        # user turns ever sit next to each other.
-        preamble = _opening_preamble(request, plan, results) if opening else dict(_EMPTY_PREAMBLE)
-        preamble["failed_fragment"] = (
-            _render_failed_fragment(failed_fragment) if failed_fragment else ""
-        )
+        # The run's state rides on every call's first candidate turn, since a repair follows
+        # fragments that ran after the conversation opened.
+        preamble = {**_EMPTY_PREAMBLE, "node_results": _render_results(results)}
+        if opening:
+            preamble["request"] = request
+            preamble["plan"] = _render_plan(plan)
+            preamble["scanned_entities"] = self._render_scanned_entities(plan, results)
+        if failed_fragment is not None:
+            preamble["failed_fragment"] = _render_failed_fragment(failed_fragment)
         fragments: list[PhysicalPlanFragment] = []
         covered: set[str] = set()
         # Every node id a fragment bound so far covers, root or grouped, so a later root's
@@ -252,13 +257,43 @@ class PhysicalPlanner:
             f"SCAN node {node.id!r} reads {reads}, and the operators for SCAN read {sorted(wanted)}"
         )
 
+    def _render_scanned_entities(self, plan: LogicalPlan, results: dict[str, NodeResult]) -> str:
+        matches = {
+            match.path: match
+            for result in results.values()
+            if isinstance(result, DiscoveryResult)
+            for match in result.matches
+        }
+        lines: list[str] = []
+        for path in _scanned_paths(plan):
+            # _check_scan_sources_discovered has already raised on a path no search found.
+            match = matches[path]
+            described = match.description or "no description recorded"
+            rows = (
+                f"{match.row_count} row(s)"
+                if match.row_count is not None
+                else "row count not recorded"
+            )
+            lines.append(f"- {match.path} ({match.source_kind}, {rows}): {described}")
+            lines.extend(render_attribute_views(self._catalog.attribute_views(path), "    "))
+        return "\n".join(lines)
+
+
+def _scanned_paths(plan: LogicalPlan) -> list[str]:
+    paths: list[str] = []
+    for node in plan.nodes_in_dependency_order():
+        source = node.attributes.get("source") if node.kind is LogicalOperator.SCAN else None
+        if source is not None and source not in paths:
+            paths.append(source)
+    return paths
+
 
 # What a candidate turn substitutes when its section has nothing to show. The opening turn
 # overrides the sections it fills, so every turn's preamble has the same keys.
 _EMPTY_PREAMBLE: dict[str, str] = {
     "request": "",
     "plan": "",
-    "catalog_context": "",
+    "scanned_entities": "",
     "node_results": "",
     "failed_fragment": "",
 }
@@ -300,18 +335,6 @@ def _render_failed_fragment(failed: FailedFragment) -> str:
         lines.extend(render_sample_rows(summary, "    "))
         lines.append(_REJECTED_NOTE)
     return "\n".join(lines)
-
-
-def _opening_preamble(
-    request: str, plan: LogicalPlan, results: dict[str, NodeResult]
-) -> dict[str, str]:
-    return {
-        **_EMPTY_PREAMBLE,
-        "request": request,
-        "plan": _render_plan(plan),
-        "catalog_context": _render_context(results),
-        "node_results": _render_results(results),
-    }
 
 
 def _carried_cover(
@@ -511,37 +534,20 @@ def _render_reuse_candidate(node: PipelineNode, reusable: PhysicalPlanFragment) 
     )
 
 
-def _render_context(results: dict[str, NodeResult]) -> str:
-    lines: list[str] = []
-    for result in results.values():
-        if not isinstance(result, DiscoveryResult):
-            continue
-        for match in result.matches:
-            described = match.description or "no description recorded"
-            names = ", ".join(attribute.name for attribute in match.attributes)
-            rows = (
-                f"{match.row_count} row(s)"
-                if match.row_count is not None
-                else "row count not recorded"
-            )
-            lines.append(
-                f"- {match.path} ({match.source_kind}, {rows}): {described}. Holds: {names}"
-            )
-    return "\n".join(lines)
-
-
 def _render_results(results: dict[str, NodeResult]) -> str:
-    return "\n".join(
-        f"- {node_id}: {_describe_execution(result)}"
-        for node_id, result in results.items()
-        if isinstance(result, ExecutionResult)
-    )
-
-
-def _describe_execution(result: ExecutionResult) -> str:
-    tables = result.output or []
-    columns = summarize_table(tables[0], 0).columns if tables else []
-    return f"{result.row_count} row(s) from {result.operator_id}, columns {columns}"
+    lines: list[str] = []
+    for node_id, result in results.items():
+        if not isinstance(result, ExecutionResult):
+            continue
+        tables = result.output or []
+        summary = summarize_table(tables[0], SAMPLE_ROWS) if tables else None
+        columns = summary.columns if summary is not None else []
+        lines.append(
+            f"- {node_id}: {result.row_count} row(s) from {result.operator_id}, columns {columns}"
+        )
+        if summary is not None:
+            lines.extend(render_sample_rows(summary, "    "))
+    return "\n".join(lines)
 
 
 def _render_plan(plan: LogicalPlan) -> str:

@@ -24,9 +24,12 @@ fragment's last step, and the fragment may also take in nodes upstream of it. Yo
 - **Request**: the user's request, shown once in the first turn. The plan is what you follow; the
   request says what it is for.
 - **Plan**: the whole logical plan, shown once in the first turn.
-- **The data the searches found** and **What has already run**: the data the catalog
-  searches found and the nodes that have already run, also shown once in the first turn. A node
-  that already ran may offer a `reuse` candidate, which keeps its result.
+- **The data the plan scans**: each entity a SCAN reads, with every attribute's type,
+  description, sample values, and distinct and null counts where recorded. Shown once, in the
+  first turn.
+- **What has run so far**: every node holding a result, with its row count, operator, columns,
+  and first rows. Shown in the first turn and again on each repair, since fragments run in
+  between. A node listed here may offer a reuse candidate.
 - **Read by**: every reader of the root: an already bound fragment (its instruction, the columns
   it must produce, and how it receives the root), the `RETURN` that answers from it, or a control
   node.
@@ -36,6 +39,8 @@ fragment's last step, and the fragment may also take in nodes upstream of it. Yo
 - **The fragment that failed**: shown on a repair: the fragment the last cover ran that failed,
   why, and the rows it returned. Nothing can read or reuse those rows; they show what the failure
   is about.
+
+The rows and sample values shown are a small sample, not the whole table or column.
 
 Pick one candidate, or none. Pick none only when no candidate can do the work correctly, because
 it discards the physical plan and sends the request back to logical planning.
@@ -51,13 +56,16 @@ For the candidate you pick, write:
 
 ## Rules
 
-1. **Judge each candidate by its operator's capabilities and limitations.** Take a candidate only
-   if the operator's description and limitations cover everything the fragment asks of it: every
-   operation and condition (such as judging meaning, reading text or images, or computing totals),
-   the form of the data it reads, and the number of rows it is handed. The row counts under
-   **The data the searches found** and **What has already run** say how large an input is. An
-   operator handed a condition it cannot express returns rows that ignore it and reports no error.
-   Nothing downstream can tell, so you are the only check.
+1. **Judge each candidate by its operator's capabilities and limitations.** The types and values
+   under **The data the plan scans** say what a condition needs: one on a stored number, flag, or
+   category can go to an operator comparing stored values; the same condition on free text needs
+   one that reads meaning. Take a candidate only if the operator's description and limitations
+   cover everything the fragment asks of it: every operation and condition (such as judging
+   meaning, reading text or images, or computing totals), the form of the data it reads, and the
+   number of rows it is handed. The row counts under **The data the plan scans** and **What has
+   run so far** say how large an input is. An operator handed a condition it cannot express
+   returns rows that ignore it and reports no error. Nothing downstream can tell, so you are the
+   only check.
 2. **Pick none only when no candidate passes rule 1.** The physical plan is then discarded and the
    request goes back to logical planning, which can happen only a few times. When you pick none,
    say what the plan asks for and which capability no offered operator provides. Logical planning

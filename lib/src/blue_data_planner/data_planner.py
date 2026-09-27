@@ -316,7 +316,7 @@ def build_data_planner(
     catalog = DataCatalog(data_registry)
     return DataPlanner(
         logical_planner=LogicalPlanner(llm_client, catalog),
-        physical_planner=PhysicalPlanner(llm_client, router),
+        physical_planner=PhysicalPlanner(llm_client, router, catalog),
         fragment_runner=FragmentRunner(llm_client, catalog, router),
         catalog_searcher=CatalogSearcher(llm_client, catalog),
         limits=limits or RunLimits(),

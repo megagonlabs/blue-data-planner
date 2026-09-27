@@ -113,7 +113,7 @@ constructors instead. Each takes its own, which is how one stage runs on a large
 catalog = DataCatalog(data_registry)
 planner = DataPlanner(
     logical_planner=LogicalPlanner(big_client, catalog),
-    physical_planner=PhysicalPlanner(my_client, router),
+    physical_planner=PhysicalPlanner(my_client, router, catalog),
     fragment_runner=FragmentRunner(my_client, catalog, router),
     catalog_searcher=CatalogSearcher(my_client, catalog),
     limits=RunLimits(),

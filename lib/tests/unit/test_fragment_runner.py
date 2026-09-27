@@ -9,7 +9,6 @@ from pydantic import BaseModel
 from blue_data_planner.fragment_runner import FragmentRunner
 from blue_data_planner.operators import OperatorRouter
 from blue_data_planner.types import (
-    AttributeView,
     Conversation,
     DataBundle,
     ExecutionStatus,
@@ -23,6 +22,7 @@ from blue_data_planner.types import (
     RunStatus,
     UnrecoverableOperatorError,
 )
+from tests.doubles.catalog import FakeCatalog
 from tests.doubles.llm import ScriptedLLMClient
 
 
@@ -30,13 +30,6 @@ class Predicate(BaseModel):
     """The one parameter the operator under test takes."""
 
     predicate: str
-
-
-class FakeCatalog:
-    """A catalog whose attribute views are fixed."""
-
-    def attribute_views(self, entity_path: str) -> list[AttributeView]:
-        return []
 
 
 POSTINGS = "/source/jobs/database/jobs/collection/public/entity/postings"
