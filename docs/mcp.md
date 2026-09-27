@@ -3,8 +3,9 @@
 `platform/mcp/` ships `blue-data-planner-mcp`, an MCP server exposing one tool, `query_data`, over
 stdio. It plans a request over the registered data sources, runs the plan, repairs what fails, and
 returns the rows — the same two operations the library and the CLI offer, reachable by an agent
-that speaks MCP. Installation, running, client configuration, and the configuration reference are
-in [`platform/mcp/README.md`](../platform/mcp/README.md); this page covers the tool itself.
+that speaks MCP. Installation, running, launching it from an agent framework, and the
+configuration reference are in [`platform/mcp/README.md`](../platform/mcp/README.md); this page
+covers the tool itself.
 
 ## Tool reference
 
@@ -60,11 +61,13 @@ the client as a tool error instead.
 `create_agent`, which runs on LangGraph, calls it the way it calls any other.
 
 ```python
+import asyncio
 import os
 
 from langchain.agents import create_agent
 from langchain_mcp_adapters.client import MultiServerMCPClient
 from langchain_mcp_adapters.tools import load_mcp_tools
+from langchain_openai import ChatOpenAI
 
 client = MultiServerMCPClient(
     {
@@ -76,11 +79,23 @@ client = MultiServerMCPClient(
         }
     }
 )
-async with client.session("blue-data-planner") as session:
-    tools = await load_mcp_tools(session)
-    agent = create_agent(model, tools)
-    result = await agent.ainvoke({"messages": [{"role": "user", "content": "..."}]})
+
+
+async def main() -> None:
+    async with client.session("blue-data-planner") as session:
+        tools = await load_mcp_tools(session)
+        agent = create_agent(ChatOpenAI(model="gpt-5.6-luna"), tools)
+        result = await agent.ainvoke(
+            {"messages": [{"role": "user", "content": "Which countries do our customers come from?"}]}
+        )
+        print(result["messages"][-1].content)
+
+
+asyncio.run(main())
 ```
+
+`/srv/blue-data/registry.json` stands for the path of a serialized registry; the demo registry
+is `data/demo/registry.json`.
 
 Hold one session for the agent's run. Without one, `MultiServerMCPClient` opens a session per tool
 call, and over stdio that starts a new server, which builds a new planner, every time. Pass the

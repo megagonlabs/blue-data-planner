@@ -1,4 +1,9 @@
-"""Answer one request end to end, and print the rows it produced."""
+"""Answer one request end to end, and print the rows it produced.
+
+Run, from the repository root, after building the demo registry (examples/README.md):
+    export OPENAI_API_KEY=sk-...
+    python examples/feature-demos/run_a_request.py
+"""
 
 from __future__ import annotations
 

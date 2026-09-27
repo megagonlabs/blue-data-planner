@@ -1,4 +1,9 @@
-"""Run a request, then read back the plan it settled on and what each fragment did."""
+"""Run a request, then read back the plan it settled on and what each fragment did.
+
+Run, from the repository root, after building the demo registry (examples/README.md):
+    export OPENAI_API_KEY=sk-...
+    python examples/feature-demos/inspect_a_run.py
+"""
 
 from __future__ import annotations
 

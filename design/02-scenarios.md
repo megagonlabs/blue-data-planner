@@ -288,19 +288,20 @@ The split of work is deliberate. The agent runs the conversation, remembers what
 and decides when it needs data. The planner takes one self-contained request and answers it. Agents
 are out of scope for this repository, so the tool has to be usable by an agent somebody else wrote.
 
-The agent framework is configured with the MCP server:
+The agent framework's MCP client launches the server as a subprocess, here with LangChain's
+`langchain-mcp-adapters`:
 
-```json
-{
-  "mcpServers": {
-    "blue-data-planner": {
-      "command": "blue-data-planner-mcp",
-      "env": {
-        "BLUE_DATA_REGISTRY_PATH": "/srv/blue-data/registry.json"
-      }
+```python
+client = MultiServerMCPClient(
+    {
+        "blue-data-planner": {
+            "transport": "stdio",
+            "command": "blue-data-planner-mcp",
+            "args": [],
+            "env": {**os.environ, "BLUE_DATA_REGISTRY_PATH": "/srv/blue-data/registry.json"},
+        }
     }
-  }
-}
+)
 ```
 
 A user asks the agent to help with a job search. Several turns in, the agent decides it needs

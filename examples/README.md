@@ -1,7 +1,10 @@
 # blue-data-planner examples
 
 Runnable scripts over the Northwind demo registry, grouped the way the `blue-data` and
-`blue-data-kb-source` examples are. Each script has its captured output beside it.
+`blue-data-kb-source` examples are. Each script has its captured output beside it. The two sibling
+repositories also have `backends/`, `integration-demos/`, and `scenario-demos/`. The first does not
+apply, since the planner owns no storage backend; the other two are added when there is a script
+to put in them.
 
 | Directory | Holds |
 | --- | --- |
@@ -45,7 +48,7 @@ The shortest path: assemble a planner, run one request, print the rows.
 python examples/feature-demos/run_a_request.py
 ```
 
-**[Captured output](feature-demos/run_a_request.output.txt)**
+**API key:** OpenAI | **[Captured output](feature-demos/run_a_request.output.txt)**
 
 ### Plan without running (`plan_without_running.py`)
 
@@ -57,7 +60,7 @@ and the cover the operators would run against.
 python examples/feature-demos/plan_without_running.py
 ```
 
-**[Captured output](feature-demos/plan_without_running.output.txt)**
+**API key:** OpenAI | **[Captured output](feature-demos/plan_without_running.output.txt)**
 
 ### Read back what a run did (`inspect_a_run.py`)
 
@@ -68,7 +71,7 @@ inputs, status, and row count.
 python examples/feature-demos/inspect_a_run.py
 ```
 
-**[Captured output](feature-demos/inspect_a_run.output.txt)**
+**API key:** OpenAI | **[Captured output](feature-demos/inspect_a_run.output.txt)**
 
 ### Choose the operator suites (`choose_operator_suites.py`)
 
@@ -84,7 +87,7 @@ operator cards the installed `blue-data-ops` does not register.
 python examples/feature-demos/choose_operator_suites.py
 ```
 
-**[Captured output](feature-demos/choose_operator_suites.output.txt)**
+**API key:** not required | **[Captured output](feature-demos/choose_operator_suites.output.txt)**
 
 ## framework-demos/ — agent frameworks
 
@@ -97,6 +100,7 @@ rows that come back. The run streams each tool call as the agent makes it. The s
 as a subprocess over stdio and runs with the `builtin` operator suite only.
 
 ```bash
+# in the virtual environment docs/installation.md creates
 bash platform/mcp/scripts/install.sh
 pip install langchain langchain-openai langchain-mcp-adapters
 python examples/framework-demos/langgraph_mcp_demo.py
@@ -106,4 +110,16 @@ A run takes a few minutes, since each tool call plans and runs a whole request. 
 run, one question failed in the planner, and the agent split it into two simpler questions and
 combined their rows itself.
 
-**[Captured output](framework-demos/langgraph_mcp_demo.output.txt)**
+**API key:** OpenAI | **[Captured output](framework-demos/langgraph_mcp_demo.output.txt)**
+
+## Summary table
+
+| File | Folder | API key | External | Output |
+| --- | --- | --- | --- | --- |
+| `run_a_request.py` | feature-demos | OpenAI | — | [output](feature-demos/run_a_request.output.txt) |
+| `plan_without_running.py` | feature-demos | OpenAI | — | [output](feature-demos/plan_without_running.output.txt) |
+| `inspect_a_run.py` | feature-demos | OpenAI | — | [output](feature-demos/inspect_a_run.output.txt) |
+| `choose_operator_suites.py` | feature-demos | none | — | [output](feature-demos/choose_operator_suites.output.txt) |
+| `langgraph_mcp_demo.py` | framework-demos | OpenAI | `blue-data-planner-mcp`, LangChain | [output](framework-demos/langgraph_mcp_demo.output.txt) |
+
+Every script reads the demo registry the [prerequisites](#prerequisites) build.

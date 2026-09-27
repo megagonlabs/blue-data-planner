@@ -1,6 +1,9 @@
 """List what each operator suite offers, then build a planner restricted to one of them.
 
 The one example here that reaches no model and needs no API key.
+
+Run, from the repository root, after building the demo registry (examples/README.md):
+    python examples/feature-demos/choose_operator_suites.py
 """
 
 from __future__ import annotations

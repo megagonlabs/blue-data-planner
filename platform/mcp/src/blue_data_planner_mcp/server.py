@@ -13,22 +13,8 @@ Quick start
     # Install, with blue-data and blue-data-ops checked out beside this repository
     bash scripts/install.sh
 
-    # Run (stdio transport for Claude Desktop / Claude Code / a LangGraph client)
+    # Run over stdio; an agent framework's MCP client launches it as a subprocess
     BLUE_DATA_REGISTRY_PATH=/srv/blue-data/registry.json blue-data-planner-mcp
-
-Claude Desktop config — ~/Library/Application Support/Claude/claude_desktop_config.json on
-macOS, %APPDATA%\Claude\claude_desktop_config.json on Windows:
-    {
-      "mcpServers": {
-        "blue-data-planner": {
-          "command": "blue-data-planner-mcp",
-          "env": {
-            "BLUE_DATA_REGISTRY_PATH": "/srv/blue-data/registry.json",
-            "OPENAI_API_KEY": "sk-..."
-          }
-        }
-      }
-    }
 """
 
 from __future__ import annotations

@@ -231,15 +231,21 @@ profiles, output, and exit codes.
 an agent written with LangChain, LangGraph, or any MCP client hands over a whole data question and
 gets rows back.
 
-```json
-{
-  "mcpServers": {
-    "blue-data-planner": {
-      "command": "blue-data-planner-mcp",
-      "env": {"BLUE_DATA_REGISTRY_PATH": "/srv/blue-data/registry.json"}
+```python
+import os
+
+from langchain_mcp_adapters.client import MultiServerMCPClient
+
+client = MultiServerMCPClient(
+    {
+        "blue-data-planner": {
+            "transport": "stdio",
+            "command": "blue-data-planner-mcp",
+            "args": [],
+            "env": {**os.environ, "BLUE_DATA_REGISTRY_PATH": "/srv/blue-data/registry.json"},
+        }
     }
-  }
-}
+)
 ```
 
 `explain` writes the plan and stops; `include_plan` returns every plan the request produced
