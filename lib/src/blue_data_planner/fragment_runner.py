@@ -12,6 +12,7 @@ from blue_data_planner.llm import Conversation, LLMClient, Turn
 from blue_data_planner.llm.templating import render_prompt
 from blue_data_planner.operators import OperatorRouter
 from blue_data_planner.prompts import prompt_text
+from blue_data_planner.prompts.rendering import render_attribute_views, render_sample_rows
 from blue_data_planner.types import (
     AttributeView,
     BudgetExhaustedError,
@@ -25,7 +26,6 @@ from blue_data_planner.types import (
     PhysicalPlanFragment,
     RunCounters,
     RunStatus,
-    TableSummary,
     summarize_table,
 )
 
@@ -194,7 +194,7 @@ class FragmentRunner:
             operator_description=operator.description,
             operator_limitations=operator.limitations or "",
             scan_sources=_render_scan_sources(fragment),
-            attribute_views=_render_views(views),
+            attribute_views="\n".join(render_attribute_views(views, "")),
             input_tables=_render_inputs(fragment, inputs),
         )
 
@@ -219,18 +219,6 @@ def _render_scan_sources(fragment: PhysicalPlanFragment) -> str:
     )
 
 
-def _render_views(views: list[AttributeView]) -> str:
-    lines: list[str] = []
-    for view in views:
-        dtype = view.dtype or "type not recorded"
-        described = view.description or "no description recorded"
-        samples = ", ".join(repr(value) for value in view.sample_values)
-        lines.append(f"- {view.ref.entity}.{view.ref.attribute} [{dtype}]: {described}")
-        if samples:
-            lines.append(f"    values look like: {samples}")
-    return "\n".join(lines)
-
-
 def _render_inputs(fragment: PhysicalPlanFragment, inputs: DataBundle) -> str:
     lines: list[str] = []
     for index, table in enumerate(inputs):
@@ -241,7 +229,7 @@ def _render_inputs(fragment: PhysicalPlanFragment, inputs: DataBundle) -> str:
         lines.append(
             f"- {name}: {described}. {summary.row_count} row(s), columns {summary.columns}"
         )
-        lines.extend(_sample_lines(summary, "    "))
+        lines.extend(render_sample_rows(summary, "    "))
     return "\n".join(lines)
 
 
@@ -254,14 +242,5 @@ def _render_result(fragment: PhysicalPlanFragment, result: ExecutionResult) -> s
         f"Rows: {result.row_count}",
     ]
     if summary is not None:
-        lines.extend(_sample_lines(summary, "  "))
+        lines.extend(render_sample_rows(summary, "  "))
     return "\n".join(lines)
-
-
-def _sample_lines(summary: TableSummary, indent: str) -> list[str]:
-    # The rows not shown are counted, so a model does not take the sample for the whole table.
-    lines = [f"{indent}{row}" for row in summary.sample_rows]
-    remaining = summary.row_count - len(summary.sample_rows)
-    if remaining:
-        lines.append(f"{indent}(+{remaining} more row(s))")
-    return lines

@@ -10,6 +10,7 @@ from blue_data_planner.llm import Conversation, LLMClient, Turn
 from blue_data_planner.llm.templating import render_prompt
 from blue_data_planner.plan import logical_plan_schema, validate_logical_plan
 from blue_data_planner.prompts import prompt_text
+from blue_data_planner.prompts.rendering import render_sample_rows
 from blue_data_planner.types import (
     ControlOperator,
     DiscoveryResult,
@@ -233,8 +234,5 @@ def _describe_rows(node: PipelineNode, held: ExecutionResult) -> list[str]:
     if summary is None:
         return [f"- {node.id} ({node.kind.value}): {held.row_count} row(s)"]
     lines = [f"- {node.id} ({node.kind.value}): {held.row_count} row(s), {summary.columns}"]
-    lines.extend(f"    {row}" for row in summary.sample_rows)
-    remaining = summary.row_count - len(summary.sample_rows)
-    if remaining:
-        lines.append(f"    (+{remaining} more row(s))")
+    lines.extend(render_sample_rows(summary, "    "))
     return lines
