@@ -254,12 +254,12 @@ truth for them.
 run(request)
   └─ RunState(request, counters)
       └─ replan loop, bounded by failure_replans / control_replans
-          ├─ LogicalPlanner.generate(request, catalog preview, results held, reason)
+          ├─ LogicalPlanner.generate(request, catalog preview, results held, replan reason)
           │    └─ validate_logical_plan, rewriting up to plan_corrections times
           │       → no valid plan: status invalid_plan
           │
           └─ cover loop, bounded by cover_repairs
-              ├─ PhysicalPlanner.cover(request, plan, previous cover, results held, reason)
+              ├─ PhysicalPlanner.cover(request, plan, previous cover, results held, failed fragment)
               │    ├─ candidate_fragments per uncovered node, in reverse dependency order
               │    ├─ a model picks one candidate per node, writing the fragment's
               │    │    instruction, its input names, and its output columns

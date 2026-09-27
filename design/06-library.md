@@ -204,9 +204,9 @@ to the logical planner, and the one return spends one `control_replans`, however
 
 One path leads into both planners, used for the first plan, for every continuation, and for the
 cover that follows each. The logical planner writes a plan from the request, the parent plan, the
-nodes carried over, the results the run holds, and the replan reason if there is one; a plan it could not
-write ends the request with its status. The physical planner then covers whatever was installed, and
-a cover it could not write sends the run to the replan.
+nodes carried over, the results the run holds, and the replan reason if there is one; a plan it
+could not write ends the request with its status. The physical planner then covers whatever was
+installed, and a cover it could not write sends the run to the replan.
 
 A logical plan no operator can cover is the `no_operator` case from
 [04](04-detailed-architecture.md#failures-that-skip-recovery). It goes straight back to the logical
@@ -627,11 +627,12 @@ found and every attribute each one holds, which is what lets the continuation's 
 and declare column names the registry actually carries. One argument covers both because both live
 in the same map.
 
-`replan_reason` is `None` on the first pass. Otherwise it says why the plan is written again: a
-failure reason from the review, from the physical planner, or from an ending the answer's columns
-could not satisfy, or the instruction of the control node that ended the pass. It stays at the level the planner works in: it says what could
-not be done rather than which operator failed to do it, because naming an operator would invite the
-planner to work around an implementation it does not choose.
+`replan_reason` is `None` on the first pass. Otherwise it says why the plan is written again: the
+failure reason from the review or from a fragment whose cover repairs ran out, from the physical
+planner, or from an ending the finished rows cannot answer, or the instruction of the control node
+that ended the pass. It stays at the level the planner works in: it says what could not be done
+rather than which operator failed to do it, because naming an operator would invite the planner to
+work around an implementation it does not choose.
 
 One conversation serves a whole request, and the run state hands the same one back on every pass. A
 continuation is a turn on top of the plans already written rather than a fresh exchange that

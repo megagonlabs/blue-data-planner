@@ -525,8 +525,7 @@ def test_a_cover_repair_hands_the_physical_planner_the_fragment_that_failed_and_
 
 
 def test_the_first_cover_of_a_replanned_plan_is_handed_no_failed_fragment() -> None:
-    """A replan's reason goes to the logical planner alone, so the new plan's first cover gets
-    none."""
+    """A replan's reason goes to the logical planner alone; the new plan's first cover gets none."""
     uncoverable = PhysicalPlanResult(plan=None, failure_reason="no operator can run n1")
     logical = FakeLogicalPlanner([ok(a_scan_and_ending("p1")), ok(a_scan_and_ending("p2"))])
     physical = FakePhysicalPlanner([uncoverable, covered(a_grouped_cover("c1", "p2"))])

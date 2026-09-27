@@ -301,8 +301,9 @@ one whose kind no registered operator declares, and that node has no operator.
 Where a fragment's boundary falls is decided by what an operator can do with the values inside the
 nodes and with the number of rows it reads, which its description and its limitations state. For a
 `SCAN` that has not run yet, the size the planner judges by is the entity's recorded row count,
-shown with its attributes when the conversation opens. A candidate grouping a node whose condition crosses those limits returns rows
-that ignore that condition, so the cut follows the limit and the work on the other side of it
+shown with its attributes when the conversation opens. A candidate grouping a node whose condition
+crosses those limits returns rows that ignore that condition, so the cut follows the limit and the
+work on the other side of it
 becomes a fragment of its own. A declaration names the kinds an operator groups and says nothing
 about the values, so a candidate the enumeration offers can still be one no cover should take.
 
@@ -716,8 +717,9 @@ wrong.
 The physical planner covers the whole logical plan again. The repair turn shows the fragment that
 failed: its nodes, its operator, the failure reason, and the rows its last call returned, marked as
 rejected. The same turn shows every result the run holds at that moment, including those produced
-after the conversation opened. Every binding is decided afresh, and every fragment that already produced a result is on offer to be kept,
-so what the repair changes is what the model chooses to change.
+after the conversation opened. Every binding is decided afresh, and every fragment that already
+produced a result is on offer to be kept, so what the repair changes is what the model chooses to
+change.
 
 Three fixes are reachable, and between them they are everything short of a new plan.
 

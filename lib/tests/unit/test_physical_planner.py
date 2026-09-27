@@ -665,8 +665,7 @@ def a_remote_flag_view() -> AttributeView:
 
 
 def test_the_opening_turn_shows_each_scanned_entitys_attribute_views_and_no_other_entity() -> None:
-    """A scanned entity's attributes show type, values, and counts; an unscanned entity is
-    absent."""
+    """A scanned entity's attributes show type, values, and counts; an unscanned one is absent."""
     client = ScriptedLLMClient(
         [a_binding("n2:builtin.filter:[n2]", inputs=("n1",)), a_binding("n1:builtin.scan:[n1]")]
     )
@@ -1162,8 +1161,7 @@ def test_a_node_with_no_result_is_offered_no_way_to_reuse_its_fragment() -> None
 
 
 def test_a_repair_turn_shows_why_the_fragment_failed_and_its_rows_marked_unreadable() -> None:
-    """The repair turn names the fragment, quotes why it failed, and says its rows cannot be
-    read."""
+    """The repair turn names the fragment, quotes why it failed, and marks its rows unreadable."""
     client = ScriptedLLMClient([a_binding("n2:op.one:[n1,n2]"), a_binding("n2:op.one:[n1,n2]")])
     planner = a_planner(
         client,
@@ -1234,7 +1232,7 @@ def test_a_repair_answers_the_binding_it_is_replacing_in_the_same_conversation()
 
     assert sum(1 for turn in conversation.turns if turn.role == "system") == 1
     assert "it kept the gas giants" in conversation.turns[-2].content
-    # The discovered entities were already sent on the opening turn; a repair must not
+    # The scanned entities were already sent on the opening turn; a repair must not
     # resend them, or the prefix the model already cached stops matching (ADR-025).
     assert "The data the plan scans" in conversation.turns[1].content
     assert "The data the plan scans" not in conversation.turns[-2].content

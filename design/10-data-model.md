@@ -894,7 +894,7 @@ that basis would draw a line no reader could see
 | Reading | Read by | Answers |
 | --- | --- | --- |
 | `CatalogPreview` | The logical planner, once per request, until the first cover installs | Which sources exist and what each is for |
-| `EntityMatch` | The logical planner, as the run's catalog context; the physical planner, for the header of each entity its plan scans | Which entities exist and what each holds |
+| `EntityMatch` | The logical planner, as the run's catalog context; the physical planner, for the source kind of each entity its plan names and the header of each entity it scans | Which entities exist and what each holds |
 | `AttributeView` | The fragment runner, for the entities its fragment scans; the physical planner, for the entities its plan scans | How an attribute's values are actually spelled |
 
 The last two differ in shape rather than in degree. An `EntityMatch` is broad and shallow — one
