@@ -229,7 +229,8 @@ Each entry in `RunResult.results` is one of the first two.
 
 | Type | Holds |
 | --- | --- |
-| `FragmentResult` | `status`, the last call's `ExecutionResult` in `result`, and `failure_reason`. Filed even when the review turned the result down |
+| `FragmentResult` | `status`, every `ParameterAttempt` in `attempts`, the last call's `ExecutionResult` in `result`, and `failure_reason`. Filed even when the review turned the result down |
+| `ParameterAttempt` | One attempt's `parameters`, the call's `ExecutionResult` in `result` (`None` when the parameters repeated an earlier attempt's), and the review's `assessment` |
 | `DiscoveryResult` | `search_terms`, the `EntityMatch` list they found in `matches`, and `dropped_terms`, the count the per-node cap cut |
 | `ExecutionResult` | `status` (`ExecutionStatus`), `output`, `operator_id`, `error` (`ErrorInfo`), `row_count` across every table, and the operator's own `report` |
 
@@ -368,7 +369,7 @@ Every data class that crosses a module boundary. The package imports nothing els
 | Operators | `PhysicalOperator`, `OperatorOutput` |
 | Catalog | `AttributeRef`, `AttributeRecord`, `AttributeView`, `EntityMatch`, `SourceRecord`, `CatalogPreview` |
 | Run | `RunResult`, `RunStatus`, `RunLimits`, `RunCounters`, `RunConversations`, `Conversation`, `Turn`, `LLMUsage` |
-| Per-step results | `ExecutionResult`, `ExecutionStatus`, `ErrorInfo`, `ErrorKind`, `FragmentResult`, `FragmentReviewDecision`, `FailedFragment`, `DiscoveryResult`, `LogicalPlanResult`, `PhysicalPlanResult` |
+| Per-step results | `ExecutionResult`, `ExecutionStatus`, `ErrorInfo`, `ErrorKind`, `FragmentResult`, `ParameterAttempt`, `FragmentReviewDecision`, `FailedFragment`, `DiscoveryResult`, `LogicalPlanResult`, `PhysicalPlanResult` |
 | Exceptions | Every exception in the table above |
 
 `LogicalPlan`, `PhysicalPlan`, and `DataPipeline` each carry `to_dict` and `from_dict`, which is

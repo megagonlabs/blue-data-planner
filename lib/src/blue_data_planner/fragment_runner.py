@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from typing import Any
-
 from pydantic import BaseModel, ConfigDict, Field
 
 from blue_data_planner.data import DataCatalog
@@ -22,6 +20,7 @@ from blue_data_planner.types import (
     ExecutionStatus,
     FragmentResult,
     FragmentReviewDecision,
+    ParameterAttempt,
     PhysicalOperator,
     PhysicalPlanFragment,
     RunCounters,
@@ -88,12 +87,19 @@ class FragmentRunner:
                 Turn(role="system", content=prompt_text("fragment_runner.md"))
             )
         conversation.turns.append(Turn(role="user", content=self._ask(fragment, operator, inputs)))
+        # Held here rather than inside the loop, so the attempts a budget cut short stay on
+        # the result instead of leaving with the exception.
+        attempts: list[ParameterAttempt] = []
         try:
-            return self._attempt_loop(fragment, operator, inputs, counters, conversation)
+            return self._attempt_loop(fragment, operator, inputs, counters, conversation, attempts)
         except BudgetExhaustedError:
             # Catching it is what lets what the runner was doing stay readable, in the
             # conversation the run state holds, rather than leaving with the exception.
-            return _ended(RunStatus.BUDGET_EXHAUSTED, None, "the operator call budget ran out")
+            return FragmentResult(
+                status=RunStatus.BUDGET_EXHAUSTED,
+                attempts=attempts,
+                failure_reason="the operator call budget ran out",
+            )
 
     def _attempt_loop(
         self,
@@ -102,39 +108,35 @@ class FragmentRunner:
         inputs: DataBundle,
         counters: RunCounters,
         conversation: Conversation,
+        attempts: list[ParameterAttempt],
     ) -> FragmentResult:
-        last_assessment: str | None = None
-        last_error: str | None = None
-        last_result: ExecutionResult | None = None
-        attempted_parameters: list[dict[str, Any]] = []
-        repeated_last_attempt = False
         for _spent in range(counters.limits.parameter_repairs + 1):
             # by_alias=True: belt-and-braces alongside schemas.py's serialize_by_alias, which
             # is what actually makes a predicate's and/or/not survive this dump.
             parameters = self._llm_client.complete_structured(
                 conversation, operator.parameter_schema
             ).model_dump(by_alias=True)
-            # Unhashable (a predicate's and/or/not nests further dicts), so `in` over the list
-            # of dicts already tried, rather than a set, is the check.
-            if parameters in attempted_parameters:
-                repeated_last_attempt = True
+            # Unhashable (a predicate's and/or/not nests further dicts), so `in` over the
+            # parameters already tried, rather than a set, is the check.
+            if parameters in [attempt.parameters for attempt in attempts]:
+                attempts.append(
+                    ParameterAttempt(parameters=parameters, result=None, assessment=None)
+                )
                 conversation.turns.append(Turn(role="user", content=_REPEAT_MESSAGE))
                 continue
-            attempted_parameters.append(parameters)
-            repeated_last_attempt = False
             result = execute_physical_operator(
                 operator, parameters, inputs, fragment.required_output_columns, counters
             )
-            last_result = result
-            if (
-                result.status is ExecutionStatus.FAILED
-                and result.error is not None
-                and result.error.kind is ErrorKind.UNRECOVERABLE
-            ):
-                return _ended(RunStatus.OPERATOR_FAILED, result, result.error.message)
             if result.status is ExecutionStatus.FAILED and result.error is not None:
-                last_assessment = None
-                last_error = result.error.message
+                attempts.append(
+                    ParameterAttempt(parameters=parameters, result=result, assessment=None)
+                )
+                if result.error.kind is ErrorKind.UNRECOVERABLE:
+                    return FragmentResult(
+                        status=RunStatus.OPERATOR_FAILED,
+                        attempts=attempts,
+                        failure_reason=result.error.message,
+                    )
                 conversation.turns.append(
                     Turn(
                         role="user",
@@ -147,12 +149,17 @@ class FragmentRunner:
                 )
                 continue
             review = self._review(conversation, fragment, result)
-            last_assessment = review.assessment
-            last_error = None
+            attempts.append(
+                ParameterAttempt(parameters=parameters, result=result, assessment=review.assessment)
+            )
             if review.decision is FragmentReviewDecision.ACCEPT:
-                return _ended(RunStatus.OK, result, None)
+                return FragmentResult(status=RunStatus.OK, attempts=attempts, failure_reason=None)
             if review.decision is FragmentReviewDecision.REPLAN:
-                return _ended(RunStatus.NEEDS_REPLAN, result, review.assessment)
+                return FragmentResult(
+                    status=RunStatus.NEEDS_REPLAN,
+                    attempts=attempts,
+                    failure_reason=f"{_steps(fragment)} cannot be done: {review.assessment}",
+                )
             conversation.turns.append(
                 Turn(
                     role="user",
@@ -162,16 +169,11 @@ class FragmentRunner:
                     ),
                 )
             )
-        reason = _escalation_reason(last_assessment, last_error)
-        if repeated_last_attempt:
-            # Append rather than replace: the cover repair has none of these turns in front
-            # of it, so the last real assessment or error is what it rebinds an operator on.
-            # Naming the repeat on top says why no later attempt improved on it.
-            reason = (
-                f"{reason}; the last attempt repeated parameters already tried, so it never "
-                "reached the operator"
-            )
-        return _ended(RunStatus.NEEDS_REPAIR, last_result, reason)
+        return FragmentResult(
+            status=RunStatus.NEEDS_REPAIR,
+            attempts=attempts,
+            failure_reason=_exhausted_reason(fragment, attempts),
+        )
 
     def _review(
         self,
@@ -199,16 +201,26 @@ class FragmentRunner:
         )
 
 
-def _escalation_reason(assessment: str | None, error: str | None) -> str:
-    # This becomes the failure reason a cover repair reads off the FailedFragment, so it must
-    # never come back None. A trailing recoverable failure left no review turn to quote.
-    return assessment or error or "no attempt produced a result"
+def _steps(fragment: PhysicalPlanFragment) -> str:
+    # The failure reason is also a replan's reason, and the logical planner knows these nodes
+    # by its own instructions, not by the one the physical planner rewrote for the fragment.
+    node_ids = sorted(fragment.logical_node_ids)
+    label = "Step" if len(node_ids) == 1 else "Steps"
+    return f'{label} {", ".join(node_ids)} (executed as "{fragment.instruction}")'
 
 
-def _ended(
-    status: RunStatus, result: ExecutionResult | None, failure_reason: str | None
-) -> FragmentResult:
-    return FragmentResult(status=status, result=result, failure_reason=failure_reason)
+def _exhausted_reason(fragment: PhysicalPlanFragment, attempts: list[ParameterAttempt]) -> str:
+    # Both planners read this, so it names no operator and quotes no operator error: the
+    # physical planner is shown each attempt beside it, and the logical planner picks no
+    # operator. The review words (accept, reject) mean nothing to either of them.
+    tried = "its only attempt" if len(attempts) == 1 else f"all {len(attempts)} attempts"
+    assessments = [attempt.assessment for attempt in attempts if attempt.assessment is not None]
+    if not assessments:
+        return f"{_steps(fragment)} failed in {tried}; no attempt returned a result."
+    return (
+        f"{_steps(fragment)} failed in {tried}. The most recent result that came back was "
+        f"wrong: {assessments[-1]}"
+    )
 
 
 def _render_scan_sources(fragment: PhysicalPlanFragment) -> str:

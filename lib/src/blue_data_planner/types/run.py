@@ -183,14 +183,45 @@ class PhysicalPlanResult:
 
 
 @dataclass(frozen=True)
+class ParameterAttempt:
+    """One set of parameters written for a fragment, and what came of it."""
+
+    parameters: dict[str, Any]
+    # None when the parameters repeated an earlier attempt's, so the operator was not called.
+    result: ExecutionResult | None
+    # What the review said about the rows; None when no rows came back to review.
+    assessment: str | None
+
+    def to_dict(self) -> dict[str, Any]:
+        """Return the JSON form: the parameters, and how the call ended without its rows."""
+        call = self.result
+        return {
+            "parameters": self.parameters,
+            "status": None if call is None else str(call.status),
+            "error": None if call is None or call.error is None else call.error.message,
+            "row_count": None if call is None else call.row_count,
+            "assessment": self.assessment,
+        }
+
+
+@dataclass(frozen=True)
 class FragmentResult:
     """What one fragment's run came to, and what the run loop does next."""
 
     status: RunStatus
-    # What the last call returned, whatever the ending. `status` alone says whether the review
-    # accepted it, so a rejected result stays readable instead of being dropped.
-    result: ExecutionResult | None
+    # Every attempt in the order written; the last one is what `status` describes.
+    attempts: list[ParameterAttempt]
     failure_reason: str | None
+
+    @property
+    def result(self) -> ExecutionResult | None:
+        """Return what the last call that ran returned, whatever the ending."""
+        # `status` alone says whether the review accepted it, so a rejected result stays
+        # readable instead of being dropped.
+        for attempt in reversed(self.attempts):
+            if attempt.result is not None:
+                return attempt.result
+        return None
 
     def to_dict(self) -> dict[str, Any]:
         """Return the JSON form: how the fragment ended, and a summary of each table it returned."""
@@ -202,6 +233,7 @@ class FragmentResult:
             "operator_id": None if call is None else call.operator_id,
             "row_count": None if call is None else call.row_count,
             "output": [summarize_table(one, SUMMARY_SAMPLE_ROWS).to_dict() for one in tables],
+            "attempts": [attempt.to_dict() for attempt in self.attempts],
         }
 
 
@@ -210,8 +242,7 @@ class FailedFragment:
     """A fragment the cover being repaired ran, and how it ended."""
 
     fragment: PhysicalPlanFragment
-    # status needs_repair; failure_reason says why, and result is the last call, which may
-    # hold no rows.
+    # status needs_repair; failure_reason says why, and attempts say what each try did.
     result: FragmentResult
 
 

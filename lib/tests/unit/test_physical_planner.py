@@ -19,6 +19,8 @@ from blue_data_planner.types import (
     Conversation,
     DiscoveryResult,
     EntityMatch,
+    ErrorInfo,
+    ErrorKind,
     ExecutionResult,
     ExecutionStatus,
     FailedFragment,
@@ -26,6 +28,7 @@ from blue_data_planner.types import (
     LogicalOperator,
     LogicalPlan,
     OutputColumn,
+    ParameterAttempt,
     PhysicalOperator,
     PhysicalPlanFragment,
     PipelineNode,
@@ -371,25 +374,46 @@ def a_none_choice(reason: str) -> dict[str, Any]:
 
 
 def a_failed_fragment(fragment: PhysicalPlanFragment) -> FailedFragment:
-    """The fragment rejected after returning two rows, one of which the repair turn shows."""
-    return a_failed_fragment_that_returned(fragment, [{"title": "Mercury"}, {"title": "Venus"}])
+    """The fragment that failed three ways: a call error, two wrong rows, then a repeat."""
+    return a_failed_fragment_with(
+        fragment,
+        [
+            ParameterAttempt(
+                parameters={"predicate": "moon > 0"},
+                result=ExecutionResult(
+                    status=ExecutionStatus.FAILED,
+                    operator_id="op.one",
+                    error=ErrorInfo(kind=ErrorKind.RECOVERABLE, message="no column named moon"),
+                ),
+                assessment=None,
+            ),
+            an_attempt_that_returned([{"title": "Mercury"}, {"title": "Venus"}]),
+            ParameterAttempt(parameters={"predicate": "rocky"}, result=None, assessment=None),
+        ],
+    )
 
 
-def a_failed_fragment_that_returned(
-    fragment: PhysicalPlanFragment, rows: list[dict[str, Any]]
+def an_attempt_that_returned(rows: list[dict[str, Any]]) -> ParameterAttempt:
+    """One attempt whose call returned these rows, judged not to do what was asked."""
+    return ParameterAttempt(
+        parameters={"predicate": "rocky"},
+        result=ExecutionResult(
+            status=ExecutionStatus.OK, output=[rows], operator_id="op.one", row_count=len(rows)
+        ),
+        assessment="it kept the gas giants",
+    )
+
+
+def a_failed_fragment_with(
+    fragment: PhysicalPlanFragment, attempts: list[ParameterAttempt]
 ) -> FailedFragment:
-    """The fragment rejected after a successful last call that returned these rows."""
+    """The fragment ending needs_repair after these attempts."""
     return FailedFragment(
         fragment=fragment,
         result=FragmentResult(
             status=RunStatus.NEEDS_REPAIR,
-            result=ExecutionResult(
-                status=ExecutionStatus.OK,
-                output=[rows],
-                operator_id="op.one",
-                row_count=len(rows),
-            ),
-            failure_reason="it kept the gas giants",
+            attempts=attempts,
+            failure_reason="Steps n1, n2 failed in all attempts",
         ),
     )
 
@@ -1160,8 +1184,8 @@ def test_a_node_with_no_result_is_offered_no_way_to_reuse_its_fragment() -> None
     assert again.plan.fragments[0].id != first.plan.fragments[0].id
 
 
-def test_a_repair_turn_shows_why_the_fragment_failed_and_its_rows_marked_unreadable() -> None:
-    """The repair turn names the fragment, quotes why it failed, and marks its rows unreadable."""
+def a_repair_turn_section(failed_with: list[ParameterAttempt] | None = None) -> tuple[str, str]:
+    """The failed fragment's id and the section a repair turn shows for it."""
     client = ScriptedLLMClient([a_binding("n2:op.one:[n1,n2]"), a_binding("n2:op.one:[n1,n2]")])
     planner = a_planner(
         client,
@@ -1171,37 +1195,46 @@ def test_a_repair_turn_shows_why_the_fragment_failed_and_its_rows_marked_unreada
     plan = a_scan_and_return()
     first = planner.cover(REQUEST, plan, conversation, None, a_discovery())
     assert first.plan is not None
-    failed = first.plan.fragments[0]
-
-    planner.cover(REQUEST, plan, conversation, first.plan, a_discovery(), a_failed_fragment(failed))
-
-    repair_turn = conversation.turns[-2].content
-    section = repair_turn.split("## The fragment that failed", 1)[1]
-    assert f"Fragment {failed.id} covering ['n1', 'n2'], bound to op.one, was rejected" in section
-    assert "it kept the gas giants" in section
-    assert "{'title': 'Mercury'}" in section
-    assert "nothing can read or reuse it" in section
-
-
-def test_a_repair_turn_for_a_fragment_that_returned_no_rows_shows_the_reason_alone() -> None:
-    """The repair turn for a fragment whose last call returned no rows shows only its reason."""
-    client = ScriptedLLMClient([a_binding("n2:op.one:[n1,n2]"), a_binding("n2:op.one:[n1,n2]")])
-    planner = a_planner(
-        client,
-        a_router(an_operator("op.one", frozenset({LogicalOperator.SCAN, LogicalOperator.PROJECT}))),
+    fragment = first.plan.fragments[0]
+    failed = (
+        a_failed_fragment(fragment)
+        if failed_with is None
+        else a_failed_fragment_with(fragment, failed_with)
     )
-    conversation = Conversation()
-    plan = a_scan_and_return()
-    first = planner.cover(REQUEST, plan, conversation, None, a_discovery())
-    assert first.plan is not None
-    failed = a_failed_fragment_that_returned(first.plan.fragments[0], [])
 
     planner.cover(REQUEST, plan, conversation, first.plan, a_discovery(), failed)
 
-    section = conversation.turns[-2].content.split("## The fragment that failed", 1)[1]
+    return fragment.id, conversation.turns[-2].content.split("## The fragment that failed", 1)[1]
+
+
+def test_a_repair_turn_shows_why_the_fragment_failed_and_each_attempt_in_order() -> None:
+    """Each attempt appears under its number with its parameters and how it ended, and the
+    rows an attempt returned appear under that attempt, marked unreadable."""
+    fragment_id, section = a_repair_turn_section()
+
+    assert section.index(f"Fragment {fragment_id}, bound to op.one, failed.") < section.index(
+        "Steps n1, n2 failed in all attempts"
+    )
+    assert (
+        section.index("Attempt 1 (failed)")
+        < section.index('Parameters: {"predicate": "moon > 0"}')
+        < section.index("The call failed: no column named moon")
+        < section.index("Attempt 2 (failed)")
+        < section.index("it kept the gas giants")
+        < section.index("{'title': 'Mercury'}")
+        < section.index("Attempt 3 (failed)")
+        < section.index("Not run: its parameters repeat attempt 2.")
+        < section.index("No rows above can be read or reused")
+    )
+
+
+def test_a_repair_turn_for_a_fragment_that_returned_no_rows_marks_nothing_unreadable() -> None:
+    """With no rows shown, the repair turn says what came back but adds no note about rows."""
+    _, section = a_repair_turn_section([an_attempt_that_returned([])])
+
+    assert "It returned no rows" in section
     assert "it kept the gas giants" in section
-    assert "row(s)" not in section
-    assert "nothing can read or reuse it" not in section
+    assert "No rows above" not in section
 
 
 def test_a_repair_answers_the_binding_it_is_replacing_in_the_same_conversation() -> None:

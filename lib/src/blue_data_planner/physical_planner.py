@@ -25,12 +25,12 @@ from blue_data_planner.types import (
     BlueDataPlannerError,
     DiscoveryResult,
     ExecutionResult,
-    ExecutionStatus,
     FailedFragment,
     InputData,
     LogicalOperator,
     LogicalPlan,
     OutputColumn,
+    ParameterAttempt,
     PhysicalOperator,
     PhysicalPlan,
     PhysicalPlanFragment,
@@ -301,9 +301,8 @@ _EMPTY_PREAMBLE: dict[str, str] = {
 # How many rows of a result one prompt shows, the same as the logical planner's sample.
 SAMPLE_ROWS = 3
 
-_REJECTED_NOTE = (
-    "This result was rejected: nothing can read or reuse it. It is shown only to explain the "
-    "failure above."
+_FAILED_ROWS_NOTE = (
+    "No rows above can be read or reused; they are shown only to explain the failures."
 )
 
 
@@ -315,26 +314,47 @@ def _render_failed_fragment(failed: FailedFragment) -> str:
             f"fragment {fragment.id!r} is handed to a cover repair with no failure reason; "
             "a fragment ending needs_repair always carries one"
         )
-    lines = [
-        f"Fragment {fragment.id} covering {sorted(fragment.logical_node_ids)}, bound to "
-        f"{fragment.operator_id}, was rejected:",
-        "",
-        reason,
-    ]
-    rejected = failed.result.result
-    # A failed last call's error is already the reason above, and an empty table adds nothing
-    # to it, so either way the reason stands alone.
-    if (
-        rejected is not None
-        and rejected.status is ExecutionStatus.OK
-        and rejected.output
-        and rejected.output[0]
-    ):
-        summary = summarize_table(rejected.output[0], SAMPLE_ROWS)
-        lines.extend(["", f"It returned {rejected.row_count} row(s), columns {summary.columns}:"])
-        lines.extend(render_sample_rows(summary, "    "))
-        lines.append(_REJECTED_NOTE)
+    lines = [f"Fragment {fragment.id}, bound to {fragment.operator_id}, failed. {reason}"]
+    attempts = failed.result.attempts
+    for number, attempt in enumerate(attempts, start=1):
+        lines.extend(["", f"Attempt {number} (failed)"])
+        lines.extend(_render_attempt(attempt, attempts[: number - 1]))
+    if any(attempt.result is not None and attempt.result.row_count for attempt in attempts):
+        lines.extend(["", _FAILED_ROWS_NOTE])
     return "\n".join(lines)
+
+
+def _render_attempt(attempt: ParameterAttempt, earlier: list[ParameterAttempt]) -> list[str]:
+    # Worded without the fragment runner's review vocabulary: the physical planner never saw
+    # a review, and "rejected" or "accepted" could be read as something the data says.
+    call = attempt.result
+    if call is None:
+        return [f"  Not run: its parameters repeat attempt {_repeated(attempt, earlier)}."]
+    lines = [f"  Parameters: {json.dumps(attempt.parameters, ensure_ascii=False)}"]
+    if call.error is not None:
+        lines.append(f"  The call failed: {call.error.message}")
+        return lines
+    wrong = "" if attempt.assessment is None else f": {attempt.assessment}"
+    if not call.row_count or not call.output:
+        lines.append(f"  It returned no rows, which does not do what the fragment asked{wrong}")
+        return lines
+    summary = summarize_table(call.output[0], SAMPLE_ROWS)
+    lines.append(
+        f"  It returned {call.row_count} row(s), columns {summary.columns}, but they do not do "
+        f"what the fragment asked{wrong}"
+    )
+    lines.extend(render_sample_rows(summary, "    "))
+    return lines
+
+
+def _repeated(attempt: ParameterAttempt, earlier: list[ParameterAttempt]) -> int:
+    for number, one in enumerate(earlier, start=1):
+        if one.result is not None and one.parameters == attempt.parameters:
+            return number
+    raise BlueDataPlannerError(
+        "an attempt that never ran repeats no earlier attempt's parameters; the fragment "
+        "runner skips a call only for a repeat"
+    )
 
 
 def _carried_cover(

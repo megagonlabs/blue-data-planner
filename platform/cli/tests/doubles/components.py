@@ -20,6 +20,7 @@ from blue_data_planner.types import (
     InputData,
     LogicalOperator,
     LogicalPlan,
+    ParameterAttempt,
     PhysicalPlan,
     PhysicalPlanFragment,
     PipelineNode,
@@ -152,14 +153,23 @@ def a_run_over_one_cover_of_two_fragments(
     results: dict[str, FragmentResult | DiscoveryResult] = {
         signed["n1"]: FragmentResult(
             status=RunStatus.OK,
-            result=ExecutionResult(
-                status=ExecutionStatus.OK,
-                operator_id=scan.operator_id,
-                output=[
-                    [{"title": f"posting {index}", "county": "Alameda"} for index in range(140)]
-                ],
-                row_count=140,
-            ),
+            attempts=[
+                ParameterAttempt(
+                    parameters={},
+                    result=ExecutionResult(
+                        status=ExecutionStatus.OK,
+                        operator_id=scan.operator_id,
+                        output=[
+                            [
+                                {"title": f"posting {index}", "county": "Alameda"}
+                                for index in range(140)
+                            ]
+                        ],
+                        row_count=140,
+                    ),
+                    assessment=None,
+                )
+            ],
             failure_reason=None,
         )
     }

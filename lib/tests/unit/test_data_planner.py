@@ -26,6 +26,7 @@ from blue_data_planner.types import (
     LogicalPlan,
     LogicalPlanResult,
     OutputColumn,
+    ParameterAttempt,
     PhysicalOperator,
     PhysicalPlan,
     PhysicalPlanFragment,
@@ -216,14 +217,18 @@ def an_accepted_fragment() -> FragmentResult:
         operator_id="builtin.scan",
         row_count=1,
     )
-    return FragmentResult(status=RunStatus.OK, result=result, failure_reason=None)
+    return FragmentResult(
+        status=RunStatus.OK,
+        attempts=[ParameterAttempt(parameters={}, result=result, assessment=None)],
+        failure_reason=None,
+    )
 
 
 def an_escalating_fragment() -> FragmentResult:
     """One fragment whose parameter attempts ran out."""
     return FragmentResult(
         status=RunStatus.NEEDS_REPAIR,
-        result=None,
+        attempts=[],
         failure_reason="the predicate matched nothing",
     )
 

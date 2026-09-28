@@ -37,8 +37,10 @@ fragment's last step, and the fragment may also take in nodes upstream of it. Yo
   limitations, and the nodes it groups — by id, which the plan above already describes. Every
   candidate contains the root.
 - **The fragment that failed**: shown on a repair: the fragment the last cover ran that failed,
-  why, and the rows it returned. Nothing can read or reuse those rows; they show what the failure
-  is about.
+  why, and each attempt it made: the parameters, how the attempt failed, and the rows it returned.
+  Nothing can read or reuse those rows; they show what the failure is about. An early attempt's
+  error may be the one that says what to change, such as a value that does not fit the type
+  declared for a column.
 
 The rows and sample values shown are a small sample, not the whole table or column.
 

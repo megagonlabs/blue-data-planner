@@ -1063,7 +1063,7 @@ file.
 ## ADR-033 — A Fragment's Ending Is Filed Whether Its Result Was Kept or Not
 
 **Date:** 2026-09-25
-**Status:** Accepted
+**Status:** Superseded by ADR-047
 
 **Decision:** `results` maps a signature to the `FragmentResult` the run came to under it, rejections
 included, and a `FragmentResult` carries the last call's result whatever the ending. What makes a
@@ -1444,7 +1444,7 @@ entity its plan scans, once per logical plan. It lists no entity its plan does n
 ## ADR-046 — Each Cover Turn Shows the Run's State; a Repair Shows the Fragment That Failed
 
 **Date:** 2026-09-26
-**Status:** Accepted
+**Status:** Superseded by ADR-048
 
 **Decision:** Every turn that starts a cover, the opening turn of a physical planner's conversation
 and each cover repair turn, shows the results the run holds at that moment: each one's row count,
@@ -1480,6 +1480,82 @@ no failure reason is a defect and raises.
 
 ---
 
+## ADR-047 — A Fragment's Ending Is Filed With Every Parameter Attempt
+
+**Date:** 2026-09-28
+**Status:** Accepted
+
+**Decision:** `results` maps a signature to the `FragmentResult` the run came to under it, rejections
+included. What makes a fragment done is an accepted entry rather than an entry, so a rejected one is
+offered again and its rows never reach the next fragment. A `FragmentResult` carries every parameter
+attempt the fragment made, in order, as a `ParameterAttempt`: the parameters, what the call returned,
+and what the review said. `FragmentResult.result` is the last call that ran, read off the attempts.
+
+A fragment's failure reason names the logical nodes it covered and the instruction they were
+executed as, then the review's assessment where one exists. It names no operator and quotes no
+operator error, because the logical planner reads it too, as the replan reason, once the cover
+repairs run out.
+
+**Rationale:** A run's record has to say which step of a cover sent the request to a repair, and a
+failed result is a result, so it belongs in the map the run already keys by signature; the status
+the ending carries is what tells a kept result from a rejected one.
+
+The cover repair has to see more than the last attempt. It runs in the physical planner's
+conversation, which holds none of the fragment runner's turns, and the attempt that says what to
+change is often not the last one: a value that does not fit the type the cover declared for a column
+cannot be fixed by any parameter, so the runner tries others and ends on an unrelated error. In the
+TAG-Bench triage that motivated this, the first attempt's error named the mismatch and the last one
+named a missing input, and the cover repair saw only the second. Carrying the attempts on the result,
+rather than a rendered history in the failure reason, keeps each attempt's rows beside the attempt
+that returned them, and keeps the attempts inspectable as data in the run record.
+
+The failure reason quotes the fragment's instruction as the one the nodes were executed as because
+the physical planner rewrote it: a logical planner reading its own node ids beside a different
+instruction would otherwise take it for its own.
+
+**Consequences:** `results` is typed by `FragmentResult` rather than by what one operator call
+returned, so a consumer reads `.status` before `.result`. The three reads that decide scheduling go
+through one accessor that answers nothing for an entry the review turned down. The record grows by
+one entry per fragment and one attempt per parameter repair, so it stays bounded by the cover's size
+and `parameter_repairs`. Both the review's accept rate and how often a parameter repair fires are
+countable off a returned result ([11-testing-strategy.md](11-testing-strategy.md#8-the-benchmark)).
+
+---
+
+## ADR-048 — Each Cover Turn Shows the Run's State; a Repair Shows Each Attempt of the Fragment That Failed
+
+**Date:** 2026-09-28
+**Status:** Accepted
+
+**Decision:** Every turn that starts a cover, the opening turn of a physical planner's conversation
+and each cover repair turn, shows the results the run holds at that moment: each one's row count,
+operator, columns, and first rows, with a count of the rows left out. A cover repair turn also shows
+the fragment that failed, its failure reason, and each of its parameter attempts in order: the
+parameters, how the attempt ended, and the first rows it returned under it, marked as unreadable
+because nothing can read or reuse them. Every attempt is described as failed, in words that assume
+no knowledge of the fragment runner's review. The first cover of a new logical plan is shown nothing
+about how the previous plan ended. `PhysicalPlanner.cover` takes the failed fragment as a
+`FailedFragment`, and the replan reason goes to the logical planner alone.
+
+**Rationale:** A repair that cannot see what just ran cannot weigh reusing it against regrouping it,
+and the row counts of fragments run since the opening turn are the cost of grouping them into a
+wider fragment. A failure is easier to act on beside the parameters and rows that produced it: an
+error is checkable against the parameters that caused it, and a result that ignored a condition
+against its rows. The physical planner never took part in a review, so *rejected* or *accepted*
+could be read as a label in the data rather than as the review's decision.
+
+The previous plan's ending is the logical planner's input, and the plan in front of the physical
+planner is already what the logical planner made of it; showing that ending again adds nothing the
+plan does not state and can contradict it.
+
+**Consequences:** Each repair turn repeats the held results it shows and adds one short block per
+attempt, with at most a few rows each, which `cover_repairs` and `parameter_repairs` bound.
+`DataPlanner` carries the failed fragment from the ending of the fragment loop to the cover it asks
+for, and a failure reason lives in that fragment's `FragmentResult` rather than beside it. A
+`FailedFragment` whose result carries no failure reason is a defect and raises.
+
+---
+
 ## Open Questions
 
 Design questions first, then defects in the code.
@@ -1509,4 +1585,4 @@ Design questions first, then defects in the code.
 | 56 | Should the CLI be able to write a run's whole record to a file? A fragment's result reaches a person as a summary, and the JSON on standard output carries the answer and how the run ended, so every intermediate table and every model turn is reachable only by a caller who embeds the library (ADR-032). Diagnosing a wrong answer is the case that wants them: a summary says a fragment returned 140 rows over three columns and not which 140, and a review that rejected a fragment is readable only in the conversation. A file is where they would go, since what makes them unwelcome on standard output is size rather than secrecy, and the family's storage convention already has a place for per-profile state. Against adding one: a record holds whatever the sources held, so writing one puts source data on disk, and whether a CLI over a planner that keeps nothing between requests should accumulate state at all is question 55. | Whether a wrong answer can be diagnosed from the CLI alone |
 | 58 | Should the response cache in `llm/client.py` be removed or promoted? `LLMClient` opens a per-directory `diskcache` when a call carries the `llm.cache` property, and nothing in this repository sets that property, so the path answers no caller here. `diskcache` is declared under the `dev` extra alone, so an installed consumer that did request the cache would get an `InvalidSettingError` when its client is built rather than a cache. [05-software-stack.md](05-software-stack.md#what-is-deliberately-absent) says the stack has no model response cache, on the reasoning that a planner's requests carry the catalog, an input sample, and the conversation so far, so a key on the request rarely hits, and what a cache reliably does is make a run's cost depend on invisible state from an earlier run. That reasoning holds for every call the planning components make. What argues for keeping the code is a caller outside the planner reaching `execute_api_call` directly, which is the use the property was written for. Removing it deletes a path nothing calls; keeping it means a runtime dependency and a design row that has to say so. | Whether `llm/` offers a cache at all, and whether `diskcache` becomes a runtime dependency |
 | 59 | Does a model-written pattern need a time bound? `builtin.filter` runs the regular expression the fragment runner writes (ADR-041) with no bound on how long one search takes, so a catastrophically backtracking pattern over a large column could stall one filter call, and nothing in the run loop or the operator stops it. `builtin.nl2table` runs model-written code under the same absence, so the question is not specific to patterns. | Whether an operator call that runs model-written logic is bounded in time, and which component enforces the bound |
-
+| 60 | Should a value that does not fit the type the cover declared for a column go straight to the cover repair? The physical planner writes each fragment's required output columns and their types, and the fragment runner cannot change them, so no parameter attempt can fix the mismatch: the runner spends its remaining attempts on parameters that cannot help, and each one that reaches the operator is an operator call. Every attempt reaches the cover repair (ADR-047), so the mismatch is visible to the component that can fix it, and what is at stake is the attempts spent first. Against sending it straight on: it needs a third error kind beside recoverable and unrecoverable, or a check in the run loop for one error in particular, and a model that knows which column it filled might still fix the value, as when an operator returns a unit the declaration did not expect. | How many operator calls a wrong type declaration costs before the cover repair sees it |

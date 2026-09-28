@@ -167,9 +167,52 @@ def test_running_out_of_parameter_repairs_escalates() -> None:
     )
 
     assert result.status is RunStatus.NEEDS_REPAIR
-    # The rejected result travels with the ending, so a reader sees what the review turned down.
-    assert result.result is not None
-    assert result.failure_reason == "still no"
+    assert result.failure_reason == (
+        'Step n2 (executed as "keep the Python postings") failed in all 2 attempts. '
+        "The most recent result that came back was wrong: still no"
+    )
+
+
+def test_a_fragment_that_runs_out_of_attempts_keeps_every_attempt_in_order() -> None:
+    """The cover repair reads the attempts, and the error that says what to change may be
+    the first one rather than the last."""
+    calls: list[int] = []
+
+    def fails_then_returns(
+        inputs: DataBundle, parameters: dict[str, Any], columns: list[OutputColumn]
+    ) -> OperatorOutput:
+        calls.append(1)
+        if len(calls) == 1:
+            raise RecoverableOperatorError("no such column")
+        return OperatorOutput(data=list(inputs))
+
+    client = ScriptedLLMClient(
+        [
+            {"predicate": "a"},
+            {"predicate": "b"},
+            a_review("reject", "the predicate matched every row"),
+            {"predicate": "b"},
+        ]
+    )
+
+    result = a_runner_over(client, fails_then_returns).run(
+        a_fragment(), Conversation(), ROWS, counters(repairs=2)
+    )
+
+    assert [
+        (
+            attempt.parameters,
+            None
+            if attempt.result is None or attempt.result.error is None
+            else attempt.result.error.message,
+            attempt.assessment,
+        )
+        for attempt in result.attempts
+    ] == [
+        ({"predicate": "a"}, "no such column", None),
+        ({"predicate": "b"}, None, "the predicate matched every row"),
+        ({"predicate": "b"}, None, None),
+    ]
 
 
 def test_a_repeated_parameter_attempt_does_not_spend_a_second_operator_call() -> None:
@@ -218,7 +261,7 @@ def test_a_fragment_exhausted_by_repeated_parameters_ends_in_repair_rather_than_
     )
 
     assert result.status is RunStatus.NEEDS_REPAIR
-    assert "repeat" in (result.failure_reason or "")
+    assert result.attempts[-1].result is None
 
 
 def test_a_review_asking_for_a_replan_comes_back_with_its_assessment() -> None:
@@ -232,7 +275,10 @@ def test_a_review_asking_for_a_replan_comes_back_with_its_assessment() -> None:
     )
     result = runner.run(a_fragment(), Conversation(), ROWS, counters())
     assert result.status is RunStatus.NEEDS_REPLAN
-    assert result.failure_reason == "the plan asks for data nobody registered"
+    assert result.failure_reason == (
+        'Step n2 (executed as "keep the Python postings") cannot be done: '
+        "the plan asks for data nobody registered"
+    )
 
 
 def test_a_recoverable_operator_failure_is_answered_by_writing_the_parameters_again() -> None:
@@ -261,12 +307,15 @@ def test_a_recoverable_operator_failure_is_answered_by_writing_the_parameters_ag
     assert assistant_turns(conversation) == 3
 
 
-def test_an_escalation_after_a_trailing_operator_failure_reports_the_operators_error() -> None:
-    """The last attempt has no review assessment; its error message is what a repair reads."""
+def test_a_fragment_whose_every_attempt_failed_says_no_result_came_back() -> None:
+    """With no rows to judge, the reason says so rather than quoting an operator's error."""
     runner = a_runner([{"predicate": "a"}], raises_recoverably)
     result = runner.run(a_fragment(), Conversation(), ROWS, counters(repairs=0))
     assert result.status is RunStatus.NEEDS_REPAIR
-    assert result.failure_reason == "the predicate names no column the table carries"
+    assert result.failure_reason == (
+        'Step n2 (executed as "keep the Python postings") failed in its only attempt; '
+        "no attempt returned a result."
+    )
 
 
 def test_an_unrecoverable_operator_failure_stops_the_run_without_a_review_turn() -> None:

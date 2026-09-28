@@ -704,9 +704,10 @@ each accepted result held at that moment, with its row count, its operator, its 
 first rows.
 
 `failed_fragment` is set only on a cover repair. It is the fragment of the cover being repaired that
-ran out of parameter repairs, with the `FragmentResult` it ended on: the failure reason and the last
-call, which may have returned no rows. The repair turn shows it beside the results held now, and
-marks its rows as rejected, since nothing can read or reuse them. The first cover of a logical plan
+ran out of parameter repairs, with the `FragmentResult` it ended on: the failure reason and every
+parameter attempt. The repair turn shows it beside the results held now, each attempt with its
+parameters and how it ended, and marks the rows any attempt returned as unreadable, since nothing
+can read or reuse them. The first cover of a logical plan
 is passed none, so the physical planner never sees how a previous plan ended; that is the logical
 planner's `replan_reason`. A `FailedFragment` whose result carries no failure reason is a defect and
 raises.
@@ -776,11 +777,13 @@ attribute views of the entities it scans, writes the operator's parameters again
 `parameter_schema`, calls `execute_physical_operator`, and reviews what came back.
 
 A review that accepts ends the loop with `status=ok`. One that rejects spends an attempt and the
-parameters are written again; one that asks for a replan returns `status=needs_replan` with its
-assessment as the failure reason; running out of attempts returns `status=needs_repair`. An
-unrecoverable operator failure returns `status=operator_failed` and no review turn at all, since no
-other operator would avoid the same failure. Every ending carries the last call's result alongside
-its status, so what the review turned down is readable rather than discarded.
+parameters are written again; one that asks for a replan returns `status=needs_replan`; running out
+of attempts returns `status=needs_repair`. Either failure reason names the fragment's logical nodes
+and the instruction they were executed as, then the review's assessment where there is one: the
+replan's, or the most recent one when attempts ran out. An unrecoverable operator failure returns
+`status=operator_failed` and no review turn at all, since no other operator would avoid the same
+failure. Every ending carries every attempt it made alongside its status, so what the review turned
+down is readable rather than discarded.
 
 Writing the parameters and reviewing the result are turns in one conversation, so the review sees
 what was written and why, and a rejected review is answered on top of what it rejected. One fragment

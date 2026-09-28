@@ -13,6 +13,7 @@ from blue_data_planner.types import (
     FragmentResult,
     LLMUsage,
     LogicalPlan,
+    ParameterAttempt,
     RunConversations,
     RunCounters,
     RunLimits,
@@ -77,12 +78,18 @@ def a_finished_run(answer: Any) -> RunResult:
         results={
             "f1:SCAN": FragmentResult(
                 status=RunStatus.OK,
-                result=ExecutionResult(
-                    status=ExecutionStatus.OK,
-                    operator_id="builtin.scan",
-                    row_count=2,
-                    report={"rows": 2},
-                ),
+                attempts=[
+                    ParameterAttempt(
+                        parameters={},
+                        result=ExecutionResult(
+                            status=ExecutionStatus.OK,
+                            operator_id="builtin.scan",
+                            row_count=2,
+                            report={"rows": 2},
+                        ),
+                        assessment=None,
+                    )
+                ],
                 failure_reason=None,
             )
         },
@@ -122,11 +129,17 @@ def test_a_rejected_fragment_reaches_the_record_with_the_result_its_review_turne
     run = a_finished_run([[{"count": 2}]])
     run.results["f1:SCAN"] = FragmentResult(
         status=RunStatus.NEEDS_REPAIR,
-        result=ExecutionResult(
-            status=ExecutionStatus.OK,
-            operator_id="builtin.scan",
-            row_count=2,
-        ),
+        attempts=[
+            ParameterAttempt(
+                parameters={},
+                result=ExecutionResult(
+                    status=ExecutionStatus.OK,
+                    operator_id="builtin.scan",
+                    row_count=2,
+                ),
+                assessment=None,
+            )
+        ],
         failure_reason="the rows are of the wrong city",
     )
     planner = PlannerAnsweringOnce(run)

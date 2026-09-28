@@ -296,8 +296,7 @@ reasoning about the code.
 
 The review's accept rate, which ADR-013 flags as the risk worth watching, is counted off `results`:
 a fragment the review turned down is filed with the rest, under its own status. How often a
-parameter repair fires is not, because the repair is a loop inside one fragment run and only its
-ending is filed; that count lives in the fragment runner's conversation as turns.
+parameter repair fires is counted off the same entries, since each carries every attempt it made.
 
 ---
 

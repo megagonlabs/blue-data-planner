@@ -350,9 +350,15 @@ turns before it intact. Row counts matter because grouping a node that already r
 away and pays for the work again, and the number of rows discarded is what that costs
 ([the cover repair](#the-cover-repair)).
 
-A repair turn adds the fragment that failed: its nodes, its operator, the failure reason, and the
-rows its last call returned, if it returned any. Those rows are marked as rejected, since nothing
-can read or reuse them, and they are shown only to explain the reason beside them. Which operators
+A repair turn adds the fragment that failed: its operator, its failure reason, and every parameter
+attempt it made, in order. Each attempt shows the parameters it ran with and how it ended: the
+call's error, the rows it returned with what was wrong with them, or that it repeated an earlier
+attempt and never ran. Rows appear under the attempt that returned them, marked as unreadable,
+since nothing can read or reuse them; they are shown only to explain the failure. The first error
+is often the one that says what to change, such as a value that does not fit the type the cover
+declared for a column, which no parameter can fix. The turn describes every attempt as failed:
+the physical planner took no part in the fragment runner's review, so words such as *rejected* or
+*accepted* would read as something the data says. Which operators
 the failed node set was bound to before is already in the conversation, in the turns that bound it.
 
 The first cover of a new logical plan is shown nothing about how the previous plan ended. That
@@ -551,11 +557,15 @@ same way, and one return is one replan however many control nodes fired into it.
 | --- | --- |
 | A `REPLAN` node became ready | The node's instruction, and what the pass's fragments produced |
 | A `DISCOVER` node became ready | The node's instruction, and the entities the search found, each with its attributes |
-| Recovery reached the replan | The review's assessment of what could not be done |
+| Recovery reached the replan | The failure reason of the fragment that ended the pass |
 
 A failure reason stays at the level the planner works in. It says what could not be done, not which
 operator failed to do it, because naming an operator would invite the planner to work around an
-implementation it does not choose.
+implementation it does not choose. A fragment's failure reason names the logical nodes the fragment
+covered and quotes the instruction it ran under, marked as the instruction the nodes were executed
+as, because the physical planner rewrote it and it differs from what the logical planner wrote for
+those nodes. It quotes the review's assessment of what was wrong where an attempt returned rows,
+and no operator error.
 
 ### Resolving a discovery node
 
@@ -715,8 +725,8 @@ wrong.
 ### The cover repair
 
 The physical planner covers the whole logical plan again. The repair turn shows the fragment that
-failed: its nodes, its operator, the failure reason, and the rows its last call returned, marked as
-rejected. The same turn shows every result the run holds at that moment, including those produced
+failed: its operator, its failure reason, and every parameter attempt it made, each with its
+parameters, how it ended, and the rows it returned, marked as unreadable. The same turn shows every result the run holds at that moment, including those produced
 after the conversation opened. Every binding is decided afresh, and every fragment that already
 produced a result is on offer to be kept, so what the repair changes is what the model chooses to
 change.

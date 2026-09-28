@@ -13,6 +13,7 @@ from blue_data_planner.types import (
     ExecutionResult,
     ExecutionStatus,
     FragmentResult,
+    ParameterAttempt,
     UnknownNodeError,
 )
 
@@ -43,11 +44,19 @@ def a_filter_the_operator_refused() -> FragmentResult:
     """Return a fragment whose operator would not take the input it was handed."""
     return FragmentResult(
         status=RunStatus.OPERATOR_FAILED,
-        result=ExecutionResult(
-            status=ExecutionStatus.FAILED,
-            operator_id="lotus.sem_filter",
-            error=ErrorInfo(kind=ErrorKind.UNRECOVERABLE, message="the column 'county' is missing"),
-        ),
+        attempts=[
+            ParameterAttempt(
+                parameters={},
+                result=ExecutionResult(
+                    status=ExecutionStatus.FAILED,
+                    operator_id="lotus.sem_filter",
+                    error=ErrorInfo(
+                        kind=ErrorKind.UNRECOVERABLE, message="the column 'county' is missing"
+                    ),
+                ),
+                assessment=None,
+            )
+        ],
         failure_reason="the column 'county' is missing",
     )
 
@@ -56,12 +65,18 @@ def a_filter_the_review_turned_down() -> FragmentResult:
     """Return a fragment whose result the review turned down."""
     return FragmentResult(
         status=RunStatus.NEEDS_REPAIR,
-        result=ExecutionResult(
-            status=ExecutionStatus.OK,
-            operator_id="lotus.sem_filter",
-            output=[[{"title": "posting 0", "county": "Fresno"}]],
-            row_count=1,
-        ),
+        attempts=[
+            ParameterAttempt(
+                parameters={},
+                result=ExecutionResult(
+                    status=ExecutionStatus.OK,
+                    operator_id="lotus.sem_filter",
+                    output=[[{"title": "posting 0", "county": "Fresno"}]],
+                    row_count=1,
+                ),
+                assessment=None,
+            )
+        ],
         failure_reason="the review said Fresno is not in the bay area",
     )
 

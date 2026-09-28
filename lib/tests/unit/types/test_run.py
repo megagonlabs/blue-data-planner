@@ -14,6 +14,7 @@ from blue_data_planner.types import (
     ExecutionStatus,
     FragmentResult,
     LLMUsage,
+    ParameterAttempt,
     RunConversations,
     RunCounters,
     RunLimits,
@@ -108,12 +109,18 @@ def a_run_that_scanned(rows: int) -> RunResult:
         results={
             "a1": FragmentResult(
                 status=RunStatus.OK,
-                result=ExecutionResult(
-                    status=ExecutionStatus.OK,
-                    operator_id="builtin.scan",
-                    output=[[{"n": index} for index in range(rows)]],
-                    row_count=rows,
-                ),
+                attempts=[
+                    ParameterAttempt(
+                        parameters={},
+                        result=ExecutionResult(
+                            status=ExecutionStatus.OK,
+                            operator_id="builtin.scan",
+                            output=[[{"n": index} for index in range(rows)]],
+                            row_count=rows,
+                        ),
+                        assessment=None,
+                    )
+                ],
                 failure_reason=None,
             )
         },

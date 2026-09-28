@@ -13,6 +13,7 @@ from blue_data_planner.types import (
     LogicalOperator,
     LogicalPlan,
     OutputColumn,
+    ParameterAttempt,
     PhysicalPlan,
     PhysicalPlanFragment,
     PipelineNode,
@@ -123,7 +124,13 @@ def an_accepted_fragment(rows: list[dict[str, object]] | None = None) -> Fragmen
     """One fragment run whose result the review kept."""
     return FragmentResult(
         status=RunStatus.OK,
-        result=an_ok_result(rows if rows is not None else [{"title": "SWE"}]),
+        attempts=[
+            ParameterAttempt(
+                parameters={},
+                result=an_ok_result(rows if rows is not None else [{"title": "SWE"}]),
+                assessment=None,
+            )
+        ],
         failure_reason=None,
     )
 
@@ -132,7 +139,11 @@ def a_rejected_fragment() -> FragmentResult:
     """One fragment run the review turned down, carrying the result it turned down."""
     return FragmentResult(
         status=RunStatus.NEEDS_REPAIR,
-        result=an_ok_result([{"title": "SWE"}]),
+        attempts=[
+            ParameterAttempt(
+                parameters={}, result=an_ok_result([{"title": "SWE"}]), assessment=None
+            )
+        ],
         failure_reason="the review said the predicate dropped the wrong rows",
     )
 

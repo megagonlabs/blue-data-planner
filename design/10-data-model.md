@@ -666,30 +666,46 @@ class PhysicalPlanResult:
 
 
 @dataclass(frozen=True)
+class ParameterAttempt:
+    parameters: dict[str, Any]
+    result: ExecutionResult | None  # None when the parameters repeated an earlier attempt's
+    assessment: str | None  # what the review said, where the call returned rows to review
+
+
+@dataclass(frozen=True)
 class FragmentResult:
     status: RunStatus
-    result: ExecutionResult | None  # what the last call returned, whatever the ending
+    attempts: list[ParameterAttempt]  # in the order written; the last is what status describes
     failure_reason: str | None
+
+    @property
+    def result(self) -> ExecutionResult | None: ...  # the last call that ran, whatever the ending
 ```
 
 No component reports what its own model calls cost. Each writes its turns to the conversation it was
 handed, that conversation carries the usage of every call made on it, and the run state owns the
 conversations ([06, `llm/`](06-library.md#llm)).
 
-The same rule covers what a component tried and discarded. A plan validation turned down, a binding
-the physical planner replaced, parameters a review rejected: each is a turn in the conversation that
-produced it. A result type carries the outcome, and the conversation carries the road to it.
+The same rule covers what a component tried and discarded. A plan validation turned down and a
+binding the physical planner replaced are each a turn in the conversation that produced them. A
+result type carries the outcome, and the conversation carries the road to it. Parameter attempts are
+the exception, because another component reads them: the cover repair runs in the physical
+planner's conversation, which holds none of the fragment runner's turns, so a `FragmentResult`
+carries its attempts.
 
 `LogicalPlanResult.plan` is `None` exactly when `status` is `invalid_plan`, and `failure_reason` then
 holds the objection the last correction drew. A plan validation turned down never enters
 `DataPipeline`, since nothing covered it and no version continues it.
 
-`FragmentResult.result` holds what the last call returned, whether the review kept it or not, so
-`status` alone says whether anything may read it. It is `None` only where no call was made. The
-parameter repair is a loop inside the runner: it writes the operator's parameters again, in the
+The parameter repair is a loop inside the runner: it writes the operator's parameters again, in the
 conversation it already holds, until one is accepted or `parameter_repairs` runs out
 ([04, the parameter repair](04-detailed-architecture.md#the-parameter-repair)). One call therefore
-makes several attempts, and what each of them wrote is in that conversation.
+makes several attempts, and `FragmentResult.attempts` holds each one: the parameters, what the call
+returned, and what the review said. A repeat of an earlier attempt's parameters is an attempt that
+never reached the operator.
+
+`FragmentResult.result` is what the last call that ran returned, whether the review kept it or not,
+so `status` alone says whether anything may read it. It is `None` only where no call was made.
 
 `FragmentResult.status` says which of five endings the fragment reached, and `ok` means the result
 was accepted. The runner never returns `invalid_plan` or `replan_exhausted`, which belong to the
@@ -719,8 +735,8 @@ class FailedFragment:
 ```
 
 `result.failure_reason` says why the fragment failed, and a `FailedFragment` without one is a
-defect. `result.result` is the last call, which may be a failed call that returned no rows. The
-physical planner shows those rows as rejected: nothing reads or reuses them
+defect. `result.attempts` is every attempt the fragment made. The physical planner shows each one,
+and the rows an attempt returned as unreadable: nothing reads or reuses them
 ([04, the cover repair](04-detailed-architecture.md#the-cover-repair)).
 
 Each component returns what it did instead of writing it down as it goes, so one that raises cannot
