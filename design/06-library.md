@@ -31,7 +31,7 @@ rather than a copy of the code.
 | `blue_data_planner/physical_planner.py` | `PhysicalPlanner` |
 | `blue_data_planner/fragment_runner.py` | `FragmentRunner` |
 | `blue_data_planner/catalog_searcher.py` | `CatalogSearcher` |
-| `blue_data_planner/prompts/rendering.py` | `render_sample_rows`, `render_attribute_views`: the run data every component that writes prompts renders the same way |
+| `blue_data_planner/prompts/rendering.py` | `render_sample_rows`, `render_attribute_views`: the run data every component that writes prompts renders the same way, with the number of values each component shows passed in |
 | `blue_data_planner/types/` | Every data class that crosses a module boundary: plans, nodes, fragments, operators, results, catalog readings, model usage, limits. `summarize_table` sits there too, since it builds one of those shapes from another and reaches nothing else |
 | `blue_data_planner/plan/` | `validate_logical_plan`, `validate_physical_plan`, `candidate_fragments`, `signatures`, and the response schemas the planning stages send |
 | `blue_data_planner/execution/` | `execute_physical_operator`, `check_output_columns`, `project_answer` |
@@ -54,7 +54,7 @@ owns is the loop.
 | Component | Built with | Because |
 | --- | --- | --- |
 | `LogicalPlanner` | `llm_client`, `catalog` | Writes plans, reads a catalog preview ranked against the request, and rewrites a plan validation turned down |
-| `PhysicalPlanner` | `llm_client`, `router`, `catalog` | Enumerates candidates from what operators declare and the kinds of the sources the plan's scans name, and reads the attribute views of the entities the plan scans |
+| `PhysicalPlanner` | `llm_client`, `router` | Enumerates candidates from what operators declare and the kinds of the sources the plan's scans name, and shows the attribute views of the entities the plan scans |
 | `FragmentRunner` | `llm_client`, `catalog`, `router` | Resolves a fragment's operator id, reads the attribute views of the entities it scans, writes parameters, reviews the result, and writes them again when the review rejects one |
 | `CatalogSearcher` | `llm_client`, `catalog`, `max_search_terms` | Turns an instruction into search terms and searches the registry for entities |
 | `DataPlanner` | The four above, and `limits` | Creates the run state, schedules, chooses repairs, and assembles the result |
@@ -78,8 +78,7 @@ run. It opens no configuration and reads no environment variable; what it does i
 model client, the router, the operators each named suite registers, the catalog, and the four
 components — so the CLI, the MCP server, the benchmark harness, and a future REST API each write
 the same five lines instead of the same forty. The one catalog goes to every component the table
-above builds with one: the logical planner, the physical planner, the fragment runner, and the
-catalog searcher. Wiring is not translation ([07-repo-organization.md](07-repo-organization.md)).
+above builds with one: the logical planner, the fragment runner, and the catalog searcher. Wiring is not translation ([07-repo-organization.md](07-repo-organization.md)).
 
 A caller who wants a different model per component, or a fake component in a test, builds the four
 and calls `DataPlanner` directly.
@@ -623,9 +622,10 @@ the preview from four signatures and from the run state.
 `results` is the run's map for the parent version, and it answers two different questions. A
 continuation after a `REPLAN` is written against the rows the pass's fragments produced, so the
 planner reads real columns and values. A `DISCOVER` node's entry holds the entities its search
-found and every attribute each one holds, which is what lets the continuation's scans name a source
-and declare column names the registry actually carries. One argument covers both because both live
-in the same map.
+found and a view of every attribute each one holds, which is what lets the continuation's scans name
+a source, declare column names the registry actually carries, and pass over an attribute that is
+mostly empty. Each attribute is shown with its three most frequent values. One argument covers both
+because both live in the same map.
 
 `replan_reason` is `None` on the first pass. Otherwise it says why the plan is written again: the
 failure reason from the review or from a fragment whose cover repairs ran out, from the physical
@@ -636,7 +636,8 @@ work around an implementation it does not choose.
 
 One conversation serves a whole request, and the run state hands the same one back on every pass. A
 continuation is a turn on top of the plans already written rather than a fresh exchange that
-describes them, so the planner answers what it wrote before and the unchanged turns stay cached
+describes them, so the planner answers what it wrote before and the unchanged turns stay cached. An
+entity an earlier turn showed is named by path rather than shown again
 ([04, one conversation per component](04-detailed-architecture.md#one-conversation-per-component)).
 
 Two things happen inside `generate` rather than above it. The response schema is assembled from the
@@ -660,9 +661,7 @@ request needs found, and the continuation is the complete plan
 
 ```python
 class PhysicalPlanner:
-    def __init__(
-        self, llm_client: LLMClient, router: OperatorRouter, catalog: DataCatalog
-    ) -> None: ...
+    def __init__(self, llm_client: LLMClient, router: OperatorRouter) -> None: ...
 
     def cover(
         self,
@@ -712,12 +711,12 @@ is passed none, so the physical planner never sees how a previous plan ended; th
 planner's `replan_reason`. A `FailedFragment` whose result carries no failure reason is a defect and
 raises.
 
-The catalog is read for the entities the plan scans: one `attribute_views` call per distinct entity
-path a `SCAN` names, the way `FragmentRunner` reads its fragment's scans. The opening turn shows
-each entity's header from its `EntityMatch` and, below it, every attribute's type, description,
-sample values, and counts, because whether a condition can go to an operator comparing stored
-values or needs one reading meaning depends on what the column holds. A scan that names no source
-contributes nothing, and no entity the plan does not scan is read.
+The opening turn shows, for every distinct entity path a `SCAN` names, the entity's header and the
+views of its attributes, both read off its `EntityMatch` in `results`, because whether a condition
+can go to an operator comparing stored values or needs one reading meaning depends on what the
+column holds. The planner reads no catalog of its own: a path reaches a plan only because a
+`DISCOVER` node found it, and the match that node recorded already carries the views. A scan that
+names no source contributes nothing, and no entity the plan does not scan is shown.
 
 Inside, the planner works top down from the root of the plan. For each uncovered node it asks
 `candidate_fragments` for the node sets each operator the router offers could cover, pairs each set
@@ -765,8 +764,9 @@ request between calls and a test builds a fragment, some rows, a catalog double,
 The fragment carries the reading it needs. `scan_sources` names an entity path per `SCAN`, and one
 `attribute_views` call per path returns every attribute of that entity, so nothing about the run
 beyond the fragment has to be passed in. The run's whole catalog context is deliberately not: it
-would put entities this fragment cannot reach in front of the model, and the deeper reading of the
-ones it can reach is what writing parameters needs
+would put entities this fragment cannot reach in front of the model, and the views of the ones it
+can reach, with more values each than the logical planner is shown, are what writing parameters
+needs
 ([10, what the fragment runner reads](10-data-model.md#what-the-fragment-runner-reads)).
 
 For one fragment it loops until a result is accepted or `counters.limits.parameter_repairs` runs
@@ -1393,16 +1393,16 @@ Three readings of the same registry, all fixed in
 | Method | Read by | Answers |
 | --- | --- | --- |
 | `preview` | `LogicalPlanner`, once per request, until the first cover installs | Which sources exist. Source-level records only, ranked against the request and capped, with the total count so the planner can tell a complete list from a sample |
-| `search_records` | `CatalogSearcher`, for a `DISCOVER` node | Which entities the request needs and what each holds. One call per search term |
-| `attribute_views` | `FragmentRunner`, for each entity its fragment scans, and `PhysicalPlanner`, for each entity its plan scans | How each of that entity's attributes spells its values |
+| `search_records` | `CatalogSearcher`, for a `DISCOVER` node | Which entities the request needs, and a view of every attribute each holds. One call per search term |
+| `attribute_views` | `FragmentRunner`, for each entity its fragment scans | The same views a match carries, read by entity path |
 
 `CatalogSearcher` is the only caller of `search_records`. A `SCAN` names an entity the run's catalog
 context already holds, and a path reaches that context only by having been searched for, so no
 second search arises.
 
 `max_search_results` is fixed when the catalog is built, since `search_records` runs once per search
-term and one cap serves every term. It is small because a match now carries an entity's whole
-attribute list and that list travels in every planning prompt for the rest of the run: ten
+term and one cap serves every term. It is small because a match carries a view of every attribute
+of its entity, and the logical planner is shown every match the run's searches returned: ten
 entities' worth is more than a request needs to choose between. `preview`'s cap comes from the
 logical planner, which decides how much of a registry one prompt carries.
 
@@ -1413,7 +1413,10 @@ not decided yet ([10](10-data-model.md#what-the-fragment-runner-reads)).
 `DataCatalog` selects and renders what `blue-data` has already collected and enriched. It profiles
 no attribute, samples no table, and infers no type of its own, so an `AttributeView` is a projection
 rather than a computation: it pairs an attribute's stored statistics and value semantics with its
-description. What belongs to this repository is the choice of what each component sees, which is
+description, and takes the empty-string count from the frequent values the statistics already list.
+The bounds on a view, how many values it holds and how long each may be, are set here, so every
+component reading one reads the same bounded thing
+([10](10-data-model.md#what-an-attribute-holds)). What belongs to this repository is the choice of what each component sees, which is
 prompt shaping.
 
 Every reading that searches ranks its results and takes the top of the list (ADR-021). A weak match

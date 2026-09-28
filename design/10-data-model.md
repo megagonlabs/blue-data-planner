@@ -910,18 +910,17 @@ that basis would draw a line no reader could see
 | Reading | Read by | Answers |
 | --- | --- | --- |
 | `CatalogPreview` | The logical planner, once per request, until the first cover installs | Which sources exist and what each is for |
-| `EntityMatch` | The logical planner, as the run's catalog context; the physical planner, for the source kind of each entity its plan names and the header of each entity it scans | Which entities exist and what each holds |
-| `AttributeView` | The fragment runner, for the entities its fragment scans; the physical planner, for the entities its plan scans | How an attribute's values are actually spelled |
+| `EntityMatch` | The logical planner, as the run's catalog context; the physical planner, for each entity its plan scans | Which entities exist, what each holds, and how each attribute's values are spelled |
+| `AttributeView` | Every component listing an attribute, inside an `EntityMatch`; the fragment runner, read by entity path for each entity its fragment scans | What one attribute holds: its values, how often each occurs, and how much of it is missing |
 
-The last two differ in shape rather than in degree. An `EntityMatch` is broad and shallow — one
-entity and every attribute's name, type, and description — so a run can carry it in every prompt. An
-`AttributeView` is narrow and deep, and its size is set by how long the stored sample values are, so
-it is read only for entities a component's own work scans.
+An `AttributeView` is the one reading of an attribute, and every prompt that lists an attribute
+shows one (ADR-049). A match carries a view of each attribute of its entity, so the planners read
+them off the catalog context. The fragment runner holds no discovery results and reads the same
+views by path.
 
 Catalog detail below the source level enters a run one way, through a `DISCOVER` node
 ([04, resolving a discovery node](04-detailed-architecture.md#resolving-a-discovery-node)). What
-those nodes found is the run's catalog context, and an `AttributeView` deepens one entity the
-context already names.
+those nodes found is the run's catalog context.
 
 ### Naming a record
 
@@ -983,23 +982,17 @@ description, so every reading below renders one as absent.
 
 ### What a search returns
 
-A search hits an entity, and the match carries that entity together with every attribute it holds.
+A search hits an entity, and the match carries that entity together with a view of every attribute
+it holds ([what an attribute holds](#what-an-attribute-holds)).
 
 ```python
-@dataclass(frozen=True)
-class AttributeRecord:
-    name: str
-    dtype: str | None
-    description: str | None
-
-
 @dataclass(frozen=True)
 class EntityMatch:
     path: str                          # the entity's full catalog path
     name: str
     description: str | None
     source_kind: str                   # "sql/sqlite", read from the source record above it
-    attributes: list[AttributeRecord]
+    attributes: list[AttributeView]
     score: float
     search_term: str                   # which term found it
     row_count: int | None              # the registry's recorded row count, or None if unrecorded
@@ -1008,7 +1001,8 @@ class EntityMatch:
 The full attribute list is what makes a declared column name a fact rather than a guess. A logical
 planner that has seen `customers -> CustomerID, Currency, Segment` writes `required_output_columns`
 from those names, and the check `execute_physical_operator` runs against them has something real to
-pass ([declared output columns](#declared-output-columns)).
+pass ([declared output columns](#declared-output-columns)). The values in each view are what let it
+choose between two attributes that both fit the request by name, when one of them is mostly empty.
 
 `source_kind` rides on the match because it is what decides which operators may run a fragment
 containing a `SCAN` over this entity. It is recorded on the source record rather than on the entity
@@ -1029,58 +1023,83 @@ An entity is found by its own name and description. Reaching one through an attr
 through a value stored in it is not something the search offers, so a request whose vocabulary
 matches only an attribute needs a term the entity itself answers to.
 
+### What an attribute holds
+
+```python
+@dataclass(frozen=True)
+class ValueCount:
+    value: Any
+    rows: int                          # how many of the counted rows hold the value
+
+
+@dataclass(frozen=True)
+class AttributeView:
+    ref: AttributeRef
+    dtype: str | None
+    description: str | None
+    frequent_values: list[ValueCount]  # most frequent first
+    sample_values: list[Any]           # what a view shows where no frequent values are recorded
+    distinct_count: int | None
+    null_count: int | None
+    empty_count: int | None            # rows holding "", where the frequent values list it
+    counted_rows: int | None           # the rows every count above was taken over
+    min: Any | None
+    max: Any | None
+    semantic_type: str | None
+```
+
+The values are what a condition is written from. In `debit_card_specializing`, `customers.Segment`
+holds `SME`, `LAM`, and `KAM`, and a runner writing a filter for "small and medium enterprises"
+without having seen those three produces a query returning zero rows and no error.
+`semantic_type` says what the registry inferred the values mean, and it is read alongside the
+values rather than instead of them.
+
+`frequent_values` comes before `sample_values` because a sample is whichever values the source
+returned first, while the most frequent values with their counts show which spelling dominates and
+how much of the column the list covers. `gasstations.Country` in `debit_card_specializing` holds
+`CZE` in every row, which a list of one value with its count says outright.
+
+The counts are the catalog's, and a registry may take them over part of a table rather than all of
+it. `counted_rows` is what they were taken over, so a view states a count as a share of those rows
+rather than of the entity's `row_count`. `empty_count` is read off the frequent values: the empty
+string is a value like any other there, and a column where it dominates, such as
+`postHistory.UserDisplayName` in `codebase_community` (`''` in 1893 of 2000 counted rows), is
+listed with it first. A column where the empty string is not among the frequent values has an
+`empty_count` of `None`, which says the count is unknown, not zero.
+
+A view is bounded in two ways and nothing else about it is capped: it holds at most five frequent
+values and three sample values, and every value is cut at a fixed length and marked where it was
+cut. A wide entity's cost comes almost entirely from a handful of attributes holding long text, and
+the length cut is what controls it. How many of those values a prompt shows is each component's
+choice ([04, one conversation per component](04-detailed-architecture.md#one-conversation-per-component)).
+
+An attribute whose statistics were never collected still gets a view, carrying its type and whatever
+else the record holds. A type is absent the way a description is: a source with dynamic typing
+registers a column the registry records no type for, and a view renders that as nothing rather than
+refusing the record. Absence and corruption are told apart: no record at all is an attribute with no
+view, and a record that exists but cannot be read as one — no type field where a type field belongs,
+or statistics that are not statistics — is a corrupt registry and raises
+([06-library.md](06-library.md#errors)).
+
 ### What the fragment runner reads
 
 The runner reads its fragment's scans from the catalog and its inputs from the tables themselves.
 
 | Source of names | Carries | For |
 | --- | --- | --- |
-| An `AttributeView` per attribute of each entity in `scan_sources` | Name, type, description, sample values, counts, range, inferred meaning | An attribute the fragment is about to scan |
+| An `AttributeView` per attribute of each entity in `scan_sources` | Name, type, description, frequent values, counts, range, inferred meaning | An attribute the fragment is about to scan |
 | The input tables | Column names, their values' type, the row count, and a sample of rows | A table an earlier fragment produced |
 
 A fragment whose frontier is empty has no input tables, which is the ordinary shape for pushdown, so
 the catalog is the only thing that can name its columns. A fragment reading an input table needs no
 catalog call for it: the rows in hand are better evidence than a record describing the attribute as
-it was scanned, and whole-column counts taken before a filter ran would describe a table that no
-longer exists. Input columns are therefore read from the table and annotated from nowhere.
+it was scanned, and counts taken before a filter ran would describe a table that no longer exists.
+Input columns are therefore read from the table and annotated from nowhere.
 
 The views cover every attribute of the entities the fragment scans, rather than a chosen few. Which
 attributes it will name is the decision the runner has yet to take when it reads them. They cover
 its own scans rather than the run's whole catalog context, which would put entities the fragment
 cannot reach in front of the model.
-
-```python
-@dataclass(frozen=True)
-class AttributeView:
-    ref: AttributeRef
-    dtype: str | None
-    description: str | None
-    sample_values: list[Any]
-    distinct_count: int | None
-    null_count: int | None
-    min: Any | None
-    max: Any | None
-    semantic_type: str | None
-```
-
-`sample_values` is what a filter's values are written from. In `debit_card_specializing`,
-`customers.Segment` holds `SME`, `LAM`, and `KAM`, and a runner writing a filter for "small and
-medium enterprises" without having seen those three produces a query returning zero rows and no
-error. `semantic_type` says what the registry inferred the values mean, and it is read alongside the
-samples rather than instead of them.
-
-The view carries the first three of the attribute's stored sample values and caps nothing else. That
-one cap is where a wide entity's cost is controlled: annotating all 115 attributes of a match-events
-table in full runs to hundreds of kilobytes, and almost all of it is a handful of attributes holding
-long text rather than the attribute count.
-
-An attribute whose statistics were never collected still gets a view, carrying its type and whatever
-else the record holds. A type is absent the way a description is: a source with dynamic typing
-registers a column the registry records no type for, and both readings render that as nothing rather
-than refusing the record. Absence and corruption are told apart: no record at all is an attribute
-with no view, and a record that exists but cannot be read as one — no type field where a type field
-belongs, or statistics that are not statistics — is a corrupt registry and raises
-([06-library.md](06-library.md#errors)).
 
 ---
 

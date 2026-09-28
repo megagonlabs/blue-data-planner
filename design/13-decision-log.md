@@ -1361,7 +1361,7 @@ library's exceptions to the CLI's codes itself, since it imports nothing from th
 ## ADR-045 — Catalog Detail Below the Source Level Enters Through `DISCOVER`, and the Deep Reading Follows the Scans
 
 **Date:** 2026-09-26
-**Status:** Accepted
+**Status:** Superseded by ADR-049
 
 **Decision:** A `DISCOVER` node is the one way a run learns anything below the source level. The
 search runs at the entity level, and a hit returns that entity together with every attribute it
@@ -1556,13 +1556,98 @@ for, and a failure reason lives in that fragment's `FragmentResult` rather than 
 
 ---
 
+## ADR-049 — Every Attribute a Planning Prompt Lists Carries Its Values, and a Conversation Shows an Entity Once
+
+**Date:** 2026-09-28
+**Status:** Accepted
+
+**Decision:** A `DISCOVER` node is the one way a run learns anything below the source level. The
+search runs at the entity level, and a hit returns that entity, its recorded row count, and a view
+of every attribute it holds. What every resolved node found, taken together, is the run's catalog
+context. The logical planner writes its continuation against it and names, for each `SCAN`, an
+entity found in it or no source at all. Neither planner searches the registry itself. A `DISCOVER`
+node's inputs narrow the vocabulary the searcher writes terms in, and a node returns a bounded set
+of entities whatever its inputs hold, never one match per input row.
+
+There is one reading of an attribute, `AttributeView`, and every component that lists an attribute
+shows it: the logical planner for every entity the catalog context holds, the physical planner for
+every entity its plan scans, and the fragment runner for every entity its fragment scans. A view
+carries the attribute's name, type, and description; its most frequent values, each with the number
+of rows holding it; the number of rows that are null and the number holding the empty string; and
+the number of rows those counts were taken over. Where the catalog records no frequent values, the
+view carries its sample values instead.
+
+What varies between components is how many values a prompt shows: three for the logical planner,
+five for the physical planner and the fragment runner. Every value is cut at a fixed length. Every
+list of values says how many distinct values it leaves out, and every count is shown against the
+rows it was taken over, so nothing shown reads as the whole column.
+
+A conversation shows an entity's views once. A later turn of the same conversation that would show
+the entity again names it by path.
+
+A value a prompt shows is the spelling a condition is written in. Where the words of the request or
+of an instruction spell a value differently from the data, the component writing the value writes
+the data's spelling: the physical planner in a fragment's instruction, the fragment runner in its
+parameters, reading attribute views and input rows alike.
+
+**Rationale:** The logical planner decides which entities are scanned and joined, and which
+attribute a condition reads. No later stage can change that: the physical planner binds nodes and
+adds none. An attribute whose name and description fit the request can be nearly empty. In
+`codebase_community`, `posts.OwnerDisplayName` is null in 1842 of the 2000 rows its statistics were
+taken over; the owner is reached through `OwnerUserId` and a join to `users`. Only the attribute's
+values show that, so the component writing the join has to see them.
+
+Two readings, one shallow and one deep, were justified by size: a view's size was set by how long
+the stored values are. A fixed cut on each value's length and a fixed number of values bound that
+size instead, and with the cause gone one reading is simpler than two. The bound is modest: every
+attribute of every entity in `codebase_community`, with three values each, is about three thousand
+tokens, of which the values are about a fifth, and a discovery node returns only the few entities
+its search ranked highest.
+
+Frequent values are shown before samples because a sample is whichever values the source returned
+first, while a list of the most frequent values, each with its count, shows which spelling
+dominates a column and how much of it the list covers. The empty string reaches that list like any
+other value, so its count is read from recorded statistics rather than collected again. It is
+counted apart from null because the two can mean different things: null is a missing value, and the
+empty string is sometimes a missing value a source application wrote and sometimes a real one.
+
+A registry may take its statistics over part of a table, so an entity's row count is not the
+denominator of an attribute's counts; the rows the statistics were read over are.
+
+Nothing already written in a conversation is rewritten, and a view shown once is still in front of
+the model. Showing it again costs its full size once per pass and adds nothing.
+
+The component that writes a value into a condition is the one that sees the data, and the words it
+is handed were written by a component that saw less of it, or by a person who did not see it at all.
+
+**Consequences:** `EntityMatch.attributes` is a list of `AttributeView`, and no separate attribute
+record exists. The physical planner reads the views off the matches the run already holds and is
+built without the catalog. The fragment runner, which holds no discovery results, reads
+`attribute_views` for the entities its fragment scans.
+
+A request touching registered data plans at least twice, and a first plan carrying no `DISCOVER`
+node is one the planner judged answerable from world knowledge alone. A first pass may end on
+several terminal control nodes, so validation admits more than one
+([04](04-detailed-architecture.md#validation)). A path a `SCAN` names is a path a `DISCOVER` node
+found, so `validate_logical_plan` checks every one against the catalog context. A scan that named
+the wrong entity is answered by the replan, which writes a new `SCAN`, not by the cover repair.
+
+An entity is found by its own name and description, never through an attribute's name or a value
+stored in it. A spelling that is neither among an attribute's most frequent values nor in the rows a
+fragment is handed reaches no component, which is what the values shown leave open (question 61).
+
+The empty string is exactly the string of length zero. A value made of whitespace is listed as the
+value it is.
+
+---
+
 ## Open Questions
 
 Design questions first, then defects in the code.
 
 | # | Question | Blocks |
 | --- | --- | --- |
-| 3 | Would annotating a frontier column from the catalog earn its risk? The fragment runner reads a view of every attribute of the entities its own fragment scans, and reads a column arriving on the frontier off the input table it came in on, which carries names, types, and a sample of rows (ADR-045). A frontier column may also have a catalog record, and reaching it means tracing back through the cover to whichever fragment scanned it. Tracing through fragments built only from the kinds that leave columns unchanged — `FILTER`, `DISTINCT`, `SORT_SUPERLATIVE` — is safe, while tracing by name regardless of kind can put a scanned attribute's statistics in front of a model for a column a `PROJECT` redefined. What is unmeasured is whether whole-column statistics add anything the sample rows do not, for a column the run already holds rows for. The first release annotates neither way. | Whether a `FILTER` running alone over rows an earlier fragment scanned sees catalog statistics as well as its input's rows ([10-data-model.md](10-data-model.md#what-the-fragment-runner-reads)) |
+| 3 | Would annotating a frontier column from the catalog earn its risk? The fragment runner reads a view of every attribute of the entities its own fragment scans, and reads a column arriving on the frontier off the input table it came in on, which carries names, types, and a sample of rows (ADR-049). A frontier column may also have a catalog record, and reaching it means tracing back through the cover to whichever fragment scanned it. Tracing through fragments built only from the kinds that leave columns unchanged — `FILTER`, `DISTINCT`, `SORT_SUPERLATIVE` — is safe, while tracing by name regardless of kind can put a scanned attribute's statistics in front of a model for a column a `PROJECT` redefined. What is unmeasured is whether whole-column statistics add anything the sample rows do not, for a column the run already holds rows for. The first release annotates neither way. | Whether a `FILTER` running alone over rows an earlier fragment scanned sees catalog statistics as well as its input's rows ([10-data-model.md](10-data-model.md#what-the-fragment-runner-reads)) |
 | 6 | Should a result stay valid when only the cut around it changed? A continuation reading a node a fragment grouped forces that fragment to be dropped and every node in it to run again, even the ones whose logical inputs did not change ([04, what reading a grouped node costs](04-detailed-architecture.md#what-reading-a-grouped-node-costs)). Two ways out. Keying validity on a node's upstream logical nodes rather than on the shape of the cover would save the downstream work. Dropping the disjointness rule would let a continuation build its own fragment over `SCAN`, `FILTER`, and the new node while the earlier fragment keeps its result, at the price of running the same scan twice and of giving up the property that each node runs exactly once, which is what makes an attempt list readable as a record of where each pushdown boundary was drawn. Both carry the same consistency risk: a saved result from a fragment call sitting beside newly materialized rows from a different cut, so two nodes in one plan could hold values their operators never agreed on. | Whether a failure-driven replan pays for a whole fragment call a second time, and whether the attempt record still answers where the boundary was |
 | 8 | Should a fragment pattern be allowed to constrain the order of the nodes it covers? `logical_operators` is a set, so a candidate is any connected convex subgraph built from those kinds, and an operator that can only group a filter *after* a scan has no way to say so. No declared operator's capability depends on the order of the nodes it covers, so a set says everything a declaration needs to. | Whether an operator whose capability depends on node order can be declared at all |
 | 15 | Where does the check that an operator receives the number of tables its logical operator declares belong? `INPUT_ARITY` governs what the logical planner writes, and validation checks a node's input count against it, but the bundle an operator is handed is the concatenation of its upstream outputs (ADR-012), and nothing ties that length back to the arity. Each adapter refuses a bundle of the wrong length inside its own callable, which is one rule written once per suite and leaves the next suite free to forget it. `execute_physical_operator` is the single place every call goes through, and for any operator declaring one logical operator it could read the count off `INPUT_ARITY` itself, so a suite added later would get the rule without doing anything. Against moving it: an adapter needs the same guard anyway before it can take its tables apart, so the check would be written twice rather than once. | Whether a wrongly shaped bundle is refused by one rule or by one rule per suite |
@@ -1576,7 +1661,7 @@ Design questions first, then defects in the code.
 | 43 | How is the physical planner made to choose a more capable operator over a built-in one? Where `builtin.nl2table` is registered every operator node kind has a built-in candidate (ADR-020), so a node is almost never answered as `no_operator` and a wrong choice is refused at review instead, one operator call later. A binding turning every candidate down (ADR-040) answers the node nothing fits; this question is the other one, where a built-in candidate returns rows that look like an answer. `description` and `limitations` are the whole of what separates two candidates in the prompt, so an operator that cannot judge meaning has to say so in terms a model weighs against a description promising a general engine, and one that reads whole tables into memory to work over them has to say that too. A built-in program can approximate a semantic predicate — matching a phrase where a reader would have judged a title — and the approximation returns rows and reports no error, so nothing but review stands between it and an answer. The review rejection rate of fragments bound to a built-in entry, which the TAG-Bench harness reports, is what measures it. | Whether a floor that always has a candidate raises the cost of every request that needed the ceiling |
 | 44 | Can an operator declare that every scan in one fragment reads the same source? `source_kinds` is a set of kinds and says nothing about identity, and each `SCAN` names its source separately, so nothing stops a cover from grouping scans of two databases into one operator's fragment. `blue.nl2sql` needs the constraint, since one SQL query cannot span two of them, while `builtin.nl2table` deliberately lacks it and covering such a fragment is the point of it. Without a way to declare the difference the constraint lives in `limitations` as plain language, and a candidate that cannot work is offered anyway. This is question 8's family: a capability the declaration has no vocabulary for. | Whether an operator limited to one source at a time can be declared at all, or is offered candidates it has to refuse |
 | 45 | Is a bound an operator enforces inside its own call a bound of ADR-014's kind? `RunLimits` holds every bound the run loop obeys, and three numbers sit below it instead: the distinct values a bind join carries, the times `builtin.nl2table` writes its program again before returning a recoverable failure, and the rows a LOTUS operation accepts before refusing the call. All three are shaped like `RunLimits` fields, and they do not agree with each other about who sets them: the LOTUS cap is an argument to `lotus_operators`, so a deployment chooses it where it builds the suite, while the other two are fixed in the operator that enforces them. `builtin.scan` reads only `sql/sqlite`, a source with a predicate language, and implements two of the three realizations in [06](06-library.md#data): values embedded in the query text, capped at 100 distinct values, and a temporary table, capped by nothing. Past the embedded-values cap it escalates to the temporary table rather than refusing the input, so `builtin.scan` never refuses a bind join for carrying too many values; 100 is where it switches realization, not a limit it enforces. The one-call-per-value realization, and the tighter cap that would bound it, belong to an operator reading a source with no predicate language, a case nothing in the built-in suite covers. Every number here is a placeholder set low enough not to break a run rather than measured against real volumes or real failure rates. A `RunLimits` field would let a deployment raise a cap past a default nobody has tested; leaving each number inside its operator keeps the choice with whichever component already sees what decides it. | Whether a bound below the run loop is configurable per deployment, and what real volumes and failure rates call for |
-| 47 | Should the operator vocabulary gain a node that looks the catalog up once per input row? ADR-045 keeps a `DISCOVER` node to a bounded set of entities however many rows it was handed, so a request such as "find the press release document for each of these 500 companies" has nowhere to go: that lookup is per row, what it returns is data rather than context, and it should be billed against the operator budget and reviewed like any other data operation. An operator node would give it all three. Against adding one: none of the ten logical operators reads the catalog, so this would be the first, and what it returns — paths rather than values — is a kind of row nothing else in a plan produces. How often a request needs one is unmeasured. | Whether a per-row catalog lookup is expressible at all, and whether the logical vocabulary stays as it is |
+| 47 | Should the operator vocabulary gain a node that looks the catalog up once per input row? ADR-049 keeps a `DISCOVER` node to a bounded set of entities however many rows it was handed, so a request such as "find the press release document for each of these 500 companies" has nowhere to go: that lookup is per row, what it returns is data rather than context, and it should be billed against the operator budget and reviewed like any other data operation. An operator node would give it all three. Against adding one: none of the ten logical operators reads the catalog, so this would be the first, and what it returns — paths rather than values — is a kind of row nothing else in a plan produces. How often a request needs one is unmeasured. | Whether a per-row catalog lookup is expressible at all, and whether the logical vocabulary stays as it is |
 | 48 | Which component reads a `relation` record when a plan scans a knowledge-base source? `blue-data` records relations alongside entities and attributes, each with a name, a source, and a target, and nothing in this design reads one. A `JOIN` is the obvious consumer, since a relation says which attributes join two entities, and it could arrive as part of the run's catalog context or as part of the fragment runner's deeper reading. What stops the question being answered for tables alone is that relations are the structure a knowledge-base source carries, and how this planner reads a knowledge base is itself unsettled, so an answer shaped for two SQL tables would likely be the wrong shape for a graph. | Whether a `JOIN` is written against a declared relation or against column names a model matched up, and what a knowledge-base source contributes to a plan |
 | 51 | What does a compound operation do with a fragment whose frontier carries rows, before it can read one? `blue.nl2sql` declares bound inputs, so the physical planner offers it groups whose inputs arrive from an earlier fragment. A query written from a source's schema alone would answer from that source and leave those rows out, which is a wrong answer rather than a failure, and refusing the bundle as a recoverable failure is what keeps it from being returned. That refusal costs an operator call on a candidate that could not have worked. Narrowing the declaration instead would stop the candidate being enumerated at all, and would have to be widened again by hand once the operation reads its bundle, so the declaration states the target state and is not narrowed. What is unsettled is whether the refusal should cost a call, and whether a candidate an operator is known to refuse should be enumerated at all. That is question 44's shape: a constraint the declaration has no vocabulary for is stated in `limitations`, and the candidate is offered anyway. | Whether a fragment with a non-empty frontier reaches the compound Blue operation, and what a run spends finding out that it cannot serve one |
 | 52 | Should a group whose node lists reference inputs be offered to an operation declaring one logical operator? Arity is a floor in a plan, so a node may list more inputs than its kind transforms ([10-data-model.md](10-data-model.md#how-many-inputs-a-node-takes)), and the bundle built for such a group carries one table per input the fragment reads, which is more tables than the arity names. An operation reading only the tables its arity names refuses that bundle as a recoverable failure, and the physical planner covers the node set again, so the run spends an operator call on a candidate the cover could have skipped. Nothing in a declaration says whether an operation can read a table without transforming it: `logical_operators` names the kinds an operation covers and no field carries the rest, which is the shape questions 44 and 51 share. Two routes. The cover compares a node's input count against the arity and offers only operators declared to read a reference input, which needs that field written first. Or the refusal stays where it is and its cost is accepted, on the grounds that what an operation can read moves with its own suite while a hand-written declaration has to be rewritten to follow. | Whether a plan the arity floor admits is one every operator bound to it can run, and what a run spends on a call refused for the length of its bundle |
@@ -1586,3 +1671,4 @@ Design questions first, then defects in the code.
 | 58 | Should the response cache in `llm/client.py` be removed or promoted? `LLMClient` opens a per-directory `diskcache` when a call carries the `llm.cache` property, and nothing in this repository sets that property, so the path answers no caller here. `diskcache` is declared under the `dev` extra alone, so an installed consumer that did request the cache would get an `InvalidSettingError` when its client is built rather than a cache. [05-software-stack.md](05-software-stack.md#what-is-deliberately-absent) says the stack has no model response cache, on the reasoning that a planner's requests carry the catalog, an input sample, and the conversation so far, so a key on the request rarely hits, and what a cache reliably does is make a run's cost depend on invisible state from an earlier run. That reasoning holds for every call the planning components make. What argues for keeping the code is a caller outside the planner reaching `execute_api_call` directly, which is the use the property was written for. Removing it deletes a path nothing calls; keeping it means a runtime dependency and a design row that has to say so. | Whether `llm/` offers a cache at all, and whether `diskcache` becomes a runtime dependency |
 | 59 | Does a model-written pattern need a time bound? `builtin.filter` runs the regular expression the fragment runner writes (ADR-041) with no bound on how long one search takes, so a catastrophically backtracking pattern over a large column could stall one filter call, and nothing in the run loop or the operator stops it. `builtin.nl2table` runs model-written code under the same absence, so the question is not specific to patterns. | Whether an operator call that runs model-written logic is bounded in time, and which component enforces the bound |
 | 60 | Should a value that does not fit the type the cover declared for a column go straight to the cover repair? The physical planner writes each fragment's required output columns and their types, and the fragment runner cannot change them, so no parameter attempt can fix the mismatch: the runner spends its remaining attempts on parameters that cannot help, and each one that reaches the operator is an operator call. Every attempt reaches the cover repair (ADR-047), so the mismatch is visible to the component that can fix it, and what is at stake is the attempts spent first. Against sending it straight on: it needs a third error kind beside recoverable and unrecoverable, or a check in the run loop for one error in particular, and a model that knows which column it filled might still fix the value, as when an operator returns a unit the declaration did not expect. | How many operator calls a wrong type declaration costs before the cover repair sees it |
+| 61 | How does a component find a spelling the values it is shown leave out? A view lists an attribute's most frequent values and the fragment runner sees the first rows of each input (ADR-049), so a spelling that is rare within a column of many distinct values reaches no component. In `codebase_community`, `users.Location` holds `Vienna, Austria` in 42 rows and `Vienna` in 4, and a filter written for `Vienna` returns the 4 rows and reports no error. Three routes. The fragment runner writes a condition that tolerates spelling, such as a pattern for `builtin.filter` (ADR-041), which needs nothing new but relies on the model guessing that the spelling varies. The catalog is searched for stored values matching a term, which `blue-data`'s registry search ranks by, and the matches are shown with the view, which puts a search per condition into prompt writing. Or a lookup is a data operation of its own, which is question 47's shape. | Whether a condition on a text attribute with many distinct values is written against a spelling any component saw |
