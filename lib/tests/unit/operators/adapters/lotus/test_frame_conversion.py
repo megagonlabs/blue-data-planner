@@ -11,7 +11,7 @@ from blue_data_planner.operators.adapters.lotus.frame_conversion import (
     rename_join_columns,
     table_from_frame,
 )
-from blue_data_planner.types import ColumnDataType, OutputColumn, RecoverableOperatorError
+from blue_data_planner.types import ColumnDataType, OutputColumn
 
 
 def test_a_table_crossing_to_a_frame_and_back_is_unchanged() -> None:
@@ -41,18 +41,17 @@ def test_a_numpy_scalar_comes_back_as_a_python_value() -> None:
 
 
 def test_a_joins_side_tags_become_this_repositorys_naming() -> None:
-    """A column both tables carried arrives as the plain name and a '_right' suffix."""
+    """A column both tables carried arrives with a '_left' and a '_right' suffix."""
     frame = pd.DataFrame({"city:left": ["Reno"], "city:right": ["Reno"], "sales": [10]})
 
-    assert list(rename_join_columns(frame).columns) == ["city", "city_right", "sales"]
+    assert list(rename_join_columns(frame).columns) == ["city_left", "city_right", "sales"]
 
 
-def test_a_join_whose_renaming_collides_is_refused() -> None:
-    """Two columns that rename to one name would lose a value, so the call fails recoverably."""
+def test_a_joins_side_tag_whose_name_is_taken_takes_the_first_free_name() -> None:
+    """A suffixed name the frame already holds is not reused, so no value is lost."""
     frame = pd.DataFrame({"city:right": ["Reno"], "city_right": ["Oakland"]})
 
-    with pytest.raises(RecoverableOperatorError):
-        rename_join_columns(frame)
+    assert list(rename_join_columns(frame).columns) == ["city_right_2", "city_right"]
 
 
 @pytest.mark.parametrize("dtype", ["int", "float", "bool"])

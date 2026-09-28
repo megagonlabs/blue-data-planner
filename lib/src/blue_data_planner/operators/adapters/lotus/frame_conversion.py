@@ -4,15 +4,14 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any, cast
 
-from blue_data_planner.types import Data, OutputColumn, RecoverableOperatorError
+from blue_data_planner.types import Data, OutputColumn
 
 if TYPE_CHECKING:
     import pandas as pd  # pyright: ignore[reportMissingTypeStubs]  # pandas ships no py.typed
 
-# LOTUS tags a column both tables carried rather than suffixing the right-hand one, and
-# design/06 fixes '_right' for every JOIN this repository answers.
-_LEFT_TAG = ":left"
-_RIGHT_TAG = ":right"
+# LOTUS tags a column both tables carried with the side it came from, and design/06 fixes
+# '_left' and '_right' for every JOIN this repository answers.
+_SIDE_TAGS = {":left": "_left", ":right": "_right"}
 
 # What a model writes in a text answer when it has no value. Read as missing only in a column
 # declared other than str, where none of them can be a real value; in a str column "None" may be
@@ -40,13 +39,13 @@ def table_from_frame(frame: pd.DataFrame) -> Data:
 def rename_join_columns(frame: pd.DataFrame) -> pd.DataFrame:
     """Return a join's frame with LOTUS's side tags in this repository's naming."""
     # Same reasoning as table_from_frame: frame.columns has no resolved type of its own.
-    columns: list[Any] = list(frame.columns)
-    renamed = {str(name): _join_name(str(name)) for name in columns}
-    if len(set(renamed.values())) != len(renamed):
-        raise RecoverableOperatorError(
-            "a join produced two columns that rename to one name: "
-            f"{', '.join(sorted(renamed.values()))}"
-        )
+    names = [str(name) for name in cast(list[Any], list(frame.columns))]
+    taken = set(names)
+    renamed: dict[str, str] = {}
+    for name in names:
+        new_name = _join_name(name, taken)
+        taken.add(new_name)
+        renamed[name] = new_name
     return frame.rename(columns=renamed)
 
 
@@ -73,12 +72,20 @@ def _is_missing(value: Any, typed: bool) -> bool:
     return not normalized or (typed and normalized in MISSING_VALUE_SPELLINGS)
 
 
-def _join_name(name: str) -> str:
-    if name.endswith(_LEFT_TAG):
-        return name[: -len(_LEFT_TAG)]
-    if name.endswith(_RIGHT_TAG):
-        return f"{name[: -len(_RIGHT_TAG)]}_right"
+def _join_name(name: str, taken: set[str]) -> str:
+    for tag, suffix in _SIDE_TAGS.items():
+        if name.endswith(tag):
+            return _free_name(f"{name[: -len(tag)]}{suffix}", taken)
     return name
+
+
+def _free_name(name: str, taken: set[str]) -> str:
+    if name not in taken:
+        return name
+    suffix = 2
+    while f"{name}_{suffix}" in taken:
+        suffix += 1
+    return f"{name}_{suffix}"
 
 
 def _plain(value: Any, pd: Any) -> Any:

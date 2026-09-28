@@ -24,6 +24,8 @@ $tables
   `sort_rows(table, keys, limit)`, `join_tables(left, right, on, how)`,
   `union_tables(left, right)`. Ordinary Python — comprehensions, string methods, `sorted` — is
   equally available, and often shorter.
+- `join_tables` keeps a key both tables name alike once, and renames any other column both
+  tables hold to `<name>_left` and `<name>_right`.
 - Values are compared as they are stored. Spell a value the way the sample rows spell it.
 
 Answer with the program and nothing else.

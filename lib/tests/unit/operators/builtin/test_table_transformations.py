@@ -179,8 +179,8 @@ def test_a_sort_cuts_the_rows_to_the_limit_it_was_given() -> None:
     assert [row["id"] for row in sorted_rows] == [1, 3]
 
 
-def test_a_join_matches_rows_on_their_keys_and_renames_a_column_that_collides() -> None:
-    """Matched rows merge, and a name both tables carry is kept apart with a suffix."""
+def test_a_join_matches_rows_on_their_keys_and_keeps_both_copies_of_a_shared_column() -> None:
+    """Matched rows merge, and a non-key name both tables carry is suffixed on each side."""
     joined = join_tables(
         [{"id": 1, "name": "Ada"}],
         [{"restaurant_id": 1, "name": "sushi night"}],
@@ -188,7 +188,41 @@ def test_a_join_matches_rows_on_their_keys_and_renames_a_column_that_collides() 
         "inner",
     )
 
-    assert joined == [{"id": 1, "name": "Ada", "restaurant_id": 1, "name_right": "sushi night"}]
+    assert joined == [
+        {"id": 1, "name_left": "Ada", "restaurant_id": 1, "name_right": "sushi night"}
+    ]
+
+
+def test_a_join_keeps_one_copy_of_a_key_both_tables_name_alike() -> None:
+    """A key both tables name alike holds equal values, so it reaches the result once."""
+    joined = join_tables(
+        [{"raceId": 7, "year": 2014}],
+        [{"raceId": 7, "points": 25}],
+        [JoinKey(left_column="raceId", right_column="raceId")],
+        "inner",
+    )
+
+    assert joined == [{"raceId": 7, "year": 2014, "points": 25}]
+
+
+def test_a_join_over_already_suffixed_columns_takes_the_first_free_name() -> None:
+    """A suffixed name an earlier join produced is not reused, and the join still runs."""
+    joined = join_tables(
+        [{"id": 1, "name": "Ada", "name_left": "x", "name_right": "y"}],
+        [{"id": 1, "name": "sushi night"}],
+        [JoinKey(left_column="id", right_column="id")],
+        "inner",
+    )
+
+    assert joined == [
+        {
+            "id": 1,
+            "name_left_2": "Ada",
+            "name_left": "x",
+            "name_right": "y",
+            "name_right_2": "sushi night",
+        }
+    ]
 
 
 def test_a_left_join_keeps_a_row_that_matched_nothing() -> None:
@@ -200,7 +234,7 @@ def test_a_left_join_keeps_a_row_that_matched_nothing() -> None:
         "left",
     )
 
-    assert joined == [{"id": 1, "id_right": 1, "visits": 3}, {"id": 2}]
+    assert joined == [{"id": 1, "visits": 3}, {"id": 2}]
 
 
 def test_a_union_concatenates_the_two_tables_in_order() -> None:

@@ -379,7 +379,7 @@ def test_a_join_reads_both_tables_and_renames_what_they_shared(lotus_stub: Any) 
         [],
     )
 
-    assert result.data == [[{"city": "Reno", "city_right": "Reno", "sales": 10}]]
+    assert result.data == [[{"city_left": "Reno", "city_right": "Reno", "sales": 10}]]
 
 
 def test_a_join_is_refused_when_its_two_tables_multiply_past_the_cap(lotus_stub: Any) -> None:

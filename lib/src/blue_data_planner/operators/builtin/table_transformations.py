@@ -117,10 +117,10 @@ def sort_rows(table: Data, keys: list[SortKey], limit: int | None) -> Data:
 
 
 def join_tables(left: Data, right: Data, on: list[JoinKey], how: JoinKind) -> Data:
-    """Return the rows matching on every key, renaming a right column whose name collides."""
+    """Return the rows matching on every key, with a column both tables hold kept apart."""
     _require_columns(left, [key.left_column for key in on])
     _require_columns(right, [key.right_column for key in on])
-    renames = _right_names(right, _column_names(left))
+    left_renames, right_renames = _joined_names(_column_names(left), _column_names(right), on)
     matches: dict[tuple[Any, ...], Data] = {}
     for row in right:
         key = _hashable(tuple(row.get(pair.right_column) for pair in on), ["a join key"])
@@ -128,11 +128,21 @@ def join_tables(left: Data, right: Data, on: list[JoinKey], how: JoinKind) -> Da
     joined: Data = []
     for row in left:
         key = _hashable(tuple(row.get(pair.left_column) for pair in on), ["a join key"])
+        renamed = {left_renames[name]: value for name, value in row.items()}
         found = matches.get(key, [])
         if not found and how == "left":
-            joined.append(dict(row))
+            joined.append(renamed)
         for match in found:
-            joined.append({**row, **{renames[name]: value for name, value in match.items()}})
+            joined.append(
+                {
+                    **renamed,
+                    **{
+                        right_renames[name]: value
+                        for name, value in match.items()
+                        if name in right_renames
+                    },
+                }
+            )
     return joined
 
 
@@ -397,20 +407,32 @@ def _require_columns(table: Data, columns: list[str]) -> None:
         )
 
 
-def _right_names(right: Data, left_names: set[str]) -> dict[str, str]:
-    right_names = _column_names(right)
-    renames: dict[str, str] = {}
-    for name in sorted(right_names):
-        if name not in left_names:
-            renames[name] = name
-            continue
-        renamed = f"{name}_right"
-        if renamed in left_names or renamed in right_names:
-            raise RecoverableOperatorError(
-                f"a join cannot keep the shared column {name!r} apart: {renamed!r} is taken"
-            )
-        renames[name] = renamed
-    return renames
+def _joined_names(
+    left_names: set[str], right_names: set[str], on: list[JoinKey]
+) -> tuple[dict[str, str], dict[str, str]]:
+    # A key both tables name alike holds equal values in every matched row, so the right copy
+    # is dropped. Any other shared name is renamed on both sides: keeping the left one bare
+    # would let a declaration meaning the right table's column pass the column check silently.
+    shared_keys = {key.right_column for key in on if key.left_column == key.right_column}
+    shared = sorted((left_names & right_names) - shared_keys)
+    left_renames = {name: name for name in left_names}
+    right_renames = {name: name for name in right_names - shared_keys}
+    taken = left_names | right_names
+    for name in shared:
+        left_renames[name] = _free_name(f"{name}_left", taken)
+        taken.add(left_renames[name])
+        right_renames[name] = _free_name(f"{name}_right", taken)
+        taken.add(right_renames[name])
+    return left_renames, right_renames
+
+
+def _free_name(name: str, taken: set[str]) -> str:
+    if name not in taken:
+        return name
+    suffix = 2
+    while f"{name}_{suffix}" in taken:
+        suffix += 1
+    return f"{name}_{suffix}"
 
 
 def _sort_key(value: Any, descending: bool) -> tuple[bool, Any]:

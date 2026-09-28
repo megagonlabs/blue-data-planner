@@ -1556,6 +1556,36 @@ for, and a failure reason lives in that fragment's `FragmentResult` rather than 
 
 ---
 
+## ADR-049 — A Column Both Sides of a Join Hold Is Renamed on Both Sides
+
+**Date:** 2026-09-28
+**Status:** Accepted
+
+**Decision:** `builtin.join` and `lotus.sem_join` name a joined table's columns by one rule. A key
+both tables name alike, matched on equal values, is kept once. Any other column both tables hold
+becomes `<name>_left` and `<name>_right`, and a name already taken gets `_2`, `_3`, and so on
+appended. Neither side keeps the bare name.
+
+**Rationale:** The column check reads a declared column by name and cannot tell which table a value
+came from. When the left table keeps the bare name and only the right one is suffixed, a declaration
+written for the right table's column passes the check holding the left table's values, and the run
+answers from the wrong table with nothing to show it. With both copies renamed, a declaration naming
+the bare column fails the check, the failure lists both columns it could have meant, and either one
+can be declared. The alternative that keeps the bare name and refuses a declaration naming a column
+both inputs hold leaves no way to declare the left one, and no join parameter can answer the
+refusal. A key named alike needs no second copy, since both hold one value in every matched row, and
+dropping it keeps a chain of joins on one key from growing a suffixed copy per join. On TAG-Bench,
+query 952 answered with a race's name for a question about a constructor, and query 49 ended as
+`replan_exhausted` because a later join refused a key an earlier one had already suffixed.
+
+**Consequences:** A declaration or an ending meaning a column both tables held has to name its
+suffixed form, and `builtin.join`'s description states the rule so the physical planner can write
+it from the start. A plan written against the bare name costs one repair where it used to run, which
+is the price of never answering from the wrong side. A join never refuses a table because a suffixed
+name is taken. Whether `blue.join` follows the same rule is open question 61.
+
+---
+
 ## Open Questions
 
 Design questions first, then defects in the code.
@@ -1586,3 +1616,4 @@ Design questions first, then defects in the code.
 | 58 | Should the response cache in `llm/client.py` be removed or promoted? `LLMClient` opens a per-directory `diskcache` when a call carries the `llm.cache` property, and nothing in this repository sets that property, so the path answers no caller here. `diskcache` is declared under the `dev` extra alone, so an installed consumer that did request the cache would get an `InvalidSettingError` when its client is built rather than a cache. [05-software-stack.md](05-software-stack.md#what-is-deliberately-absent) says the stack has no model response cache, on the reasoning that a planner's requests carry the catalog, an input sample, and the conversation so far, so a key on the request rarely hits, and what a cache reliably does is make a run's cost depend on invisible state from an earlier run. That reasoning holds for every call the planning components make. What argues for keeping the code is a caller outside the planner reaching `execute_api_call` directly, which is the use the property was written for. Removing it deletes a path nothing calls; keeping it means a runtime dependency and a design row that has to say so. | Whether `llm/` offers a cache at all, and whether `diskcache` becomes a runtime dependency |
 | 59 | Does a model-written pattern need a time bound? `builtin.filter` runs the regular expression the fragment runner writes (ADR-041) with no bound on how long one search takes, so a catastrophically backtracking pattern over a large column could stall one filter call, and nothing in the run loop or the operator stops it. `builtin.nl2table` runs model-written code under the same absence, so the question is not specific to patterns. | Whether an operator call that runs model-written logic is bounded in time, and which component enforces the bound |
 | 60 | Should a value that does not fit the type the cover declared for a column go straight to the cover repair? The physical planner writes each fragment's required output columns and their types, and the fragment runner cannot change them, so no parameter attempt can fix the mismatch: the runner spends its remaining attempts on parameters that cannot help, and each one that reaches the operator is an operator call. Every attempt reaches the cover repair (ADR-047), so the mismatch is visible to the component that can fix it, and what is at stake is the attempts spent first. Against sending it straight on: it needs a third error kind beside recoverable and unrecoverable, or a check in the run loop for one error in particular, and a model that knows which column it filled might still fix the value, as when an operator returns a unit the declaration did not expect. | How many operator calls a wrong type declaration costs before the cover repair sees it |
+| 61 | Should `blue.join` name a joined table's columns by ADR-049's rule? `builtin.join` and `lotus.sem_join` keep a key named alike once and suffix any other shared column `_left` and `_right`, so a declaration written for one reads the other's output. `blue.join` takes its suffixes as a parameter, so the adapter could fix them to `_left` and `_right`, or leave them to the fragment runner, which then has to know the rule to write a declaration that matches. Neither makes `blue.join` drop a key's second copy. | Whether a plan's declared columns mean the same thing whichever suite runs its join |

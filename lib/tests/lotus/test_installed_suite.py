@@ -134,4 +134,4 @@ def test_a_join_matches_the_two_tables_and_renames_what_they_shared(provider: No
     assert result.status.value == "ok"
     assert result.output is not None
     assert result.output[0]
-    assert "city_right" in result.output[0][0]
+    assert {"city_left", "city_right"} <= set(result.output[0][0])

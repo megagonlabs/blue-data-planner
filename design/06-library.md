@@ -985,6 +985,14 @@ and one compound operation, `builtin.nl2table`, that writes a Python program fro
 instruction and runs it. It reaches the router the same way an adapter's operations do, through a
 function returning a list.
 
+A join keeps apart a column both of its tables hold, and `builtin.join` and `lotus.sem_join` name
+the joined table by one rule, so a declaration written for one reads the other's output. A key both
+tables name alike, matched on equal values, is kept once, since its two copies hold one value in
+every matched row. Any other column both tables hold becomes `<name>_left` and `<name>_right`, with
+`_2`, `_3`, and so on appended to a name already taken. Neither side keeps the bare name, so a
+declaration naming it fails the column check, and the failure lists both columns it could have
+meant (ADR-049).
+
 `__init__.py` exports the router, `OperatorSuite`, `operator_suite`, and `OPERATOR_SUITE_NAMES`,
 and nothing of a suite itself. Every suite is imported from the module named
 for it, an outside suite's from `adapters/`, which re-exports no adapter of its own. Importing the
