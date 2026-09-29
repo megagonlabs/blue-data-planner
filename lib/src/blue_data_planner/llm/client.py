@@ -36,9 +36,10 @@ _RESERVED_FIELDS = {"api", "service_url"}
 @dataclass
 class UsageRecord:
     model: str
-    prompt_tokens: int = 0
-    completion_tokens: int = 0
-    cost: float = 0.0
+    # None when the provider did not report it, or litellm holds no price for the model.
+    prompt_tokens: int | None = 0
+    completion_tokens: int | None = 0
+    cost: float | None = 0.0
     latency_seconds: float = 0.0
     cache_hit: bool = False
 
@@ -53,22 +54,18 @@ class UsageLedger:
         self.records.append(record)
 
     @property
-    def total_cost(self) -> float:
-        return sum(r.cost for r in self.records)
+    def total_cost(self) -> float | None:
+        costs = [record.cost for record in self.records]
+        return None if None in costs else sum(cost for cost in costs if cost is not None)
 
     @property
-    def total_tokens(self) -> int:
-        return sum(r.prompt_tokens + r.completion_tokens for r in self.records)
-
-
-def _safe_int(value: Any) -> int:
-    # Accounting must never raise — the contract is total. Any inconvertible value
-    # (junk strings, inf/NaN => OverflowError/ValueError, Decimal('NaN'), objects)
-    # counts as zero.
-    try:
-        return int(value or 0)
-    except Exception:
-        return 0
+    def total_tokens(self) -> int | None:
+        counts = [
+            count
+            for record in self.records
+            for count in (record.prompt_tokens, record.completion_tokens)
+        ]
+        return None if None in counts else sum(count for count in counts if count is not None)
 
 
 class LLMClient:
@@ -244,16 +241,15 @@ class LLMClient:
         payload: dict[str, Any],
         started: float,
         cache_hit: bool,
-        cost: float = 0.0,
+        cost: float | None = 0.0,
     ) -> UsageRecord:
-        usage: dict[str, Any] = {}
-        raw_usage: Any = payload.get("usage")
-        if isinstance(raw_usage, dict):
-            usage = raw_usage  # pyright: ignore[reportUnknownVariableType]
+        # A cache hit reaches no provider, so it spent nothing. Otherwise the usage block was
+        # checked when the response was materialized.
+        usage: dict[str, Any] = {} if cache_hit else payload["usage"]
         record = UsageRecord(
             model=str(kwargs.get("model")),
-            prompt_tokens=0 if cache_hit else _safe_int(usage.get("prompt_tokens")),
-            completion_tokens=0 if cache_hit else _safe_int(usage.get("completion_tokens")),
+            prompt_tokens=0 if cache_hit else usage.get("prompt_tokens"),
+            completion_tokens=0 if cache_hit else usage.get("completion_tokens"),
             cost=0.0 if cache_hit else cost,
             latency_seconds=time.monotonic() - started,  # end-to-end, incl. retries
             cache_hit=cache_hit,
@@ -268,8 +264,8 @@ class LLMClient:
         wait=wait_exponential(multiplier=0.1, max=2),
         reraise=True,
     )
-    def _call_provider(self, kwargs: dict[str, Any]) -> tuple[dict[str, Any], float]:
-        import litellm  # lazy: the llm extra is optional; tests stub this module
+    def _call_provider(self, kwargs: dict[str, Any]) -> tuple[dict[str, Any], float | None]:
+        import litellm  # lazy, so the default test run can put its stub in place first
 
         try:
             response: Any = litellm.completion(**kwargs)
@@ -283,7 +279,7 @@ class LLMClient:
         wait=wait_exponential(multiplier=0.1, max=2),
         reraise=True,
     )
-    async def _acall_provider(self, kwargs: dict[str, Any]) -> tuple[dict[str, Any], float]:
+    async def _acall_provider(self, kwargs: dict[str, Any]) -> tuple[dict[str, Any], float | None]:
         import litellm  # lazy — same boundary as the sync path
 
         try:
@@ -292,7 +288,7 @@ class LLMClient:
             raise LLMError(str(e), code="provider_error", provider_error=e) from e
         return self._materialize(response)
 
-    def _materialize(self, response: Any) -> tuple[dict[str, Any], float]:
+    def _materialize(self, response: Any) -> tuple[dict[str, Any], float | None]:
         # Everything between the provider return and a validated OpenAI-shaped dict is
         # provider-response territory: failures here are wrapped, chained LLMErrors.
         try:
@@ -310,16 +306,35 @@ class LLMClient:
                 code="bad_response",
             )
         payload: dict[str, Any] = dict(raw)  # pyright: ignore[reportUnknownArgumentType]
+        _check_usage(payload.get("usage"))
         return payload, self._completion_cost(response)
 
     @staticmethod
-    def _completion_cost(response: Any) -> float:
+    def _completion_cost(response: Any) -> float | None:
         try:
             import litellm
 
             return float(litellm.completion_cost(completion_response=response))
         except Exception:
-            return 0.0
+            # litellm raises a bare Exception for a model it holds no price for. The call itself
+            # succeeded, so its cost is recorded as unknown rather than failing the call.
+            return None
+
+
+def _check_usage(usage: Any) -> None:
+    # A count the provider leaves out is unknown; one it sends in a shape no count has is a
+    # malformed response, like any other.
+    if not isinstance(usage, dict):
+        raise LLMError("provider response carries no usage block", code="bad_response")
+    for key in ("prompt_tokens", "completion_tokens"):
+        count: Any = cast("dict[str, Any]", usage).get(key)
+        if count is not None and (
+            isinstance(count, bool) or not isinstance(count, int) or count < 0
+        ):
+            raise LLMError(
+                f"provider reported {key} as {count!r}, which is not a token count",
+                code="bad_response",
+            )
 
 
 def _check_settings(properties: dict[str, Any], default_prefix: str) -> None:

@@ -145,34 +145,70 @@ def test_model_dump_failure_wrapped(monkeypatch: pytest.MonkeyPatch) -> None:
     assert isinstance(excinfo.value.__cause__, RuntimeError)
 
 
-def test_dict_shaped_junk_usage_does_not_leak(monkeypatch: pytest.MonkeyPatch) -> None:
-    # Dict-shaped usage with junk field values must count as zero, never raise.
-    payload = {"choices": [{"message": {"content": "x"}}], "usage": {"prompt_tokens": "junk"}}
+def a_client_answered_with(monkeypatch: pytest.MonkeyPatch, usage: Any) -> LLMClient:
+    """A client whose provider answers "x" with the usage block given, or none for _MISSING."""
+    payload: dict[str, Any] = {"choices": [{"message": {"content": "x"}}]}
+    if usage is not _MISSING:
+        payload["usage"] = usage
 
     def fake(**kw: Any) -> Any:
         return payload
 
     monkeypatch.setattr(litellm, "completion", fake)
-    client = LLMClient("test", PROPS)
-    assert client.execute_api_call("hi") == "x"
-    assert client.ledger.records[-1].prompt_tokens == 0
+    return LLMClient("test", PROPS)
+
+
+_MISSING = object()
 
 
 @pytest.mark.parametrize(
-    "junk",
-    ["junk", float("inf"), float("nan"), object(), [1]],
-    ids=["str", "inf", "nan", "obj", "list"],
+    "usage",
+    [
+        _MISSING,
+        "bad",
+        {"prompt_tokens": "junk"},
+        {"prompt_tokens": float("inf")},
+        {"prompt_tokens": float("nan")},
+        {"prompt_tokens": object()},
+        {"prompt_tokens": [1]},
+        {"prompt_tokens": -1},
+        {"prompt_tokens": True},
+    ],
+    ids=["missing", "not-a-mapping", "str", "inf", "nan", "obj", "list", "negative", "bool"],
 )
-def test_any_junk_usage_value_counts_as_zero(junk: Any, monkeypatch: pytest.MonkeyPatch) -> None:
-    payload = {"choices": [{"message": {"content": "x"}}], "usage": {"prompt_tokens": junk}}
+def test_a_response_whose_usage_is_no_token_count_fails_the_call(
+    usage: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A usage block that is absent or malformed is a malformed response, not zero tokens."""
+    client = a_client_answered_with(monkeypatch, usage)
 
-    def fake(**kw: Any) -> Any:
-        return payload
+    with pytest.raises(LLMError, match="usage|token count"):
+        client.execute_api_call("hi")
 
-    monkeypatch.setattr(litellm, "completion", fake)
-    client = LLMClient("test", PROPS)
+
+def test_a_token_count_the_provider_leaves_out_is_recorded_as_unknown(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A count the provider did not send is unknown, so it is recorded as None rather than 0."""
+    client = a_client_answered_with(monkeypatch, {"completion_tokens": 3})
+
     assert client.execute_api_call("hi") == "x"
-    assert client.ledger.records[-1].prompt_tokens == 0
+    assert client.ledger.records[-1].prompt_tokens is None
+    assert client.ledger.total_tokens is None
+
+
+def test_a_model_with_no_known_price_has_an_unknown_cost(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The call succeeds, and its cost, and so the ledger's total, are recorded as unknown."""
+
+    def no_price(completion_response: Any) -> float:
+        raise Exception("This model isn't mapped yet.")  # litellm raises a bare Exception
+
+    monkeypatch.setattr(litellm, "completion_cost", no_price)
+    client = LLMClient("test", PROPS)
+
+    assert client.execute_api_call("hi") == "echo:hi"
+    assert client.ledger.records[-1].cost is None
+    assert client.ledger.total_cost is None
 
 
 def test_shape_failures_have_no_cause_by_design(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -184,19 +220,6 @@ def test_shape_failures_have_no_cause_by_design(monkeypatch: pytest.MonkeyPatch)
     with pytest.raises(LLMError) as excinfo:
         client.execute_api_call("hi")
     assert excinfo.value.__cause__ is None  # pure validation: no underlying exception
-
-
-def test_malformed_usage_does_not_leak(monkeypatch: pytest.MonkeyPatch) -> None:
-    payload = {"choices": [{"message": {"content": "x"}}], "usage": "bad"}
-
-    def fake(**kw: Any) -> Any:
-        return payload
-
-    monkeypatch.setattr(litellm, "completion", fake)
-    client = LLMClient("test", PROPS)
-    out = client.execute_api_call("hi")  # non-dict usage: zeros, no raise
-    assert out == "x"
-    assert client.ledger.records[-1].prompt_tokens == 0
 
 
 # --- prefix fallback (client name) ---
