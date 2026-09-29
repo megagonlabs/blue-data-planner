@@ -488,6 +488,130 @@ def test_a_stray_cell_of_another_category_matches_nothing_and_the_rest_are_answe
     assert [row["v"] for row in kept] == expected
 
 
+def a_comparison_of_v(operator: str, **operand: Any) -> dict[str, Any]:
+    """Return a comparison of column v, given the right-hand side its operator needs."""
+    return {"left": a_column("v"), "operator": operator, **operand}
+
+
+@pytest.mark.parametrize(
+    ("column", "comparison", "expected"),
+    [
+        pytest.param(
+            ["N/A", 5, 9], a_comparison_of_v("eq", right=a_literal(5)), [9], id="eq_over_a_stray"
+        ),
+        pytest.param(
+            [None, 5, 9], a_comparison_of_v("eq", right=a_literal(5)), [9], id="eq_over_a_missing"
+        ),
+        pytest.param(
+            ["N/A", 5, 9], a_comparison_of_v("lt", right=a_literal(6)), [9], id="lt_over_a_stray"
+        ),
+        pytest.param(
+            [None, 5, 9], a_comparison_of_v("lt", right=a_literal(6)), [9], id="lt_over_a_missing"
+        ),
+        pytest.param(["N/A", 5, 9], a_comparison_of_v("in", values=[5]), [9], id="in_over_a_stray"),
+        pytest.param(
+            [None, 5, 9], a_comparison_of_v("in", values=[5]), [9], id="in_over_a_missing"
+        ),
+        pytest.param(
+            [None, 5], a_comparison_of_v("in", values=[]), [5], id="in_an_empty_list_over_a_missing"
+        ),
+        pytest.param(
+            [5, "abc", "xyz"],
+            a_comparison_of_v("contains", right=a_literal("b")),
+            ["xyz"],
+            id="contains_over_a_stray",
+        ),
+        pytest.param(
+            [None, "abc", "xyz"],
+            a_comparison_of_v("contains", right=a_literal("b")),
+            ["xyz"],
+            id="contains_over_a_missing",
+        ),
+        pytest.param(
+            [5, "abc", "xyz"],
+            a_comparison_of_v("re.search", pattern="^a"),
+            ["xyz"],
+            id="re_search_over_a_stray",
+        ),
+        pytest.param(
+            [None, "abc", "xyz"],
+            a_comparison_of_v("re.search", pattern="^a"),
+            ["xyz"],
+            id="re_search_over_a_missing",
+        ),
+    ],
+)
+def test_a_negated_comparison_keeps_only_the_rows_where_it_is_false_never_where_unknown(
+    column: list[Any], comparison: dict[str, Any], expected: list[Any]
+) -> None:
+    """A stray or missing cell makes a comparison unknown, and not of unknown is unknown, so
+    only the rows where the comparison is false are kept."""
+    kept = filter_rows([{"v": value} for value in column], a_predicate({"not": comparison}))
+
+    assert [row["v"] for row in kept] == expected
+
+
+def test_a_not_equal_comparison_and_a_negated_equal_comparison_keep_the_same_rows() -> None:
+    """Over a stray cell and a missing value, ne and not eq agree, as they do in SQL."""
+    table: Data = [{"v": "N/A"}, {"v": None}, {"v": 5}, {"v": 9}]
+    comparison = a_comparison_of_v("eq", right=a_literal(5))
+
+    negated = filter_rows(table, a_predicate({"not": comparison}))
+    not_equal = filter_rows(table, a_predicate({**comparison, "operator": "ne"}))
+
+    assert negated == not_equal == [{"v": 9}]
+
+
+def an_unknown() -> dict[str, Any]:
+    """Return a comparison that is unknown for the stray row below, whose u is a string."""
+    return {"left": a_column("u"), "operator": "eq", "right": a_literal(5)}
+
+
+def a_true() -> dict[str, Any]:
+    """Return a comparison that is true for the rows below."""
+    return {"left": a_column("t"), "operator": "eq", "right": a_literal(1)}
+
+
+def a_false() -> dict[str, Any]:
+    """Return a comparison that is false for the rows below."""
+    return {"left": a_column("t"), "operator": "eq", "right": a_literal(2)}
+
+
+@pytest.mark.parametrize(
+    ("predicate", "is_kept"),
+    [
+        pytest.param({"or": [an_unknown(), a_true()]}, True, id="or_of_unknown_and_true"),
+        pytest.param({"or": [an_unknown(), a_false()]}, False, id="or_of_unknown_and_false"),
+        pytest.param({"and": [an_unknown(), a_true()]}, False, id="and_of_unknown_and_true"),
+        pytest.param({"and": [an_unknown(), a_false()]}, False, id="and_of_unknown_and_false"),
+        pytest.param(
+            {"not": {"and": [an_unknown(), a_false()]}}, True, id="not_of_and_of_unknown_and_false"
+        ),
+        pytest.param(
+            {"not": {"or": [an_unknown(), a_false()]}}, False, id="not_of_or_of_unknown_and_false"
+        ),
+        pytest.param(
+            {"not": {"and": [an_unknown(), a_true()]}}, False, id="not_of_and_of_unknown_and_true"
+        ),
+        pytest.param(
+            {"not": {"or": [an_unknown(), a_true()]}}, False, id="not_of_or_of_unknown_and_true"
+        ),
+    ],
+)
+def test_and_and_or_combine_an_unknown_comparison_as_sql_does(
+    predicate: dict[str, Any], is_kept: bool
+) -> None:
+    """And is false when any condition is false and unknown otherwise unless all are true; or is
+    true when any is true; only a true predicate keeps the row."""
+    stray = {"u": "N/A", "t": 1}
+    # A second row with a number in u keeps the whole-table check from refusing the comparison.
+    table: Data = [stray, {"u": 6, "t": 1}]
+
+    kept = filter_rows(table, a_predicate(predicate))
+
+    assert (stray in kept) is is_kept
+
+
 def a_column_of_decimals() -> Data:
     """Four rows of a SQL NUMERIC column, one of them NaN."""
     return [
@@ -519,12 +643,60 @@ def a_column_of_decimals() -> Data:
         ),
     ],
 )
-def test_a_decimal_column_is_compared_as_the_float_it_holds(
+def test_a_decimal_column_is_compared_exactly_against_a_float_literal_written_as_text(
     predicate: dict[str, Any], expected: list[Any]
 ) -> None:
-    """A Decimal cell compares against a float literal as the float it holds, so 4.20 equals
+    """A float literal meets a Decimal cell as the decimal text it is written with, so 4.20 equals
     4.2, and a Decimal NaN matches nothing, as a float NaN does."""
     kept = filter_rows(a_column_of_decimals(), a_predicate(predicate))
+
+    assert [row["v"] for row in kept] == expected
+
+
+@pytest.mark.parametrize(
+    ("table", "predicate", "expected"),
+    [
+        pytest.param(
+            [{"v": Decimal(2**53 + 1)}, {"v": Decimal(2**53)}],
+            a_comparison_of_v("eq", right=a_literal(2**53 + 1)),
+            [Decimal(2**53 + 1)],
+            id="a_whole_number_above_2_to_the_53_equals_the_same_int",
+        ),
+        pytest.param(
+            [{"v": Decimal(2**53 + 1)}, {"v": Decimal(2**53)}],
+            a_comparison_of_v("in", values=[2**53 + 1]),
+            [Decimal(2**53 + 1)],
+            id="a_whole_number_above_2_to_the_53_is_in_a_list_holding_the_same_int",
+        ),
+        pytest.param(
+            [
+                {"v": Decimal("1.00000000000000000002"), "w": Decimal("1.00000000000000000001")},
+                {"v": Decimal("1.00000000000000000001"), "w": Decimal("1.00000000000000000001")},
+            ],
+            {"left": a_column("v"), "operator": "gt", "right": a_column("w")},
+            [Decimal("1.00000000000000000002")],
+            id="two_decimal_columns_differing_beyond_float_precision",
+        ),
+        pytest.param(
+            [{"v": Decimal("sNaN")}, {"v": Decimal("1")}],
+            a_comparison_of_v("lt", right=a_literal(2.0)),
+            [Decimal("1")],
+            id="a_signaling_nan_matches_nothing_and_raises_nothing",
+        ),
+        pytest.param(
+            [{"v": Decimal("sNaN")}, {"v": Decimal("1")}],
+            a_comparison_of_v("eq", right=a_literal(1)),
+            [Decimal("1")],
+            id="a_signaling_nan_matches_no_int",
+        ),
+    ],
+)
+def test_a_decimal_comparison_is_exact_and_never_raises_on_a_nan(
+    table: Data, predicate: dict[str, Any], expected: list[Any]
+) -> None:
+    """Decimals compare exactly with ints, floats written as text, and each other; a NaN cell
+    of either kind matches nothing under eq or an ordering operator."""
+    kept = filter_rows(table, a_predicate(predicate))
 
     assert [row["v"] for row in kept] == expected
 

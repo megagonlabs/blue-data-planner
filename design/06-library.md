@@ -1247,9 +1247,16 @@ failure, as is one whose operand shares no type with the other side or with its 
 The types are string, number, and bool, and a decimal number counts as a number. A bool is its own
 type and counts as a number only against a list of literals. A substring or pattern search over an
 operand holding no strings, and a pattern that does not compile, are refused the same way, since the
-parameters are wrong for the table. Afterwards, a row whose two values differ in type, or that is
-missing a value, does not match, except that the missing-value test matches exactly the rows missing
-one, so a few stray cells in an otherwise uniform column leave the rest of the answer intact.
+parameters are wrong for the table. Afterwards, each row is evaluated as SQL evaluates it, and a
+comparison is true, false, or unknown. It is unknown when a value it reads is missing or when the
+row's two values differ in type, and the missing-value test is always true or false. A negated
+unknown is unknown; and is false when any condition is false, else unknown when any is unknown; or
+is true when any condition is true, else unknown when any is unknown. The filter keeps only the rows
+whose predicate is true, so a few stray cells in an otherwise uniform column leave the rest of the
+answer intact, and a negated comparison and its opposite operator keep the same rows. A value
+tested against an empty list of literals is false, as in SQL. A decimal number compares exactly
+with an integer and with another decimal number. A floating-point value meeting a decimal number is
+read as the shortest decimal that prints it, so 4.20 equals 4.2.
 
 `builtin.scan` is the suite's one source-reading deterministic entry, and it reads through `data/`.
 It declares `SCAN` alone: it groups no `FILTER` and no `PROJECT`, and either kind of node downstream

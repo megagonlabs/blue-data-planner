@@ -43,7 +43,7 @@ def filter_rows(table: Data, predicate: Predicate) -> Data:
     """Return the rows the predicate accepts."""
     _require_columns(table, _predicate_columns(predicate))
     _require_comparable_predicate(table, predicate)
-    return [row for row in table if _holds(row, predicate)]
+    return [row for row in table if _holds(row, predicate) is True]
 
 
 def project_columns(table: Data, columns: list[ProjectedColumn]) -> Data:
@@ -163,34 +163,48 @@ def union_tables(left: Data, right: Data) -> Data:
     return list(left) + list(right)
 
 
-def _holds(row: Record, predicate: Predicate) -> bool:
+def _holds(row: Record, predicate: Predicate) -> bool | None:
+    # SQL's three-valued logic, with None as unknown: a plan written as SQL then keeps the rows
+    # SQL would, and a comparison and its negation agree on a stray or missing cell.
     if isinstance(predicate, AndPredicate):
-        return all(_holds(row, condition) for condition in predicate.conditions)
+        outcomes = [_holds(row, condition) for condition in predicate.conditions]
+        if False in outcomes:
+            return False
+        return None if None in outcomes else True
     if isinstance(predicate, OrPredicate):
-        return any(_holds(row, condition) for condition in predicate.conditions)
+        outcomes = [_holds(row, condition) for condition in predicate.conditions]
+        if True in outcomes:
+            return True
+        return None if None in outcomes else False
     if isinstance(predicate, NotPredicate):
-        return not _holds(row, predicate.condition)
+        outcome = _holds(row, predicate.condition)
+        return None if outcome is None else not outcome
     return _compares(row, predicate)
 
 
-def _compares(row: Record, comparison: Comparison) -> bool:
+def _compares(row: Record, comparison: Comparison) -> bool | None:
     if isinstance(comparison, NullComparison):
         return _operand_value(row, comparison.operand) is None
     left = _operand_value(row, comparison.left)
-    # A missing value satisfies no comparison; is_null is how a plan asks about one.
+    # A missing value makes a comparison unknown; is_null is how a plan asks about one.
     if left is None:
-        return False
+        return None
     if isinstance(comparison, MembershipComparison):
-        return left in comparison.values
+        return _is_member(left, comparison.values)
     if isinstance(comparison, PatternComparison):
-        return isinstance(left, str) and re.search(comparison.pattern, left) is not None
+        if not isinstance(left, str):
+            return None
+        return re.search(comparison.pattern, left) is not None
     right = _operand_value(row, comparison.right)
-    # A stray cell of another category does not match; a comparison the whole table
-    # contradicts was already refused before filtering (_require_comparable_predicate).
+    # A stray cell of another category makes the comparison unknown; a comparison the whole
+    # table contradicts was already refused before filtering (_require_comparable_predicate).
     if right is None or _category(left) != _category(right):
-        return False
+        return None
     if comparison.operator == "contains":
-        return isinstance(left, str) and right in left
+        if not isinstance(left, str):
+            return None
+        return right in left
+    left, right = _aligned(left, right)
     try:
         return bool(_BINARY_OPERATORS[comparison.operator](left, right))
     except TypeError:
@@ -202,27 +216,47 @@ def _compares(row: Record, comparison: Comparison) -> bool:
         ) from None
 
 
+def _is_member(value: Any, options: list[Any]) -> bool | None:
+    # A value against an empty list is false, as SQL's IN () is; a value of a category the
+    # list lacks is a stray cell, which makes the test unknown.
+    if not options:
+        return False
+    if _membership_category(value) not in {_membership_category(option) for option in options}:
+        return None
+    return any(eq(*_aligned(value, option)) for option in options)
+
+
 def _operand_value(row: Record, operand: Operand) -> Any:
     if isinstance(operand, ValueOperand):
         return operand.value
-    return _as_float_if_decimal(row.get(operand.column))
+    return row.get(operand.column)
 
 
 def _operand_values(table: Data, operand: Operand) -> list[Any]:
     if isinstance(operand, ValueOperand):
         return [operand.value]
-    return [
-        _as_float_if_decimal(row[operand.column])
-        for row in table
-        if row.get(operand.column) is not None
-    ]
+    return [row[operand.column] for row in table if row.get(operand.column) is not None]
 
 
-def _as_float_if_decimal(value: Any) -> Any:
-    # A SQL NUMERIC column arrives as Decimal, and Python compares a Decimal with a float
-    # exactly, so Decimal("4.20") != 4.2; read as a float, it equals the literal a plan writes.
-    # A Decimal NaN becomes a float NaN, which every comparison answers False without raising.
-    return float(value) if isinstance(value, Decimal) else value
+def _aligned(left: Any, right: Any) -> tuple[Any, Any]:
+    # Keeps every comparison involving a SQL NUMERIC column (a Decimal) exact. Python already
+    # compares a Decimal with an int exactly, but a float carries binary noise (Decimal("4.20")
+    # != 4.2), so a float meeting a Decimal is read as the shortest decimal that prints it. A NaN
+    # of either kind becomes a float NaN on both sides: Decimal raises on an ordering with a NaN
+    # (always with a signaling one), where a float NaN just matches nothing.
+    if not isinstance(left, Decimal) and not isinstance(right, Decimal):
+        return left, right
+    if _is_nan(left) or _is_nan(right):
+        return float("nan"), float("nan")
+    return _as_decimal_if_float(left), _as_decimal_if_float(right)
+
+
+def _is_nan(value: Any) -> bool:
+    return value.is_nan() if isinstance(value, Decimal) else value != value
+
+
+def _as_decimal_if_float(value: Any) -> Any:
+    return Decimal(repr(value)) if isinstance(value, float) else value
 
 
 def _described(operand: Operand) -> str:
@@ -233,15 +267,15 @@ def _described(operand: Operand) -> str:
 
 def _category(value: Any) -> type | None:
     # A category groups the shapes a plan should never treat as interchangeable: a string, a
-    # number, or a bool, the same split _numbers makes. A Decimal was already read as a float
-    # (_as_float_if_decimal). A missing value has no category; the checks skip it.
+    # number, or a bool, the same split _numbers makes. A Decimal is a number. A missing value
+    # has no category; the checks skip it.
     if value is None:
         return None
     if isinstance(value, bool):
         return bool
     if isinstance(value, str):
         return str
-    if isinstance(value, int | float):
+    if isinstance(value, int | float | Decimal):
         return float
     return type(value)  # pyright: ignore[reportUnknownVariableType]
 
@@ -260,7 +294,7 @@ def _require_comparable_predicate(table: Data, predicate: Predicate) -> None:
     # Checked once over the whole table before filtering starts, and refused only when the table
     # as a whole contradicts a comparison: a per-row refusal would abort a filter that a column
     # mostly of one category was answering correctly, on one dirty cell (an occasional "N/A" in
-    # an otherwise numeric column, say); _compares leaves that row unmatched. What each kind of
+    # an otherwise numeric column, say); _compares leaves that row unknown. What each kind of
     # comparison is checked for is in _require_comparable_comparison.
     if isinstance(predicate, AndPredicate | OrPredicate):
         for condition in predicate.conditions:
@@ -274,7 +308,7 @@ def _require_comparable_predicate(table: Data, predicate: Predicate) -> None:
 
 def _require_comparable_comparison(table: Data, comparison: Comparison) -> None:
     # Refuses what the whole table contradicts, which means the parameters are wrong; a row
-    # whose values merely differ in category is left to _compares, which does not match it.
+    # whose values merely differ in category is left to _compares, which makes it unknown.
     if isinstance(comparison, NullComparison):
         return
     left = _operand_values(table, comparison.left)

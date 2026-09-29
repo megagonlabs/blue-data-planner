@@ -1689,20 +1689,27 @@ comparison is checked once over the whole table before filtering and refused as 
 names a column the table does not have, or when an operand shares no type with the other side or
 with its list of literals (a bool is its own type, and counts as a number only against a list of
 literals). `contains` or `re.search` over an operand holding no strings, and a pattern that does not
-compile, are refused the same way. A row whose values differ in type, or that misses a value, does
-not match, except that `is_null` matches exactly the rows missing one.
+compile, are refused the same way. Each row is then evaluated with SQL's three-valued logic: a
+comparison is unknown when a value is missing or the row's values differ in type, `is_null` is
+always true or false, `not` of unknown is unknown, `and` is false when any condition is false and
+otherwise unknown when any is unknown, `or` is true when any condition is true and otherwise unknown
+when any is unknown, and only rows whose predicate is true are kept. A value against an empty `in`
+list is false. A decimal number compares exactly, and a floating-point value meeting one is read as
+the shortest decimal that prints it.
 
 **Rationale:** A logical `FILTER` may compare two columns of one row, as a plan counting two things
 per group and keeping the groups where the counts agree does, and a predicate that can compare a
 column only with a literal leaves that node no built-in operator. Giving both sides of every
 comparison the same operand shape states column-to-column comparison without a variant of its own,
 keeps one type rule and one missing-value rule for every comparison, and follows the SQL form the
-models writing parameters already know. A null literal is left out because a comparison against it
-is never true in SQL and a missing value already has `is_null`. Separating the whole-table check
-from the per-row one tells a wrong plan from dirty data: a column wholly of another type means the
-parameters are wrong and the parameter repair should rewrite them, while one stray cell in an
-otherwise uniform column should not cost an answer the rest of the column gives. On TAG-Bench,
-query 61 spent 30 operator calls on a filter asked to keep cities where two counts are equal.
+models writing parameters already know. SQL's rule for unknown is used so that a negated comparison
+and its opposite operator keep the same rows, and a plan written from SQL filters the same rows. A
+null literal is left out because a comparison against it is never true in SQL and a missing value
+already has `is_null`. Separating the whole-table check from the per-row one tells a wrong plan from
+dirty data: a column wholly of another type means the parameters are wrong and the parameter repair
+should rewrite them, while one stray cell in an otherwise uniform column should not cost an answer
+the rest of the column gives. On TAG-Bench, query 61 spent 30 operator calls on a filter asked to
+keep cities where two counts are equal.
 
 **Consequences:** A comparison written against a column, or with a literal on the left, needs no
 separate operator. The ordering operators, `contains`, and `re.search` no longer refuse a table for
