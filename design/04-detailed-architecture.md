@@ -551,6 +551,12 @@ single statement of what it owes, and the review asks whether the rows answer it
 handed a semantic predicate it cannot express in SQL tends to return rows that ignore the predicate,
 and the instruction carrying that predicate is the reason there is anything to notice.
 
+The review judges the rows against evidence the attempt did not produce: the fragment's input
+tables, the attribute values of the entities it scans, and facts the model knows. Agreement with
+the attempt's own parameters is no reason to accept. Where the operator judges each row with a
+language model, the review rejects for an instruction left unapplied, such as a condition ignored
+or a score equal across every row, and not for a row it would have judged differently.
+
 The rows are what the review judges. Which columns they carry is settled before the review sees
 them, by the check against the fragment's declared columns.
 

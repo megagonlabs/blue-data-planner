@@ -21,6 +21,17 @@ A single call asked to scan, filter, and join returns one table and no evidence 
 it, so hold the rows against everything the instruction asks for. A call handed a condition it
 cannot express tends to return rows that ignore the condition.
 
+Judge the rows against what you can check yourself: the tables the fragment was handed, the
+attribute values shown, and facts you know. The parameters and the rows say what the attempt did,
+not whether it was right, so agreeing with them is no reason to accept. Reject a result this
+evidence contradicts, such as a condition that matched nothing because the input spells its value
+another way, or a ranking that a fact you know shows is wrong.
+
+When the operator judges each row with a language model, whether a borderline row belongs is the
+operator's call. Reject such a result for an instruction it did not carry out, not for a row you
+would have judged differently: a condition it ignored, or a score equal on every row, which ranks
+nothing.
+
 The row count is the size of the whole result. The rows listed under it are only the first few, and
 a `(+N more row(s))` line counts the ones left out. The same holds for the tables the fragment was
 handed. Never reject a result because it lists fewer rows than its count.

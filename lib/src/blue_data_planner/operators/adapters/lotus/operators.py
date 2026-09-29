@@ -56,7 +56,12 @@ class _Entry:
     parameter_schema: type[BaseModel]
     run: _Run
     limitations: str | None = None
-    row_cap: str = "read more than {max_rows} rows in one call"
+    # The cap counts the rows the call receives. A fragment grouping a narrowing condition
+    # with this operation hands it every row, since the operation applies that condition itself.
+    row_cap: str = (
+        "be handed more than {max_rows} rows in one call, counted before any condition in "
+        "its fragment narrows them"
+    )
     # None means "use the suite's cap." Only sem_topk sets this, since its model calls grow
     # with the comparison count rather than the row count the suite's cap was sized for.
     max_rows: int | None = None
@@ -312,8 +317,8 @@ _ENTRIES: tuple[_Entry, ...] = (
             "match on more than one column from each table, or produce anything but inner-join rows"
         ),
         row_cap=(
-            "take two tables whose row counts multiply past {max_rows}, since it compares every "
-            "pair of rows"
+            "be handed two tables whose row counts multiply past {max_rows}, since it compares "
+            "every pair of rows"
         ),
     ),
 )
