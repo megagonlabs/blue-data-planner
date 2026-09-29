@@ -82,7 +82,7 @@ option, so nothing has to reject one afterwards.
 
 How far a schema is enforced depends on the provider. One that supports strict structured output
 applies it during decoding, and a response the schema forbids cannot be produced at all. Where a
-provider does not, litellm falls back to describing the schema in the prompt. Either way the
+provider does not, the schema reaches the model as text in the prompt. Either way the
 response is validated against the schema on arrival, and one that fails is a failed call rather than
 something repaired, so the difference between the two is cost and not correctness. Every schema
 built here stays inside the subset a strict provider accepts, so one schema serves either kind.
@@ -108,10 +108,10 @@ one such record per call, which is what a caller reads to convert a call count i
 
 | Concern | Choice |
 | --- | --- |
-| Package | `blue-data`, installed from the internal source |
+| Package | `blue-data`, a required dependency of `lib/` |
 | Types used | `DataRegistry`, `DataSource`, and the registry's ranked record search |
 | Properties read | The descriptions enrichment wrote, and the statistics and value semantics collected per column |
-| Storage backends | Chosen by installing a `blue-data` extra: `postgres`, `mysql`, `mongodb`, `neo4j`, `redis`, `chromadb` |
+| Storage backends | Chosen by installing the matching `blue-data` extra |
 
 Which backend a deployment installs is a `blue-data` decision, not one this repository makes. No
 storage driver appears in any `pyproject.toml` here.
@@ -126,7 +126,7 @@ components, `execution/`, the plan types, or the `builtin` suite imports a data 
 | Library | Where it is used | Required |
 | --- | --- | --- |
 | `pandas` | Inside the LOTUS adapter only, one frame built per table going in and flattened coming out | Declared by the `lotus` extra, not by the library |
-| `numpy` | Reached only through `blue-data-ops` operators | Declared by neither |
+| `numpy` | Not imported by this repository | Declared by neither |
 
 The `builtin` operators work on the bundle as it stands. A data frame would be the obvious way to
 write them and is deliberately not used: it would put a required dependency in front of every
@@ -173,13 +173,13 @@ its behavior needs, not an install.
 | Terminal output | `rich>=13` |
 | Profiles, configuration resolution, and secret storage | `blue-data` |
 
-Click matches `platform/planner-cli/` in the sibling Blue repositories, and Rich renders the progress
-indicator, the log, and the result rows that [02-scenarios.md](02-scenarios.md) shows.
-`blue-data` carries the configuration engine every Blue CLI resolves its profile through, so one
-set of rules governs precedence and secret handling across the family (ADR-028). The CLI resolves
-values and hands them to `build_data_planner`, so which operator suites exist and how each is
-constructed stay inside the library and `blue-data-ops` is the library's dependency alone
-([09-api-interface-spec.md](09-api-interface-spec.md#assembly)).
+Click matches the CLIs of the sibling Blue repositories, and Rich renders the progress indicator,
+the log, and the result rows that [02-scenarios.md](02-scenarios.md) shows. `blue-data` carries the
+configuration engine every Blue CLI resolves its profile through, so one set of rules governs
+precedence and secret handling across the family (ADR-028). The CLI resolves values into a
+`PlannerSettings` and hands it to `build_data_planner_from_settings`, so which operator suites exist
+and how each is constructed stay inside the library and `blue-data-ops` is the library's dependency
+alone ([09-api-interface-spec.md](09-api-interface-spec.md#assembly)).
 
 ### MCP server
 
@@ -222,9 +222,9 @@ of the three repairs, and the cap on plan corrections (ADR-014).
 
 ## Quality check
 
-The gates are `pytest` with `pytest-asyncio` and `pytest-cov`, then `ruff`, then `pyright`. How
-each is configured is in [08-coding-style.md](08-coding-style.md), and what each test tier covers
-is in [11-testing-strategy.md](11-testing-strategy.md).
+The gates are `pytest` with `pytest-cov`, and `pytest-asyncio` where a package has async tests, then
+`ruff`, then `pyright`. How each is configured is in [08-coding-style.md](08-coding-style.md), and
+what each test tier covers is in [11-testing-strategy.md](11-testing-strategy.md).
 
 ---
 
@@ -239,7 +239,7 @@ editing anything downloaded.
 | Inputs | Under `data/`, downloaded rather than committed |
 | Released files read | The query set, and the five BIRD SQLite databases the queries run against |
 | Build step | Writes corrected queries as JSON, and a serialized `blue-data` registry over those databases |
-| Dependency placement | A development-only extra, since the harness measures the system rather than being part of it |
+| Dependency placement | Nothing beyond the `dev` extra. The harness lives under `lib/tests/` and ships in no package, since it measures the system rather than being part of it |
 
 Reading the databases needs no new dependency: they are SQLite, which the standard library opens,
 and registering them is `blue-data`'s job.
@@ -264,7 +264,8 @@ writes each one.
 | `click` | `platform/planner-cli/` | Required | CLI command routing |
 | `rich` | `platform/planner-cli/` | Required | CLI output formatting |
 | `blue-data` | `platform/planner-cli/` | Required | Profiles, configuration resolution, secret storage |
-| `pytest`, `pytest-asyncio`, `pytest-cov` | All | `dev` extra | Test tiers |
+| `pytest`, `pytest-cov` | All | `dev` extra | Test tiers |
+| `pytest-asyncio` | `platform/planner-mcp/` | `dev` extra | The MCP server's async handler tests |
 | `ruff`, `pyright` | All | `dev` extra | Lint and type gates |
 | `build`, `twine` | All | `dev` extra | Packaging and publishing |
 

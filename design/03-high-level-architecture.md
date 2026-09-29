@@ -62,7 +62,6 @@ flowchart TB
     BUILTIN --> DATA
     BUILTIN --> LLM
     LOGICAL --> DATA
-    PHYSICAL --> DATA
     RUNNER --> DATA
     SEARCH --> DATA
     LOGICAL --> LLM
@@ -102,28 +101,28 @@ boundaries get drawn reads. Argument and return shapes are in
 [09-api-interface-spec.md](09-api-interface-spec.md).
 
 `DataPlanner` owns the loop from request to answer, set out in
-[04-detailed-architecture.md](04-detailed-architecture.md). The loop does seven things, and none of
+[04-detailed-architecture.md](04-detailed-architecture.md). The loop does five things, and none of
 them calls a model or invokes an operator directly.
 
 | The loop | Detail |
 | --- | --- |
 | Schedules | Takes the next fragment whose frontier all has results, and a control node that is ready only once no fragment is |
 | Dispatches on kind | A fragment goes to the fragment runner and a `DISCOVER` node to the catalog searcher. Once every ready control node is resolved, the pass returns to the logical planner |
-| Runs the repairs | Four nested loops, each bounded at its own scope, a failure moving outward when a bound is spent |
+| Runs the repairs | The cover repair and the replan, each a loop bounded at its own scope, a failure moving outward when a bound is spent. The parameter repair, the innermost loop, runs inside the fragment runner |
 | Installs a cover | Adds it and moves the pointer. A result is reused when the new cover asks for work already done |
-| Bills the budget | Operator calls against the operator call budget |
 | Assembles the result | One `RunResult` whether the request succeeded or not |
 
 Keeping the loop here rather than in `execution/` is what lets `execution/` run without importing
 a planning component (ADR-011). `DataPlanner` is given the components below rather than building them, so it
-looks up no operator and calls no model itself. `build_data_planner` does the wiring every
-adapter needs, which keeps assembly out of the adapters.
+looks up no operator and calls no model itself. `build_data_planner` does that wiring, and
+`build_data_planner_from_settings` resolves a `PlannerSettings` into the same call. Both adapters
+call the second, which keeps assembly out of the adapters.
 
 ### The components
 
-The three planning components, the discovery step, the run state, and the loop that drives them. All are
-modules at the package root, because a level grouping them would have to be named for planning and
-this package is a planner ([07-repo-organization.md](07-repo-organization.md#why-the-planning-components-sit-at-the-package-root)).
+The three planning components, the discovery step, the run state, the loop that drives them, and
+the settings the loop is assembled from. All are modules at the package root, because a level
+grouping them would have to be named for planning and this package is a planner ([07-repo-organization.md](07-repo-organization.md#why-the-planning-components-sit-at-the-package-root)).
 
 | Module | Owns |
 | --- | --- |
@@ -131,8 +130,9 @@ this package is a planner ([07-repo-organization.md](07-repo-organization.md#why
 | `physical_planner.py` | `PhysicalPlanner`. Cuts the plan into fragments and binds each one to a physical operator that reads the sources its scans name. It enumerates the fragments each operator's declaration allows and has a model pick among them, since the size of a fragment is the pushdown decision itself. |
 | `fragment_runner.py` | `FragmentRunner`. Runs one ready fragment: writes the operator's parameters against the columns its input tables carry and the attributes of the entities it scans, has it executed, checks the declared columns, and reviews the result. Returns the fragment's ending: accepted, needing a repair, needing a replan, or a failure that ends the run. |
 | `catalog_searcher.py` | `CatalogSearcher`. Resolves a `DISCOVER` node by turning its instruction into search terms and searching the registry for entities, each returned with every attribute it holds. Not one of the three planning stages: its output is catalog records read by the two planners, not rows entering the data flow. |
-| `run_state.py` | `RunState`, the one mutable object per request. Holds every plan version, the results keyed by logical plan and then node, every fragment attempt including the rejected ones, the model usage, and the counters the loop reads to choose a repair. `DataPlanner` creates it and alone writes to it. |
+| `run_state.py` | `RunState`, the one mutable object per request. Holds every plan version, the results keyed by the signature of the work that produced them, every fragment attempt including the rejected ones, the model usage, and the counters the loop reads to choose a repair. `DataPlanner` creates it and alone installs plans and files results in it. The components it calls add turns to their own conversation and spend from its counters. |
 | `data_planner.py` | `DataPlanner` and `build_data_planner`. The entry point lives beside the planning components it drives, since everything in this package turns a request into an answer and nothing outside it reads `RunState`. |
+| `settings.py` | `PlannerSettings` and `build_data_planner_from_settings`. The values a deployment configures a planner with, and the planner they assemble. |
 
 Four terms carry the design, and each is fixed in
 [04-detailed-architecture.md](04-detailed-architecture.md) and
@@ -175,8 +175,15 @@ Inside it, `errors.py`, `plan.py`, `catalog.py`, and `run.py` split those classe
 `plan/` holds what can be answered about a plan without a model, a source, or an operator call. Two
 structural checks run before anything is executed: one rejects a logical plan the run loop could not
 schedule, the other a cover that could not be run. Beside them sits the enumeration of the node sets
-an operator could cover, which is graph work the physical planner reads rather than repeats. What
-each check turns down is in [06-library.md](06-library.md#plan).
+an operator could cover, which is graph work the physical planner reads rather than repeats. It also
+holds the schemas each planning stage's model response is held to, and the signature of a node's
+work, which is what a result is filed under. What each check turns down is in
+[06-library.md](06-library.md#plan).
+
+### `prompts/`
+
+The prompt text every component that calls a model sends, one file per component and turn, and
+the functions that render run data (tables, attribute views, search results) into that text.
 
 ### `operators/`
 
@@ -191,8 +198,9 @@ suite this repository owns.
 | `adapters/lotus/` | Declares LOTUS operations as physical operators. |
 | `builtin/` | The suite written here (ADR-020): deterministic operations over the bundle, one per operator node kind, and `builtin.nl2table`, which writes a Python program from a fragment's instruction and runs it in a child process holding copies of its tables, registered only where a deployment asks for it. This is what the planner falls back to when no outside suite can take a node, and what hosts a fragment that scans nothing. |
 
-`__init__.py` re-exports the router alone, and an adapter is imported from `adapters/`, under the
-name of its suite, so importing the router loads no suite.
+`__init__.py` re-exports the router and the lookup that turns a suite name into its operators. An
+adapter is imported only when that lookup is asked for its suite, so importing `operators` loads no
+suite.
 
 An adapter returns a list of physical operators rather than registering them into the router it sits
 beside, which leaves which suites a deployment offers with whoever assembles the planner. That is
@@ -203,8 +211,8 @@ between that shape and its own suite's at its own edge (ADR-012).
 
 ### `data/`
 
-The only place in the shipped package where `blue-data` is imported. `DataCatalog` selects and
-renders what `blue-data` has already collected and enriched, and profiles nothing of its own. Four
+The only place in the shipped package where `blue-data` is imported. `DataCatalog` selects from
+what `blue-data` has already collected and enriched, and profiles nothing of its own. Four
 callers go through this boundary.
 
 | Caller | Reads |
@@ -222,15 +230,16 @@ Concrete implementations are supplied at startup rather than constructed in plac
 
 The boundary reads a registry and never builds one. Registering sources, syncing them, collecting
 their statistics, and enriching them are ingestion, which belongs to `blue-data`, so a registry
-reaches this package already populated and a caller with no registry builds one there first. The one
-place that does build a registry is the TAG-Bench script, which is a build step rather than shipped
-code and calls `blue-data` directly ([07-repo-organization.md](07-repo-organization.md)).
+reaches this package already populated and a caller with no registry builds one there first. Two
+scripts do build one: the TAG-Bench registration script and the demo's `register_northwind.py`.
+Each is a build step that ships in no package and calls `blue-data` directly
+([07-repo-organization.md](07-repo-organization.md)).
 
 ### `llm/`
 
-The model client shared by all four components that call one: the logical planner, the physical
-planner, the fragment runner, and the catalog searcher. It holds prompt templating and its own error
-types. Nothing else in the library calls a model.
+The model client shared by everything in the library that calls a model: the logical planner, the
+physical planner, the fragment runner, the catalog searcher, and the `builtin.nl2table` operator,
+which writes its program with one. It holds prompt templating.
 
 ---
 

@@ -112,9 +112,9 @@ reason to plan again rather than rows, and the next plan is what reads that. Val
 plan where any node lists a control node among its inputs, which is what keeps every input a node
 reads a table the run can hand it.
 
-Within one lineage a continuation may not give an existing node id to a different node. It names an
-existing id only to read a node it carried over, and validation turns down a continuation that
-writes one. Grouping such a node instead would attach a carried node's name to work nobody
+A continuation may not give the id of a node it carried over to a different node. It names a
+carried node's id only to read that node, and validation turns down a continuation that writes a
+node under one. Grouping such a node instead would attach a carried node's name to work nobody
 planned.
 
 A `RETURN` node's `columns` name the columns holding the answer and nothing else, so what a caller
@@ -362,16 +362,18 @@ and nothing declares that two scans in one fragment have to read the same source
 
 ### Identifiers
 
-Six formats travel in this data, and they are not interchangeable. Node ids and fragment ids are
-scoped to one plan and stay short. Plan ids are UUIDs, because a physical plan names the logical
-plan it covers by id, and because a plan can be serialized, stored, and read back beside plans from
-other runs. A signature is the one value derived rather than assigned: it names what a node does, so
-the same work in two covers gets the same value and an id never does.
+Six formats travel in this data, and they are not interchangeable. A node id is scoped to one plan
+and says what the node does, so a turn that names it reads without the plan beside it. A fragment id
+is unique across a run, because the fragment runner's conversations are keyed by it. Plan ids are
+UUIDs, because a physical plan names the logical plan it covers by id, and because a plan can be
+serialized, stored, and read back beside plans from other runs. A signature is the one value derived
+rather than assigned: it names what a node does, so the same work in two covers gets the same value
+and an id never does.
 
 | Id | Format | Example | Resolved by |
 | --- | --- | --- | --- |
-| Node id | `n` followed by an integer, unique within a plan | `n6` | `LogicalPlan.node`, which raises on an unknown id |
-| Fragment id | `f` followed by an integer, fresh when the fragment is, kept when it is carried | `f2` | `PhysicalPlan.fragment` |
+| Node id | A short snake_case name saying what the node does, unique within a plan | `keep_bay_area` | `LogicalPlan.node`, which raises on an unknown id |
+| Fragment id | `f` followed by eight hex digits, fresh when the fragment is, kept when it is carried | `f3a9c1d2e` | `PhysicalPlan.fragment` |
 | Signature | A hash of the work one node does | `a3f1...` | `signatures`, over a plan and a cover |
 | Plan id | A UUID, on a logical plan and on a physical plan | `9f1c...` | `DataPipeline.logical_plans` and `.physical_plans` |
 | Operator id | Suite name, a dot, then the operation | `blue.nl2sql`, `lotus.sem_filter` | `OperatorRouter`, while the physical plan is written |
@@ -397,10 +399,10 @@ A `DataPipeline` serializes as its two maps and its two pointers. One version of
     "3f2b9c14": {
       "id": "3f2b9c14",
       "parent_id": null,
-      "output_node_id": "n7",
+      "output_node_id": "return_titles",
       "nodes": [
         {
-          "id": "n1",
+          "id": "scan_postings",
           "kind": "SCAN",
           "input_node_ids": [],
           "attributes": {
@@ -410,9 +412,9 @@ A `DataPipeline` serializes as its two maps and its two pointers. One version of
           "required_output_columns": []
         },
         {
-          "id": "n2",
+          "id": "keep_data_scientists",
           "kind": "FILTER",
-          "input_node_ids": ["n1"],
+          "input_node_ids": ["scan_postings"],
           "attributes": {"instruction": "find the postings whose title is a data scientist role"},
           "required_output_columns": [
             {"name": "title", "dtype": "str"},
@@ -421,9 +423,9 @@ A `DataPipeline` serializes as its two maps and its two pointers. One version of
           ]
         },
         {
-          "id": "n7",
+          "id": "return_titles",
           "kind": "RETURN",
-          "input_node_ids": ["n2"],
+          "input_node_ids": ["keep_data_scientists"],
           "attributes": {"columns": ["title"]},
           "required_output_columns": []
         }
@@ -437,12 +439,12 @@ A `DataPipeline` serializes as its two maps and its two pointers. One version of
       "logical_plan_id": "3f2b9c14",
       "fragments": [
         {
-          "id": "f1",
-          "logical_node_ids": ["n1", "n2"],
-          "root_logical_node_id": "n2",
+          "id": "f3a9c1d2e",
+          "logical_node_ids": ["scan_postings", "keep_data_scientists"],
+          "root_logical_node_id": "keep_data_scientists",
           "operator_id": "tablesuite.nl2sql",
           "scan_sources": {
-            "n1": "/source/jobs/database/jobs/collection/public/entity/postings"
+            "scan_postings": "/source/jobs/database/jobs/collection/public/entity/postings"
           },
           "instruction": "Find data scientist job postings, with their title, company id, and location",
           "input_data": [],
@@ -489,7 +491,7 @@ DataBundle = list[Data]  # what one fragment passes to the next
 | Rule | Detail |
 | --- | --- |
 | Keys | Column names as strings. A row is not required to carry every key another row carries |
-| Values | Anything JSON can hold, plus `None` for a missing value |
+| Values | Whatever the source or operator produced: a string, a number (a `Decimal` from a SQL `NUMERIC` column included), a bool, a nested list or mapping, or `None` for a missing value. A value JSON cannot hold is written as its string form when a result is serialized |
 | Order | The table order and the row order a fragment produces are the order the next one receives |
 | Empty | `[]` is a valid result and not a failure, as a bundle and as a table ([04, executing](04-detailed-architecture.md#executing)) |
 | Tables | Every Blue operator returns one table, so a bundle usually holds one. Nothing requires it |
@@ -581,8 +583,8 @@ Four questions a reader asks, and where the answer is.
 
 | Question | Read |
 | --- | --- |
-| Did node `n3` succeed | The `status` of the entry `results` holds under the signature the current cover gives `n3` |
-| Which operator ran it | The `operator_id` of the fragment `n3` roots, in the current cover |
+| Did node `keep_bay_area` succeed | The `status` of the entry `results` holds under the signature the current cover gives `keep_bay_area` |
+| Which operator ran it | The `operator_id` of the fragment `keep_bay_area` roots, in the current cover |
 | How much was pushed down | The `logical_node_ids` of each fragment, in every cover in `pipeline.physical_plans` |
 | What did discovery find | The `DiscoveryResult` under the `DISCOVER` node's signature |
 
@@ -782,10 +784,10 @@ class DiscoveryResult:
 ```
 
 A `DISCOVER` node's entry in the run's `results` map holds one of these, where an operator node's
-entry holds rows. The entries of every resolved `DISCOVER` node, taken together, are the run's
-catalog context: the logical planner reads them when it writes the continuation and names the
-source each scan reads, and the physical planner reads each named source's kind to choose among
-operators.
+entry holds the `FragmentResult` of the fragment it roots. The entries of every resolved `DISCOVER`
+node, taken together, are the run's catalog context: the logical planner reads them when it writes
+the continuation and names the source each scan reads, and the physical planner reads each named
+source's kind to choose among operators.
 
 `dropped_terms` is what a run holds for a reader rather than for itself. Nothing branches on it, and
 a search runs the terms it kept whatever the number is. It reaches a library caller inside
@@ -818,6 +820,18 @@ on planning is exact; what it spent inside operators is the call count in `count
 ### Conversations
 
 ```python
+@dataclass(frozen=True)
+class Turn:
+    role: Literal["system", "user", "assistant"]
+    content: str
+
+
+@dataclass
+class Conversation:
+    turns: list[Turn]        # every message of the exchange, in order
+    usage: list[LLMUsage]    # one entry per model call made on it
+
+
 @dataclass
 class RunConversations:
     logical_planner: Conversation
@@ -898,8 +912,8 @@ is an ordering with a limit.
 ## 4. Catalog readings
 
 Four readings of the same registry serve planning, and none of them is stored. `DataCatalog`
-selects and renders what `blue-data` has collected and enriched, and never profiles an attribute or
-samples a table of its own.
+selects from what `blue-data` has collected and enriched, and never profiles an attribute or
+samples a table of its own. `prompts/rendering.py` renders what it selected.
 
 The shapes below live in `types/` with the rest of the shared data classes, and `data/catalog.py`
 holds the code that fills them. `EntityMatch` is why: it reaches a caller inside
@@ -1090,7 +1104,7 @@ The runner reads its fragment's scans from the catalog and its inputs from the t
 | --- | --- | --- |
 | An `AttributeView` per attribute of each entity in `scan_sources` | Name, type, description, frequent values, counts, range, inferred meaning | An attribute the fragment is about to scan |
 | The row count of each entity in `scan_sources` | How many rows the entity holds, or that the registry records none | The size a scan's result is judged against |
-| The input tables | Column names, their values' type, the row count, and a sample of rows | A table an earlier fragment produced |
+| The input tables | Column names, the row count, and a sample of rows | A table an earlier fragment produced |
 
 A fragment whose frontier is empty has no input tables, which is the ordinary shape for pushdown, so
 the catalog is the only thing that can name its columns. A fragment reading an input table needs no

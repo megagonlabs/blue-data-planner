@@ -49,7 +49,7 @@ can be found and repaired on its own ([section 5](#5-recovering-from-a-failure))
 
 | Stage | Question | Component | Reads | Runs |
 | --- | --- | --- | --- | --- |
-| Logical planning | What is the user asking for | `LogicalPlanner` | The request and a preview of the catalog | Once per request, until the first cover installs |
+| Logical planning | What is the user asking for | `LogicalPlanner` | The request and a preview of the catalog | Once per request, and again each time the run returns to it |
 | Physical planning | How much of the plan does each operator take on, and against which entity | `PhysicalPlanner` | The plan, what each operator declares, and the entities discovery found | Once per pass, over the whole plan |
 | Fragment execution | What parameters does it run with, and was the result any good | `FragmentRunner` | The rows its inputs produced, and a view of every attribute of the entities it scans | Once per fragment, during execution |
 
@@ -307,8 +307,9 @@ The physical planner works top down from the root of the plan, in the style of a
 It walks the operator nodes in reverse dependency order, a node's consumers before the node itself,
 and for each one still uncovered it enumerates the candidate fragments rooted there, one per
 matching operator per subgraph, and a model picks one. The
-enumeration already includes the node on its own, so a node reaching this point with no candidate is
-one whose kind no registered operator declares, and that node has no operator.
+enumeration already includes the node on its own, so a node reaching this point with no candidate
+is one of two: a node whose kind no registered operator declares, or a `SCAN` whose source no
+operator declaring `SCAN` can read. Either way that node has no operator.
 
 Where a fragment's boundary falls is decided by what an operator can do with the values inside the
 nodes and with the number of rows it reads, which its description and its limitations state. For a
@@ -335,8 +336,7 @@ whole](#a-cover-is-written-whole)).
 
 A model picks instead of the code taking the largest match, because the size of a fragment is the
 pushdown decision itself. A rule that always groups the maximum would settle in advance the
-question the planner is there to answer. Greedy maximal matching stays available as a model-free
-baseline.
+question the planner is there to answer.
 
 Each binding decision is a turn, and one logical plan is one conversation
 ([one conversation per component](#one-conversation-per-component)). The model deciding a binding
@@ -403,8 +403,9 @@ operator's `parameter_schema` is built from that operator. Every candidate on of
 the sources its scans name, so the choice is the operator and the cut. The fragment's
 `scan_sources` is copied from its scans.
 
-The physical planner reads the catalog for the entities its plan scans and for no others. The kind
-of each source a scan names comes from the `DISCOVER` result that found it.
+The physical planner reads what it knows about the entities its plan scans, and about no others,
+from the `DISCOVER` results that found them: the kind of each source and each entity's attribute
+views.
 
 Everything else waits for execution. The columns and rows a fragment receives from the fragments
 upstream of it are not known until those have run, and the parameters that depend on them are
@@ -498,7 +499,7 @@ does not already have, and making it addressable is the operator's job.
 
 | Physical operator | Empty input | Non-empty input |
 | --- | --- | --- |
-| A single-node operator | Cannot happen. A one-node fragment always has a frontier | Transform the tables it was handed |
+| A single-node operator | A lone `SCAN`: read the scan target from the parameters and run against the source | Transform the tables it was handed |
 | A source-reading operator that does not accept bound inputs | Read the scan target from the parameters and run against the source | Cannot happen. The physical planner never offers it such a fragment |
 | A source-reading operator that accepts bound inputs, such as a Text-to-SQL operator | The same | Make each table addressable, then emit SQL referring to it by name. The scan target still comes from the parameters; the input tables are auxiliary |
 
@@ -562,7 +563,7 @@ them, by the check against the fragment's declared columns.
 
 | Decision | Means |
 | --- | --- |
-| `accept` | The result is recorded under the fragment's root node id, and the loop moves on |
+| `accept` | The result is recorded under the signature of the fragment's root, and the loop moves on |
 | `reject` | Something about this attempt was wrong, and recovery starts with the narrowest repair |
 | `replan` | No arrangement of operators will do this, and recovery goes straight to the replan |
 
@@ -574,14 +575,16 @@ one attempt achieved does not carry into the next.
 ## 4. Returning to the logical planner
 
 Resolving the control nodes a pass reached ends the pass, and so does recovery that has run out of
-repairs ([section 5](#5-recovering-from-a-failure)). All three paths reach the logical planner the
-same way, and one return is one replan however many control nodes fired into it.
+repairs ([section 5](#5-recovering-from-a-failure)). Every path below reaches the logical planner
+the same way, and one return is one replan however many control nodes fired into it.
 
 | Trigger | What the planner reads |
 | --- | --- |
 | A `REPLAN` node became ready | The node's instruction, and what the pass's fragments produced |
 | A `DISCOVER` node became ready | The node's instruction, and the entities the search found, each with its attributes |
 | Recovery reached the replan | The failure reason of the fragment that ended the pass |
+| No operator can cover the plan | Which node has no operator, and why |
+| The ending cannot be answered | Which node the answer reads that produced no rows, or which column it names that the rows do not carry |
 
 A failure reason stays at the level the planner works in. It says what could not be done, not which
 operator failed to do it, because naming an operator would invite the planner to work around an
@@ -603,9 +606,8 @@ capped. A term finds an entity only through words its name or description uses, 
 several forms of what it looks for: a noun in the singular and the plural, and the general thing a
 specific one belongs to, such as `users` for a post's owner.
 
-Each term goes to `blue-data`'s registry search through `data/`, which ranks catalog records by
-keyword match, value match, and vector similarity together. Vector similarity needs a vector source
-and an embedding function; without them the search still runs on the other two signals.
+Each term goes to `blue-data`'s registry search through `data/`, which returns the catalog records
+it ranks highest.
 
 The search runs at one level, the entity, because that is the unit a `SCAN` is bound to. A hit
 returns that entity, its recorded row count, and a view of every attribute it holds: each
@@ -662,8 +664,9 @@ any other. Whether the operator vocabulary gains one is an open question
 ### Writing a continuation
 
 Returning to the planner does not discard the run. `DataPlanner` calls the logical planner again
-with the request, the catalog preview, the nodes that already succeeded, what the searches
-resolved since the last pass found, and the replan reason: why the pass ended.
+in the same conversation, whose first turn carried the request and the catalog preview. The new
+turn adds the nodes that already succeeded, what the searches resolved since the last pass found,
+and the replan reason: why the pass ended.
 
 A node that already ran is shown with its column names, its row count, and a sample of its rows.
 Since a `REPLAN` hands the planner nothing of its own, that sample is where the values a
@@ -691,13 +694,15 @@ fragment's root reads them, and it is what lets a later cover group the same nod
 A carried node is not free to read. Reading one that a fragment grouped throws that whole fragment
 away and runs it again.
 
-Suppose `n2`, `n3`, and `n4` were covered by one Text-to-SQL fragment rooted at `n4`, and the
-continuation writes `n9` reading `n3`. The rows `n3` describes were never materialized: they
-existed inside one SQL query and went out with it, and the only table the fragment produced is
-`n4`'s. So anything reading `n3` needs `n3` to be the root of a fragment, which the old cut does not
-allow. Putting `n3` and `n9` in one new fragment breaks disjointness, and leaving `n3` where it is
-breaks single exit, since `n9` would read a node that is not its fragment's root. Either way the old
-cut no longer holds. The plan is cut again, all three nodes lose their standing, and all three run
+Suppose `scan_orders`, `keep_shipped`, and `count_by_country` were covered by one Text-to-SQL
+fragment rooted at `count_by_country`, and the continuation writes `list_shipped_customers` reading
+`keep_shipped`. The rows `keep_shipped` describes were never materialized: they existed inside one
+SQL query and went out with it, and the only table the fragment produced is `count_by_country`'s. So
+anything reading `keep_shipped` needs `keep_shipped` to be the root of a fragment, which the old cut
+does not allow. Putting `keep_shipped` and `list_shipped_customers` in one new fragment breaks
+disjointness, and leaving `keep_shipped` where it is breaks single exit, since
+`list_shipped_customers` would read a node that is not its fragment's root. Either way the old cut
+no longer holds. The plan is cut again, all three nodes lose their standing, and all three run
 again. The general rule behind both cases is that a node read from outside its fragment has to be
 that fragment's root.
 
@@ -851,11 +856,14 @@ provider that fails after its retries is neither, so it ends the request with `l
 run returns every plan it had already written and every exchange that wrote them.
 
 A programming error still raises where it is found, so the message names what broke rather than a
-budget the run went on to exhaust. The run loop is where it stops: it ends the request as
-`planner_failed`, carrying the message and everything built so far, so no exception reaches whoever
-called the library. `failure_reason` holds it, and holds the equivalent for every other
-failure status: the reason no repair answered, the operator failure that ended the run, the
-objection the last rejected plan drew.
+budget the run went on to exhaust. A defect the planner detects in its own state raises a
+`BlueDataPlannerError`, and the run loop is where that stops: it ends the request as
+`planner_failed`, carrying the message and everything built so far. `failure_reason` holds it, and
+holds the equivalent for every other failure status: the reason no repair answered, the operator
+failure that ended the run, the objection the last rejected plan drew. Any other exception, such as
+a `ValueError` from a malformed registry record or an operator suite's own exception, is a bug the
+planner did not detect, and it propagates to the caller
+([09-api-interface-spec.md](09-api-interface-spec.md#exceptions)).
 
 | Status | Meaning |
 | --- | --- |

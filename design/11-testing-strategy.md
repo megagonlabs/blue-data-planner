@@ -121,7 +121,7 @@ is a real gap and it is named as one in [section 9](#9-what-is-not-covered).
 | Tool | Purpose | Declared |
 | --- | --- | --- |
 | `pytest` | Test runner | `dev` extra, every package |
-| `pytest-asyncio` | Async tests, `asyncio_mode = "auto"` | `dev` extra |
+| `pytest-asyncio` | Async tests, `asyncio_mode = "auto"` | `dev` extra of `platform/planner-mcp/`, the one package with async tests |
 | `pytest-cov` | Coverage, reported per run | `dev` extra |
 | `ruff` | Lint and import order, line length 100 | `dev` extra |
 | `pyright` | Types, strict mode | `dev` extra |
@@ -153,7 +153,7 @@ lib/tests/
   stubs/                # deterministic fakes for heavy optional dependencies
   fixtures/             # recorded inputs
   unit/                 # mirrors src/blue_data_planner/, scripts/, and benchmarks/
-    types/  plan/  data/  llm/  operators/  execution/  scripts/  benchmarks/
+    types/  plan/  data/  llm/  operators/  execution/  prompts/  scripts/  benchmarks/
   benchmarks/           # the TAG-Bench build steps and harness, run as modules, never by pytest
   lotus/                # against an installed LOTUS; excluded from the default run
   end_to_end/           # one real request through a provider; excluded from the default run
@@ -182,13 +182,15 @@ resolution path through `extraPaths`, so both the test run and the type check se
 
 ### Doubles
 
-Three doubles serve the planner.
+Five doubles serve the planner.
 
 | Double | Stands in for | Lets a test |
 | --- | --- | --- |
 | A scripted model client | `LLMClient` | Hand a component an exact sequence of plans, covers, parameters, and reviews |
 | A recording physical operator | A `PhysicalOperator`'s callable | Assert what execution passed a fragment, and return a chosen result or failure |
 | A fake per injected component | `LogicalPlanner`, `PhysicalPlanner`, `FragmentRunner`, `CatalogSearcher` | Drive the run loop's scheduling, its repair loops, and cover installation from returned results alone, with no model and no operator |
+| A fixed catalog | `DataCatalog`, for a component that reads it | Hand a planning component the attribute views and search results a case needs, without building a registry for it |
+| A scripted Blue operation and a registry answering for every operation | A `blue-data-ops` operation and its `OperatorRegistry` | Test the Blue adapter's translation against one operation whose result a test chooses, while the suite still resolves all of its ids |
 
 The scripted client is what makes planner tests deterministic and what keeps them at the level
 section 1 asks for. A test of the parameter repair scripts a review that rejects and then one that
@@ -198,9 +200,11 @@ is under test, and nothing in the test names a step the runner takes in between.
 Two boundaries are not doubled. A source that runs embedded is tested against a real instance
 instead: a test of a source read, a source write, or a bind join runs against it and checks what
 happened there — a table written, a table dropped again, the rows a query returned. The registry is
-not doubled either: a `blue-data` registry runs in memory over records a test registers, and `data/`
-is what a test of the catalog readings is checking, so a double in its place would pin only itself. A
-test builds the registry it needs and reads it through `DataCatalog`.
+not doubled in the tests of `data/`: a `blue-data` registry runs in memory over records a test
+registers, and `data/` is what a test of the catalog readings is checking, so a double in its place
+would pin only itself. A test there builds the registry it needs and reads it through `DataCatalog`.
+A component that only reads the catalog is tested against the fixed catalog instead, since what it
+reads is its input, not its subject.
 
 ### Stubs
 
@@ -227,9 +231,10 @@ produce one test per line of that document.
 | `CatalogSearcher` | A `DISCOVER` node resolves to the entities its terms found, each carrying its attributes, capped, and reports the terms it dropped |
 | `OperatorRouter` | An operator is found by each logical operator it declares, in registration order |
 | `execution/` | An operator call comes back as a result carrying its rows or its error and its kind, billed once against the budget, and checked against the output columns its caller declared; the answer holds the columns the ending names and refuses a name the rows do not carry |
-| `DataPlanner`, `RunState` | Each of the three repairs is reachable and counts against its own bound, a bound spent inside one loop starts again when the loop outside it turns, a result survives a cover that asks for the same work and is unreadable once the work above it changed, an ending the finished rows cannot answer is written again rather than ending the run, every `RunStatus` comes back with counters and a reason that explain it, a defect ends the request as a status rather than raising at the caller, and the planning-only operation searches the catalog, replans, and covers as a run would and stops before the first operator call |
+| `DataPlanner`, `RunState` | Each of the three repairs is reachable and counts against its own bound, a bound spent inside one loop starts again when the loop outside it turns, a result survives a cover that asks for the same work and is unreadable once the work above it changed, an ending the finished rows cannot answer is written again rather than ending the run, every `RunStatus` comes back with counters and a reason that explain it, a defect the planner detects in its own state ends the request as `planner_failed` rather than raising at the caller, and the planning-only operation searches the catalog, replans, and covers as a run would and stops before the first operator call |
 | `PlannerSettings` | The defaults a caller gets, an unknown suite name and an invalid reasoning effort are each refused, `off` leaves the reasoning-effort parameter out of the model call, the suites named are the suites registered, and a registry path naming no file is refused when the planner is built |
 | `data/` | Each catalog reading ranks and caps, an entity search matching nothing returns nothing, each reading carries what its component is entitled to and nothing more, a source or attribute nobody enriched still renders, an attribute's view holds a bounded number of values each cut to a bounded length and an empty-string count read off its frequent values, and a record that cannot be read as one raises; a source read returns the rows a query produced, a source write changes what the source holds, and a source that could not be reached is told from one that refused what it was sent |
+| `prompts/` | A table shows its first rows and a count of the rows left out, a list of values says how many distinct values it leaves out, and a count is stated against the rows it was taken over only when the registry recorded them |
 | `llm/` | A conversation keeps its turns and the usage of every call made on it, and a provider failing after retries raises `LLMError` |
 | `operators/` | An operator's declaration reaches the router intact and describes what the operation does, cross-checked against the suite's own attribute declarations and against the operation's validator wherever those two disagree (ADR-010), a bundle crosses in both directions unchanged including a multi-table bundle (ADR-012), a bundle of the wrong length is refused before the operation runs, a suite's failure is mapped to the right error kind, what an operation reported about its own run reaches the result whether the call succeeded or failed, and LOTUS is imported only when an operator runs, so the package imports with LOTUS absent (ADR-004) |
 | `operators/builtin/` | Each operation transforms the bundle as its parameters say and refuses input it cannot serve, `builtin.scan` reads the one source its fragment bound it to, carries a reference input's values into that read and leaves nothing behind in the source when it does, and `builtin.nl2table` reads its fragment's sources before its program runs, writes the program again when it will not run, and reports every program it wrote |
@@ -254,6 +259,7 @@ mapping, exit codes. Planning and execution are the library's tests, not repeate
 | --- | --- |
 | MCP | A request returns the run's JSON form without the plans, `include_plan` adds every plan the request produced, and `explain` returns the plan and spends no operator call; a run that did not finish returns its status and a null answer; a failure the server meets returns an error payload carrying its code; the schema a client reads describes every parameter; every setting comes from the environment, a CLI profile on disk does not configure the server, and the package does not import the CLI |
 | MCP threading | The planner runs off the event loop thread, through `asyncio.to_thread`, rather than blocking it |
+| MCP output streams | Nothing the planner or its dependencies write reaches standard output, which carries the protocol, and a dependency's informational log records are dropped while its warnings are kept |
 | CLI | Argument and option parsing through Click's `CliRunner`; a profile's parameters resolved in the documented order, with a secret masked rather than printed; the result on standard output and everything else on standard error, with `--format` deciding how the result is written and `--log` what is reported about the run; each error code, as the plain line and, under `--format json`, as the error document on standard output, and each of the three exit codes; and the defaults the profile spec declares matching the ones `PlannerSettings` holds |
 
 Each platform package keeps its own doubles under `tests/doubles/`: `lib/tests/` ships in no

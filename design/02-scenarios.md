@@ -56,11 +56,11 @@ narrows the other, so both belong to this pass rather than one each
   "parent_id": null,
   "output_node_id": null,
   "nodes": [
-    {"id": "n1", "kind": "DISCOVER", "input_node_ids": [],
+    {"id": "find_postings", "kind": "DISCOVER", "input_node_ids": [],
      "attributes": {"instruction": "find a table of job postings, with the title, location, and company of each"},
      "required_output_columns": []},
 
-    {"id": "n2", "kind": "DISCOVER", "input_node_ids": [],
+    {"id": "find_company_profiles", "kind": "DISCOVER", "input_node_ids": [],
      "attributes": {"instruction": "find a source holding company profiles or industry information, one record per company"},
      "required_output_columns": []}
   ]
@@ -69,19 +69,19 @@ narrows the other, so both belong to this pass rather than one each
 
 `output_node_id` is `null` because the plan has no `RETURN` node yet, which is what a plan ending on
 control nodes looks like. Neither node is bound to an operator and neither spends an operator call.
-Physical planning has nothing to cover, so the pass goes straight to them.
+Physical planning has nothing to bind and records an empty cover, so the pass goes straight to them.
 
 `CatalogSearcher` turns each instruction into search terms and runs one registry search per term. A
 hit is one entity together with every attribute it holds, which is the detail the preview stops
 short of.
 
 ```text
-n1 DISCOVER  2 terms, 3 matches
+find_postings          DISCOVER  2 terms, 3 matches
    /source/jobs/database/jobs/collection/public/entity/postings
      title:TEXT  company_id:INTEGER  location:TEXT  salary:INTEGER  description:TEXT
    ...
 
-n2 DISCOVER  2 terms, 3 matches
+find_company_profiles  DISCOVER  2 terms, 3 matches
    /source/research_library/database/docs/collection/profiles/entity/company_profiles
      company_id:INTEGER  company:TEXT  profile:TEXT
    ...
@@ -106,52 +106,52 @@ operator should take on would never come up.
 {
   "id": "8c4a71d0",
   "parent_id": "3f2b9c14",
-  "output_node_id": "n9",
+  "output_node_id": "return_titles",
   "nodes": [
-    {"id": "n1", "kind": "DISCOVER", "input_node_ids": [],
+    {"id": "find_postings", "kind": "DISCOVER", "input_node_ids": [],
      "attributes": {"instruction": "find a table of job postings, with the title, location, and company of each"},
      "required_output_columns": []},
 
-    {"id": "n2", "kind": "DISCOVER", "input_node_ids": [],
+    {"id": "find_company_profiles", "kind": "DISCOVER", "input_node_ids": [],
      "attributes": {"instruction": "find a source holding company profiles or industry information, one record per company"},
      "required_output_columns": []},
 
-    {"id": "n3", "kind": "SCAN", "input_node_ids": [],
+    {"id": "scan_postings", "kind": "SCAN", "input_node_ids": [],
      "attributes": {"instruction": "load job postings",
                     "source": "/source/jobs/database/jobs/collection/public/entity/postings"},
      "required_output_columns": []},
 
-    {"id": "n4", "kind": "FILTER", "input_node_ids": ["n3"],
+    {"id": "keep_bay_area", "kind": "FILTER", "input_node_ids": ["scan_postings"],
      "attributes": {"instruction": "find the postings whose location is in the San Francisco Bay Area"},
      "required_output_columns": [{"name": "title", "dtype": "str"},
                                  {"name": "company_id", "dtype": "int"},
                                  {"name": "location", "dtype": "str"}]},
 
-    {"id": "n5", "kind": "FILTER", "input_node_ids": ["n4"],
+    {"id": "keep_data_scientists", "kind": "FILTER", "input_node_ids": ["keep_bay_area"],
      "attributes": {"instruction": "find the postings whose title is a data scientist role"},
      "required_output_columns": [{"name": "title", "dtype": "str"},
                                  {"name": "company_id", "dtype": "int"},
                                  {"name": "location", "dtype": "str"}]},
 
-    {"id": "n6", "kind": "SCAN", "input_node_ids": [],
+    {"id": "scan_company_profiles", "kind": "SCAN", "input_node_ids": [],
      "attributes": {"instruction": "load company profile documents",
                     "source": "/source/research_library/database/docs/collection/profiles/entity/company_profiles"},
      "required_output_columns": []},
 
-    {"id": "n7", "kind": "JOIN", "input_node_ids": ["n5", "n6"],
+    {"id": "match_company_profiles", "kind": "JOIN", "input_node_ids": ["keep_data_scientists", "scan_company_profiles"],
      "attributes": {"instruction": "match each posting to the profile of the company that posted it"},
      "required_output_columns": [{"name": "title", "dtype": "str"},
                                  {"name": "location", "dtype": "str"},
                                  {"name": "company", "dtype": "str"},
                                  {"name": "profile", "dtype": "str"}]},
 
-    {"id": "n8", "kind": "FILTER", "input_node_ids": ["n7"],
+    {"id": "keep_healthcare", "kind": "FILTER", "input_node_ids": ["match_company_profiles"],
      "attributes": {"instruction": "find the postings whose company works in healthcare"},
      "required_output_columns": [{"name": "title", "dtype": "str"},
                                  {"name": "location", "dtype": "str"},
                                  {"name": "company", "dtype": "str"}]},
 
-    {"id": "n9", "kind": "RETURN", "input_node_ids": ["n8"],
+    {"id": "return_titles", "kind": "RETURN", "input_node_ids": ["keep_healthcare"],
      "attributes": {"columns": ["title", "company"]},
      "required_output_columns": []}
   ]
@@ -166,8 +166,9 @@ than what may be. The ending names two of them and not `location`, because the q
 which postings, and the location is what a filter compared against on the way to them.
 
 This is a new version of the logical plan rather than an edit of the first one. It names its parent,
-and it carries over `n1` and `n2` because both produced a result. Nothing else carried over, since
-nothing else had run. The first version stays readable exactly as it was written.
+and it carries over `find_postings` and `find_company_profiles` because both produced a result.
+Nothing else carried over, since nothing else had run. The first version stays readable exactly as
+it was written.
 
 ### Deciding how much to push down
 
@@ -176,10 +177,10 @@ Three of the four choices here are forced, and one is not.
 
 | Nodes | Operator | Why |
 | --- | --- | --- |
-| `n6` | `tablesuite.document_fetch` | The profiles are documents. No operator in this registry reads a document source and does anything else in the same call |
-| `n7` | `tablesuite.join` | It joins tables from two different sources, which no single source can do |
-| `n8` | `textsuite.semantic_filter` | Reading a profile for whether the company works in healthcare is a judgment, and only a semantic operator declares `FILTER` over text |
-| `n3`, `n4`, `n5` | `tablesuite.nl2sql` | All three are kinds `nl2sql` declares, and they scan a SQLite source, so any group of them is a candidate |
+| `scan_company_profiles` | `tablesuite.document_fetch` | The profiles are documents. No operator in this registry reads a document source and does anything else in the same call |
+| `match_company_profiles` | `tablesuite.join` | It joins tables from two different sources, which no single source can do |
+| `keep_healthcare` | `textsuite.semantic_filter` | Reading a profile for whether the company works in healthcare is a judgment, and only a semantic operator declares `FILTER` over text |
+| `scan_postings`, `keep_bay_area`, `keep_data_scientists` | `tablesuite.nl2sql` | All three are kinds `nl2sql` declares, and they scan a SQLite source, so any group of them is a candidate |
 
 The last row is the decision physical planning exists to make. `nl2sql` may take the scan alone, the scan
 and the location filter, or all three, and each is a different trade: one SQL query that filters 312
@@ -199,26 +200,26 @@ copied from its scans.
   "logical_plan_id": "8c4a71d0",
   "fragments": [
     {
-      "id": "f1",
-      "logical_node_ids": ["n3", "n4", "n5"],
-      "root_logical_node_id": "n5",
+      "id": "f4c1e9a07",
+      "logical_node_ids": ["scan_postings", "keep_bay_area", "keep_data_scientists"],
+      "root_logical_node_id": "keep_data_scientists",
       "operator_id": "tablesuite.nl2sql",
-      "scan_sources": {"n3": "/source/jobs/database/jobs/collection/public/entity/postings"},
+      "scan_sources": {"scan_postings": "/source/jobs/database/jobs/collection/public/entity/postings"},
       "instruction": "Find Bay Area data scientist job postings, with their title, company id, and location",
       "input_data": [],
       "required_output_columns": [{"name": "title", "dtype": "str"},
                                   {"name": "company_id", "dtype": "int"},
                                   {"name": "location", "dtype": "str"}]
     },
-    {"id": "f2", "logical_node_ids": ["n6"], "operator_id": "tablesuite.document_fetch", "...": {}},
-    {"id": "f3", "logical_node_ids": ["n7"], "operator_id": "tablesuite.join", "...": {}},
-    {"id": "f4", "logical_node_ids": ["n8"], "operator_id": "textsuite.semantic_filter", "...": {}}
+    {"id": "f82d03b6e", "logical_node_ids": ["scan_company_profiles"], "operator_id": "tablesuite.document_fetch", "...": {}},
+    {"id": "f0b7c5a12", "logical_node_ids": ["match_company_profiles"], "operator_id": "tablesuite.join", "...": {}},
+    {"id": "f6e9d2c48", "logical_node_ids": ["keep_healthcare"], "operator_id": "textsuite.semantic_filter", "...": {}}
   ]
 }
 ```
 
-`n9` appears in no fragment. Projecting named columns admits no implementation choice, so `RETURN`
-is bound to nothing.
+`return_titles` appears in no fragment. Projecting named columns admits no implementation choice, so
+`RETURN` is bound to nothing.
 
 ### Running it, and taking one boundary back
 
@@ -227,37 +228,37 @@ on location and quietly ignores the rest, because "is a data scientist role" is 
 can express. The result has the right number of rows to look plausible.
 
 What catches it is the fragment's instruction. The physical planner wrote one instruction covering
-every node it grouped, `n5` among them, so the instruction asks for data scientists and the review has
-something to hold the rows against. Titles such as "Data Engineer" and "Research Scientist" do not
-answer it.
+every node it grouped, `keep_data_scientists` among them, so the instruction asks for data
+scientists and the review has something to hold the rows against. Titles such as "Data Engineer" and
+"Research Scientist" do not answer it.
 
 The parameter repair goes first, because it is the cheapest and the most often right: the same
 operator over the same nodes, with the instruction written again. Here it does not help, since no
 wording makes SQL read a title for meaning. The run then moves to the cover repair, which decides
-every binding again. The model keeps `f2`, which ran and is unaffected, and cuts `n3`, `n4`, and
-`n5` differently.
+every binding again. The model keeps `f82d03b6e`, the profiles scan, which ran and is unaffected,
+and cuts `scan_postings`, `keep_bay_area`, and `keep_data_scientists` differently.
 
 ```text
 cover 1
-  f1  n3,n4,n5  tablesuite.nl2sql          rejected: titles that are not data scientist roles
-  f2  n6        tablesuite.document_fetch  ok (140 rows)
-  f1  n3,n4,n5  tablesuite.nl2sql          rejected: the same, with the predicate written into the SQL text
+  f82d03b6e  scan_company_profiles                                tablesuite.document_fetch  ok (140 rows)
+  f4c1e9a07  scan_postings, keep_bay_area, keep_data_scientists   tablesuite.nl2sql          rejected: titles that are not data scientist roles
+  f4c1e9a07  scan_postings, keep_bay_area, keep_data_scientists   tablesuite.nl2sql          rejected: the same, with the predicate written into the SQL text
 cover 2
-  f1  n3,n4     tablesuite.nl2sql          ok (48 rows)
-  f5  n5        textsuite.semantic_filter  ok (11 rows)
-  f2  n6        tablesuite.document_fetch  kept from cover 1 (140 rows)
-  f3  n7        tablesuite.join            ok (11 rows)
-  f4  n8        textsuite.semantic_filter  ok (2 rows)
+  f82d03b6e  scan_company_profiles                                tablesuite.document_fetch  kept from cover 1 (140 rows)
+  fa31f7d05  scan_postings, keep_bay_area                         tablesuite.nl2sql          ok (48 rows)
+  f5d8b2e61  keep_data_scientists                                 textsuite.semantic_filter  ok (11 rows)
+  f19c4a7b3  match_company_profiles                               tablesuite.join            ok (11 rows)
+  fc07e5d94  keep_healthcare                                      textsuite.semantic_filter  ok (2 rows)
 
 title                     company
 Senior Data Scientist     Corvus Health
 Data Scientist, Clinical  Meridian Bio
 ```
 
-The second cover is written for the whole plan, not patched into the first, and installing it
-asks for the same work under `n6` as the last one did, so its 140 rows are read again and
-`tablesuite.document_fetch` does not run. The group that changed asks for work nothing has done, and
-runs.
+The second cover is written for the whole plan, not patched into the first, and installing it asks
+for the same work under `scan_company_profiles` as the last one did, so its 140 rows are read again
+and `tablesuite.document_fetch` does not run. The group that changed asks for work nothing has done,
+and runs.
 
 The scan of `postings` is paid for twice, which is what the wider fragment cost when it failed. That
 is the trade physical planning weighs, and both covers are in the record, so where the boundary was
@@ -329,7 +330,9 @@ It gets back structured JSON: the rows, and what each node produced.
     "a3f1c208": {"search_terms": ["job postings"], "matches": [{"...": {}}], "dropped_terms": 0},
     "7b40de91": {"status": "ok", "failure_reason": null, "operator_id": "builtin.scan",
                  "row_count": 48, "output": [{"row_count": 48, "columns": ["..."],
-                                              "sample_rows": [{"...": {}}]}]}
+                                              "sample_rows": [{"...": {}}]}],
+                 "attempts": [{"parameters": {"...": {}}, "status": "ok", "error": null,
+                               "row_count": 48, "assessment": "..."}]}
   },
   "counters": {"operator_calls": 7, "failure_replans": 0, "control_replans": 1,
                "limits": {"...": {}}},
@@ -371,12 +374,16 @@ planner = build_data_planner(
 )
 result = planner.run("Which Bay Area data scientist postings are at healthcare companies?")
 
-result.answer                       # the final rows
-result.pipeline.logical_plans       # both versions: the one ending at the DISCOVER nodes, and
-                                    # the complete one
-result.pipeline.physical_plans      # both covers: the one that grouped three nodes, and its replacement
-result.results[signature_of("n1")]  # one search: its terms, and the entities and attributes found
-result.conversations                # every exchange with the model, by the component that had it
+result.answer                                  # the final rows
+result.pipeline.logical_plans                  # both versions: the one ending at the DISCOVER
+                                               # nodes, and the complete one
+result.pipeline.physical_plans                 # every cover: the empty one over the first version,
+                                               # the one that grouped three nodes, and its
+                                               # replacement
+result.results[signature_of("find_postings")]  # one search: its terms, and the entities and
+                                               # attributes found
+result.conversations                           # every exchange with the model, by the component
+                                               # that had it
 ```
 
 Three questions have three different answers, and each is in a different place.
@@ -388,9 +395,10 @@ Three questions have three different answers, and each is in a different place.
 | What actually ran, and what was rejected | `conversations.fragment_runner`, one exchange per fragment, holding the parameters written and the review's assessment |
 
 A developer investigating a run that returned postings for data engineers reads the exchange for the
-fragment covering `n3`, `n4`, and `n5`, run by `tablesuite.nl2sql`, and finds a review naming titles
-that do not answer `n5`. The plan was right and the cut was wrong, which
-points at the physical planner's prompt rather than at the logical planner.
+fragment covering `scan_postings`, `keep_bay_area`, and `keep_data_scientists`, run by
+`tablesuite.nl2sql`, and finds a review naming titles that do not answer `keep_data_scientists`. The
+plan was right and the cut was wrong, which points at the physical planner's prompt rather than at
+the logical planner.
 
 The planner takes a request and nothing else. A plan is what a request produced, not something a
 caller hands in, so there is no way to store one and run it later: asking the same question again
@@ -442,10 +450,8 @@ PhysicalOperator(
     parameter_schema=NL2SQLParameters,
     call=_nl2sql,
     source_kinds=frozenset({"sql/sqlite", "sql/mysql", "sql/postgres"}),
-    limitations=(
-        "express a semantic predicate, or bind tables from other fragments into the query it "
-        "writes"
-    ),
+    accepts_bound_inputs=True,
+    limitations="express a semantic predicate, or read more than one database in one query",
 )
 ```
 
@@ -456,8 +462,8 @@ The two sit at opposite ends of what a declaration can say.
 | Logical operators | One | Seven |
 | Largest group it can cover | One `FILTER` node | Any connected group of those seven kinds |
 | Sources | None. It reads the rows it is handed | SQLite, MySQL, and Postgres, and every `SCAN` in a group has to be one of those |
-| Tables from other fragments | Its input is one table | None. It writes its query from its parameters and the schema of the source it reads, so it is a candidate only for a fragment with an empty frontier |
-| Stated limitations | None | Cannot express a semantic predicate, the limit that kept `n5` out of the SQL fragment in Scenario 1, and cannot bind tables from other fragments into the query it writes |
+| Tables from other fragments | Its input is one table | Accepted. It makes each table it is handed addressable and writes a query referring to it, beside the source its scans read |
+| Stated limitations | None | Cannot express a semantic predicate, the limit that kept `keep_data_scientists` out of the SQL fragment in Scenario 1, and one query reads one database, so a group whose scans name two sources is not its to take |
 
 An operator declaring one logical operator can only ever cover one node. Declaring several is what
 makes a group possible, and `limitations` is what keeps the group from growing past what the
@@ -490,7 +496,8 @@ for operator in builtin_operators(data_registry, llm_client, with_nl2table=True)
 #  "builtin.filter", "builtin.nl2table"]
 ```
 
-Four of those six filter and nothing else. The other two answer for `FILTER` because it is one
-of several kinds each declares, so a filter node can be run on its own or grouped into a wider
-call. That is why the physical planner had a choice to make at `n3`, `n4`, and `n5` in Scenario 1,
-and why it had somewhere to go when the choice turned out wrong.
+Four of those six filter and nothing else. The other two answer for `FILTER` because it is one of
+several kinds each declares, so a filter node can be run on its own or grouped into a wider call.
+That is why the physical planner had a choice to make at `scan_postings`, `keep_bay_area`, and
+`keep_data_scientists` in Scenario 1, and why it had somewhere to go when the choice turned out
+wrong.

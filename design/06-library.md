@@ -31,13 +31,14 @@ rather than a copy of the code.
 | `blue_data_planner/physical_planner.py` | `PhysicalPlanner` |
 | `blue_data_planner/fragment_runner.py` | `FragmentRunner` |
 | `blue_data_planner/catalog_searcher.py` | `CatalogSearcher` |
+| `blue_data_planner/prompts/` | `prompt_text`, which reads one of the hand-written prompt files beside it, one per component and turn |
 | `blue_data_planner/prompts/rendering.py` | `render_sample_rows`, `render_attribute_views`: the run data every component that writes prompts renders the same way, with the number of values each component shows passed in |
 | `blue_data_planner/types/` | Every data class that crosses a module boundary: plans, nodes, fragments, operators, results, catalog readings, model usage, limits. `summarize_table` sits there too, since it builds one of those shapes from another and reaches nothing else |
-| `blue_data_planner/plan/` | `validate_logical_plan`, `validate_physical_plan`, `candidate_fragments`, `signatures`, and the response schemas the planning stages send |
+| `blue_data_planner/plan/` | `validate_logical_plan`, `validate_physical_plan`, `candidate_fragments`, `fragment_frontier`, `signatures`, and the response schemas the planning stages send, with the names a cover choice uses (`candidate_label`, `REUSE`, `NONE`) and the `OutputColumnModel` a binding writes |
 | `blue_data_planner/execution/` | `execute_physical_operator`, `check_output_columns`, `project_answer` |
 | `blue_data_planner/operators/` | `OperatorRouter`, `operator_suite` over the suite names a deployment configures, one adapter per outside suite (`blue_operators` over `blue-data-ops`, `lotus_operators` over LOTUS), and `builtin/`, the suite this repository owns |
 | `blue_data_planner/data/` | The `blue-data` boundary, the four catalog readings, and opening a serialized registry |
-| `blue_data_planner/llm/` | `LLMClient`, usage accounting, prompt templating, error types |
+| `blue_data_planner/llm/` | `LLMClient`, usage accounting, prompt templating |
 
 ---
 
@@ -197,9 +198,10 @@ failure forced are different events with different limits, and either ends the r
 `replan_exhausted` once its own bound is spent. A planner that comes back with no plan sends the run
 outward rather than ending it.
 
-Resolving a control node searches the catalog when the node is `DISCOVER` and records what came
-back under the node's id. Every control node ready at that moment is resolved before the run returns
-to the logical planner, and the one return spends one `control_replans`, however many nodes fired.
+Resolving a control node searches the catalog when the node is `DISCOVER` and records what came back
+under the signature of the node's work, as every result is recorded. Every control node ready at
+that moment is resolved before the run returns to the logical planner, and the one return spends one
+`control_replans`, however many nodes fired.
 
 One path leads into both planners, used for the first plan, for every continuation, and for the
 cover that follows each. The logical planner writes a plan from the request, the parent plan, the
@@ -358,10 +360,11 @@ table.
 def summarize_table(table: Data, max_rows: int) -> TableSummary: ...
 ```
 
-`summarize_table` builds one. Three places show a table rather than pass it on — the prompt
-putting a fragment's input in front of the model that writes its parameters, the prompt putting
-its result in front of the review, and the CLI's trace — and each renders the same summary its
-own way. The cap is an argument because those readers differ in how many rows they can spend.
+`summarize_table` builds one. Every place that shows a table rather than passing it on builds
+one: each prompt that puts a table in front of a model (a node the logical planner carries over, a
+held result the physical planner is shown, a fragment's input and its result in the fragment
+runner), the JSON form of a fragment result, and the CLI's trace. The cap is an argument because
+those readers differ in how many rows they can spend.
 
 ### Budgets and limits
 
@@ -605,7 +608,7 @@ class LogicalPlanner:
         counters: RunCounters,
         parent: LogicalPlan | None = None,
         carried_node_ids: frozenset[str] = frozenset(),
-        results: dict[str, FragmentResult | DiscoveryResult] | None = None,
+        results: dict[str, ExecutionResult | DiscoveryResult] | None = None,
         replan_reason: str | None = None,
         new_discovery_node_ids: frozenset[str] = frozenset(),
     ) -> LogicalPlanResult: ...
@@ -620,7 +623,9 @@ The planner reads a catalog preview it fetches itself, ranked against `request`,
 handed in. That costs one registry read per request, until the first cover installs, and removes
 the preview from four signatures and from the run state.
 
-`results` is the run's map for the parent version, and it answers two different questions. A
+`results` holds, by node id, the accepted result of each node of the parent version that has one:
+the `ExecutionResult` an operator node's fragment ended with, or a `DISCOVER` node's
+`DiscoveryResult`. It answers two different questions. A
 continuation after a `REPLAN` is written against the rows the pass's fragments produced, so the
 planner reads real columns and values. A `DISCOVER` node's entry holds the entities its search
 found and a view of every attribute each one holds, which is what lets the continuation's scans name
@@ -673,7 +678,7 @@ class PhysicalPlanner:
         plan: LogicalPlan,
         conversation: Conversation,
         previous: PhysicalPlan | None,
-        results: dict[str, FragmentResult | DiscoveryResult],
+        results: dict[str, ExecutionResult | DiscoveryResult],
         failed_fragment: FailedFragment | None = None,
     ) -> PhysicalPlanResult: ...
 ```
@@ -733,8 +738,8 @@ it, so a rebinding answers the bindings that already failed. A new logical plan 
 conversation, because the node ids in the turns already there name a different graph.
 
 The response schema is built from that call's own candidates, so a candidate set with no `SCAN` has
-no field in which to name a source, and where a scan does appear the entity paths in `results` are
-the allowed values. A candidate is named by its operator and its node set rather than by a position
+no field in which to name a source. A scan's source is the one its logical node names, so no
+binding writes one. A candidate is named by its operator and its node set rather than by a position
 in the list it arrived in, so a choice still says what it chose when a later turn offers a different
 list. The planner searches nothing itself: a path reaches it because a `DISCOVER` node
 found it. `plan` is `None` when a node has no candidate at all, alone or in any fragment containing
@@ -781,13 +786,14 @@ attribute views of the entities it scans, writes the operator's parameters again
 `parameter_schema`, calls `execute_physical_operator`, and reviews what came back.
 
 A review that accepts ends the loop with `status=ok`. One that rejects spends an attempt and the
-parameters are written again; one that asks for a replan returns `status=needs_replan`; running out
-of attempts returns `status=needs_repair`. Either failure reason names the fragment's logical nodes
-and the instruction they were executed as, then the review's assessment where there is one: the
-replan's, or the most recent one when attempts ran out. An unrecoverable operator failure returns
-`status=operator_failed` and no review turn at all, since no other operator would avoid the same
-failure. Every ending carries every attempt it made alongside its status, so what the review turned
-down is readable rather than discarded.
+parameters are written again. Parameters repeating a set already tried also spend an attempt, with
+no operator call, and the model is told to write different ones; one that asks for a replan returns
+`status=needs_replan`; running out of attempts returns `status=needs_repair`. Either failure reason
+names the fragment's logical nodes and the instruction they were executed as, then the review's
+assessment where there is one: the replan's, or the most recent one when attempts ran out. An
+unrecoverable operator failure returns `status=operator_failed` and no review turn at all, since no
+other operator would avoid the same failure. Every ending carries every attempt it made alongside
+its status, so what the review turned down is readable rather than discarded.
 
 Writing the parameters and reviewing the result are turns in one conversation, so the review sees
 what was written and why, and a rejected review is answered on top of what it rejected. One fragment
@@ -824,11 +830,11 @@ into concrete search terms, capped at `max_search_terms`, and each term goes to
 `max_search_terms` carries a default and is not a `RunLimits` field, so `build_data_planner` passes
 nothing for it. Reaching it drops the extra terms and changes nothing else about how the request
 proceeds, which makes it a number shaping this component's work rather than a bound on a run, like
-the size of the catalog preview `LogicalPlanner` reads. The `DiscoveryResult` holds the terms, the `EntityMatch` values they
-found, and how many terms the cap dropped. It is kept under the node's id in the run's results map,
-and together with the other resolved nodes' entries it is the run's catalog context: the logical
-planner reads it to write the continuation, the physical planner to read the kind of each source a
-scan names.
+the size of the catalog preview `LogicalPlanner` reads. The `DiscoveryResult` holds the terms, the
+`EntityMatch` values they found, and how many terms the cap dropped. It is kept in the run's results
+map under the node's signature, and together with the other resolved nodes' entries it is the run's
+catalog context: the logical planner reads it to write the continuation, the physical planner to
+read the kind of each source a scan names.
 
 It carries out no planning stage. Its output is catalog records rather than rows, it enters no data
 flow, and no operator call is spent
@@ -1114,7 +1120,7 @@ resolve against — so the options one suite takes are declared beside that suit
 builds a planner names them. A name no suite registers raises `UnknownOperatorSuiteError`, which is
 what keeps a typo in a suite list from running with fewer operators than it asked for. A suite
 naming no model of its own runs on the planner's, and `BlueSuite` naming no registry resolves
-against the one `blue-data-ops` builds by default.
+against the default registry of `blue-data-ops`.
 
 Nothing else changes when a suite is added. The physical planner builds its candidates from the
 router while it covers a plan, so a newly registered operator competes for every fragment its
@@ -1195,24 +1201,27 @@ node and never a group.
 | `lotus.sem_topk` | `SORT_SUPERLATIVE` |
 | `lotus.sem_join` | `JOIN` |
 
-All six judge meaning with a language model and work on the tables the fragment's frontier
-delivers. None declares a source kind, `accepts_bound_inputs` reads n/a for every one, and a model
-string is all a deployment configures for the suite. That string reaches LOTUS's own configuration
-rather than `llm/`, so what these operations spend is billed as part of the operator call that
-contains it (ADR-005).
+All six judge meaning with a language model and work on the tables the fragment's frontier delivers.
+None declares a source kind, and `accepts_bound_inputs` reads n/a for every one. A deployment
+configures the suite with a model string, a row cap, and a reasoning effort. The model string
+reaches LOTUS's own configuration rather than `llm/`, so what these operations spend is billed as
+part of the operator call that contains it (ADR-005).
 
-Two of them declare a limitation their name would otherwise hide. `lotus.sem_agg` summarizes each
-group of rows into one text value and computes no sum, average, or count, so it answers an
-`AGGREGATE` node only where the node asks for a summary. `lotus.sem_join` compares every pair of
-rows, so what it costs grows with the product of the two tables.
+Five of them declare a limitation their name would otherwise hide. `lotus.sem_map` writes one new
+column per call and changes no column it read. `lotus.sem_extract` reads only the text of the
+columns it is pointed at. `lotus.sem_topk` does not report how the rows it keeps ranked.
+`lotus.sem_agg` summarizes each group of rows into one text value and computes no sum, average, or
+count, so it answers an `AGGREGATE` node only where the node asks for a summary. `lotus.sem_join`
+matches on one column from each table and produces only inner-join rows.
 
-What the suite spends grows with the rows it is handed, so it takes a row cap, 5,000 by default,
-and refuses an input above it before calling a model. `lotus.sem_join` counts the two tables
-multiplied together, which is how many comparisons it makes. The refusal is recoverable and says
-that a deterministic operator can take the node, so a fragment that arrived with too many rows is
-answered by another operator rather than by a bill. Whether a bound an operator enforces inside
-its own call belongs in `RunLimits` is open question 45 in
-[13-decision-log.md](13-decision-log.md#open-questions).
+What the suite spends grows with the rows it is handed, so it takes a row cap, 5,000 by default, and
+refuses an input above it before calling a model. `lotus.sem_topk` holds a cap of its own, 500 rows,
+and applies whichever of the two is lower, since its model calls grow with the comparisons it makes
+between rows rather than with the rows. `lotus.sem_join` counts the two tables multiplied together,
+which is how many comparisons it makes. The refusal is recoverable and says that a deterministic
+operator can take the node, so a fragment that arrived with too many rows is answered by another
+operator rather than by a bill. Whether a bound an operator enforces inside its own call belongs in
+`RunLimits` is open question 45 in [13-decision-log.md](13-decision-log.md#open-questions).
 
 An instruction names the columns it reads in LOTUS's own notation, which the parameter schema states
 so that a runner writing one has it in front of the model. A column an instruction names and the
@@ -1248,15 +1257,16 @@ The types are string, number, and bool, and a decimal number counts as a number.
 type and counts as a number only against a list of literals. A substring or pattern search over an
 operand holding no strings, and a pattern that does not compile, are refused the same way, since the
 parameters are wrong for the table. Afterwards, each row is evaluated as SQL evaluates it, and a
-comparison is true, false, or unknown. It is unknown when a value it reads is missing or when the
-row's two values differ in type, and the missing-value test is always true or false. A negated
-unknown is unknown; and is false when any condition is false, else unknown when any is unknown; or
-is true when any condition is true, else unknown when any is unknown. The filter keeps only the rows
-whose predicate is true, so a few stray cells in an otherwise uniform column leave the rest of the
-answer intact, and a negated comparison and its opposite operator keep the same rows. A value
-tested against an empty list of literals is false, as in SQL. A decimal number compares exactly
-with an integer and with another decimal number. A floating-point value meeting a decimal number is
-read as the shortest decimal that prints it, so 4.20 equals 4.2.
+comparison is true, false, or unknown. It is unknown when a value it reads is missing, when the
+row's two values differ in type, when an ordering comparison reads a NaN, and when a substring or
+pattern search reads a value that is not a string. The missing-value test is always true or false. A
+negated unknown is unknown; and is false when any condition is false, else unknown when any is
+unknown; or is true when any condition is true, else unknown when any is unknown. The filter keeps
+only the rows whose predicate is true, so a few stray cells in an otherwise uniform column leave the
+rest of the answer intact, and a negated comparison and its opposite operator keep the same rows. A
+value tested against an empty list of literals is false, as in SQL. A decimal number compares
+exactly with an integer and with another decimal number. A floating-point value meeting a decimal
+number is read as the shortest decimal that prints it, so 4.20 equals 4.2.
 
 `builtin.scan` is the suite's one source-reading deterministic entry, and it reads through `data/`.
 It declares `SCAN` alone: it groups no `FILTER` and no `PROJECT`, and either kind of node downstream
@@ -1269,9 +1279,9 @@ named set is `PROJECT`'s job, run as its own fragment when the plan asks for it.
 input ([10](10-data-model.md#how-many-inputs-a-node-takes)), `builtin.scan` binds that input's
 values into the read, which is the bind join of
 [04](04-detailed-architecture.md#what-an-operator-does-with-its-input); how a bind join reaches the
-source is `data/`'s question, taken up below. Its `source_kinds` name the kinds it reads and grow as
-more are implemented. It does not retry inside itself: a read the source refused comes back as a
-recoverable failure, and the parameter repair rewrites what asked for it.
+source is `data/`'s question, taken up below. Its `source_kinds` name the kinds it reads. It does
+not retry inside itself: a read the source refused comes back as a recoverable failure, and the
+parameter repair rewrites what asked for it.
 
 `builtin.nl2table` is the suite's black box, and the case the pushdown design is written against. It
 reads registered sources, accepts bound inputs, and is the one operator with no same-source
@@ -1352,8 +1362,8 @@ rewrite. Anything else a call meets — a registry record that is not a record, 
 table — is malformed state and raises as the bug it is.
 
 A source names a database, and a collection where its kind has them. One registered source can hold
-several databases, so `execute_query` cannot infer which one a query runs against — the benchmark
-registry holds five under one source. `database` is therefore required and `collection` optional.
+several databases, so `execute_query` cannot infer which one a query runs against. `database` is
+therefore required and `collection` optional.
 
 Two kinds of write have to be told apart, because the design answers them differently.
 
@@ -1434,16 +1444,17 @@ context already holds, and a path reaches that context only by having been searc
 second search arises.
 
 `max_search_results` is fixed when the catalog is built, since `search_records` runs once per search
-term and one cap serves every term. It is small because a match carries a view of every attribute
-of its entity, and the logical planner is shown every match the run's searches returned: ten
-entities' worth is more than a request needs to choose between. `preview`'s cap comes from the
-logical planner, which decides how much of a registry one prompt carries.
+term and one cap serves every term. It is small because a match carries a view of every attribute of
+its entity, and the logical planner is shown every match the run's searches returned: three per
+term, across up to eight terms, is more than a request needs to choose between. `preview`'s cap
+comes from the logical planner, which decides how much of a registry one prompt carries.
 
 `attribute_views` takes one entity and returns a view per attribute it holds, with no way to ask for
 a subset, because the caller that would select is the one deciding which attributes to name and has
 not decided yet ([10](10-data-model.md#what-the-fragment-runner-reads)).
 
-`DataCatalog` selects and renders what `blue-data` has already collected and enriched. It profiles
+`DataCatalog` selects from what `blue-data` has already collected and enriched, and
+`prompts/rendering.py` renders what it selected. It profiles
 no attribute, samples no table, and infers no type of its own, so an `AttributeView` is a projection
 rather than a computation: it pairs an attribute's stored statistics and value semantics with its
 description, and takes the empty-string count from the frequent values the statistics already list.
@@ -1488,7 +1499,7 @@ The only module that calls a provider (ADR-005).
 | --- | --- |
 | `LLMClient` | One provider call, through litellm, with retry and rate limiting |
 | `LLMClientProvider`, `CachingLLMClientProvider`, `resolve_llm_client` | Injection points, so a client is supplied rather than constructed in place |
-| `Conversation`, `Turn` | The turns of one exchange, so a later turn sees an earlier one |
+| `Conversation`, `Turn` | The turns of one exchange, so a later turn sees an earlier one. Defined in `types/`, since `RunResult` carries them |
 | `UsageLedger`, `UsageRecord` | One record per general provider call a client makes, with totals. A run reads its spend off its conversations instead |
 | `LLMUsage` | One model call: model, prompt and completion tokens, cost, and latency. Defined in `types/`, since it reaches a caller inside `RunResult` |
 | `LLMError` | The provider failing after retries, or answering in a shape the client cannot read. Defined in `types/`, like every exception the library defines |
@@ -1518,9 +1529,9 @@ the conversations the run state holds, with no component reporting it separately
 class, since a total is a `sum()` over the list.
 
 `RunResult.conversations` therefore covers calls through this module and nothing else. A model call
-an operator makes internally, as a LOTUS operator does, is invisible here:
-LOTUS holds its own model configuration, is not routed through `llm/`, and reports no per-call token
-count, so the call is billed as part of the one operator call that contains it
+an operator makes internally, as a LOTUS operator does, is invisible here: it runs under the suite's
+own model configuration rather than through `llm/`, so the call is billed as part of the one
+operator call that contains it
 ([05-software-stack.md](05-software-stack.md#two-model-configurations-one-budget)).
 
 `LLMClient`'s general provider call, `execute_api_call`, has an async twin, `aexecute_api_call`, for

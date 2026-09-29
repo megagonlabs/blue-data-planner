@@ -33,12 +33,13 @@ pythonVersion = "3.11"
 typeCheckingMode = "strict"
 venvPath = "."
 venv = ".venv"
-extraPaths = ["tests/stubs"]     # lib/ only: fakes for heavy optional dependencies
+extraPaths = ["src"]             # lib/ adds "." and "tests/stubs", the fakes for heavy
+                                 # optional dependencies
 ```
 
-Prompt text is the one thing exempt from `E501`, because a line break inside a prompt changes the
-bytes sent to a provider. The exemption names each file holding prompt text and nothing else, which
-is the planning prompts under `prompts/`.
+Prompt text lives in Markdown files under `prompts/`, which `ruff` does not read, so a prompt line
+may run past 100 characters with no exemption. A line break inside a prompt changes the bytes sent
+to a provider.
 
 ---
 
@@ -48,8 +49,8 @@ Required on every public method, public class attribute, and module-level consta
 are annotated too. `pyright` runs in strict mode, and its errors are build failures rather than
 suggestions.
 
-Every module opens with `from __future__ import annotations`, which allows forward references and
-keeps type-only imports from causing circular imports.
+Every module that holds code opens with `from __future__ import annotations`, which allows forward
+references and keeps type-only imports from causing circular imports.
 
 Use 3.11 syntax and built-in generics:
 
@@ -70,9 +71,10 @@ def next_ready(self) -> Optional[PhysicalPlanFragment]: ...
 The library ships a `py.typed` marker, so its public signatures are part of the released interface.
 
 A dependency shipping no types of its own is imported behind a targeted `pyright: ignore` where it
-enters and delegates through `Any` from there. The import rules below put those imports in three
-places, so untyped values stop at `data/`, at `operators/adapters/lotus/`, and at the two scripts
-that import `blue-data` directly, rather than spreading past them.
+enters and delegates through `Any` from there. The import rules below keep those imports to a few
+places, so untyped values stop where they enter rather than spreading: `blue-data` at `data/`, at
+the CLI's configuration modules, and at the two scripts that build a registry; LOTUS at
+`operators/adapters/lotus/`; and the model response cache and JSON path queries inside `llm/`.
 
 ---
 
@@ -197,8 +199,10 @@ a module its own package does not re-export.
 The third rule is scoped to `lib/src/` because `lib/scripts/` and `lib/tests/` ship in no package.
 Two scripts there import `blue-data` directly to build a registry, one for the benchmark and one
 for the demo data the examples run against, which is ingestion the library deliberately does not
-offer ([07-repo-organization.md](07-repo-organization.md#where-the-benchmark-lives)). Nothing else
-outside `data/` imports it.
+offer ([07-repo-organization.md](07-repo-organization.md#where-the-benchmark-lives)). Tests import
+it too, to build the registries their doubles read. Outside `lib/`, the CLI imports `blue-data`'s
+configuration helper, which resolves profiles the way every Blue CLI does (ADR-028) and which the
+library does not wrap.
 
 A signature elsewhere that has to name a registry takes the type from `blue_data_planner.data`,
 which hands the name out beside the readings. What the rule keeps in one place is every call made on
@@ -297,13 +301,21 @@ Catch specific types. Never bare `except:`. Let exceptions reach the interface b
 each interface decide what to do with one.
 
 `except Exception:` is permitted where a call crosses into a dependency reached over several
-backends or providers that share no common failure type — the source read in `data/`, the provider
-call in `llm/`. Listing each one's own exception type would mean listing one per backend or
-provider, and the first one missed would pass the boundary uncaught — where nothing can catch it,
-since no module outside the boundary may import the dependency it came from. A failure the design
-classes as recoverable would reach the caller as a crash. Both boundaries convert instead, naming
-the original error in its message and keeping it as the cause: the source read raises
-`SourceQueryError`, the provider call raises `LLMError`.
+backends or providers that share no common failure type — the registry load and the source read in
+`data/`, the provider call in `llm/`. Listing each one's own exception type would mean listing one
+per backend or provider, and the first one missed would pass the boundary uncaught — where nothing
+can catch it, since no module outside the boundary may import the dependency it came from. A failure
+the design classes as recoverable would reach the caller as a crash. Each boundary converts instead,
+naming the original error in its message and keeping it as the cause: the registry load raises
+`RegistryUnreadableError`, the source read raises `SourceQueryError`, the provider call raises
+`LLMError`.
+
+Two more places catch broadly, each for a reason the rule above does not cover. The child process
+`builtin.nl2table` runs a written program in catches `BaseException` around that program, since a
+program's own exception, an interpreter exit, and a resource limit tripping all have to reach the
+parent as one reply rather than as an ambiguous exit code. The benchmark harness catches
+`Exception` around each query's run, so a defect in one query leaves the rest of a sweep scorable
+(ADR-016); it ships in no package.
 
 The two interfaces are the other places it is permitted, each at its boundary and nowhere else in
 its package. The MCP server's tool handler answers with a payload rather than an exception, so
@@ -317,9 +329,10 @@ with the exception's type and message, and print the traceback only under `--log
 | MCP server | A run that did not finish, and an operator failing inside one, are successful tool calls whose payload carries the status and the attempt. An exception raised in the adapter itself is also a successful tool call, and its payload is `{"error": "<message>", "code": "<CODE>"}` ([09-api-interface-spec.md](09-api-interface-spec.md#errors)) |
 | CLI | A top-level handler renders the message through Rich, writes it as a document on standard output as well under `--format json`, and sets an exit code. An unexpected exception is `INTERNAL_ERROR`, with its traceback only under `--log` |
 
-The library has one `try` of its own that is not a conversion: `LLMError` is caught at the top of
-the run loop, so a provider outage becomes the `llm_failed` status with everything the run had
-already accumulated, and no component has to handle the provider itself.
+The library has one `try` of its own that is not a conversion, at the top of the run loop. It
+catches `LLMError`, so a provider outage becomes the `llm_failed` status with everything the run had
+already accumulated and no component has to handle the provider itself, and any other
+`BlueDataPlannerError`, a defect the planner detected, which becomes `planner_failed`.
 
 ---
 
@@ -330,10 +343,10 @@ The split is deliberate: a shipped multi-command interface earns a dependency th
 does not.
 
 ```python
-@data.command("query")
+@data_group.command("query")
 @click.argument("request")
-@click.option("--format", "output_format", type=click.Choice(["table", "json"]), default="table")
-def data_query(request: str, output_format: str) -> None: ...
+@click.option("--explain", is_flag=True, help="Write the plan and stop, running nothing.")
+def data_query(request: str, explain: bool) -> None: ...
 ```
 
 ---

@@ -534,5 +534,7 @@ one off the `RunCounters` it is handed per call.
 `max_search_terms` is the one number a component's constructor takes, because it is not a bound
 on a run: reaching it drops the extra terms and reports the count on the `DiscoveryResult`.
 
-`RunState`, in `blue_data_planner.run_state`, is the one mutable object per request. The run loop
-alone writes into it, and a caller reads the same contents off the `RunResult` it produces.
+`RunState`, in `blue_data_planner.run_state`, is the one mutable object per request. Only the run loop
+installs plans and files results in it; the components it calls add turns to their own
+conversation and spend from its counters. A caller reads the same contents off the `RunResult` it
+produces.
