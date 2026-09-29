@@ -195,7 +195,7 @@ def _compares(row: Record, comparison: Comparison) -> bool:
         return bool(_BINARY_OPERATORS[comparison.operator](left, right))
     except TypeError:
         # Only two values of one category Python has no order for, such as two dicts, reach
-        # here; strings, numbers, and bools always compare.
+        # here; strings, numbers, and bools otherwise compare.
         raise RecoverableOperatorError(
             f"{_described(comparison.left)} holds {type(left).__name__}, which cannot be "
             f"ordered with '{comparison.operator}'"
@@ -205,13 +205,24 @@ def _compares(row: Record, comparison: Comparison) -> bool:
 def _operand_value(row: Record, operand: Operand) -> Any:
     if isinstance(operand, ValueOperand):
         return operand.value
-    return row.get(operand.column)
+    return _as_float_if_decimal(row.get(operand.column))
 
 
 def _operand_values(table: Data, operand: Operand) -> list[Any]:
     if isinstance(operand, ValueOperand):
         return [operand.value]
-    return [row[operand.column] for row in table if row.get(operand.column) is not None]
+    return [
+        _as_float_if_decimal(row[operand.column])
+        for row in table
+        if row.get(operand.column) is not None
+    ]
+
+
+def _as_float_if_decimal(value: Any) -> Any:
+    # A SQL NUMERIC column arrives as Decimal, and Python compares a Decimal with a float
+    # exactly, so Decimal("4.20") != 4.2; read as a float, it equals the literal a plan writes.
+    # A Decimal NaN becomes a float NaN, which every comparison answers False without raising.
+    return float(value) if isinstance(value, Decimal) else value
 
 
 def _described(operand: Operand) -> str:
@@ -222,15 +233,15 @@ def _described(operand: Operand) -> str:
 
 def _category(value: Any) -> type | None:
     # A category groups the shapes a plan should never treat as interchangeable: a string, a
-    # number, or a bool, the same split _numbers makes. A number includes Decimal, which SQL
-    # NUMERIC columns produce. A missing value has no category; the checks skip it.
+    # number, or a bool, the same split _numbers makes. A Decimal was already read as a float
+    # (_as_float_if_decimal). A missing value has no category; the checks skip it.
     if value is None:
         return None
     if isinstance(value, bool):
         return bool
     if isinstance(value, str):
         return str
-    if isinstance(value, int | float | Decimal):
+    if isinstance(value, int | float):
         return float
     return type(value)  # pyright: ignore[reportUnknownVariableType]
 
@@ -246,10 +257,11 @@ def _membership_category(value: Any) -> type | None:
 
 
 def _require_comparable_predicate(table: Data, predicate: Predicate) -> None:
-    # Every comparison is checked once over the whole table before filtering starts, and is
-    # refused only when no row can satisfy it on type. A per-row refusal would abort a filter
-    # that a column mostly of one category was answering correctly, on one dirty cell (an
-    # occasional "N/A" in an otherwise numeric column, say); _compares leaves that row unmatched.
+    # Checked once over the whole table before filtering starts, and refused only when the table
+    # as a whole contradicts a comparison: a per-row refusal would abort a filter that a column
+    # mostly of one category was answering correctly, on one dirty cell (an occasional "N/A" in
+    # an otherwise numeric column, say); _compares leaves that row unmatched. What each kind of
+    # comparison is checked for is in _require_comparable_comparison.
     if isinstance(predicate, AndPredicate | OrPredicate):
         for condition in predicate.conditions:
             _require_comparable_predicate(table, condition)

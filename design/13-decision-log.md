@@ -1687,10 +1687,10 @@ row or a non-null literal: two operands compared with `eq`, `ne`, `lt`, `lte`, `
 expression (`re.search`, ADR-041); or one operand tested for a missing value (`is_null`). A
 comparison is checked once over the whole table before filtering and refused as recoverable when it
 names a column the table does not have, or when an operand shares no type with the other side or
-with its list of literals (a bool counting as a number). `contains` or `re.search` over an operand
-holding no strings, and a pattern that does not compile, are refused the same way. A row whose
-values differ in type, or that misses a value, does not match, except that `is_null` matches exactly
-the rows missing one.
+with its list of literals (a bool is its own type, and counts as a number only against a list of
+literals). `contains` or `re.search` over an operand holding no strings, and a pattern that does not
+compile, are refused the same way. A row whose values differ in type, or that misses a value, does
+not match, except that `is_null` matches exactly the rows missing one.
 
 **Rationale:** A logical `FILTER` may compare two columns of one row, as a plan counting two things
 per group and keeping the groups where the counts agree does, and a predicate that can compare a

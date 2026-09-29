@@ -110,8 +110,8 @@ def test_a_literal_operand_keeps_the_type_it_was_written_with(value: Any) -> Non
 
 @pytest.mark.parametrize("values", [["CA", "NY"], [1, 2.5]])
 def test_a_membership_list_keeps_the_type_of_each_element(values: list[Any]) -> None:
-    """Checked element by element, so an int written into a list does not read back as a
-    float."""
+    """Each element of a membership list reads back as the type it was written with, so an int
+    is not turned into a float."""
     written = MembershipComparison.model_validate(
         {"left": {"column": "state"}, "operator": "in", "values": values}
     )

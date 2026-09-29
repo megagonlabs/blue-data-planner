@@ -1243,12 +1243,13 @@ condition on a string's shape, such as a prefix or a first token, is this entry'
 condition on what the string means is a semantic operator's. Computing a value before comparing it
 is not a comparison and is not this entry's work. Comparisons are checked in two stages. Before any
 row is filtered, a comparison naming a column the table does not have is refused as a recoverable
-failure, as is one whose operand shares no type with the other side or with its list of literals. A
-substring or pattern search over an operand holding no strings, and a pattern that does not compile,
-are refused the same way, since the parameters are wrong for the table. Afterwards, a row whose two
-values differ in type, or that is missing a value, does not match, except that the missing-value
-test matches exactly the rows missing one, so a few stray cells in an otherwise uniform column leave
-the rest of the answer intact.
+failure, as is one whose operand shares no type with the other side or with its list of literals.
+The types are string, number, and bool, and a decimal number counts as a number. A bool is its own
+type and counts as a number only against a list of literals. A substring or pattern search over an
+operand holding no strings, and a pattern that does not compile, are refused the same way, since the
+parameters are wrong for the table. Afterwards, a row whose two values differ in type, or that is
+missing a value, does not match, except that the missing-value test matches exactly the rows missing
+one, so a few stray cells in an otherwise uniform column leave the rest of the answer intact.
 
 `builtin.scan` is the suite's one source-reading deterministic entry, and it reads through `data/`.
 It declares `SCAN` alone: it groups no `FILTER` and no `PROJECT`, and either kind of node downstream

@@ -323,6 +323,9 @@ _TRANSFORMATIONS_NAMING_A_COLUMN: list[Callable[[Data], Data]] = [
     lambda table: filter_rows(
         table, a_predicate({"left": a_column("city"), "operator": "eq", "right": a_literal("LA")})
     ),
+    lambda table: filter_rows(
+        table, a_predicate({"left": a_literal("LA"), "operator": "eq", "right": a_column("city")})
+    ),
     lambda table: project_columns(table, [ProjectedColumn(column="city")]),
     lambda table: expand_rows(table, "city", "city", None),
     lambda table: aggregate_rows(table, ["city"], [CountAggregation(function="count", into="n")]),
@@ -414,6 +417,16 @@ def test_a_comparison_whose_sides_share_no_category_refuses_the_table(
         filter_rows(table, a_predicate(predicate))
 
 
+def test_ordering_two_values_that_have_no_order_refuses_the_table() -> None:
+    """Two dicts are one category but cannot be ordered, so an ordering comparison over them
+    is refused for the parameter repair to rewrite, not answered with no match."""
+    with pytest.raises(RecoverableOperatorError, match="cannot be ordered"):
+        filter_rows(
+            [{"code": {"a": 1}}],
+            a_predicate({"left": a_column("code"), "operator": "lt", "right": a_column("code")}),
+        )
+
+
 def test_an_equality_comparison_between_two_numbers_answers_no_rows_rather_than_refusing() -> None:
     """An int compared against a float, both numbers, is an ordinary unequal comparison, not
     the category mismatch a string compared against a number is."""
@@ -469,11 +482,70 @@ def test_a_stray_cell_of_another_category_matches_nothing_and_the_rest_are_answe
     table: Data, predicate: dict[str, Any], expected: list[Any]
 ) -> None:
     """A column of one category except for a stray cell still answers every comparison, since
-    some row shares a category with the other side; the stray row does not match. A Decimal
-    counts as a number, so a Decimal column answers a comparison against an int or float."""
+    some row shares a category with the other side; the stray row does not match."""
     kept = filter_rows(table, a_predicate(predicate))
 
     assert [row["v"] for row in kept] == expected
+
+
+def a_column_of_decimals() -> Data:
+    """Four rows of a SQL NUMERIC column, one of them NaN."""
+    return [
+        {"v": Decimal("4.20")},
+        {"v": Decimal("0.10")},
+        {"v": Decimal("5.00")},
+        {"v": Decimal("NaN")},
+    ]
+
+
+@pytest.mark.parametrize(
+    ("predicate", "expected"),
+    [
+        (
+            {"left": a_column("v"), "operator": "eq", "right": a_literal(4.2)},
+            [Decimal("4.20")],
+        ),
+        (
+            {"left": a_column("v"), "operator": "in", "values": [4.2, 0.1]},
+            [Decimal("4.20"), Decimal("0.10")],
+        ),
+        (
+            {"left": a_column("v"), "operator": "gte", "right": a_literal(4.2)},
+            [Decimal("4.20"), Decimal("5.00")],
+        ),
+        (
+            {"left": a_column("v"), "operator": "lt", "right": a_literal(4.5)},
+            [Decimal("4.20"), Decimal("0.10")],
+        ),
+    ],
+)
+def test_a_decimal_column_is_compared_as_the_float_it_holds(
+    predicate: dict[str, Any], expected: list[Any]
+) -> None:
+    """A Decimal cell compares against a float literal as the float it holds, so 4.20 equals
+    4.2, and a Decimal NaN matches nothing, as a float NaN does."""
+    kept = filter_rows(a_column_of_decimals(), a_predicate(predicate))
+
+    assert [row["v"] for row in kept] == expected
+
+
+@pytest.mark.parametrize(
+    "predicate",
+    [
+        {"left": a_column("v"), "operator": "eq", "right": a_literal(5)},
+        {"left": a_column("v"), "operator": "contains", "right": a_literal("a")},
+        {"left": a_column("v"), "operator": "re.search", "pattern": "^a"},
+        {"left": a_column("v"), "operator": "in", "values": [5]},
+    ],
+)
+def test_a_column_missing_from_every_row_matches_nothing_rather_than_refusing(
+    predicate: dict[str, Any],
+) -> None:
+    """A column whose every cell is missing gives the check before filtering nothing to object
+    to, so the comparison is answered, and no row matches."""
+    kept = filter_rows([{"v": None}, {"v": None}], a_predicate(predicate))
+
+    assert kept == []
 
 
 def test_an_in_comparison_matches_a_bool_column_against_a_bool_option() -> None:
