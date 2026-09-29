@@ -137,7 +137,7 @@ class PhysicalPlanner:
                 bound_so_far[covered_node_id] = bound
         cover = PhysicalPlan(
             id=str(uuid.uuid4()),
-            parent_id=previous.id if previous is not None else None,
+            parent_id=_parent_id(plan, previous),
             logical_plan_id=plan.id,
             fragments=fragments,
         )
@@ -378,10 +378,19 @@ def _carried_cover(
     # continuation may not rewrite a node it carried over, so what they cover is unchanged.
     return PhysicalPlan(
         id=str(uuid.uuid4()),
-        parent_id=previous.id,
+        parent_id=_parent_id(plan, previous),
         logical_plan_id=plan.id,
         fragments=finished,
     )
+
+
+def _parent_id(plan: LogicalPlan, previous: PhysicalPlan | None) -> str | None:
+    # A cover replaces only an earlier cover of the same logical plan. A new plan version still
+    # reads the previous cover, for the fragments it can carry over, but starts a lineage of its
+    # own.
+    if previous is None or previous.logical_plan_id != plan.id:
+        return None
+    return previous.id
 
 
 def _coverable(plan: LogicalPlan) -> frozenset[str]:

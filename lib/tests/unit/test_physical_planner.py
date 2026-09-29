@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import dataclasses
 import json
 from typing import Any
 
@@ -421,6 +422,11 @@ def a_planner(client: ScriptedLLMClient, router: OperatorRouter) -> PhysicalPlan
     # ScriptedLLMClient stands in for LLMClient structurally; pyright's strict nominal check
     # does not see the two as related.
     return PhysicalPlanner(client, router)  # pyright: ignore[reportArgumentType]
+
+
+def a_new_version_of(plan: LogicalPlan) -> LogicalPlan:
+    """A continuation of the plan holding the same nodes, as a rewritten ending would."""
+    return dataclasses.replace(plan, id=f"{plan.id}-next", parent_id=plan.id)
 
 
 def test_a_plan_one_operator_can_absorb_comes_back_as_one_fragment() -> None:
@@ -1137,6 +1143,54 @@ def test_a_plan_whose_every_node_already_ran_carries_the_cover_over_unasked() ->
     assert again.plan is not None
     assert again.plan.fragments == first.plan.fragments
     assert conversation.turns == []
+
+
+@pytest.mark.parametrize("covers_the_same_plan", [True, False])
+def test_a_cover_names_the_previous_cover_as_its_parent_only_for_the_same_logical_plan(
+    covers_the_same_plan: bool,
+) -> None:
+    """A cover repair replaces the cover before it; a new plan version starts its own lineage."""
+    client = ScriptedLLMClient([a_binding("n2:op.one:[n1,n2]"), a_binding("n2:op.one:[n1,n2]")])
+    planner = a_planner(
+        client,
+        a_router(an_operator("op.one", frozenset({LogicalOperator.SCAN, LogicalOperator.PROJECT}))),
+    )
+    plan = a_scan_and_return()
+    first = planner.cover(REQUEST, plan, Conversation(), None, a_discovery())
+    assert first.plan is not None
+    next_plan = plan if covers_the_same_plan else a_new_version_of(plan)
+
+    again = planner.cover(
+        REQUEST,
+        next_plan,
+        Conversation(),
+        first.plan,
+        a_discovery(),
+        a_failed_fragment(first.plan.fragments[0]),
+    )
+
+    assert again.plan is not None
+    assert again.plan.parent_id == (first.plan.id if covers_the_same_plan else None)
+
+
+def test_a_carried_over_cover_of_a_new_plan_version_names_no_parent() -> None:
+    """A continuation rewriting only the ending still starts a new lineage of covers."""
+    client = ScriptedLLMClient([a_binding("n2:op.one:[n1,n2]")])
+    planner = a_planner(
+        client,
+        a_router(an_operator("op.one", frozenset({LogicalOperator.SCAN, LogicalOperator.PROJECT}))),
+    )
+    plan = a_scan_and_return()
+    first = planner.cover(REQUEST, plan, Conversation(), None, a_discovery())
+    assert first.plan is not None
+
+    again = planner.cover(
+        REQUEST, a_new_version_of(plan), Conversation(), first.plan, a_discovery_holding_n2()
+    )
+
+    assert again.plan is not None
+    assert again.plan.fragments == first.plan.fragments
+    assert again.plan.parent_id is None
 
 
 def test_a_node_with_no_result_is_offered_no_way_to_reuse_its_fragment() -> None:

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from decimal import Decimal
+
 import pytest
 
 from blue_data_planner.execution.output_columns import (
@@ -38,6 +40,10 @@ def _ok(*tables: Data) -> ExecutionResult:
         (7, "int", 7),
         ("48.5", "float", 48.5),
         (3, "float", 3.0),
+        (Decimal("48.50"), "float", 48.5),
+        (Decimal("1815.00"), "int", 1815),
+        # One past the largest integer a float holds exactly.
+        (Decimal("9007199254740993"), "int", 9007199254740993),
         (True, "bool", True),
         (1, "bool", True),
         (0, "bool", False),
@@ -67,6 +73,8 @@ def test_none_passes_every_declared_type(declared_type: str) -> None:
         (48.7, "int"),
         ("nan", "float"),
         ("inf", "float"),
+        (Decimal("48.7"), "int"),
+        (Decimal("NaN"), "float"),
         ("maybe", "bool"),
         (7, "bool"),
     ],

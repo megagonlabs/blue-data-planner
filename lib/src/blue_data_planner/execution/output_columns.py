@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+from decimal import Decimal
 from typing import Any
 
 from blue_data_planner.types import (
@@ -72,6 +73,10 @@ def coerce_value(value: Any, declared_type: ColumnDataType) -> Any:
             raise DeclaredTypeMismatch(value, declared_type) from None
     elif isinstance(value, int | float):
         number = value
+    elif isinstance(value, Decimal):
+        # A SQL NUMERIC column arrives as a Decimal. It is read exactly, so a whole number too
+        # large for a float still reaches an int column unchanged.
+        return _coerce_decimal(value, declared_type)
     else:
         raise DeclaredTypeMismatch(value, declared_type)
     # float() reads "nan" and "inf"; no declared column holds either, and int() raises
@@ -86,6 +91,16 @@ def coerce_value(value: Any, declared_type: ColumnDataType) -> Any:
     if number != int(number):
         raise DeclaredTypeMismatch(value, declared_type)
     return int(number)
+
+
+def _coerce_decimal(value: Decimal, declared_type: ColumnDataType) -> int | float:
+    if not value.is_finite():
+        raise DeclaredTypeMismatch(value, declared_type)
+    if declared_type == "float":
+        return float(value)
+    if value != value.to_integral_value():
+        raise DeclaredTypeMismatch(value, declared_type)
+    return int(value)
 
 
 def coerce_column(values: list[Any], declared_type: ColumnDataType) -> list[Any]:
