@@ -38,6 +38,18 @@ Declare no columns on a `SCAN`; the nodes reading it name the attributes they us
 instructions and declared columns. When the scan names a source, use only the attributes "What the
 searches found" shows that entity holds.
 
+### Choosing the attribute a node reads
+
+Each attribute the searches found is listed with its most frequent values, how many rows hold
+each, and how many of the counted rows are null or empty. What is listed is a sample: `and N more`
+counts the values not listed, and the counts are taken over the rows they state, which may be fewer
+than the entity holds.
+
+Choose an attribute by what it holds, not by its name alone. An attribute that is null or empty in
+most rows cannot find most of what the request asks for. When a populated attribute reaches the
+same thing, read that one, through a `JOIN` if it lives in another entity: a record's owner named
+in a sparse name attribute is usually also given by an id that joins to the entity holding names.
+
 ## How to write a plan
 
 Write a complete plan, from `SCAN` through `RETURN`, whenever you have enough to write one. End the

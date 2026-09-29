@@ -11,8 +11,6 @@ from pydantic import BaseModel
 from blue_data_planner.operators import OperatorRouter
 from blue_data_planner.physical_planner import PhysicalPlanner
 from blue_data_planner.types import (
-    AttributeRecord,
-    AttributeRef,
     AttributeView,
     BlueDataPlannerError,
     ControlOperator,
@@ -34,7 +32,7 @@ from blue_data_planner.types import (
     PipelineNode,
     RunStatus,
 )
-from tests.doubles.catalog import FakeCatalog
+from tests.doubles.catalog import an_attribute_view
 from tests.doubles.llm import ScriptedLLMClient
 
 POSTINGS = "/source/jobs/database/jobs/collection/public/entity/postings"
@@ -227,7 +225,7 @@ def a_discovery() -> dict[str, Any]:
                     name="postings",
                     description="job postings",
                     source_kind="sql/sqlite",
-                    attributes=[AttributeRecord(name="title", dtype="str", description=None)],
+                    attributes=[an_attribute_view("title")],
                     score=0.9,
                     search_term="job postings",
                     row_count=None,
@@ -281,7 +279,7 @@ def a_discovery_of_two_source_kinds() -> dict[str, Any]:
         name="reviews",
         description="company reviews",
         source_kind="vector/chroma",
-        attributes=[AttributeRecord(name="title", dtype="str", description=None)],
+        attributes=[an_attribute_view("title")],
         score=0.8,
         search_term="reviews",
         row_count=None,
@@ -307,7 +305,7 @@ def a_discovery_of_a_sized_and_an_unsized_entity() -> dict[str, Any]:
                     name="postings",
                     description="job postings",
                     source_kind="sql/sqlite",
-                    attributes=[AttributeRecord(name="title", dtype="str", description=None)],
+                    attributes=[an_attribute_view("title"), a_remote_flag_view()],
                     score=0.9,
                     search_term="job postings",
                     row_count=11060,
@@ -317,7 +315,7 @@ def a_discovery_of_a_sized_and_an_unsized_entity() -> dict[str, Any]:
                     name="reviews",
                     description="company reviews",
                     source_kind="vector/chroma",
-                    attributes=[AttributeRecord(name="title", dtype="str", description=None)],
+                    attributes=[an_attribute_view("title")],
                     score=0.8,
                     search_term="reviews",
                     row_count=None,
@@ -418,17 +416,11 @@ def a_failed_fragment_with(
     )
 
 
-def a_planner(
-    client: ScriptedLLMClient, router: OperatorRouter, catalog: FakeCatalog | None = None
-) -> PhysicalPlanner:
+def a_planner(client: ScriptedLLMClient, router: OperatorRouter) -> PhysicalPlanner:
     """A planner over this router, whose model answers come from this scripted client."""
-    # ScriptedLLMClient and FakeCatalog stand in for LLMClient and DataCatalog
-    # structurally; pyright's strict nominal check does not see them as related.
-    return PhysicalPlanner(
-        client,  # pyright: ignore[reportArgumentType]
-        router,
-        catalog or FakeCatalog(),  # pyright: ignore[reportArgumentType]
-    )
+    # ScriptedLLMClient stands in for LLMClient structurally; pyright's strict nominal check
+    # does not see the two as related.
+    return PhysicalPlanner(client, router)  # pyright: ignore[reportArgumentType]
 
 
 def test_a_plan_one_operator_can_absorb_comes_back_as_one_fragment() -> None:
@@ -668,23 +660,15 @@ def test_the_opening_turn_shows_the_request_and_the_plan_and_a_later_turn_repeat
 
 
 def a_remote_flag_view() -> AttributeView:
-    """The postings entity's remote attribute, with samples and both counts recorded."""
-    return AttributeView(
-        ref=AttributeRef(
-            source="jobs",
-            database="jobs",
-            collection="public",
-            entity="postings",
-            attribute="remote",
-        ),
+    """The postings entity's remote attribute, with frequent values and counts recorded."""
+    return an_attribute_view(
+        "remote",
         dtype="bool",
         description="whether the role is remote",
-        sample_values=[True, False],
+        frequent_values=[(True, 7000), (False, 4060)],
         distinct_count=2,
         null_count=0,
-        min=None,
-        max=None,
-        semantic_type=None,
+        counted_rows=11060,
     )
 
 
@@ -699,7 +683,6 @@ def test_the_opening_turn_shows_each_scanned_entitys_attribute_views_and_no_othe
             an_operator("builtin.scan", frozenset({LogicalOperator.SCAN})),
             an_operator("builtin.filter", frozenset({LogicalOperator.FILTER})),
         ),
-        FakeCatalog({POSTINGS: [a_remote_flag_view()]}),
     )
 
     planner.cover(
@@ -713,7 +696,8 @@ def test_the_opening_turn_shows_each_scanned_entitys_attribute_views_and_no_othe
     section = client.conversations[0][-1][1].split("## The data the plan scans", 1)[1]
     assert f"- {POSTINGS} (sql/sqlite, 11060 row(s)): job postings" in section
     assert "- postings.remote [bool]: whether the role is remote" in section
-    assert "values look like: True, False; 2 distinct, 0 null" in section
+    assert "values, most frequent first: True (7000 rows), False (4060 rows)" in section
+    assert "2 distinct; of 11060 rows counted, 0 null" in section
     assert REVIEWS not in section
 
 

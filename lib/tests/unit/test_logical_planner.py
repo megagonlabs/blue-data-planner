@@ -6,7 +6,6 @@ from typing import Any
 
 from blue_data_planner.logical_planner import LogicalPlanner
 from blue_data_planner.types import (
-    AttributeRecord,
     CatalogPreview,
     ControlOperator,
     Conversation,
@@ -22,6 +21,7 @@ from blue_data_planner.types import (
     RunStatus,
     SourceRecord,
 )
+from tests.doubles.catalog import an_attribute_view
 from tests.doubles.llm import ScriptedLLMClient
 
 POSTINGS_PATH = "/source/jobs/database/jobs/collection/public/entity/postings"
@@ -194,7 +194,7 @@ def a_discovered_postings() -> dict[str, ExecutionResult | DiscoveryResult]:
                     name="postings",
                     description="job postings",
                     source_kind="sql/sqlite",
-                    attributes=[AttributeRecord(name="title", dtype="str", description=None)],
+                    attributes=[an_attribute_view("title")],
                     score=0.9,
                     search_term="job postings",
                     row_count=None,
@@ -219,7 +219,7 @@ def a_discovery_of_a_sized_and_an_unsized_entity() -> dict[str, ExecutionResult 
                     name="postings",
                     description="job postings",
                     source_kind="sql/sqlite",
-                    attributes=[AttributeRecord(name="title", dtype="str", description=None)],
+                    attributes=[an_attribute_view("title")],
                     score=0.9,
                     search_term="job postings",
                     row_count=11060,
@@ -229,7 +229,7 @@ def a_discovery_of_a_sized_and_an_unsized_entity() -> dict[str, ExecutionResult 
                     name="reviews",
                     description="company reviews",
                     source_kind="sql/sqlite",
-                    attributes=[AttributeRecord(name="title", dtype="str", description=None)],
+                    attributes=[an_attribute_view("title")],
                     score=0.5,
                     search_term="job postings",
                     row_count=None,
@@ -419,6 +419,7 @@ def test_the_opening_turn_shows_each_discovered_entitys_row_count() -> None:
         conversation,
         counters(),
         results=a_discovery_of_a_sized_and_an_unsized_entity(),
+        new_discovery_node_ids=frozenset({"n1"}),
     )
 
     asked = [turn for turn in conversation.turns if turn.role == "user"][-1].content
@@ -438,10 +439,77 @@ def test_a_discovery_that_matched_nothing_is_shown_with_the_terms_it_searched_fo
                 search_terms=["customer", "customers"], matches=[], dropped_terms=0
             )
         },
+        new_discovery_node_ids=frozenset({"n1"}),
     )
 
     asked = [turn for turn in conversation.turns if turn.role == "user"][-1].content
     assert 'n1 searched for "customer", "customers" and found no entity.' in asked
+
+
+def a_discovery_of_a_sparse_owner_name() -> dict[str, ExecutionResult | DiscoveryResult]:
+    """A results map holding the postings entity, whose owner name is null in most rows."""
+    owner_name = an_attribute_view(
+        "owner_name",
+        description="display name of the posting's owner",
+        frequent_values=[("user28", 88), ("Pete", 5), ("Jay", 3), ("Ann", 2)],
+        distinct_count=57,
+        null_count=1842,
+        counted_rows=2000,
+    )
+    return {
+        "n1": DiscoveryResult(
+            search_terms=["job postings"],
+            matches=[
+                EntityMatch(
+                    path=POSTINGS_PATH,
+                    name="postings",
+                    description="job postings",
+                    source_kind="sql/sqlite",
+                    attributes=[owner_name],
+                    score=0.9,
+                    search_term="job postings",
+                    row_count=91966,
+                )
+            ],
+            dropped_terms=0,
+        )
+    }
+
+
+def test_a_new_discovery_shows_each_attribute_with_its_most_frequent_values_and_counts() -> None:
+    """Three values, a count of the rest, and the missing rows against the rows counted."""
+    conversation = Conversation()
+    a_planner_over(ScriptedLLMClient([a_complete_plan()])).generate(
+        "jobs posted by user28",
+        conversation,
+        counters(),
+        results=a_discovery_of_a_sparse_owner_name(),
+        new_discovery_node_ids=frozenset({"n1"}),
+    )
+
+    asked = [turn for turn in conversation.turns if turn.role == "user"][-1].content
+    assert "    - postings.owner_name [str]: display name of the posting's owner" in asked
+    assert (
+        "values, most frequent first: 'user28' (88 rows), 'Pete' (5 rows), 'Jay' (3 rows), "
+        "and 54 more"
+    ) in asked
+    assert "57 distinct; of 2000 rows counted, 1842 null" in asked
+
+
+def test_a_discovery_resolved_before_an_earlier_turn_is_not_shown_again() -> None:
+    """The earlier turn is still in the conversation, so this one repeats none of it."""
+    conversation = Conversation()
+    a_planner_over(ScriptedLLMClient([a_complete_plan()])).generate(
+        "jobs posted by user28",
+        conversation,
+        counters(),
+        results=a_discovery_of_a_sparse_owner_name(),
+        new_discovery_node_ids=frozenset(),
+    )
+
+    asked = [turn for turn in conversation.turns if turn.role == "user"][-1].content
+    assert "## What the searches found" not in asked
+    assert POSTINGS_PATH not in asked
 
 
 def test_a_plan_validation_turned_down_is_written_again_with_the_error_in_the_conversation() -> (

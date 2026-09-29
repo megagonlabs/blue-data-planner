@@ -10,7 +10,7 @@ from blue_data_planner.llm import Conversation, LLMClient, Turn
 from blue_data_planner.llm.templating import render_prompt
 from blue_data_planner.plan import logical_plan_schema, validate_logical_plan
 from blue_data_planner.prompts import prompt_text
-from blue_data_planner.prompts.rendering import render_sample_rows
+from blue_data_planner.prompts.rendering import render_attribute_views, render_sample_rows
 from blue_data_planner.types import (
     ControlOperator,
     DiscoveryResult,
@@ -32,6 +32,9 @@ CATALOG_PREVIEW_LIMIT = 20
 # How many rows of a carried node's table one prompt shows. A continuation is written
 # against these values, since a REPLAN hands the planner nothing of its own.
 CARRIED_SAMPLE_ROWS = 3
+# How many of an attribute's values one prompt shows. Fewer than the components that read only
+# the entities they scan, since this one reads every entity the searches found.
+DISCOVERED_VALUES = 3
 
 
 class LogicalPlanner:
@@ -50,6 +53,7 @@ class LogicalPlanner:
         carried_node_ids: frozenset[str] = frozenset(),
         results: dict[str, ExecutionResult | DiscoveryResult] | None = None,
         replan_reason: str | None = None,
+        new_discovery_node_ids: frozenset[str] = frozenset(),
     ) -> LogicalPlanResult:
         """Write a plan, or a continuation of one, correcting it until validation accepts."""
         held = results or {}
@@ -61,7 +65,9 @@ class LogicalPlanner:
         conversation.turns.append(
             Turn(
                 role="user",
-                content=self._ask(request, carried_node_ids, held, replan_reason, parent),
+                content=self._ask(
+                    request, carried_node_ids, held, replan_reason, parent, new_discovery_node_ids
+                ),
             )
         )
         failure_reason: str | None = None
@@ -94,6 +100,7 @@ class LogicalPlanner:
         results: dict[str, ExecutionResult | DiscoveryResult],
         replan_reason: str | None,
         parent: LogicalPlan | None,
+        new_discovery_node_ids: frozenset[str],
     ) -> str:
         first_pass = parent is None
         return render_prompt(
@@ -104,7 +111,7 @@ class LogicalPlanner:
                 if first_pass
                 else ""
             ),
-            catalog_context=_render_context(results),
+            catalog_context=_render_context(results, new_discovery_node_ids),
             carried_nodes=_render_carried(parent, carried_node_ids, results),
             replan_reason=replan_reason or "",
         )
@@ -184,10 +191,14 @@ def _render_preview(preview: Any) -> str:
     return "\n".join(lines)
 
 
-def _render_context(results: dict[str, ExecutionResult | DiscoveryResult]) -> str:
+def _render_context(
+    results: dict[str, ExecutionResult | DiscoveryResult], new_discovery_node_ids: frozenset[str]
+) -> str:
+    # A search resolved before an earlier turn is still in the conversation, so each is shown once:
+    # in the turn right after it ran, whether or not an earlier search found the same entities.
     lines: list[str] = []
     for node_id, result in results.items():
-        if not isinstance(result, DiscoveryResult):
+        if not isinstance(result, DiscoveryResult) or node_id not in new_discovery_node_ids:
             continue
         terms = ", ".join(f'"{term}"' for term in result.search_terms)
         if not result.matches:
@@ -202,10 +213,7 @@ def _render_context(results: dict[str, ExecutionResult | DiscoveryResult]) -> st
                 else "row count not recorded"
             )
             lines.append(f"- {match.path} ({match.source_kind}, {rows}): {described}")
-            for attribute in match.attributes:
-                dtype = attribute.dtype or "type not recorded"
-                note = attribute.description or "no description recorded"
-                lines.append(f"    {attribute.name} [{dtype}]: {note}")
+            lines.extend(render_attribute_views(match.attributes, "    ", DISCOVERED_VALUES))
     return "\n".join(lines)
 
 

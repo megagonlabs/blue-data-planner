@@ -2,31 +2,13 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 import pytest
 
 from blue_data_planner.prompts.rendering import render_attribute_views, render_sample_rows
-from blue_data_planner.types import AttributeRef, AttributeView, summarize_table
-
-
-def a_view(distinct_count: int | None, null_count: int | None) -> AttributeView:
-    """One attribute of a postings entity, with the counts given."""
-    return AttributeView(
-        ref=AttributeRef(
-            source="jobs",
-            database="jobs",
-            collection="public",
-            entity="postings",
-            attribute="remote",
-        ),
-        dtype="bool",
-        description="whether the role is remote",
-        sample_values=[True, False],
-        distinct_count=distinct_count,
-        null_count=null_count,
-        min=None,
-        max=None,
-        semantic_type=None,
-    )
+from blue_data_planner.types import summarize_table
+from tests.doubles.catalog import an_attribute_view
 
 
 def test_sample_rows_count_the_rows_left_out() -> None:
@@ -39,17 +21,57 @@ def test_sample_rows_count_the_rows_left_out() -> None:
 
 
 @pytest.mark.parametrize(
-    ("distinct_count", "null_count", "values_line"),
+    ("recorded", "values_line"),
     [
-        (2, 0, "    values look like: True, False; 2 distinct, 0 null"),
-        (None, 5, "    values look like: True, False; 5 null"),
-        (None, None, "    values look like: True, False"),
+        pytest.param(
+            {"frequent_values": [("SME", 1390), ("LAM", 423), ("KAM", 187)], "distinct_count": 3},
+            "    values, most frequent first: 'SME' (1390 rows), 'LAM' (423 rows), and 1 more",
+            id="frequent_values_and_a_distinct_count",
+        ),
+        pytest.param(
+            {"frequent_values": [("SME", 1390), ("LAM", 423), ("KAM", 187)]},
+            "    values, most frequent first: 'SME' (1390 rows), 'LAM' (423 rows), and more",
+            id="frequent_values_and_no_distinct_count",
+        ),
+        pytest.param(
+            {"sample_values": ["SME", "LAM", "SME"], "distinct_count": 3},
+            "    sample values: 'SME', 'LAM', and 1 more",
+            id="sample_values_where_no_frequent_values_are_recorded",
+        ),
     ],
 )
-def test_attribute_views_show_a_count_only_when_the_catalog_recorded_it(
-    distinct_count: int | None, null_count: int | None, values_line: str
+def test_a_list_of_values_says_how_many_it_leaves_out(
+    recorded: dict[str, Any], values_line: str
 ) -> None:
-    """An unrecorded distinct or null count is left out rather than rendered empty."""
-    lines = render_attribute_views([a_view(distinct_count, null_count)], "")
+    """Two values are shown and the rest counted, or marked when the catalog has no count."""
+    lines = render_attribute_views([an_attribute_view("segment", **recorded)], "", 2)
 
-    assert lines == ["- postings.remote [bool]: whether the role is remote", values_line]
+    assert lines[1] == values_line
+
+
+@pytest.mark.parametrize(
+    ("recorded", "counts_line"),
+    [
+        pytest.param(
+            {"distinct_count": 22, "null_count": 0, "empty_count": 1893, "counted_rows": 2000},
+            "    22 distinct; of 2000 rows counted, 0 null, 1893 empty",
+            id="every_count_recorded",
+        ),
+        pytest.param(
+            {"null_count": 5},
+            "    5 null",
+            id="no_rows_counted",
+        ),
+        pytest.param({}, None, id="nothing_recorded"),
+    ],
+)
+def test_counts_are_stated_against_the_rows_counted_and_only_when_recorded(
+    recorded: dict[str, Any], counts_line: str | None
+) -> None:
+    """An unrecorded count is left out rather than rendered empty or as zero."""
+    view = an_attribute_view("user_name", description="who wrote it", **recorded)
+
+    lines = render_attribute_views([view], "", 3)
+
+    assert lines[0] == "- postings.user_name [str]: who wrote it"
+    assert lines[1:] == ([counts_line] if counts_line is not None else [])

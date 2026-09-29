@@ -6,7 +6,6 @@ import json
 import uuid
 from typing import Any
 
-from blue_data_planner.data import DataCatalog
 from blue_data_planner.llm import Conversation, LLMClient, Turn
 from blue_data_planner.llm.templating import render_prompt
 from blue_data_planner.operators import OperatorRouter
@@ -46,10 +45,9 @@ NodeResult = ExecutionResult | DiscoveryResult
 class PhysicalPlanner:
     """Covers a plan's operator nodes with fragments and binds each fragment to an operator."""
 
-    def __init__(self, llm_client: LLMClient, router: OperatorRouter, catalog: DataCatalog) -> None:
+    def __init__(self, llm_client: LLMClient, router: OperatorRouter) -> None:
         self._llm_client = llm_client
         self._router = router
-        self._catalog = catalog
 
     def cover(
         self,
@@ -89,7 +87,7 @@ class PhysicalPlanner:
         if opening:
             preamble["request"] = request
             preamble["plan"] = _render_plan(plan)
-            preamble["scanned_entities"] = self._render_scanned_entities(plan, results)
+            preamble["scanned_entities"] = _render_scanned_entities(plan, results)
         if failed_fragment is not None:
             preamble["failed_fragment"] = _render_failed_fragment(failed_fragment)
         fragments: list[PhysicalPlanFragment] = []
@@ -257,26 +255,25 @@ class PhysicalPlanner:
             f"SCAN node {node.id!r} reads {reads}, and the operators for SCAN read {sorted(wanted)}"
         )
 
-    def _render_scanned_entities(self, plan: LogicalPlan, results: dict[str, NodeResult]) -> str:
-        matches = {
-            match.path: match
-            for result in results.values()
-            if isinstance(result, DiscoveryResult)
-            for match in result.matches
-        }
-        lines: list[str] = []
-        for path in _scanned_paths(plan):
-            # _check_scan_sources_discovered has already raised on a path no search found.
-            match = matches[path]
-            described = match.description or "no description recorded"
-            rows = (
-                f"{match.row_count} row(s)"
-                if match.row_count is not None
-                else "row count not recorded"
-            )
-            lines.append(f"- {match.path} ({match.source_kind}, {rows}): {described}")
-            lines.extend(render_attribute_views(self._catalog.attribute_views(path), "    "))
-        return "\n".join(lines)
+
+def _render_scanned_entities(plan: LogicalPlan, results: dict[str, NodeResult]) -> str:
+    matches = {
+        match.path: match
+        for result in results.values()
+        if isinstance(result, DiscoveryResult)
+        for match in result.matches
+    }
+    lines: list[str] = []
+    for path in _scanned_paths(plan):
+        # _check_scan_sources_discovered has already raised on a path no search found.
+        match = matches[path]
+        described = match.description or "no description recorded"
+        rows = (
+            f"{match.row_count} row(s)" if match.row_count is not None else "row count not recorded"
+        )
+        lines.append(f"- {match.path} ({match.source_kind}, {rows}): {described}")
+        lines.extend(render_attribute_views(match.attributes, "    ", ATTRIBUTE_VALUES))
+    return "\n".join(lines)
 
 
 def _scanned_paths(plan: LogicalPlan) -> list[str]:
@@ -300,6 +297,9 @@ _EMPTY_PREAMBLE: dict[str, str] = {
 
 # How many rows of a result one prompt shows, the same as the logical planner's sample.
 SAMPLE_ROWS = 3
+# How many of an attribute's values one prompt shows: more than the logical planner's, since
+# only the entities the plan scans are shown (design/13-decision-log.md, ADR-049).
+ATTRIBUTE_VALUES = 5
 
 _FAILED_ROWS_NOTE = (
     "No rows above can be read or reused; they are shown only to explain the failures."

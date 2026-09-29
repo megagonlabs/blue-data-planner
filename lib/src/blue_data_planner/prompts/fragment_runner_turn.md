@@ -21,8 +21,9 @@ A parameter naming a source takes the catalog path exactly as it is spelled here
 {% if attribute_views %}
 ## The attributes the scanned entities hold
 
-Every attribute of each, with a few of its values spelled the way the data spells them.
-Write filters and comparisons against these spellings, not against the words in the request.
+Every attribute of each, with its most frequent values spelled the way the data spells them.
+The values and counts are a sample: `and N more` counts the values not listed, and each count is
+taken over the rows it states.
 
 {{ attribute_views }}
 {% endif %}

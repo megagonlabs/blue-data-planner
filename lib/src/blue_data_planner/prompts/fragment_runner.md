@@ -7,6 +7,11 @@ Answer with the parameters the operator's schema asks for, and nothing else. Wit
 the fragment, each attempt must differ from every attempt already written in it; repeating one is
 refused without running the operator.
 
+Write each value the way the data spells it. The instruction was written by a planner and may use
+the request's words for a value the data spells differently, as a code or with other capitals.
+Where the attribute values or the rows of the tables you were handed spell a value one way and the
+instruction another, write the data's spelling.
+
 ## Reviewing the result
 
 When you are shown a result, say whether the rows do what the fragment's instruction asked.

@@ -161,6 +161,18 @@ identical across runs and caches as a prefix. Nothing already written is rewritt
 added, never merged into an earlier one, because a rewritten turn invalidates the cache from that
 point on and contradicts what the model has already answered.
 
+The logical planner is shown each search's result once, in the turn right after its `DISCOVER`
+node resolved, with every entity the search found in full, whether or not an earlier search found
+the same entity. The views are the largest thing a planning turn carries, and a result shown in an
+earlier turn is still in front of the model, so later turns do not repeat it; a search that found
+nothing is shown the same way, so a search that ran is never mistaken for one that did not
+(ADR-049). How many of an attribute's
+values a turn shows is set per component: three for the logical planner, which reads every entity
+the searches found, and five for the physical planner and the fragment runner, which read only the
+entities their own work scans. Every list of values says how many distinct values it leaves out,
+and every count is stated against the rows it was taken over, so what a model is shown reads as a
+sample of the column and never as the column.
+
 ---
 
 ## 1. Logical planning
@@ -337,9 +349,8 @@ rather than once per node or once per cover. The request says what the plan is f
 what the cover follows. The plan shows every node with its instruction, a scan's source, and its
 declared columns, so a binding is made with the whole plan in view, and a candidate names its
 operator and its nodes without restating them. For every entity a `SCAN` names, the turn also
-carries the catalog's view of each attribute: its type, its description, sample values, and the
-distinct and null counts where the catalog recorded them. Values decide the operator as much as
-capability does. A condition on a stored number, flag, or category can go to an operator that
+carries the view of each attribute from the catalog context: its type, its description, its most
+frequent values, and its counts. Values decide the operator as much as capability does. A condition on a stored number, flag, or category can go to an operator that
 compares stored values, and the same condition on free text needs one that reads meaning.
 
 Every turn that starts a cover, the opening turn and each repair turn, carries what the run holds at
@@ -458,7 +469,7 @@ The parameters are written here rather than during physical planning because thi
 where the data exists. The runner reads its column names from two places, and neither is a guess.
 The input tables carry theirs directly, with their row counts and a sample of rows. For each entity
 the fragment scans, the runner reads a view of every attribute: its name, its type, its description,
-and a few of its values as they are actually spelled
+and its most frequent values as they are actually spelled
 ([10-data-model.md](10-data-model.md#what-the-fragment-runner-reads)).
 
 The scanned side needs the catalog because a fragment doing its own scanning has no input table to
@@ -466,6 +477,13 @@ read from, which is the ordinary shape for pushdown. The values are what the cat
 a transaction-type column storing `PRIJEM` where a reader would expect `credit`, or a segment column
 holding `SME` where the request says "small and medium enterprises". Without them the runner writes
 a query that returns zero rows and reports no error.
+
+A value the runner is shown is the spelling it writes, whichever words it was handed. The
+instruction was written by a planner, and the planner may have copied the request's words where the
+data spells the value differently, so where an attribute view or an input row spells a value one way
+and the instruction another, the parameters carry the data's spelling. The physical planner, which
+sees the same values for every entity its plan scans, writes a fragment's instruction by the same
+rule (ADR-049).
 
 An operator that runs deterministically still sits inside a fragment that does not. A built-in
 filter does what its parameters say and nothing more, but a model wrote those parameters from an
@@ -584,8 +602,9 @@ keyword match, value match, and vector similarity together. Vector similarity ne
 and an embedding function; without them the search still runs on the other two signals.
 
 The search runs at one level, the entity, because that is the unit a `SCAN` is bound to. A hit
-returns that entity, its recorded row count, and every attribute it holds: each attribute's name, its
-type, and the description enrichment wrote for it
+returns that entity, its recorded row count, and a view of every attribute it holds: each
+attribute's name, its type, the description enrichment wrote for it, its most frequent values with
+their counts, and how many of the counted rows are null or empty
 ([10-data-model.md](10-data-model.md#what-a-search-returns)). The run keeps the hits under the
 node's id, and every resolved node's hits together are the run's catalog context. Nothing is
 converted into rows, and no operator call is spent.
@@ -600,6 +619,13 @@ it names a source for each `SCAN`, and the nodes reading a scan declare their ou
 names the registry holds rather than from names the model read out of an entity's description. That
 is what a discovery node buys, and why a request over registered data reaches pushdown one pass
 later than a request the planner answers from world knowledge.
+
+The values in each view decide which attribute a node reads, and so which entities a plan scans and
+joins. An attribute can fit the request by name and description and still be nearly empty: in
+`codebase_community`, `posts.OwnerDisplayName` is null in most counted rows, and a post's owner is
+reached through `OwnerUserId` and a join to `users`. No later stage can supply that join, since the
+physical planner binds the nodes a plan holds and adds none, so the logical planner is the component
+that has to see it.
 
 ### What a discovery node's inputs are for
 
@@ -630,8 +656,8 @@ any other. Whether the operator vocabulary gains one is an open question
 ### Writing a continuation
 
 Returning to the planner does not discard the run. `DataPlanner` calls the logical planner again
-with the request, the catalog preview, the nodes that already succeeded, everything discovery
-found, and the replan reason: why the pass ended.
+with the request, the catalog preview, the nodes that already succeeded, what the searches
+resolved since the last pass found, and the replan reason: why the pass ended.
 
 A node that already ran is shown with its column names, its row count, and a sample of its rows.
 Since a `REPLAN` hands the planner nothing of its own, that sample is where the values a

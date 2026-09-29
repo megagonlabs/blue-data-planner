@@ -25,8 +25,7 @@ fragment's last step, and the fragment may also take in nodes upstream of it. Yo
   request says what it is for.
 - **Plan**: the whole logical plan, shown once in the first turn.
 - **The data the plan scans**: each entity a SCAN reads, with every attribute's type,
-  description, sample values, and distinct and null counts where recorded. Shown once, in the
-  first turn.
+  description, most frequent values, and counts where recorded. Shown once, in the first turn.
 - **What has run so far**: every node holding a result, with its row count, operator, columns,
   and first rows. Shown in the first turn and again on each repair, since fragments run in
   between. A node listed here may offer a reuse candidate.
@@ -81,7 +80,9 @@ For the candidate you pick, write:
     - `instruction`: make it declarative. Say what the fragment produces, not how to produce it;
       the operator decides how. State every condition of every node in the fragment. If you
       cannot write the instruction without dropping a condition, the candidate is too large
-      (rule 3).
+      (rule 3). Spell each value the way the data spells it: where the values shown under **The
+      data the plan scans** or **What has run so far** spell a value differently from the plan's
+      instruction, write the data's spelling.
     - `input_name_<node>` and `input_description_<node>`: name each input table and say what its
       rows hold, so the operator can tell the main table from an auxiliary one.
     - `required_output_columns`: the columns the output must carry. Work them out from the

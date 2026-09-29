@@ -3,12 +3,12 @@
 from __future__ import annotations
 
 from blue_data_planner.types.catalog import (
-    AttributeRecord,
     AttributeRef,
     AttributeView,
     CatalogPreview,
     EntityMatch,
     SourceRecord,
+    ValueCount,
 )
 from blue_data_planner.types.errors import (
     BlueDataPlannerError,
@@ -74,7 +74,7 @@ from blue_data_planner.types.run import (
 __all__ = [
     "SUMMARY_SAMPLE_ROWS",
     "INPUT_ARITY",
-    "AttributeRecord",
+    "ValueCount",
     "AttributeRef",
     "AttributeView",
     "BlueDataPlannerError",

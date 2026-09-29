@@ -6,12 +6,12 @@ from typing import Any
 
 from blue_data_planner.catalog_searcher import CatalogSearcher
 from blue_data_planner.types import (
-    AttributeRecord,
     ControlOperator,
     Conversation,
     EntityMatch,
     PipelineNode,
 )
+from tests.doubles.catalog import an_attribute_view
 from tests.doubles.llm import ScriptedLLMClient
 
 POSTINGS = "/source/jobs/database/jobs/collection/public/entity/postings"
@@ -36,7 +36,7 @@ def a_match(term: str, score: float) -> EntityMatch:
         name="postings",
         description="job postings",
         source_kind="sql/sqlite",
-        attributes=[AttributeRecord(name="title", dtype="str", description=None)],
+        attributes=[an_attribute_view("title")],
         score=score,
         search_term=term,
         row_count=None,

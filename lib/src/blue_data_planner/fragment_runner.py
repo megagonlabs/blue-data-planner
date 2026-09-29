@@ -29,6 +29,8 @@ from blue_data_planner.types import (
 )
 
 SAMPLE_ROWS = 5
+# How many of an attribute's values one prompt shows (design/13-decision-log.md, ADR-049).
+ATTRIBUTE_VALUES = 5
 
 _REPEAT_MESSAGE = (
     "Those parameters repeat an earlier attempt for this fragment. The operator was not "
@@ -196,7 +198,7 @@ class FragmentRunner:
             operator_description=operator.description,
             operator_limitations=operator.limitations or "",
             scan_sources=_render_scan_sources(fragment),
-            attribute_views="\n".join(render_attribute_views(views, "")),
+            attribute_views="\n".join(render_attribute_views(views, "", ATTRIBUTE_VALUES)),
             input_tables=_render_inputs(fragment, inputs),
         )
 
