@@ -69,7 +69,10 @@ def test_an_extraction_writes_the_column_the_node_declared(provider: None) -> No
     result = run(
         operator("lotus.sem_extract"),
         [CITIES],
-        {"input_columns": ["note"], "output_columns": {"climate": "the climate in one word"}},
+        {
+            "input_columns": ["note"],
+            "output_columns": [{"name": "climate", "extracts": "the climate in one word"}],
+        },
         [OutputColumn(name="city", dtype="str"), OutputColumn(name="climate", dtype="str")],
     )
 
