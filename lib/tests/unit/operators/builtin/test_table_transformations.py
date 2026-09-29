@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from decimal import Decimal
 from typing import Any
 
 import pytest
@@ -178,10 +179,30 @@ def test_an_expansion_contributes_no_rows_for_a_missing_value() -> None:
     assert [(row["id"], row["tag"]) for row in expanded] == [(2, "sushi")]
 
 
-def test_an_aggregation_writes_one_row_per_group() -> None:
-    """Rows group by the named columns, and each aggregation lands under the name it asked for."""
+@pytest.mark.parametrize(
+    ("table", "expected"),
+    [
+        (
+            a_table_of_restaurants(),
+            [
+                {"state": "CA", "restaurants": 3, "mean_rating": 4.25},
+                {"state": "NY", "restaurants": 1, "mean_rating": 3.0},
+            ],
+        ),
+        (
+            [
+                {"state": "CA", "rating": Decimal("4.5")},
+                {"state": "CA", "rating": Decimal("4.0")},
+            ],
+            [{"state": "CA", "restaurants": 2, "mean_rating": 4.25}],
+        ),
+    ],
+)
+def test_an_aggregation_writes_one_row_per_group(table: Data, expected: Data) -> None:
+    """Rows group by the named columns, and each aggregation lands under the name it asked for;
+    a Decimal column averages to a float like any other number."""
     aggregated = aggregate_rows(
-        a_table_of_restaurants(),
+        table,
         ["state"],
         [
             CountAggregation(function="count", into="restaurants"),
@@ -189,10 +210,7 @@ def test_an_aggregation_writes_one_row_per_group() -> None:
         ],
     )
 
-    assert aggregated == [
-        {"state": "CA", "restaurants": 3, "mean_rating": 4.25},
-        {"state": "NY", "restaurants": 1, "mean_rating": 3.0},
-    ]
+    assert aggregated == expected
 
 
 def test_distinct_keeps_the_first_row_of_each_repeated_key() -> None:
@@ -343,15 +361,6 @@ def test_a_pattern_comparison_that_cannot_run_refuses_the_table(
         )
 
 
-def test_a_comparison_between_values_that_cannot_be_ordered_refuses_the_table() -> None:
-    """Ordering a number against a string is refused rather than answered."""
-    with pytest.raises(RecoverableOperatorError):
-        filter_rows(
-            a_table_of_restaurants(),
-            a_predicate({"left": a_column("rating"), "operator": "lt", "right": a_literal("4")}),
-        )
-
-
 def test_an_expansion_refuses_a_column_it_cannot_take_apart() -> None:
     """A value that is neither a list nor a string with a separator is refused."""
     with pytest.raises(RecoverableOperatorError, match="rating"):
@@ -359,32 +368,50 @@ def test_an_expansion_refuses_a_column_it_cannot_take_apart() -> None:
 
 
 @pytest.mark.parametrize(
-    ("operator", "table", "right"),
+    ("table", "predicate"),
     [
-        ("eq", [{"code": "1234"}], a_literal(1234)),
-        ("ne", [{"code": "1234"}], a_literal(1234)),
-        ("in", [{"code": "1234"}], [1234]),
-        ("eq", [{"code": 1234}], a_literal("1234")),
-        ("eq", [{"code": True}], a_literal(1)),
-        ("eq", [{"code": 1}], a_literal(True)),
-        ("eq", [{"code": True}], a_literal("true")),
-        ("eq", [{"code": "1234", "other": 1234}], a_column("other")),
+        (
+            [{"code": "1234"}],
+            {"left": a_column("code"), "operator": "eq", "right": a_literal(1234)},
+        ),
+        (
+            [{"code": "1234"}],
+            {"left": a_column("code"), "operator": "ne", "right": a_literal(1234)},
+        ),
+        (
+            [{"code": 1234}],
+            {"left": a_column("code"), "operator": "eq", "right": a_literal("1234")},
+        ),
+        ([{"code": True}], {"left": a_column("code"), "operator": "eq", "right": a_literal(1)}),
+        ([{"code": 1}], {"left": a_column("code"), "operator": "eq", "right": a_literal(True)}),
+        (
+            [{"code": True}],
+            {"left": a_column("code"), "operator": "eq", "right": a_literal("true")},
+        ),
+        ([{"code": 4.5}], {"left": a_column("code"), "operator": "lt", "right": a_literal("4")}),
+        (
+            [{"code": 4.5}],
+            {"left": a_column("code"), "operator": "contains", "right": a_literal("4")},
+        ),
+        (
+            [{"code": "a"}],
+            {"left": a_column("code"), "operator": "contains", "right": a_literal(4)},
+        ),
+        ([{"code": "1234"}], {"left": a_column("code"), "operator": "in", "values": [1234]}),
+        (
+            [{"code": "1234", "other": 1234}],
+            {"left": a_column("code"), "operator": "gte", "right": a_column("other")},
+        ),
     ],
 )
-def test_a_cross_category_comparison_refuses_the_table(
-    operator: str, table: Data, right: Any
+def test_a_comparison_whose_sides_share_no_category_refuses_the_table(
+    table: Data, predicate: dict[str, Any]
 ) -> None:
-    """A string, a number, and a bool are separate categories, so eq, ne, and in refuse a
-    comparison the whole column crosses them on, rather than silently answering that no rows
-    match."""
-    payload = (
-        {"left": a_column("code"), "operator": "in", "values": right}
-        if operator == "in"
-        else {"left": a_column("code"), "operator": operator, "right": right}
-    )
-
+    """A string, a number, and a bool are separate categories, so a comparison whose two sides
+    cross them over the whole table is refused before any row is filtered, rather than
+    answering that no rows match."""
     with pytest.raises(RecoverableOperatorError, match="code"):
-        filter_rows(table, a_predicate(payload))
+        filter_rows(table, a_predicate(predicate))
 
 
 def test_an_equality_comparison_between_two_numbers_answers_no_rows_rather_than_refusing() -> None:
@@ -399,20 +426,54 @@ def test_an_equality_comparison_between_two_numbers_answers_no_rows_rather_than_
 
 
 @pytest.mark.parametrize(
-    "table",
-    [[{"id": 5}, {"id": "5"}], [{"id": "N/A"}, {"id": 5}]],
+    ("table", "predicate", "expected"),
+    [
+        (
+            [{"v": 5}, {"v": "5"}],
+            {"left": a_column("v"), "operator": "eq", "right": a_literal(5)},
+            [5],
+        ),
+        (
+            [{"v": "N/A"}, {"v": 5}, {"v": 9}],
+            {"left": a_column("v"), "operator": "lt", "right": a_literal(6)},
+            [5],
+        ),
+        (
+            [{"v": "abc"}, {"v": 5}],
+            {"left": a_column("v"), "operator": "contains", "right": a_literal("b")},
+            ["abc"],
+        ),
+        (
+            [{"v": 5}, {"v": "abc"}],
+            {"left": a_column("v"), "operator": "re.search", "pattern": "^a"},
+            ["abc"],
+        ),
+        (
+            [{"v": 5}, {"v": "5"}],
+            {"left": a_column("v"), "operator": "in", "values": [5]},
+            [5],
+        ),
+        (
+            [{"v": Decimal("4.2")}, {"v": "N/A"}, {"v": Decimal("5.0")}],
+            {"left": a_column("v"), "operator": "lt", "right": a_literal(4.5)},
+            [Decimal("4.2")],
+        ),
+        (
+            [{"v": 1, "w": 1}, {"v": "x", "w": 1}],
+            {"left": a_column("v"), "operator": "eq", "right": a_column("w")},
+            [1],
+        ),
+    ],
 )
-def test_a_stray_dirty_cell_does_not_abort_a_comparison_the_column_otherwise_answers(
-    table: Data,
+def test_a_stray_cell_of_another_category_matches_nothing_and_the_rest_are_answered(
+    table: Data, predicate: dict[str, Any], expected: list[Any]
 ) -> None:
-    """A column that is a number except for one stray string still answers eq against a
-    number literal, since some row shares its category; the refusal is for a column with no
-    row left to compare against, not for one dirty cell in an otherwise numeric column."""
-    kept = filter_rows(
-        table, a_predicate({"left": a_column("id"), "operator": "eq", "right": a_literal(5)})
-    )
+    """A column of one category except for a stray cell still answers every comparison, since
+    some row shares a category with the other side; the stray row does not match. A Decimal
+    counts as a number, so a Decimal column answers a comparison against an int or float."""
+    kept = filter_rows(table, a_predicate(predicate))
 
-    assert [row["id"] for row in kept] == [5]
+    assert [row["v"] for row in kept] == expected
 
 
 def test_an_in_comparison_matches_a_bool_column_against_a_bool_option() -> None:

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 from collections.abc import Callable
+from decimal import Decimal
 from operator import eq, ge, gt, le, lt, ne
 from typing import Any, cast
 
@@ -179,34 +180,25 @@ def _compares(row: Record, comparison: Comparison) -> bool:
     # A missing value satisfies no comparison; is_null is how a plan asks about one.
     if left is None:
         return False
-    # eq, ne, and in are checked once per comparison, over every row, before filtering starts
-    # (_require_comparable_predicate): a per-row check here would abort a filter that a
-    # column mostly of one category was answering correctly, on one dirty cell.
     if isinstance(comparison, MembershipComparison):
         return left in comparison.values
     if isinstance(comparison, PatternComparison):
-        if not isinstance(left, str):
-            raise RecoverableOperatorError(
-                f"{_described(comparison.left)} holds {type(left).__name__}, and 're.search' "
-                "searches one string for a pattern"
-            )
-        return re.search(comparison.pattern, left) is not None
+        return isinstance(left, str) and re.search(comparison.pattern, left) is not None
     right = _operand_value(row, comparison.right)
-    if right is None:
+    # A stray cell of another category does not match; a comparison the whole table
+    # contradicts was already refused before filtering (_require_comparable_predicate).
+    if right is None or _category(left) != _category(right):
         return False
     if comparison.operator == "contains":
-        if not isinstance(left, str) or not isinstance(right, str):
-            raise RecoverableOperatorError(
-                f"{_described(comparison.left)} holds {type(left).__name__}, and 'contains' "
-                "compares one string against another"
-            )
-        return right in left
+        return isinstance(left, str) and right in left
     try:
         return bool(_BINARY_OPERATORS[comparison.operator](left, right))
     except TypeError:
+        # Only two values of one category Python has no order for, such as two dicts, reach
+        # here; strings, numbers, and bools always compare.
         raise RecoverableOperatorError(
             f"{_described(comparison.left)} holds {type(left).__name__}, which cannot be "
-            f"ordered against the {type(right).__name__} {_described(comparison.right)} holds"
+            f"ordered with '{comparison.operator}'"
         ) from None
 
 
@@ -230,16 +222,15 @@ def _described(operand: Operand) -> str:
 
 def _category(value: Any) -> type | None:
     # A category groups the shapes a plan should never treat as interchangeable: a string, a
-    # number, or a bool, matching _numbers, which already refuses a bool where a number is
-    # expected.
-    # A missing value has no category; the checks skip it.
+    # number, or a bool, the same split _numbers makes. A number includes Decimal, which SQL
+    # NUMERIC columns produce. A missing value has no category; the checks skip it.
     if value is None:
         return None
     if isinstance(value, bool):
         return bool
     if isinstance(value, str):
         return str
-    if isinstance(value, int | float):
+    if isinstance(value, int | float | Decimal):
         return float
     return type(value)  # pyright: ignore[reportUnknownVariableType]
 
@@ -255,9 +246,10 @@ def _membership_category(value: Any) -> type | None:
 
 
 def _require_comparable_predicate(table: Data, predicate: Predicate) -> None:
-    # Checked once per column, over every row, before filtering starts: a per-row check would
-    # abort a filter that a column mostly of one category was answering correctly, on one
-    # dirty cell (an occasional "N/A" in an otherwise numeric column, say).
+    # Every comparison is checked once over the whole table before filtering starts, and is
+    # refused only when no row can satisfy it on type. A per-row refusal would abort a filter
+    # that a column mostly of one category was answering correctly, on one dirty cell (an
+    # occasional "N/A" in an otherwise numeric column, say); _compares leaves that row unmatched.
     if isinstance(predicate, AndPredicate | OrPredicate):
         for condition in predicate.conditions:
             _require_comparable_predicate(table, condition)
@@ -269,20 +261,43 @@ def _require_comparable_predicate(table: Data, predicate: Predicate) -> None:
 
 
 def _require_comparable_comparison(table: Data, comparison: Comparison) -> None:
+    # Refuses what the whole table contradicts, which means the parameters are wrong; a row
+    # whose values merely differ in category is left to _compares, which does not match it.
     if isinstance(comparison, NullComparison):
         return
+    left = _operand_values(table, comparison.left)
     if isinstance(comparison, PatternComparison):
         # Compiled here, before any row, so a bad pattern is refused even when no row would
         # reach it.
         _require_valid_pattern(comparison.pattern)
+        _require_strings(left, comparison.left, comparison.operator)
         return
-    left = _operand_values(table, comparison.left)
     if isinstance(comparison, MembershipComparison):
         _require_comparable_membership(left, comparison.values, comparison.left)
         return
-    if comparison.operator in ("eq", "ne"):
-        right = _operand_values(table, comparison.right)
-        _require_shared_category(left, right, comparison)
+    right = _operand_values(table, comparison.right)
+    if comparison.operator == "contains":
+        if _lacks_strings(left) or _lacks_strings(right):
+            raise RecoverableOperatorError(
+                f"{_described(comparison.left)} holds {_type_names(left)} and "
+                f"{_described(comparison.right)} holds {_type_names(right)}, and 'contains' "
+                "compares one string against another"
+            )
+        return
+    _require_shared_category(left, right, comparison)
+
+
+def _require_strings(values: list[Any], operand: Operand, operator: str) -> None:
+    if _lacks_strings(values):
+        raise RecoverableOperatorError(
+            f"{_described(operand)} holds {_type_names(values)}, and {operator!r} searches one "
+            "string"
+        )
+
+
+def _lacks_strings(values: list[Any]) -> bool:
+    # An operand with no values (an all-missing column) carries no evidence either way.
+    return bool(values) and not any(isinstance(value, str) for value in values)
 
 
 def _require_valid_pattern(pattern: str) -> None:
@@ -393,8 +408,9 @@ def _aggregate(rows: Data, aggregation: Aggregation) -> Any:
 def _numbers(values: list[Any], column: str) -> list[float]:
     for value in values:
         # bool is an int in Python, and summing True with a rating is a wrong answer rather
-        # than an arithmetic error.
-        if isinstance(value, bool) or not isinstance(value, int | float):
+        # than an arithmetic error. A Decimal from a SQL NUMERIC column is a number, converted
+        # to float below so a sum never mixes the two kinds of arithmetic.
+        if isinstance(value, bool) or not isinstance(value, int | float | Decimal):
             raise RecoverableOperatorError(
                 f"column {column!r} holds {type(value).__name__}, which cannot be summed"
             )
