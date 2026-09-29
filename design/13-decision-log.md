@@ -1676,6 +1676,41 @@ name is taken. Whether `blue.join` follows the same rule is open question 62.
 
 ---
 
+## ADR-051 — A Built-In Filter Comparison Has an Operand on Each Side
+
+**Date:** 2026-09-29
+**Status:** Accepted
+
+**Decision:** Every comparison in `builtin.filter`'s predicate takes operands, each a column of the
+row or a non-null literal: two operands compared with `eq`, `ne`, `lt`, `lte`, `gt`, `gte`, or
+`contains`; one operand against a list of literals (`in`); one operand searched by a regular
+expression (`re.search`, ADR-041); or one operand tested for a missing value (`is_null`). A
+comparison is checked once over the whole table before filtering and refused as recoverable when it
+names a column the table does not have, or when an operand shares no type with the other side or
+with its list of literals (a bool counting as a number). `contains` or `re.search` over an operand
+holding no strings, and a pattern that does not compile, are refused the same way. A row whose
+values differ in type, or that misses a value, does not match, except that `is_null` matches exactly
+the rows missing one.
+
+**Rationale:** A logical `FILTER` may compare two columns of one row, as a plan counting two things
+per group and keeping the groups where the counts agree does, and a predicate that can compare a
+column only with a literal leaves that node no built-in operator. Giving both sides of every
+comparison the same operand shape states column-to-column comparison without a variant of its own,
+keeps one type rule and one missing-value rule for every comparison, and follows the SQL form the
+models writing parameters already know. A null literal is left out because a comparison against it
+is never true in SQL and a missing value already has `is_null`. Separating the whole-table check
+from the per-row one tells a wrong plan from dirty data: a column wholly of another type means the
+parameters are wrong and the parameter repair should rewrite them, while one stray cell in an
+otherwise uniform column should not cost an answer the rest of the column gives. On TAG-Bench,
+query 61 spent 30 operator calls on a filter asked to keep cities where two counts are equal.
+
+**Consequences:** A comparison written against a column, or with a literal on the left, needs no
+separate operator. The ordering operators, `contains`, and `re.search` no longer refuse a table for
+one stray cell; the stray row does not match. Computing a value before comparing it stays outside
+the predicate, as a computed column in a projection.
+
+---
+
 ## Open Questions
 
 Design questions first, then defects in the code.
