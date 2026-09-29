@@ -101,7 +101,7 @@ as a subprocess over stdio and runs with the `builtin` operator suite only.
 
 ```bash
 # in the virtual environment docs/installation.md creates
-bash platform/mcp/scripts/install.sh
+bash platform/planner-mcp/scripts/install.sh
 pip install langchain langchain-openai langchain-mcp-adapters
 python examples/framework-demos/langgraph_mcp_demo.py
 ```

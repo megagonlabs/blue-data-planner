@@ -20,7 +20,11 @@ import blue_data_planner_mcp.config as config
 
 # Read as a file rather than imported, so the check needs nothing from the CLI package.
 _CLI_PROFILE_SPEC_PATH: Path = (
-    Path(__file__).parents[3] / "cli" / "src" / "blue_data_planner_cli" / "profile_spec.json"
+    Path(__file__).parents[3]
+    / "planner-cli"
+    / "src"
+    / "blue_data_planner_cli"
+    / "profile_spec.json"
 )
 _A_REGISTRY_ONLY_ENVIRONMENT: dict[str, str] = {"BLUE_DATA_REGISTRY_PATH": "/srv/registry.json"}
 

@@ -271,7 +271,7 @@ treat the sequence as a guide to follow rather than a confirmed transcript.
 ```bash
 # 1. Install the CLI and the library it adapts, from the repository root.
 python -m venv .venv && source .venv/bin/activate
-bash platform/cli/scripts/install.sh
+bash platform/planner-cli/scripts/install.sh
 
 # 2. Build the registry from the TAG-Bench databases.
 (cd lib && python -m tests.benchmarks.tag_bench.fetch_queries)
@@ -295,7 +295,7 @@ blue-planner data query "Among the schools with the average score in Math over 5
 ## Running tests
 
 ```bash
-cd platform/cli
+cd platform/planner-cli
 python -m pytest
 ```
 

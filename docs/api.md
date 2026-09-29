@@ -1,6 +1,6 @@
 # blue-data-planner REST API
 
-**Not built, and not in the first release.** `platform/api/` does not exist, and no package in the
+**Not built, and not in the first release.** `platform/planner-api/` does not exist, and no package in the
 repository declares a web framework
 ([`design/03-high-level-architecture.md`](../design/03-high-level-architecture.md)).
 

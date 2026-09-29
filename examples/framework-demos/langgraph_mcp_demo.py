@@ -10,7 +10,7 @@ table or a query language, only questions and rows.
 printed as the agent makes it, and the report is printed at the end.
 
 Run, from the repository root:
-    bash platform/mcp/scripts/install.sh
+    bash platform/planner-mcp/scripts/install.sh
     pip install langchain langchain-openai langchain-mcp-adapters
     export OPENAI_API_KEY=sk-...
     python examples/framework-demos/langgraph_mcp_demo.py
@@ -61,7 +61,7 @@ async def main() -> None:
     if not os.environ.get("OPENAI_API_KEY"):
         raise SystemExit("OPENAI_API_KEY is not set; the agent and the planner both call a model")
     if shutil.which(SERVER_COMMAND) is None:
-        raise SystemExit(f"{SERVER_COMMAND} is not on PATH; run platform/mcp/scripts/install.sh")
+        raise SystemExit(f"{SERVER_COMMAND} is not on PATH; run platform/planner-mcp/scripts/install.sh")
     if not REGISTRY_PATH.is_file():
         raise SystemExit(f"{REGISTRY_PATH} is missing; build it as examples/README.md describes")
 

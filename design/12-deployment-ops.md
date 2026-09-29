@@ -45,8 +45,8 @@ installed editable, so a change in either sibling reaches the planner without a 
 
 ```bash
 bash lib/scripts/install.sh            # ../blue-data, ../blue-data-ops, then lib/
-bash platform/cli/scripts/install.sh   # the same, then the CLI
-bash platform/mcp/scripts/install.sh   # the same, then the MCP server
+bash platform/planner-cli/scripts/install.sh   # the same, then the CLI
+bash platform/planner-mcp/scripts/install.sh   # the same, then the MCP server
 ```
 
 `[tool.uv.sources]` in each `pyproject.toml` points at the same two sibling paths, so `uv sync`
@@ -277,7 +277,7 @@ what it would cover, is open question 42 in [13-decision-log.md](13-decision-log
 
 Two things hold whichever way that is answered. Row values stay out of anything emitted, whether a
 log line or a span attribute. And a `/metrics` endpoint belongs to whatever hosts the library rather
-than to the library, which is embedded and synchronous, so designing one before `platform/api/`
+than to the library, which is embedded and synchronous, so designing one before `platform/planner-api/`
 exists would be guessing at its shape.
 
 ---
@@ -325,7 +325,7 @@ threshold, only reporting the number.
 | --- | --- |
 | A Docker image | Nothing here is a long-running service. The MCP server is a subprocess its client starts, from an installed package |
 | A `docker-compose.yml` | Backends are a `blue-data` decision, and none is bundled |
-| A REST API and a `/health` endpoint | Not in the first release. `platform/api/` is reserved |
+| A REST API and a `/health` endpoint | Not in the first release. `platform/planner-api/` is reserved |
 | A hosted operator registry | The registry and router are in-process, built by whoever assembles the planner |
 | An ingestion path | Building and populating a registry belongs to `blue-data`, and this package only reads one (ADR-003) |
 | Authentication and authorization | Belongs to the deployment. The MCP server listens on no socket, so whoever may launch the subprocess may plan |

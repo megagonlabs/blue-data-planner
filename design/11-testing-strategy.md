@@ -340,7 +340,7 @@ cd lib && uv run pytest
 cd lib && uv run pytest tests/unit/test_physical_planner.py
 
 # The MCP adapter
-cd platform/mcp && uv run pytest
+cd platform/planner-mcp && uv run pytest
 
 # The LOTUS tier, in an environment carrying the lotus extra
 cd lib && uv run pytest tests/lotus

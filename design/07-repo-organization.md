@@ -86,7 +86,7 @@ blue-data-planner/
 │       ├── lotus/                     # against an installed LOTUS; excluded from the default run
 │       └── end_to_end/                # one real request through a provider; excluded by default
 └── platform/                          # one package per interface, each a thin adapter over lib/
-    ├── cli/
+    ├── planner-cli/
     │   ├── README.md
     │   ├── pyproject.toml              # blue-planner = commands:main
     │   ├── scripts/
@@ -101,7 +101,7 @@ blue-data-planner/
     │   │   ├── output.py               # tables, result JSON, error lines
     │   │   └── trace.py                # what a run did, as records and as a table
     │   └── tests/
-    └── mcp/
+    └── planner-mcp/
         ├── README.md
         ├── pyproject.toml              # blue-data-planner-mcp = server:main
         ├── scripts/
@@ -114,7 +114,7 @@ blue-data-planner/
         └── tests/
 ```
 
-`platform/api/` is reserved for a REST API and is not created, since none is in the first release
+`platform/planner-api/` is reserved for a REST API and is not created, since none is in the first release
 ([03-high-level-architecture.md](03-high-level-architecture.md)).
 
 ---
@@ -127,7 +127,7 @@ blue-data-planner/
 | `docs/` | Documentation for readers outside the project | Yes, in the repository |
 | `examples/` | Runnable examples, grouped as `blue-data`'s are: one library feature per script, and the planner used from an agent framework | Yes |
 | `lib/` | All planning behavior. The `blue-data-planner` package | Yes, to PyPI |
-| `platform/` | One directory per external interface, each independently built and versioned | Yes, to PyPI |
+| `platform/` | One directory per external interface, named `planner-<interface>`, each independently built and versioned | Yes, to PyPI |
 
 The division that matters is between `lib/` and `platform/`. `lib/` owns behavior; a platform
 package parses requests, formats responses, maps errors, and loads configuration. Planning, operator
@@ -247,7 +247,7 @@ One `LICENSE` sits at the repository root and covers everything published from i
 | An operator | `blue-data-ops`, or the suite's own package, unless it is deterministic and belongs to no suite | An adapter entry, if a plan should be able to use it |
 | A built-in operation | `operators/builtin/`, as a function over the bundle plus the entry that declares it | Its own tests. An owned operation has behavior, not translation ([11-testing-strategy.md](11-testing-strategy.md)) |
 | An operator suite | `operators/<suite>.py`, or `operators/<suite>/` | An optional dependency extra, a lazy import, and a stub in `tests/stubs/` |
-| A way to reach the library | `platform/<interface>/`, its own package | Its own `pyproject.toml` naming a console script, `scripts/`, and `tests/` |
+| A way to reach the library | `platform/planner-<interface>/`, its own package | Its own `pyproject.toml` naming a console script, `scripts/`, and `tests/` |
 | A logical operator | Nowhere. The vocabulary of ten is fixed ([10-data-model.md](10-data-model.md)) | A decision log entry arguing the exception |
 | A check, a graph function, or a response schema over a plan | `plan/`, if it needs no model and no source | Nothing else |
 | A prompt | `prompts/`, one file per component that writes prompts; a function rendering run data into prompt text goes in `prompts/rendering.py` | Nothing else writes prompt text (ADR-005) |
@@ -323,5 +323,5 @@ started by a person rather than by a test run.
 | Data source implementations and the registry | `blue-data`, reached only through `data/` |
 | Building or populating a registry | `blue-data`'s own tooling. The benchmark script is the single exception, and it is not shipped |
 | LOTUS source | Its own package, installed through the `lotus` extra (ADR-004) |
-| A REST API | Reserved as `platform/api/`, not in the first release |
+| A REST API | Reserved as `platform/planner-api/`, not in the first release |
 | A hosted operator registry | The registry and the router are in-process, built by whoever assembles the planner. `blue-data` hosts its data registry that way, and nothing here needs a remote lookup |

@@ -11,7 +11,7 @@ agents. This document is the source of truth; that file follows it.
 
 | Concern | Tool | Config |
 | --- | --- | --- |
-| Formatting | `ruff format` | `[tool.ruff]` in `lib/pyproject.toml`, `platform/cli/pyproject.toml`, `platform/mcp/pyproject.toml` |
+| Formatting | `ruff format` | `[tool.ruff]` in `lib/pyproject.toml`, `platform/planner-cli/pyproject.toml`, `platform/planner-mcp/pyproject.toml` |
 | Linting | `ruff` | `[tool.ruff.lint]` in the same three files |
 | Type checking | `pyright` (strict) | `[tool.pyright]` in the same three files |
 | Tests | `pytest` | `[tool.pytest.ini_options]` in the same three files |
@@ -325,7 +325,7 @@ already accumulated, and no component has to handle the provider itself.
 
 ## Command-line arguments
 
-`platform/cli/` uses Click, and Rich for output. Scripts under `scripts/` use `argparse`.
+`platform/planner-cli/` uses Click, and Rich for output. Scripts under `scripts/` use `argparse`.
 The split is deliberate: a shipped multi-command interface earns a dependency that a build script
 does not.
 

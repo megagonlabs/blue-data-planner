@@ -1,10 +1,10 @@
 # blue-data-planner MCP server
 
-`platform/mcp/` ships `blue-data-planner-mcp`, an MCP server exposing one tool, `query_data`, over
+`platform/planner-mcp/` ships `blue-data-planner-mcp`, an MCP server exposing one tool, `query_data`, over
 stdio. It plans a request over the registered data sources, runs the plan, repairs what fails, and
 returns the rows — the same two operations the library and the CLI offer, reachable by an agent
 that speaks MCP. Installation, running, launching it from an agent framework, and the
-configuration reference are in [`platform/mcp/README.md`](../platform/mcp/README.md); this page
+configuration reference are in [`platform/planner-mcp/README.md`](../platform/planner-mcp/README.md); this page
 covers the tool itself.
 
 ## Tool reference
@@ -18,9 +18,9 @@ covers the tool itself.
 | `include_plan` | Return every plan the request produced alongside the answer. `explain` already returns them. |
 
 Each parameter carries its description in the MCP schema, so a client renders it without reading
-this page. The schema in `platform/mcp/src/blue_data_planner_mcp/server.py` is the source of truth
+this page. The schema in `platform/planner-mcp/src/blue_data_planner_mcp/server.py` is the source of truth
 for these descriptions; this table and the one in
-[`platform/mcp/README.md`](../platform/mcp/README.md#the-tool) copy it.
+[`platform/planner-mcp/README.md`](../platform/planner-mcp/README.md#the-tool) copy it.
 
 ## The response
 

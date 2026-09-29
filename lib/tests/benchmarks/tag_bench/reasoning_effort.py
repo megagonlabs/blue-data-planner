@@ -4,8 +4,8 @@ from __future__ import annotations
 
 # The one value that means "omit this parameter," for a model that rejects it. Distinct from
 # "none", a real litellm reasoning_effort value that still has to reach the provider. Mirrors
-# platform/cli/src/blue_data_planner_cli/config.py's _REASONING_EFFORT_OFF: lib/ does not depend
-# on platform/cli, so the check is duplicated here rather than imported.
+# _REASONING_EFFORT_OFF in platform/planner-cli/src/blue_data_planner_cli/config.py: lib/ does not
+# depend on platform/planner-cli, so the check is duplicated here rather than imported.
 REASONING_EFFORT_OFF: str = "off"
 
 

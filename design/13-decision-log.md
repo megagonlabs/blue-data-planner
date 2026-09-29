@@ -1750,6 +1750,26 @@ ADR-031 stand: no job gates on the accuracy target.
 
 ---
 
+## ADR-053 — Platform Directories Are Named `planner-<interface>`
+
+**Date:** 2026-09-29
+**Status:** Accepted
+
+**Decision:** Each package under `platform/` lives in a directory named `planner-<interface>`: the
+CLI in `platform/planner-cli/`, the MCP server in `platform/planner-mcp/`, and the reserved REST
+API in `platform/planner-api/`. The package names are unchanged.
+
+**Rationale:** The family's repository checklist names a service directory `<family>-<service>`, so
+that a path read out of context says which repository's interface it is. A bare `cli/` or `mcp/`
+does not, and `blue-data` (`registry-cli`) and `blue-data-ops` (`ops-cli`) already follow the rule.
+
+**Consequences:** Every path naming a platform package changes: the install and build commands in
+the READMEs and `docs/`, the design set, and the platform packages' own paths to each other. A
+checkout with an environment under the old directories re-creates it. The paths in ADR-001 stand as
+written.
+
+---
+
 ## Open Questions
 
 Design questions first, then defects in the code.

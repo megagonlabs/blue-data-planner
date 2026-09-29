@@ -37,6 +37,6 @@
 These pages track what the code does, not what is planned for it. A page that has drifted is a bug
 in the page. The source of truth is the code, plus [`lib/README.md`](../lib/README.md) for the
 development setup and the test commands, and
-[`platform/cli/README.md`](../platform/cli/README.md) for the CLI, which [cli.md](cli.md) forwards
-to, and [`platform/mcp/README.md`](../platform/mcp/README.md) for installing, running, and
+[`platform/planner-cli/README.md`](../platform/planner-cli/README.md) for the CLI, which [cli.md](cli.md) forwards
+to, and [`platform/planner-mcp/README.md`](../platform/planner-mcp/README.md) for installing, running, and
 configuring the MCP server.

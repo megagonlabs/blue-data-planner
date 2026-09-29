@@ -15,8 +15,8 @@ run back to, are in [04-detailed-architecture.md](04-detailed-architecture.md).
 ```mermaid
 flowchart TB
     subgraph interfaces ["External interfaces"]
-        CLI["CLI<br/>platform/cli"]
-        MCP["MCP server<br/>platform/mcp"]
+        CLI["CLI<br/>platform/planner-cli"]
+        MCP["MCP server<br/>platform/planner-mcp"]
         LIB["Python library"]
     end
 
@@ -84,8 +84,8 @@ responses and holds no planning or execution logic (ADR-002).
 | Interface | Package | Use |
 | --- | --- | --- |
 | Python library | `lib/` | Embedding planning in a Python application |
-| CLI | `platform/cli/` | Asking a question and reading the answer directly |
-| MCP server | `platform/mcp/` | Giving an agent framework a planning tool |
+| CLI | `platform/planner-cli/` | Asking a question and reading the answer directly |
+| MCP server | `platform/planner-mcp/` | Giving an agent framework a planning tool |
 
 ### DataPlanner
 
@@ -258,7 +258,7 @@ Each rule is checkable by reading imports.
 | Not here | Why |
 | --- | --- |
 | Agents | Out of scope for this repository. Agent frameworks call in through the MCP server. |
-| REST API | Not part of the first release. The CLI covers direct use and the demo, and MCP covers the agent frameworks that are the stated integration target, so a REST API would add deployment and operations work no consumer has asked for. `platform/api/` is reserved for one. |
+| REST API | Not part of the first release. The CLI covers direct use and the demo, and MCP covers the agent frameworks that are the stated integration target, so a REST API would add deployment and operations work no consumer has asked for. `platform/planner-api/` is reserved for one. |
 | A plan store, and any path that runs a plan handed in from outside | A plan is what a request produced. `DataPlanner` takes a request and nothing else. |
 | Benchmark harness | TAG-Bench is a target for measuring this architecture, not a component of it. Its inputs live under `data/` ([11-testing-strategy.md](11-testing-strategy.md)). |
 | Cost and cardinality estimates | Choosing an operator or a fragment size by estimated cost is out of scope for the first release. |

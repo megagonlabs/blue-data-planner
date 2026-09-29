@@ -7,12 +7,12 @@
 | Package | Source | Provides |
 | --- | --- | --- |
 | `blue-data-planner` | [`lib/`](../lib/README.md) | The planner library: `DataPlanner`, `build_data_planner`, and the operator suites |
-| `blue-data-planner-cli` | [`platform/cli/`](../platform/cli/README.md) | The `blue-planner` command |
-| `blue-data-planner-mcp` | [`platform/mcp/`](../platform/mcp/README.md) | The `blue-data-planner-mcp` server, one tool over the planner |
+| `blue-data-planner-cli` | [`platform/planner-cli/`](../platform/planner-cli/README.md) | The `blue-planner` command |
+| `blue-data-planner-mcp` | [`platform/planner-mcp/`](../platform/planner-mcp/README.md) | The `blue-data-planner-mcp` server, one tool over the planner |
 
 Install the library first. The CLI package depends on it.
 [`lib/README.md`](../lib/README.md) and
-[`platform/cli/README.md`](../platform/cli/README.md) are the source of truth for each package's
+[`platform/planner-cli/README.md`](../platform/planner-cli/README.md) are the source of truth for each package's
 own install and requirements; this page collects them.
 
 ### Requirements
@@ -42,8 +42,8 @@ installs without the other.
 python -m venv .venv && source .venv/bin/activate
 
 bash lib/scripts/install.sh            # the library
-bash platform/cli/scripts/install.sh   # + the blue-planner command
-bash platform/mcp/scripts/install.sh   # + the MCP server
+bash platform/planner-cli/scripts/install.sh   # + the blue-planner command
+bash platform/planner-mcp/scripts/install.sh   # + the MCP server
 ```
 
 ### Extras
@@ -96,7 +96,7 @@ alone. A library caller passes the same values to `PlannerSettings` and reads no
 
 `blue-planner profile config` stores the same values in a profile and prompts for the key, so it
 never reaches the shell history. An MCP client sets them in the `env` block it launches the server
-with ([`platform/mcp/README.md`](../platform/mcp/README.md#configuration-reference)).
+with ([`platform/planner-mcp/README.md`](../platform/planner-mcp/README.md#configuration-reference)).
 [`design/12-deployment-ops.md`](../design/12-deployment-ops.md#4-configuration) is the source of
 truth for the variables and their defaults.
 

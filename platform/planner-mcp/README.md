@@ -8,7 +8,7 @@ plans and runs a request, and writes nothing the registry holds.
 ## Install
 
 ```bash
-cd platform/mcp
+cd platform/planner-mcp
 python -m venv .venv && source .venv/bin/activate
 bash scripts/install.sh        # ../../../blue-data, ../../../blue-data-ops, the library, the server
 ```
@@ -183,7 +183,7 @@ server at startup.
 
 The same two operations, plan and run, are reachable through
 [the Python library](../../docs/api-reference.md), via `DataPlanner.plan` and `DataPlanner.run`,
-and through [the `blue-planner` CLI](../cli/README.md), via `data query` with and without
+and through [the `blue-planner` CLI](../planner-cli/README.md), via `data query` with and without
 `--explain`.
 
 See [`docs/mcp.md`](../../docs/mcp.md) for the full tool reference and a LangChain connection
@@ -194,7 +194,7 @@ for a runnable agent.
 ## Running tests
 
 ```bash
-cd platform/mcp
+cd platform/planner-mcp
 python -m pytest
 ```
 

@@ -322,7 +322,7 @@ failed before producing one.
 | `json` | One document: `RunResult.to_dict` without `pipeline` ([10](10-data-model.md#5-shapes-that-leave-the-process)) | Adds `pipeline` to the document instead of drawing the log on standard error |
 
 With `--explain`, the JSON document carries `pipeline`, since the plan is the result. What the log
-shows for each fragment, and how, is in [platform/cli/README.md](../platform/cli/README.md).
+shows for each fragment, and how, is in [platform/planner-cli/README.md](../platform/planner-cli/README.md).
 
 ### Errors and exit codes
 
@@ -377,7 +377,7 @@ The tool returns `RunResult.to_dict` as a JSON string
 may spend is a deployment decision.
 
 The verb and the noun are the CLI's `data query` (ADR-038). Each parameter's description and an
-example response are in [platform/mcp/README.md](../platform/mcp/README.md#the-tool).
+example response are in [platform/planner-mcp/README.md](../platform/planner-mcp/README.md#the-tool).
 
 | Not exposed | Because |
 | --- | --- |
@@ -403,7 +403,7 @@ type.
 
 ## 4. REST API
 
-Not in the first release. `platform/api/` is reserved, and no package declares a web framework. A
+Not in the first release. `platform/planner-api/` is reserved, and no package declares a web framework. A
 REST API maps to the same two library operations the other interfaces use, so its endpoint shapes
 are specified when it is built.
 
@@ -422,4 +422,4 @@ The library reads no environment variable: every value arrives through a constru
 Every variable, its default, and what it sets is in
 [12-deployment-ops.md](12-deployment-ops.md#4-configuration), with the directory a CLI profile lives
 in. Which parameters `profile config` asks for, and each one's type, are in
-[platform/cli/README.md](../platform/cli/README.md).
+[platform/planner-cli/README.md](../platform/planner-cli/README.md).

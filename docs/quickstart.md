@@ -7,7 +7,7 @@ beside this repository and a provider key, both explained in [installation.md](i
 
 ```bash
 python -m venv .venv && source .venv/bin/activate
-bash platform/cli/scripts/install.sh
+bash platform/planner-cli/scripts/install.sh
 ```
 
 ## 2. Build the demo registry

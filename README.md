@@ -45,7 +45,7 @@ From the repository root, with the two sibling checkouts in place:
 
 ```bash
 python -m venv .venv && source .venv/bin/activate
-bash platform/cli/scripts/install.sh
+bash platform/planner-cli/scripts/install.sh
 
 python lib/scripts/demo/fetch_northwind.py
 python lib/scripts/demo/register_northwind.py
@@ -83,5 +83,5 @@ blue-data-planner/
 | Package | Path | Provides |
 | --- | --- | --- |
 | `blue-data-planner` | [`lib/`](lib/README.md) | The planner library |
-| `blue-data-planner-cli` | [`platform/cli/`](platform/cli/README.md) | The `blue-planner` command |
-| `blue-data-planner-mcp` | [`platform/mcp/`](platform/mcp/README.md) | The `blue-data-planner-mcp` server, one tool over the planner |
+| `blue-data-planner-cli` | [`platform/planner-cli/`](platform/planner-cli/README.md) | The `blue-planner` command |
+| `blue-data-planner-mcp` | [`platform/planner-mcp/`](platform/planner-mcp/README.md) | The `blue-data-planner-mcp` server, one tool over the planner |
