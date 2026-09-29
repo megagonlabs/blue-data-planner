@@ -15,9 +15,9 @@ from blue_data_planner.operators.builtin.schemas import (
     DistinctParameters,
     ExpandParameters,
     FilterParameters,
-    InComparison,
     IndexedBoundValues,
     JoinParameters,
+    MembershipComparison,
     Nl2TableParameters,
     NotPredicate,
     OrPredicate,
@@ -26,7 +26,7 @@ from blue_data_planner.operators.builtin.schemas import (
     ScanParameters,
     SortSuperlativeParameters,
     UnionParameters,
-    ValueComparison,
+    ValueOperand,
 )
 
 # Every schema a model fills for a built-in operator, which is what an operator declares.
@@ -54,11 +54,19 @@ def test_a_predicate_reads_back_as_the_tree_it_was_written_as() -> None:
                 "or": [
                     {
                         "and": [
-                            {"column": "state", "operator": "eq", "value": "CA"},
-                            {"column": "rating", "operator": "gte", "value": 4.0},
+                            {
+                                "left": {"column": "state"},
+                                "operator": "eq",
+                                "right": {"value": "CA"},
+                            },
+                            {
+                                "left": {"column": "rating"},
+                                "operator": "gte",
+                                "right": {"column": "threshold"},
+                            },
                         ]
                     },
-                    {"not": {"column": "closed", "operator": "is_null"}},
+                    {"not": {"operand": {"column": "closed"}, "operator": "is_null"}},
                 ]
             }
         }
@@ -91,51 +99,84 @@ def _predicate_shape(predicate: Predicate) -> tuple[type, object]:
     return (type(predicate), predicate.model_dump())
 
 
-def _elements(value: Any) -> list[Any]:
-    """Return a list value's own elements, or a scalar value as its own one-element list."""
-    return cast(list[Any], value) if isinstance(value, list) else [value]
+@pytest.mark.parametrize("value", ["CA", 4, 4.0, True])
+def test_a_literal_operand_keeps_the_type_it_was_written_with(value: Any) -> None:
+    """A literal is not coerced into a neighboring type on the way in."""
+    written = ValueOperand.model_validate({"value": value})
 
-
-@pytest.mark.parametrize(
-    ("model", "operator", "value"),
-    [
-        (ValueComparison, "eq", "CA"),
-        (ValueComparison, "eq", 4),
-        (ValueComparison, "eq", 4.0),
-        (ValueComparison, "eq", True),
-        (ValueComparison, "eq", None),
-        (InComparison, "in", ["CA", "NY"]),
-        (InComparison, "in", [1, 2.5]),
-    ],
-)
-def test_a_comparison_keeps_the_type_of_the_value_it_was_written_with(
-    model: type[ValueComparison] | type[InComparison], operator: str, value: Any
-) -> None:
-    """A value, scalar or a list, is not coerced into a neighboring type on the way in, checked
-    element by element so an int written into a list does not read back as a float."""
-    written = model.model_validate({"column": "state", "operator": operator, "value": value})
-
+    assert type(written.value) is type(value)
     assert written.value == value
-    assert [type(element) for element in _elements(written.value)] == [
-        type(element) for element in _elements(value)
-    ]
+
+
+@pytest.mark.parametrize("values", [["CA", "NY"], [1, 2.5]])
+def test_a_membership_list_keeps_the_type_of_each_element(values: list[Any]) -> None:
+    """Checked element by element, so an int written into a list does not read back as a
+    float."""
+    written = MembershipComparison.model_validate(
+        {"left": {"column": "state"}, "operator": "in", "values": values}
+    )
+
+    assert [type(element) for element in written.values] == [type(v) for v in values]
 
 
 @pytest.mark.parametrize(
     ("schema", "parameters"),
     [
-        (FilterParameters, {"predicate": {"column": "closed", "operator": "is_null", "value": 1}}),
-        (FilterParameters, {"predicate": {"column": "state", "operator": "in", "value": "CA"}}),
         (
             FilterParameters,
-            {"predicate": {"column": "state", "operator": "matches", "value": "CA"}},
+            {"predicate": {"operand": {"column": "closed"}, "operator": "is_null", "right": 1}},
         ),
         (
             FilterParameters,
-            {"predicate": {"column": "state", "operator": "re.search", "value": 4}},
+            {"predicate": {"left": {"column": "state"}, "operator": "in", "values": "CA"}},
         ),
-        (FilterParameters, {"predicate": {"column": "closed", "operator": "eq"}}),
-        (FilterParameters, {"predicate": {"column": "tags", "operator": "eq", "value": {"a": 1}}}),
+        (
+            FilterParameters,
+            {
+                "predicate": {
+                    "left": {"column": "state"},
+                    "operator": "matches",
+                    "right": {"value": "CA"},
+                }
+            },
+        ),
+        (
+            FilterParameters,
+            {"predicate": {"left": {"column": "state"}, "operator": "re.search", "pattern": 4}},
+        ),
+        (FilterParameters, {"predicate": {"left": {"column": "closed"}, "operator": "eq"}}),
+        (
+            FilterParameters,
+            {
+                "predicate": {
+                    "left": {"column": "tags"},
+                    "operator": "eq",
+                    "right": {"value": {"a": 1}},
+                }
+            },
+        ),
+        pytest.param(
+            FilterParameters,
+            {
+                "predicate": {
+                    "left": {"column": "closed"},
+                    "operator": "eq",
+                    "right": {"value": None},
+                }
+            },
+            id="a_null_literal",
+        ),
+        (
+            FilterParameters,
+            {
+                "predicate": {
+                    "left": {"column": "a", "value": 1},
+                    "operator": "eq",
+                    "right": {"value": 1},
+                }
+            },
+        ),
+        (FilterParameters, {"predicate": {"column": "state", "operator": "eq", "value": "CA"}}),
         (AggregateParameters, {"aggregations": [{"function": "avg", "into": "mean"}]}),
         (ProjectParameters, {"columns": []}),
         (ProjectParameters, {"columns": [{"column": "id"}], "unknown": 1}),
@@ -284,18 +325,18 @@ def _literal_values(property_schema: dict[str, Any]) -> set[Any]:
     return set(property_schema["enum"])
 
 
-def test_each_comparison_variant_declares_only_the_operators_its_value_shape_supports() -> None:
-    """ "is_null" names no "value" property and forbids one, every other operator requires one,
-    "in" requires it as a list and "re.search" as a string — and each operator belongs to exactly
-    one variant's enum, so a provider's schema can never pair "is_null" with a value or route "in"
-    to a variant whose value is not a list."""
+def test_each_comparison_variant_declares_only_the_operators_its_right_side_supports() -> None:
+    """Each operator belongs to exactly one variant's enum, and each variant requires the right
+    side its operators take: a second operand, a list of literals, a pattern string, or
+    nothing, so a provider's schema can never pair "is_null" with a right side or route "in" to
+    a variant whose right side is not a list."""
     comparisons = FilterParameters.model_json_schema()["$defs"]
-    null_comparison = comparisons["NullComparison"]
-    value_comparison = comparisons["ValueComparison"]
-    in_comparison = comparisons["InComparison"]
-    pattern_comparison = comparisons["PatternComparison"]
+    binary = comparisons["BinaryComparison"]
+    membership = comparisons["MembershipComparison"]
+    pattern = comparisons["PatternComparison"]
+    null = comparisons["NullComparison"]
 
-    assert _literal_values(value_comparison["properties"]["operator"]) == {
+    assert _literal_values(binary["properties"]["operator"]) == {
         "eq",
         "ne",
         "lt",
@@ -304,17 +345,17 @@ def test_each_comparison_variant_declares_only_the_operators_its_value_shape_sup
         "gte",
         "contains",
     }
-    assert _literal_values(in_comparison["properties"]["operator"]) == {"in"}
-    assert _literal_values(null_comparison["properties"]["operator"]) == {"is_null"}
-    assert _literal_values(pattern_comparison["properties"]["operator"]) == {"re.search"}
+    assert _literal_values(membership["properties"]["operator"]) == {"in"}
+    assert _literal_values(pattern["properties"]["operator"]) == {"re.search"}
+    assert _literal_values(null["properties"]["operator"]) == {"is_null"}
 
-    assert "value" not in null_comparison["properties"]
-    assert null_comparison["additionalProperties"] is False
-    assert "value" in value_comparison["required"]
-    assert "value" in in_comparison["required"]
-    assert in_comparison["properties"]["value"]["type"] == "array"
-    assert "value" in pattern_comparison["required"]
-    assert pattern_comparison["properties"]["value"]["type"] == "string"
+    assert {"left", "right"} <= set(binary["required"])
+    assert membership["properties"]["values"]["type"] == "array"
+    assert "values" in membership["required"]
+    assert pattern["properties"]["pattern"]["type"] == "string"
+    assert "pattern" in pattern["required"]
+    assert set(null["properties"]) == {"operand", "operator"}
+    assert null["additionalProperties"] is False
 
 
 def test_each_aggregation_variant_declares_a_column_only_where_its_function_needs_one() -> None:

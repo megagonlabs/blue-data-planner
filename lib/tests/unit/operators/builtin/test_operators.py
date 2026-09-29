@@ -88,7 +88,13 @@ def test_every_bundle_only_operator_declares_that_it_reads_no_source() -> None:
     [
         (
             "builtin.filter",
-            {"predicate": {"column": "state", "operator": "eq", "value": "CA"}},
+            {
+                "predicate": {
+                    "left": {"column": "state"},
+                    "operator": "eq",
+                    "right": {"value": "CA"},
+                }
+            },
             a_bundle_of_restaurants,
             "id",
             [1, 3],
@@ -172,7 +178,7 @@ def test_an_operator_refuses_a_bundle_holding_the_wrong_number_of_tables(
     parameters: dict[str, Any] = (
         {"on": [{"left_column": "id", "right_column": "id"}]}
         if operator_id in TWO_TABLE_IDS
-        else {"predicate": {"column": "state", "operator": "is_null"}}
+        else {"predicate": {"operand": {"column": "state"}, "operator": "is_null"}}
     )
 
     with pytest.raises(RecoverableOperatorError, match=expected_message):

@@ -44,28 +44,62 @@ def a_predicate(payload: dict[str, Any]) -> Any:
     return FilterParameters.model_validate({"predicate": payload}).predicate
 
 
+def a_column(name: str) -> dict[str, Any]:
+    """Return an operand reading one column of the row."""
+    return {"column": name}
+
+
+def a_literal(value: Any) -> dict[str, Any]:
+    """Return an operand holding one literal value."""
+    return {"value": value}
+
+
+def a_table_of_cities() -> Data:
+    """Three cities with their school counts; Fresno is missing its virtual count."""
+    return [
+        {"city": "Oakland", "virtual_school_count": 2, "school_count": 2},
+        {"city": "Reno", "virtual_school_count": 1, "school_count": 4},
+        {"city": "Fresno", "virtual_school_count": None, "school_count": 3},
+    ]
+
+
 @pytest.mark.parametrize(
     ("payload", "expected_ids"),
     [
-        ({"column": "state", "operator": "eq", "value": "CA"}, [1, 3, 4]),
-        ({"column": "rating", "operator": "is_null"}, [4]),
-        ({"column": "name", "operator": "contains", "value": "da"}, [1, 4]),
-        ({"column": "name", "operator": "contains", "value": "DA"}, []),
+        ({"left": a_column("state"), "operator": "eq", "right": a_literal("CA")}, [1, 3, 4]),
+        ({"operand": a_column("rating"), "operator": "is_null"}, [4]),
+        ({"left": a_column("name"), "operator": "contains", "right": a_literal("da")}, [1, 4]),
+        ({"left": a_column("name"), "operator": "contains", "right": a_literal("DA")}, []),
         pytest.param(
-            {"column": "name", "operator": "re.search", "value": r"^(Ada|Curie)$"},
+            {"left": a_column("name"), "operator": "re.search", "pattern": r"^(Ada|Curie)$"},
             [1, 3, 4],
             id="a_pattern_keeps_the_rows_whose_string_it_finds",
+        ),
+        pytest.param(
+            {"left": a_literal(4.0), "operator": "lte", "right": a_column("rating")},
+            [1, 3],
+            id="a_literal_on_the_left",
         ),
         (
             {
                 "or": [
                     {
                         "and": [
-                            {"column": "state", "operator": "eq", "value": "CA"},
-                            {"column": "rating", "operator": "gte", "value": 4.5},
+                            {"left": a_column("state"), "operator": "eq", "right": a_literal("CA")},
+                            {
+                                "left": a_column("rating"),
+                                "operator": "gte",
+                                "right": a_literal(4.5),
+                            },
                         ]
                     },
-                    {"not": {"column": "state", "operator": "eq", "value": "CA"}},
+                    {
+                        "not": {
+                            "left": a_column("state"),
+                            "operator": "eq",
+                            "right": a_literal("CA"),
+                        }
+                    },
                 ]
             },
             [1, 2],
@@ -80,6 +114,29 @@ def test_a_filter_keeps_the_rows_its_predicate_accepts(
     kept = filter_rows(a_table_of_restaurants(), a_predicate(payload))
 
     assert [row["id"] for row in kept] == expected_ids
+
+
+@pytest.mark.parametrize(
+    ("operator", "expected_cities"),
+    [("eq", ["Oakland"]), ("lt", ["Reno"])],
+)
+def test_a_comparison_between_two_columns_keeps_the_rows_where_it_holds(
+    operator: str, expected_cities: list[str]
+) -> None:
+    """Two columns of one row are compared with each other, and a row missing either value
+    matches nothing."""
+    kept = filter_rows(
+        a_table_of_cities(),
+        a_predicate(
+            {
+                "left": a_column("virtual_school_count"),
+                "operator": operator,
+                "right": a_column("school_count"),
+            }
+        ),
+    )
+
+    assert [row["city"] for row in kept] == expected_cities
 
 
 def test_a_projection_keeps_the_columns_it_names_under_the_names_it_asks_for() -> None:
@@ -246,7 +303,7 @@ def test_a_union_concatenates_the_two_tables_in_order() -> None:
 
 _TRANSFORMATIONS_NAMING_A_COLUMN: list[Callable[[Data], Data]] = [
     lambda table: filter_rows(
-        table, a_predicate({"column": "city", "operator": "eq", "value": "LA"})
+        table, a_predicate({"left": a_column("city"), "operator": "eq", "right": a_literal("LA")})
     ),
     lambda table: project_columns(table, [ProjectedColumn(column="city")]),
     lambda table: expand_rows(table, "city", "city", None),
@@ -280,7 +337,9 @@ def test_a_pattern_comparison_that_cannot_run_refuses_the_table(
     with pytest.raises(RecoverableOperatorError, match=match):
         filter_rows(
             table,
-            a_predicate({"column": "name", "operator": "re.search", "value": predicate_value}),
+            a_predicate(
+                {"left": a_column("name"), "operator": "re.search", "pattern": predicate_value}
+            ),
         )
 
 
@@ -289,7 +348,7 @@ def test_a_comparison_between_values_that_cannot_be_ordered_refuses_the_table() 
     with pytest.raises(RecoverableOperatorError):
         filter_rows(
             a_table_of_restaurants(),
-            a_predicate({"column": "rating", "operator": "lt", "value": "4"}),
+            a_predicate({"left": a_column("rating"), "operator": "lt", "right": a_literal("4")}),
         )
 
 
@@ -300,35 +359,40 @@ def test_an_expansion_refuses_a_column_it_cannot_take_apart() -> None:
 
 
 @pytest.mark.parametrize(
-    ("operator", "column_value", "predicate_value"),
+    ("operator", "table", "right"),
     [
-        ("eq", "1234", 1234),
-        ("ne", "1234", 1234),
-        ("in", "1234", [1234]),
-        ("eq", 1234, "1234"),
-        ("eq", True, 1),
-        ("eq", 1, True),
-        ("eq", True, "true"),
+        ("eq", [{"code": "1234"}], a_literal(1234)),
+        ("ne", [{"code": "1234"}], a_literal(1234)),
+        ("in", [{"code": "1234"}], [1234]),
+        ("eq", [{"code": 1234}], a_literal("1234")),
+        ("eq", [{"code": True}], a_literal(1)),
+        ("eq", [{"code": 1}], a_literal(True)),
+        ("eq", [{"code": True}], a_literal("true")),
+        ("eq", [{"code": "1234", "other": 1234}], a_column("other")),
     ],
 )
 def test_a_cross_category_comparison_refuses_the_table(
-    operator: str, column_value: Any, predicate_value: Any
+    operator: str, table: Data, right: Any
 ) -> None:
     """A string, a number, and a bool are separate categories, so eq, ne, and in refuse a
     comparison the whole column crosses them on, rather than silently answering that no rows
     match."""
+    payload = (
+        {"left": a_column("code"), "operator": "in", "values": right}
+        if operator == "in"
+        else {"left": a_column("code"), "operator": operator, "right": right}
+    )
+
     with pytest.raises(RecoverableOperatorError, match="code"):
-        filter_rows(
-            [{"code": column_value}],
-            a_predicate({"column": "code", "operator": operator, "value": predicate_value}),
-        )
+        filter_rows(table, a_predicate(payload))
 
 
 def test_an_equality_comparison_between_two_numbers_answers_no_rows_rather_than_refusing() -> None:
     """An int compared against a float, both numbers, is an ordinary unequal comparison, not
     the category mismatch a string compared against a number is."""
     kept = filter_rows(
-        [{"rating": 182.88}], a_predicate({"column": "rating", "operator": "eq", "value": 182})
+        [{"rating": 182.88}],
+        a_predicate({"left": a_column("rating"), "operator": "eq", "right": a_literal(182)}),
     )
 
     assert kept == []
@@ -344,7 +408,9 @@ def test_a_stray_dirty_cell_does_not_abort_a_comparison_the_column_otherwise_ans
     """A column that is a number except for one stray string still answers eq against a
     number literal, since some row shares its category; the refusal is for a column with no
     row left to compare against, not for one dirty cell in an otherwise numeric column."""
-    kept = filter_rows(table, a_predicate({"column": "id", "operator": "eq", "value": 5}))
+    kept = filter_rows(
+        table, a_predicate({"left": a_column("id"), "operator": "eq", "right": a_literal(5)})
+    )
 
     assert [row["id"] for row in kept] == [5]
 
@@ -353,7 +419,8 @@ def test_an_in_comparison_matches_a_bool_column_against_a_bool_option() -> None:
     """A bool column checked with 'in' against a list holding that same bool matches, the way
     an ordinary equality check would, rather than being refused as a category mismatch."""
     kept = filter_rows(
-        [{"active": True}], a_predicate({"column": "active", "operator": "in", "value": [True]})
+        [{"active": True}],
+        a_predicate({"left": a_column("active"), "operator": "in", "values": [True]}),
     )
 
     assert kept == [{"active": True}]

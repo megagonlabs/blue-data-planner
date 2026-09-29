@@ -18,49 +18,69 @@ SortDirection = Literal["asc", "desc"]
 JoinKind = Literal["inner", "left"]
 
 
-class ValueComparison(BaseModel):
-    """One column checked against a single value."""
+class ColumnOperand(BaseModel):
+    """The value one column holds in the row being tested."""
 
     model_config = _STRICT
 
     column: str = Field(min_length=1)
+
+
+class ValueOperand(BaseModel):
+    """A literal value, the same for every row. A missing value is asked about with is_null."""
+
+    model_config = _STRICT
+
+    value: str | int | float | bool
+
+
+Operand = ColumnOperand | ValueOperand
+
+
+class BinaryComparison(BaseModel):
+    """Two operands compared with each other."""
+
+    model_config = _STRICT
+
+    left: Operand
     operator: Literal["eq", "ne", "lt", "lte", "gt", "gte", "contains"]
-    value: str | int | float | bool | None
+    right: Operand
 
 
-class InComparison(BaseModel):
-    """One column checked against a list of values."""
+class MembershipComparison(BaseModel):
+    """One operand checked against a list of literal values."""
 
     model_config = _STRICT
 
-    column: str = Field(min_length=1)
+    left: Operand
     operator: Literal["in"]
-    value: list[str | int | float]
-
-
-class NullComparison(BaseModel):
-    """One column checked for a missing value."""
-
-    model_config = _STRICT
-
-    column: str = Field(min_length=1)
-    operator: Literal["is_null"]
+    values: list[str | int | float]
 
 
 class PatternComparison(BaseModel):
-    """One string column searched for a regular expression, as Python's re.search does."""
+    """One string operand searched for a regular expression, as Python's re.search does."""
 
     model_config = _STRICT
 
-    column: str = Field(min_length=1)
+    left: Operand
     operator: Literal["re.search"]
-    value: str = Field(min_length=1)
+    pattern: str = Field(min_length=1)
 
 
-# Four shapes rather than one model with cross-field rules a JSON Schema cannot state: whether
-# "value" is required, absent, a list, or a pattern follows from which variant a call picked, not
-# from a validator pydantic can only run after a provider has already accepted the object.
-Comparison = ValueComparison | InComparison | NullComparison | PatternComparison
+class NullComparison(BaseModel):
+    """One operand checked for a missing value."""
+
+    model_config = _STRICT
+
+    operand: Operand
+    operator: Literal["is_null"]
+
+
+# Four shapes, one per kind of right side (an operand, a list of literals, a pattern, or none),
+# rather than one model with cross-field rules a JSON Schema cannot state: which fields a call
+# needs follows from the variant it picked, not from a validator pydantic can only run after a
+# provider has already accepted the object.
+Comparison = BinaryComparison | MembershipComparison | PatternComparison | NullComparison
 
 
 class AndPredicate(BaseModel):

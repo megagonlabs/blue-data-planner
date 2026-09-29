@@ -4,27 +4,38 @@ from __future__ import annotations
 
 import re
 from collections.abc import Callable
-from operator import ge, gt, le, lt
+from operator import eq, ge, gt, le, lt, ne
 from typing import Any, cast
 
 from blue_data_planner.operators.builtin.schemas import (
     Aggregation,
     AndPredicate,
+    BinaryComparison,
+    ColumnOperand,
     Comparison,
-    InComparison,
     JoinKey,
     JoinKind,
+    MembershipComparison,
     NotPredicate,
     NullComparison,
+    Operand,
     OrPredicate,
     PatternComparison,
     Predicate,
     ProjectedColumn,
     SortKey,
+    ValueOperand,
 )
 from blue_data_planner.types import Data, Record, RecoverableOperatorError
 
-_ORDERINGS: dict[str, Callable[[Any, Any], bool]] = {"lt": lt, "lte": le, "gt": gt, "gte": ge}
+_BINARY_OPERATORS: dict[str, Callable[[Any, Any], bool]] = {
+    "eq": eq,
+    "ne": ne,
+    "lt": lt,
+    "lte": le,
+    "gt": gt,
+    "gte": ge,
+}
 
 
 def filter_rows(table: Data, predicate: Predicate) -> Data:
@@ -158,52 +169,70 @@ def _holds(row: Record, predicate: Predicate) -> bool:
         return any(_holds(row, condition) for condition in predicate.conditions)
     if isinstance(predicate, NotPredicate):
         return not _holds(row, predicate.condition)
-    return _compares(row.get(predicate.column), predicate)
+    return _compares(row, predicate)
 
 
-def _compares(value: Any, comparison: Comparison) -> bool:
+def _compares(row: Record, comparison: Comparison) -> bool:
     if isinstance(comparison, NullComparison):
-        return value is None
+        return _operand_value(row, comparison.operand) is None
+    left = _operand_value(row, comparison.left)
     # A missing value satisfies no comparison; is_null is how a plan asks about one.
-    if value is None:
+    if left is None:
         return False
-    # eq, ne, and in are checked once per column, over every row, before filtering starts
+    # eq, ne, and in are checked once per comparison, over every row, before filtering starts
     # (_require_comparable_predicate): a per-row check here would abort a filter that a
     # column mostly of one category was answering correctly, on one dirty cell.
-    if isinstance(comparison, InComparison):
-        return value in comparison.value
+    if isinstance(comparison, MembershipComparison):
+        return left in comparison.values
     if isinstance(comparison, PatternComparison):
-        if not isinstance(value, str):
+        if not isinstance(left, str):
             raise RecoverableOperatorError(
-                f"column {comparison.column!r} holds {type(value).__name__}, and 're.search' "
+                f"{_described(comparison.left)} holds {type(left).__name__}, and 're.search' "
                 "searches one string for a pattern"
             )
-        return re.search(comparison.value, value) is not None
-    if comparison.operator == "eq":
-        return bool(value == comparison.value)
-    if comparison.operator == "ne":
-        return bool(value != comparison.value)
+        return re.search(comparison.pattern, left) is not None
+    right = _operand_value(row, comparison.right)
+    if right is None:
+        return False
     if comparison.operator == "contains":
-        if not isinstance(value, str) or not isinstance(comparison.value, str):
+        if not isinstance(left, str) or not isinstance(right, str):
             raise RecoverableOperatorError(
-                f"column {comparison.column!r} holds {type(value).__name__}, and 'contains' "
+                f"{_described(comparison.left)} holds {type(left).__name__}, and 'contains' "
                 "compares one string against another"
             )
-        return comparison.value in value
+        return right in left
     try:
-        return _ORDERINGS[comparison.operator](value, comparison.value)
+        return bool(_BINARY_OPERATORS[comparison.operator](left, right))
     except TypeError:
         raise RecoverableOperatorError(
-            f"column {comparison.column!r} holds {type(value).__name__}, which cannot be "
-            f"ordered against the {type(comparison.value).__name__} the predicate compares it with"
+            f"{_described(comparison.left)} holds {type(left).__name__}, which cannot be "
+            f"ordered against the {type(right).__name__} {_described(comparison.right)} holds"
         ) from None
+
+
+def _operand_value(row: Record, operand: Operand) -> Any:
+    if isinstance(operand, ValueOperand):
+        return operand.value
+    return row.get(operand.column)
+
+
+def _operand_values(table: Data, operand: Operand) -> list[Any]:
+    if isinstance(operand, ValueOperand):
+        return [operand.value]
+    return [row[operand.column] for row in table if row.get(operand.column) is not None]
+
+
+def _described(operand: Operand) -> str:
+    if isinstance(operand, ColumnOperand):
+        return f"column {operand.column!r}"
+    return f"the value {operand.value!r}"
 
 
 def _category(value: Any) -> type | None:
     # A category groups the shapes a plan should never treat as interchangeable: a string, a
     # number, or a bool, matching _numbers, which already refuses a bool where a number is
-    # expected. None is excluded rather than its own category: comparing against a literal
-    # None is what "eq value=None" means, not a category mismatch is_null already covers.
+    # expected.
+    # A missing value has no category; the checks skip it.
     if value is None:
         return None
     if isinstance(value, bool):
@@ -216,7 +245,7 @@ def _category(value: Any) -> type | None:
 
 
 def _membership_category(value: Any) -> type | None:
-    # InComparison's schema (list[str | int | float]) has no bool option: pydantic already
+    # MembershipComparison's schema (list[str | int | float]) has no bool option: pydantic already
     # turned True/False into 1/0 before this runs, so a row's bool value has to be folded into
     # the number category here to match the membership Python itself would find (True == 1),
     # rather than refusing a check the comparison would actually answer.
@@ -245,14 +274,15 @@ def _require_comparable_comparison(table: Data, comparison: Comparison) -> None:
     if isinstance(comparison, PatternComparison):
         # Compiled here, before any row, so a bad pattern is refused even when no row would
         # reach it.
-        _require_valid_pattern(comparison.value)
+        _require_valid_pattern(comparison.pattern)
         return
-    present = [row[comparison.column] for row in table if row.get(comparison.column) is not None]
-    if isinstance(comparison, InComparison):
-        _require_comparable_membership(present, comparison.value, comparison.column)
+    left = _operand_values(table, comparison.left)
+    if isinstance(comparison, MembershipComparison):
+        _require_comparable_membership(left, comparison.values, comparison.left)
         return
     if comparison.operator in ("eq", "ne"):
-        _require_comparable_category(present, comparison.value, comparison.column)
+        right = _operand_values(table, comparison.right)
+        _require_shared_category(left, right, comparison)
 
 
 def _require_valid_pattern(pattern: str) -> None:
@@ -262,24 +292,30 @@ def _require_valid_pattern(pattern: str) -> None:
         raise RecoverableOperatorError(f"pattern {pattern!r} does not compile: {error}") from None
 
 
-def _require_comparable_category(present: list[Any], other: Any, column: str) -> None:
-    other_category = _category(other)
-    if other_category is None or not present:
+def _require_shared_category(
+    left: list[Any], right: list[Any], comparison: BinaryComparison
+) -> None:
+    # An operand with no values (an all-missing column) carries no evidence against the other.
+    if not left or not right:
         return
-    if not any(_category(value) == other_category for value in present):
+    left_categories = {_category(value) for value in left}
+    if not any(_category(value) in left_categories for value in right):
         raise RecoverableOperatorError(
-            f"column {column!r} holds {_type_names(present)}, which cannot be compared for "
-            f"equality against the {type(other).__name__} the predicate compares it with"
+            f"{_described(comparison.left)} holds {_type_names(left)} and "
+            f"{_described(comparison.right)} holds {_type_names(right)}, which cannot be "
+            f"compared with '{comparison.operator}'"
         )
 
 
-def _require_comparable_membership(present: list[Any], options: list[Any], column: str) -> None:
+def _require_comparable_membership(
+    present: list[Any], options: list[Any], operand: Operand
+) -> None:
     if not present or not options:
         return
     option_categories = {_membership_category(option) for option in options}
     if not any(_membership_category(value) in option_categories for value in present):
         raise RecoverableOperatorError(
-            f"column {column!r} holds {_type_names(present)}, which cannot be compared for "
+            f"{_described(operand)} holds {_type_names(present)}, which cannot be compared for "
             f"membership against a list holding {_type_names(options)}"
         )
 
@@ -295,7 +331,17 @@ def _predicate_columns(predicate: Predicate) -> list[str]:
         ]
     if isinstance(predicate, NotPredicate):
         return _predicate_columns(predicate.condition)
-    return [predicate.column]
+    return [
+        operand.column for operand in _operands(predicate) if isinstance(operand, ColumnOperand)
+    ]
+
+
+def _operands(comparison: Comparison) -> list[Operand]:
+    if isinstance(comparison, NullComparison):
+        return [comparison.operand]
+    if isinstance(comparison, BinaryComparison):
+        return [comparison.left, comparison.right]
+    return [comparison.left]
 
 
 def _elements(value: Any, column: str, separator: str | None) -> list[Any]:

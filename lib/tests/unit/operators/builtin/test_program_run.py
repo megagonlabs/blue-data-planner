@@ -49,7 +49,10 @@ def test_a_program_may_call_the_shared_transformations() -> None:
 
 def test_a_program_may_call_filter_rows_with_a_plain_comparison_dict() -> None:
     """A single comparison dict is parsed into the Comparison branch of Predicate's union."""
-    code = "result = filter_rows(stores, {'column': 'city', 'operator': 'eq', 'value': 'Reno'})"
+    code = (
+        "result = filter_rows(stores, "
+        "{'left': {'column': 'city'}, 'operator': 'eq', 'right': {'value': 'Reno'}})"
+    )
     run = run_program(code, {"stores": STORES})
 
     assert run.error is None
@@ -60,8 +63,8 @@ def test_a_program_may_call_filter_rows_with_a_compound_predicate_dict() -> None
     """An and/or/not predicate dict is parsed through the same union's other three branches."""
     code = (
         "result = filter_rows(stores, {'and': ["
-        "{'column': 'city', 'operator': 'eq', 'value': 'Reno'}, "
-        "{'column': 'store_id', 'operator': 'gt', 'value': 0}]})"
+        "{'left': {'column': 'city'}, 'operator': 'eq', 'right': {'value': 'Reno'}}, "
+        "{'left': {'column': 'store_id'}, 'operator': 'gt', 'right': {'value': 0}}]})"
     )
     run = run_program(code, {"stores": STORES})
 
