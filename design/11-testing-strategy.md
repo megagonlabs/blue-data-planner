@@ -142,9 +142,9 @@ uv run pyright
 
 `lib/tests/unit/` mirrors `lib/src/blue_data_planner/` directory for directory, so the test for
 `physical_planner.py` is `tests/unit/test_physical_planner.py` and the test for `plan/validation.py`
-is `tests/unit/plan/test_validation.py`. It mirrors
-`lib/scripts/` too, which is why `tests/unit/scripts/tag_bench/` exists. Five directories sit beside
-it and mirror nothing.
+is `tests/unit/plan/test_validation.py`. It mirrors `lib/scripts/` and
+`lib/tests/benchmarks/` too, which is why `tests/unit/scripts/demo/` and
+`tests/unit/benchmarks/tag_bench/` exist. Six directories sit beside it and mirror nothing.
 
 ```text
 lib/tests/
@@ -152,14 +152,16 @@ lib/tests/
   doubles/              # in-memory replacements for I/O boundaries
   stubs/                # deterministic fakes for heavy optional dependencies
   fixtures/             # recorded inputs
-  unit/                 # mirrors src/blue_data_planner/ and scripts/
-    types/  plan/  data/  llm/  operators/  execution/  scripts/
+  unit/                 # mirrors src/blue_data_planner/, scripts/, and benchmarks/
+    types/  plan/  data/  llm/  operators/  execution/  scripts/  benchmarks/
+  benchmarks/           # the TAG-Bench build steps and harness, run as modules, never by pytest
   lotus/                # against an installed LOTUS; excluded from the default run
   end_to_end/           # one real request through a provider; excluded from the default run
 ```
 
 Every directory under `unit/` carries an `__init__.py`, so pytest does not confuse two test modules
-that share a filename across directories.
+that share a filename across directories. `lib/scripts/` carries none, since it is not a package,
+so a test of a demo script loads the script by its file path.
 
 Each test carries a docstring naming the case it covers, in the same terms as its name. A name and a
 docstring that disagree mean one of them is describing a step.
@@ -266,13 +268,13 @@ for a whole session, and it is the one place in the repository where async meets
 
 ## 8. The benchmark
 
-`lib/scripts/tag_bench/benchmark/` measures the system against TAG-Bench. The target is 60% exact
+`lib/tests/benchmarks/tag_bench/benchmark/` measures the system against TAG-Bench. The target is 60% exact
 match over the Match, Comparison, and Ranking queries, 48 of the test split's 64. The aggregation
 queries are left out of the benchmark: each one asks for a summary and carries an empty gold answer,
 so no exact-match score exists for it
 ([10-data-model.md](10-data-model.md#6-benchmark-inputs-and-runs)).
 
-It is a script rather than a test (ADR-031). A run spends paid model calls for as long as its
+It is a script rather than a test (ADR-052). A run spends paid model calls for as long as its
 selection takes, so a person starts it, watches the line it prints as each query finishes, and reads
 a number at the end.
 
@@ -352,5 +354,5 @@ run it:
 
 ```bash
 cd lib && export UV_PROJECT_ENVIRONMENT=.venv-lotus
-uv run --extra lotus --extra dev python -m scripts.tag_bench.benchmark run --split dev
+uv run --extra lotus --extra dev python -m tests.benchmarks.tag_bench.benchmark run --split dev
 ```

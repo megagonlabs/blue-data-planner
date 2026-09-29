@@ -25,15 +25,17 @@ beside them.
 
 ## Building the input data
 
-Three scripts, run from the repository root in order, produce everything under `data/tag_bench/`.
+Three scripts, run in order as modules from `lib/`, produce everything under `data/tag_bench/` at
+the repository root.
 Each one skips its work when its output already exists; `--force` rebuilds it. Full detail on each
 script, including the registry's record shape, is in
-[lib/scripts/tag_bench/README.md](../lib/scripts/tag_bench/README.md).
+[lib/tests/benchmarks/tag_bench/README.md](../lib/tests/benchmarks/tag_bench/README.md).
 
 ```bash
-uv run --project lib python lib/scripts/tag_bench/fetch_queries.py       # queries.json
-uv run --project lib python lib/scripts/tag_bench/fetch_databases.py     # databases/*.db
-uv run --project lib python lib/scripts/tag_bench/register_databases.py  # registry.json
+cd lib
+uv run python -m tests.benchmarks.tag_bench.fetch_queries       # queries.json
+uv run python -m tests.benchmarks.tag_bench.fetch_databases     # databases/*.db
+uv run python -m tests.benchmarks.tag_bench.register_databases  # registry.json
 ```
 
 | Script | Writes | Does |
@@ -62,7 +64,7 @@ model involved. Passing `--describe` additionally asks a model for a plain-langu
 each table and column, one call per table plus several per column:
 
 ```bash
-uv run --project lib python lib/scripts/tag_bench/register_databases.py --force --describe \
+uv run python -m tests.benchmarks.tag_bench.register_databases --force --describe \
     --model gpt-5.6-luna --reasoning-effort none
 ```
 
@@ -76,13 +78,13 @@ measure.
 
 ## Running the benchmark
 
-The harness lives at `lib/scripts/tag_bench/benchmark/`, beside the three build scripts, and runs as
+The harness lives at `lib/tests/benchmarks/tag_bench/benchmark/`, beside the three build scripts, and runs as
 a module rather than through `pytest`. It needs the environment carrying the `lotus` extra
 ([lib/README.md](../lib/README.md#the-lotus-environment)) and a provider key:
 
 ```bash
 cd lib && export UV_PROJECT_ENVIRONMENT=.venv-lotus
-uv run --extra lotus --extra dev python -m scripts.tag_bench.benchmark run --split dev --workers 4
+uv run --extra lotus --extra dev python -m tests.benchmarks.tag_bench.benchmark run --split dev --workers 4
 ```
 
 A run spends paid model calls for as long as its selection takes, so it is started by a person who
@@ -108,7 +110,7 @@ that never ran go in a run of their own, named with `--query-id`.
 A first run is worth keeping small:
 
 ```bash
-uv run --extra lotus --extra dev python -m scripts.tag_bench.benchmark run \
+uv run --extra lotus --extra dev python -m tests.benchmarks.tag_bench.benchmark run \
     --split dev --limit 1 --workers 1
 ```
 
@@ -136,7 +138,7 @@ because they are large.
 repeat:
 
 ```bash
-uv run --extra dev python -m scripts.tag_bench.benchmark report --run-name <run-name>
+uv run --extra dev python -m tests.benchmarks.tag_bench.benchmark report --run-name <run-name>
 ```
 
 It rewrites `summary.json` and prints exact match overall and per query type, the operator and model

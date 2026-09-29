@@ -1,10 +1,10 @@
-"""Tests for lib/scripts/tag_bench/fetch_queries.py."""
+"""Tests for lib/tests/benchmarks/tag_bench/fetch_queries.py."""
 
 from __future__ import annotations
 
 import pytest
 
-from scripts.tag_bench.fetch_queries import (
+from tests.benchmarks.tag_bench.fetch_queries import (
     ANSWER_OVERRIDES,
     CORRECTION_REASONS,
     DB_NAME_OVERRIDES,

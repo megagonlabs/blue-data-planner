@@ -1,4 +1,4 @@
-"""Tests for lib/scripts/tag_bench/benchmark/report.py."""
+"""Tests for lib/tests/benchmarks/tag_bench/benchmark/report.py."""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ from typing import Any
 
 import pytest
 
-from scripts.tag_bench.benchmark.report import read_records, summarize
+from tests.benchmarks.tag_bench.benchmark.report import read_records, summarize
 
 
 def a_record(

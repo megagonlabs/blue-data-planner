@@ -999,7 +999,7 @@ code or the JSON payload rather than `$?`. A run that did not finish still print
 ## ADR-031 — The Benchmark Is a Script, Not a Test Tier
 
 **Date:** 2026-09-25
-**Status:** Accepted
+**Status:** Superseded by ADR-052
 
 **Decision:** The TAG-Bench harness lives at `lib/scripts/tag_bench/benchmark/`, beside the three
 scripts that build its inputs, and runs as a module. `pytest` runs no part of it; the harness's own
@@ -1717,6 +1717,36 @@ one stray cell; the stray row does not match. `ne` and any negated comparison no
 whose value is missing or is a stray cell of another type (for example `not (state eq 'CA')` no
 longer keeps rows with no state), since such a comparison is unknown. Computing a value before
 comparing it stays outside the predicate, as a computed column in a projection.
+
+---
+
+## ADR-052 — The Benchmark Lives Under `lib/tests/benchmarks/` and Runs as Modules
+
+**Date:** 2026-09-29
+**Status:** Accepted
+
+**Decision:** The TAG-Bench build steps and harness live at `lib/tests/benchmarks/tag_bench/`: the
+three scripts that build the inputs, and `benchmark/`, which runs the queries, scores the answers,
+and reports a run. All four run as modules from `lib/` (`python -m tests.benchmarks.tag_bench.<name>`)
+and write under `<repository>/data/tag_bench/` whatever the working directory. `pytest` runs no part
+of them; their unit tests live at `tests/unit/benchmarks/tag_bench/`, in the default run.
+`lib/scripts/` holds the build, install, and publish scripts and the demo scripts, all run by path,
+and is not a package. A test of a demo script loads it by its file path.
+
+**Rationale:** The `src/` layout keeps the importable code at a component root to what the
+distribution ships, so anything run from `lib/` imports the package the way an installed user does.
+A package at the root of `lib/` with a name as generic as `scripts` breaks that and can shadow, or be
+shadowed by, another top-level `scripts` on the path. The benchmark measures the system and ships in
+no package, which is what `lib/tests/` already holds. A run is still an experiment rather than a
+check, for the reasons ADR-031 gives: it spends paid model calls, a person watches it, and its output
+is a number and per-query records to triage, so living under `tests/` does not make it a `pytest`
+tier. Running every entry as a module lets a build script import a sibling module, which a script
+run by path cannot do without editing `sys.path`.
+
+**Consequences:** The build scripts' commands change from a file path at the repository root to a
+module name from `lib/`. `lib/tests/` now holds a benchmark directory beside the opt-in `lotus/` and
+`end_to_end/` tiers, and `testpaths` keeps it out of the default run. The CI consequences of
+ADR-031 stand: no job gates on the accuracy target.
 
 ---
 

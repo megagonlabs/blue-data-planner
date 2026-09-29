@@ -21,7 +21,8 @@ from blue_data.source.sql.sqlite.sqlite_sql_source import (  # pyright: ignore[r
     SQLiteDBSource,
 )
 
-from scripts.tag_bench.reasoning_effort import effective_reasoning_effort
+from tests.benchmarks.tag_bench.paths import DEFAULT_DATA_DIR
+from tests.benchmarks.tag_bench.reasoning_effort import effective_reasoning_effort
 
 SOURCE_NAME = "tag_bench"
 DEFAULT_SAMPLE_LIMIT = 10
@@ -60,9 +61,9 @@ def build_registry(
 ) -> Any:
     """Register databases_dir as one SQLite source, then sync, collect stats, and enrich it."""
     # An absolute directory: blue-data resolves the stored path against the working
-    # directory, and the registry is reopened from lib/ by tests and from the repository
-    # root by scripts. The registry file is a local build artifact, so it may carry a
-    # machine-specific path.
+    # directory, and the registry is reopened from lib/ by the harness and from the
+    # repository root by the CLI. The registry file is a local build artifact, so it may
+    # carry a machine-specific path.
     registry: Any = DataRegistry(name=source_name.upper(), store=MemoryJSONSource())
     source = SQLiteDBSource(
         name=source_name,
@@ -171,7 +172,7 @@ def build_llm_fn(model: str, reasoning_effort: str | None) -> Callable[[str], st
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Build a blue-data registry over BIRD databases")
-    parser.add_argument("--data-dir", type=Path, default=Path("data/tag_bench"))
+    parser.add_argument("--data-dir", type=Path, default=DEFAULT_DATA_DIR)
     parser.add_argument("--source-name", default=SOURCE_NAME)
     parser.add_argument("--sample-limit", type=int, default=DEFAULT_SAMPLE_LIMIT)
     parser.add_argument(

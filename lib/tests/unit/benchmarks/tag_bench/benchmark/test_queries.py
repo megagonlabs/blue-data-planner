@@ -1,4 +1,4 @@
-"""Tests for lib/scripts/tag_bench/benchmark/queries.py."""
+"""Tests for lib/tests/benchmarks/tag_bench/benchmark/queries.py."""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from scripts.tag_bench.benchmark.queries import load_queries, select_queries
+from tests.benchmarks.tag_bench.benchmark.queries import load_queries, select_queries
 
 
 def a_data_dir_with_both_splits(root: Path) -> Path:

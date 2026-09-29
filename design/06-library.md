@@ -1473,8 +1473,8 @@ sources, so the databases behind it stay where they are and a query runs against
 
 A caller holding a registry it assembled with `blue-data` passes that one to `DataCatalog` directly.
 Populating a registry is ingestion, and it belongs to `blue-data` (ADR-003). The TAG-Bench registry
-is written once by `lib/scripts/tag_bench/register_databases.py`, which calls `blue-data` directly:
-a script under `lib/scripts/` ships in no package, so the import rule that governs
+is written once by `lib/tests/benchmarks/tag_bench/register_databases.py`, which calls `blue-data`
+directly: `lib/tests/` ships in no package, so the import rule that governs
 `src/blue_data_planner/` does not reach it ([07-repo-organization.md](07-repo-organization.md),
 [08-coding-style.md](08-coding-style.md)).
 

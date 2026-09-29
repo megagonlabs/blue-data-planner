@@ -1,4 +1,4 @@
-"""Tests for lib/scripts/tag_bench/register_databases.py."""
+"""Tests for lib/tests/benchmarks/tag_bench/register_databases.py."""
 
 from __future__ import annotations
 
@@ -16,8 +16,8 @@ from blue_data.source.json.memory_json_source import (  # pyright: ignore[report
     MemoryJSONSource,
 )
 
-from scripts.tag_bench.reasoning_effort import effective_reasoning_effort
-from scripts.tag_bench.register_databases import (
+from tests.benchmarks.tag_bench.reasoning_effort import effective_reasoning_effort
+from tests.benchmarks.tag_bench.register_databases import (
     build_registry,
     check_every_database_registered,
     entity_counts_by_database,

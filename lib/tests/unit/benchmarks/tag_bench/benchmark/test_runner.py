@@ -1,4 +1,4 @@
-"""Tests for lib/scripts/tag_bench/benchmark/runner.py."""
+"""Tests for lib/tests/benchmarks/tag_bench/benchmark/runner.py."""
 
 from __future__ import annotations
 
@@ -19,8 +19,8 @@ from blue_data_planner.types import (
     RunLimits,
     Turn,
 )
-from scripts.tag_bench.benchmark.runner import run_query
-from scripts.tag_bench.fetch_queries import QueryRecord
+from tests.benchmarks.tag_bench.benchmark.runner import run_query
+from tests.benchmarks.tag_bench.fetch_queries import QueryRecord
 
 A_QUERY = QueryRecord(
     query_id=7,

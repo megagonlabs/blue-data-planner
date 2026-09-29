@@ -28,11 +28,6 @@ blue-data-planner/
 │   │   ├── build.sh                   # the wheel and sdist, into lib/dist/
 │   │   ├── install.sh                 # the sibling blue-data checkouts, then the package
 │   │   ├── publish.sh                 # uploads lib/dist/ to PyPI
-│   │   ├── tag_bench/
-│   │   │   ├── fetch_queries.py       # reads a release and writes corrected queries
-│   │   │   ├── fetch_databases.py     # downloads the five BIRD databases
-│   │   │   ├── register_databases.py  # builds one registry over them and serializes it
-│   │   │   └── benchmark/             # runs the queries, scores the answers, reports a run
 │   │   └── demo/
 │   │       ├── fetch_northwind.py     # copies the seed out of the blue-data checkout beside this one
 │   │       └── register_northwind.py  # builds the database and the registry the examples use
@@ -81,7 +76,13 @@ blue-data-planner/
 │       ├── doubles/                   # in-memory replacements for I/O boundaries
 │       ├── stubs/                     # deterministic fakes for heavy optional dependencies
 │       ├── fixtures/                  # recorded inputs
-│       ├── unit/                      # mirrors src/blue_data_planner/ and scripts/
+│       ├── unit/                      # mirrors src/blue_data_planner/, scripts/, and benchmarks/
+│       ├── benchmarks/
+│       │   └── tag_bench/
+│       │       ├── fetch_queries.py       # reads a release and writes corrected queries
+│       │       ├── fetch_databases.py     # downloads the five BIRD databases
+│       │       ├── register_databases.py  # builds one registry over them and serializes it
+│       │       └── benchmark/             # runs the queries, scores the answers, reports a run
 │       ├── lotus/                     # against an installed LOTUS; excluded from the default run
 │       └── end_to_end/                # one real request through a provider; excluded by default
 └── platform/                          # one package per interface, each a thin adapter over lib/
@@ -259,11 +260,16 @@ One `LICENSE` sits at the repository root and covers everything published from i
 
 `lib/tests/unit/` mirrors `lib/src/blue_data_planner/` directory for directory, so the test for
 `physical_planner.py` is `tests/unit/test_physical_planner.py` and the test for
-`plan/validation.py` is `tests/unit/plan/test_validation.py`. It mirrors `lib/scripts/` the same
-way, which is why `tests/unit/scripts/tag_bench/` exists.
+`plan/validation.py` is `tests/unit/plan/test_validation.py`. It mirrors `lib/scripts/` and
+`lib/tests/benchmarks/` the same way, which is why `tests/unit/scripts/demo/` and
+`tests/unit/benchmarks/tag_bench/` exist.
 
-`doubles/`, `stubs/`, `fixtures/`, `lotus/`, and `end_to_end/` sit beside `unit/` and mirror
-nothing. `lotus/` holds the tier that runs against an installed operator suite, so it is run by
+`lib/scripts/` is a directory of scripts run by path, never a package, so nothing is importable from
+the component root except the packages under `src/`. A test of a demo script loads it by its file
+path.
+
+`doubles/`, `stubs/`, `fixtures/`, `benchmarks/`, `lotus/`, and `end_to_end/` sit beside `unit/`
+and mirror nothing. `lotus/` holds the tier that runs against an installed operator suite, so it is run by
 name, in an environment carrying the `lotus` extra. `end_to_end/` holds the one test that plans a
 real request through a provider, run by name for the same reason. What each directory holds, and
 what a platform package's tests cover, is in
@@ -275,7 +281,7 @@ Two directories hold the benchmark, and neither ships.
 
 | Part | Where |
 | --- | --- |
-| The steps that build the inputs, and the harness that runs the queries and scores the answers | `lib/scripts/tag_bench/` |
+| The steps that build the inputs, and the harness that runs the queries and scores the answers | `lib/tests/benchmarks/tag_bench/` |
 | The queries, the databases, the registry over them, and what each run writes | `data/tag_bench/`, downloaded, built, and written rather than committed |
 
 The build step is three scripts rather than one because the three outputs are fetched and rebuilt on
@@ -287,16 +293,18 @@ in [10-data-model.md](10-data-model.md#6-benchmark-inputs-and-runs).
 
 `benchmark/` sits beside those three and is a package rather than a file, because it has four
 separable jobs: selecting queries, running one, scoring an answer against the gold one, and
-aggregating a run. It runs as a module, in the environment carrying the `lotus` extra, and writes
+aggregating a run. All four entries run as modules from `lib/`, and each writes under
+`<repository>/data/tag_bench/` whatever the working directory. The harness runs in the environment
+carrying the `lotus` extra, and writes
 one record per query as that query finishes, so a person can read a record while the rest of the run
 continues, a run that stops keeps what it finished, and a finished run is triaged from what it wrote
-(ADR-031).
+(ADR-052).
 
-`register_databases.py` is the one place in the repository outside `data/` that imports `blue-data`.
+`register_databases.py` imports `blue-data` directly, as the demo's `register_northwind.py` does.
 Registering sources, syncing them, collecting statistics, and enriching them are ingestion, which
 belongs to `blue-data` rather than here, so the library offers no way to do any of it and a caller
 with no registry builds one with `blue-data` first. The benchmark still needs a registry built, and
-it is a build step in an unpackaged directory, so it calls `blue-data` directly rather than forcing
+it is a build step in a directory no package ships, so it calls `blue-data` directly rather than forcing
 an ingestion surface into `data/` ([06-library.md](06-library.md#opening-a-registry)). The rule the
 library holds itself to is scoped to `lib/src/` and stated that way in
 [08-coding-style.md](08-coding-style.md).

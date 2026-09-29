@@ -10,6 +10,8 @@ import urllib.request
 import zipfile
 from pathlib import Path
 
+from tests.benchmarks.tag_bench.paths import DEFAULT_DATA_DIR
+
 BIRD_INNER_ZIP_ENTRY = "dev_20240627/dev_databases.zip"
 BIRD_DEV_ZIP_URL = "https://bird-bench.oss-cn-beijing.aliyuncs.com/dev.zip"
 
@@ -58,7 +60,7 @@ def download_bird_zip(destination: Path) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Fetch and stage BIRD databases for TAG-Bench")
-    parser.add_argument("--data-dir", type=Path, default=Path("data/tag_bench"))
+    parser.add_argument("--data-dir", type=Path, default=DEFAULT_DATA_DIR)
     parser.add_argument("--force", action="store_true")
     args = parser.parse_args()
 

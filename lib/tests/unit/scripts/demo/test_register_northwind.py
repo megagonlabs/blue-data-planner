@@ -8,11 +8,12 @@ from typing import Any
 
 import pytest
 
-from scripts.demo.register_northwind import (
-    apply_descriptions,
-    check_database_registered,
-    deregister_internal_entities,
-)
+from tests.unit.scripts.demo.script_loader import load_demo_script
+
+register_northwind = load_demo_script("register_northwind")
+apply_descriptions = register_northwind.apply_descriptions
+check_database_registered = register_northwind.check_database_registered
+deregister_internal_entities = register_northwind.deregister_internal_entities
 
 SOURCE = "northwind"
 DATABASE = "northwind"

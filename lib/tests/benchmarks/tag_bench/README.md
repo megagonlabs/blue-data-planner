@@ -4,13 +4,13 @@ Three scripts, run in order, produce everything the TAG-Bench harness reads. Non
 package and none of it is committed: `data/` is in `.gitignore`, so a clean checkout rebuilds the
 inputs instead of carrying them.
 
-Run them from the repository root, so the default `--data-dir` of `data/tag_bench` lands where the
-harness looks:
+Run them as modules from `lib/`. Each writes under `<repository>/data/tag_bench/` unless given
+`--data-dir`, whatever the working directory:
 
 ```bash
-python lib/scripts/tag_bench/fetch_queries.py       # data/tag_bench/queries.json
-python lib/scripts/tag_bench/fetch_databases.py     # data/tag_bench/databases/*.db
-python lib/scripts/tag_bench/register_databases.py  # data/tag_bench/registry.json
+python -m tests.benchmarks.tag_bench.fetch_queries       # data/tag_bench/queries.json
+python -m tests.benchmarks.tag_bench.fetch_databases     # data/tag_bench/databases/*.db
+python -m tests.benchmarks.tag_bench.register_databases  # data/tag_bench/registry.json
 ```
 
 Each script skips its work when its output is already there. `--force` rebuilds.
@@ -39,7 +39,7 @@ It needs a provider key in the environment. `--reasoning-effort`
 controls how hard that model reasons, and defaults to `none`; `off` omits the parameter entirely.
 
 ```bash
-python lib/scripts/tag_bench/register_databases.py --force --describe --model gpt-4o
+python -m tests.benchmarks.tag_bench.register_databases --force --describe --model gpt-4o
 ```
 
 Keeping one registry of each kind is deliberate. Planning quality depends on how well a source was
@@ -56,8 +56,8 @@ record shapes instead of hand-written guesses. To regenerate it:
 import json, tempfile
 from pathlib import Path
 
-from scripts.tag_bench.register_databases import build_registry, write_registry
-from tests.unit.scripts.tag_bench.test_register_databases import two_staged_databases
+from tests.benchmarks.tag_bench.register_databases import build_registry, write_registry
+from tests.unit.benchmarks.tag_bench.test_register_databases import two_staged_databases
 
 path = Path("tests/fixtures/tag_bench_registry.json")  # run from lib/
 write_registry(build_registry(two_staged_databases(Path(tempfile.mkdtemp()))), path)

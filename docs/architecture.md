@@ -238,8 +238,8 @@ truth for them.
    Anything may import either.
 2. `execution/` imports only `types/`: no planning component, no `operators/`, no `llm/`, no
    `data/`. It runs one operator over the tables its caller passed in.
-3. Within `lib/src/`, only `data/` imports `blue-data`. `lib/scripts/` ships in no package and
-   imports it directly to build a benchmark registry.
+3. Within `lib/src/`, only `data/` imports `blue-data`. `lib/scripts/` and `lib/tests/` ship in
+   no package, and import it directly to build the demo and benchmark registries.
 4. Only `operators/adapters/blue/` imports `blue-data-ops`.
 5. Only `operators/adapters/lotus/` imports LOTUS, and only inside a callable, never at module
    import time. `lotus_is_installed()` answers whether it can be imported without importing it.

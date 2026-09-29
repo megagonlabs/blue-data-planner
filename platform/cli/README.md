@@ -274,9 +274,9 @@ python -m venv .venv && source .venv/bin/activate
 bash platform/cli/scripts/install.sh
 
 # 2. Build the registry from the TAG-Bench databases.
-python lib/scripts/tag_bench/fetch_queries.py
-python lib/scripts/tag_bench/fetch_databases.py
-python lib/scripts/tag_bench/register_databases.py
+(cd lib && python -m tests.benchmarks.tag_bench.fetch_queries)
+(cd lib && python -m tests.benchmarks.tag_bench.fetch_databases)
+(cd lib && python -m tests.benchmarks.tag_bench.register_databases)
 
 # 3. Configure a profile. The registry path is stored as given, so it is absolute; the API key is
 #    prompted, never passed as an argument.

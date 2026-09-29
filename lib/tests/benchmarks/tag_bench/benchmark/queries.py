@@ -7,8 +7,8 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
-from scripts.tag_bench.benchmark.scoring import states_an_answer
-from scripts.tag_bench.fetch_queries import QueryRecord
+from tests.benchmarks.tag_bench.benchmark.scoring import states_an_answer
+from tests.benchmarks.tag_bench.fetch_queries import QueryRecord
 
 QUERY_TYPES: tuple[str, ...] = ("Match", "Comparison", "Ranking", "Aggregation")
 # Every aggregation query asks for a summary and carries an empty gold answer, so exact match
@@ -23,7 +23,7 @@ def load_queries(data_dir: Path) -> list[QueryRecord]:
     if not path.is_file():
         raise ValueError(
             f"no queries at {path}; build the inputs first with "
-            "lib/scripts/tag_bench/fetch_queries.py"
+            "python -m tests.benchmarks.tag_bench.fetch_queries, run from lib/"
         )
     document: Any = json.loads(path.read_text())
     queries: list[QueryRecord] = document["queries"]

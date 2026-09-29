@@ -272,7 +272,7 @@ query and a scored report.
 
 ```bash
 cd lib && export UV_PROJECT_ENVIRONMENT=.venv-lotus
-uv run --extra lotus --extra dev python -m scripts.tag_bench.benchmark run --split dev --limit 1
+uv run --extra lotus --extra dev python -m tests.benchmarks.tag_bench.benchmark run --split dev --limit 1
 ```
 
 See [tag-bench-benchmark.md](tag-bench-benchmark.md) for the prerequisites, the build scripts, and

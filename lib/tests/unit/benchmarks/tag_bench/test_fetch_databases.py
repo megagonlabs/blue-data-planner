@@ -1,4 +1,4 @@
-"""Tests for lib/scripts/tag_bench/fetch_databases.py."""
+"""Tests for lib/tests/benchmarks/tag_bench/fetch_databases.py."""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ from pathlib import Path
 
 import pytest
 
-from scripts.tag_bench.fetch_databases import (
+from tests.benchmarks.tag_bench.fetch_databases import (
     BIRD_INNER_ZIP_ENTRY,
     extract_bird_databases,
     load_required_db_names,

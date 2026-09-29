@@ -1150,9 +1150,9 @@ beside it, leaving the download untouched.
 
 | Path | Holds | Written by |
 | --- | --- | --- |
-| `data/tag_bench/queries.json` | The corrected queries the harness reads | `lib/scripts/tag_bench/fetch_queries.py` |
-| `data/tag_bench/databases/*.db` | The five BIRD SQLite databases | `lib/scripts/tag_bench/fetch_databases.py` |
-| `data/tag_bench/registry.json` | A `blue-data` registry over those databases, synced, with stats collected and enriched | `lib/scripts/tag_bench/register_databases.py` |
+| `data/tag_bench/queries.json` | The corrected queries the harness reads | `lib/tests/benchmarks/tag_bench/fetch_queries.py` |
+| `data/tag_bench/databases/*.db` | The five BIRD SQLite databases | `lib/tests/benchmarks/tag_bench/fetch_databases.py` |
+| `data/tag_bench/registry.json` | A `blue-data` registry over those databases, synced, with stats collected and enriched | `lib/tests/benchmarks/tag_bench/register_databases.py` |
 
 The registry is built once and kept, so a test and a benchmark run open a file instead of re-syncing
 five databases.

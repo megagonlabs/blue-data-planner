@@ -1,4 +1,4 @@
-"""Tests for lib/scripts/tag_bench/benchmark/scoring.py."""
+"""Tests for lib/tests/benchmarks/tag_bench/benchmark/scoring.py."""
 
 from __future__ import annotations
 
@@ -6,8 +6,8 @@ from typing import Any
 
 import pytest
 
-from scripts.tag_bench.benchmark.scoring import extract_prediction, score_answer
-from scripts.tag_bench.fetch_queries import AnswerValue
+from tests.benchmarks.tag_bench.benchmark.scoring import extract_prediction, score_answer
+from tests.benchmarks.tag_bench.fetch_queries import AnswerValue
 
 
 def one_table(rows: list[dict[str, Any]]) -> list[list[dict[str, Any]]]:

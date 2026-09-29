@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from blue_data_planner.types import DataBundle
-from scripts.tag_bench.fetch_queries import AnswerValue
+from tests.benchmarks.tag_bench.fetch_queries import AnswerValue
 
 # TAG-Bench spells a boolean gold answer three ways ("Yes", "TRUE", "YES"), and none of them
 # is a value stored in any database, so a run that answers the question correctly cannot

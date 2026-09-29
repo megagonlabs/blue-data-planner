@@ -15,16 +15,17 @@ from pathlib import Path
 from typing import Any
 
 from blue_data_planner import DataPlanner, RunLimits
-from scripts.tag_bench.benchmark import report
-from scripts.tag_bench.benchmark.planner import BenchmarkSettings, build_benchmark_planner
-from scripts.tag_bench.benchmark.queries import (
+from tests.benchmarks.tag_bench.benchmark import report
+from tests.benchmarks.tag_bench.benchmark.planner import BenchmarkSettings, build_benchmark_planner
+from tests.benchmarks.tag_bench.benchmark.queries import (
     DEFAULT_QUERY_TYPES,
     QUERY_TYPES,
     SPLITS,
     select_queries,
 )
-from scripts.tag_bench.benchmark.runner import QueryOutcome, run_query
-from scripts.tag_bench.fetch_queries import QueryRecord
+from tests.benchmarks.tag_bench.benchmark.runner import QueryOutcome, run_query
+from tests.benchmarks.tag_bench.fetch_queries import QueryRecord
+from tests.benchmarks.tag_bench.paths import DEFAULT_DATA_DIR
 
 DEFAULT_MODEL: str = "openai/gpt-5.6-luna"
 DEFAULT_REASONING_EFFORT: str = "low"
@@ -41,14 +42,11 @@ PROVIDER_KEYS: dict[str, str] = {
 _worker_planner: DataPlanner | None = None
 
 
-def default_data_dir() -> Path:
-    """Return <repository>/data/tag_bench, whatever the working directory is."""
-    return Path(__file__).resolve().parents[4] / "data" / "tag_bench"
-
-
 def parse_arguments(argv: list[str]) -> argparse.Namespace:
     """Parse one invocation of the benchmark."""
-    parser = argparse.ArgumentParser(prog="scripts.tag_bench.benchmark", description=__doc__)
+    parser = argparse.ArgumentParser(
+        prog="tests.benchmarks.tag_bench.benchmark", description=__doc__
+    )
     commands = parser.add_subparsers(dest="command", required=True)
 
     run = commands.add_parser("run", help="Run a selection of queries and report it.")
@@ -65,7 +63,7 @@ def parse_arguments(argv: list[str]) -> argparse.Namespace:
     run.add_argument("--limit", type=int, default=None)
     run.add_argument("--workers", type=int, default=DEFAULT_WORKERS)
     run.add_argument("--run-name", default=None)
-    run.add_argument("--data-dir", type=Path, default=default_data_dir())
+    run.add_argument("--data-dir", type=Path, default=DEFAULT_DATA_DIR)
     run.add_argument("--registry", type=Path, default=None)
     run.add_argument("--model", default=DEFAULT_MODEL)
     run.add_argument("--reasoning-effort", default=DEFAULT_REASONING_EFFORT)
@@ -73,7 +71,7 @@ def parse_arguments(argv: list[str]) -> argparse.Namespace:
 
     report_command = commands.add_parser("report", help="Summarize a run already on disk.")
     report_command.add_argument("--run-name", required=True)
-    report_command.add_argument("--data-dir", type=Path, default=default_data_dir())
+    report_command.add_argument("--data-dir", type=Path, default=DEFAULT_DATA_DIR)
 
     arguments = parser.parse_args(argv)
     if arguments.command == "run" and arguments.query_type is None:
@@ -185,7 +183,7 @@ def _settings(arguments: argparse.Namespace) -> BenchmarkSettings:
     if not registry_path.is_file():
         raise ValueError(
             f"no registry at {registry_path}; build one with "
-            "lib/scripts/tag_bench/register_databases.py"
+            "python -m tests.benchmarks.tag_bench.register_databases, run from lib/"
         )
     check_provider_key(arguments.model)
     return BenchmarkSettings(

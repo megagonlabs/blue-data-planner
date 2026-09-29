@@ -6,7 +6,11 @@ from pathlib import Path
 
 import pytest
 
-from scripts.demo.fetch_northwind import DEMO_FILE_NAMES, copy_demo_files
+from tests.unit.scripts.demo.script_loader import load_demo_script
+
+fetch_northwind = load_demo_script("fetch_northwind")
+DEMO_FILE_NAMES = fetch_northwind.DEMO_FILE_NAMES
+copy_demo_files = fetch_northwind.copy_demo_files
 
 
 def a_blue_data_checkout(tmp_path: Path, file_names: tuple[str, ...]) -> Path:

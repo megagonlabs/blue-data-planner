@@ -9,7 +9,7 @@ from blue_data_planner import DataPlanner, RunLimits, build_data_planner
 from blue_data_planner.data import open_registry
 from blue_data_planner.operators.adapters.lotus import LotusSuite, lotus_is_installed
 from blue_data_planner.operators.builtin import BuiltinSuite
-from scripts.tag_bench.reasoning_effort import effective_reasoning_effort
+from tests.benchmarks.tag_bench.reasoning_effort import effective_reasoning_effort
 
 LLM_CLIENT_NAME: str = "tag_bench_benchmark"
 # LOTUS runs the planner's own model. "none" is a real litellm reasoning_effort value rather

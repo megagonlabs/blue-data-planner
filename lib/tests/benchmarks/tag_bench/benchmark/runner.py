@@ -15,8 +15,8 @@ from blue_data_planner.types import (
     FragmentResult,
     RunConversations,
 )
-from scripts.tag_bench.benchmark.scoring import score_answer
-from scripts.tag_bench.fetch_queries import QueryRecord
+from tests.benchmarks.tag_bench.benchmark.scoring import score_answer
+from tests.benchmarks.tag_bench.fetch_queries import QueryRecord
 
 # A run that raised is not a planner outcome: every outcome a repair could answer is already a
 # RunStatus by the time a run returns. This names the other case in the same field.

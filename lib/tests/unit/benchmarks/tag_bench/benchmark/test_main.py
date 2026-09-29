@@ -1,4 +1,4 @@
-"""Tests for lib/scripts/tag_bench/benchmark/__main__.py."""
+"""Tests for lib/tests/benchmarks/tag_bench/benchmark/__main__.py."""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from scripts.tag_bench.benchmark.__main__ import (
+from tests.benchmarks.tag_bench.benchmark.__main__ import (
     check_provider_key,
     parse_arguments,
     prepare_run_dir,

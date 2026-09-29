@@ -142,9 +142,10 @@ lib/
 │   ├── operators/           # the router, the builtin suite, one adapter per outside suite
 │   ├── data/                # the only boundary onto blue-data
 │   └── llm/                 # the model client
-├── scripts/tag_bench/       # TAG-Bench preprocessing and the benchmark runner
+├── scripts/demo/            # builds the demo registry the examples run against
 └── tests/
     ├── unit/                # the default tier
+    ├── benchmarks/          # TAG-Bench preprocessing and the benchmark runner, in tag_bench/
     ├── end_to_end/          # a full run against scripted model responses
     ├── lotus/               # opt-in by path, needing the lotus extra
     ├── doubles/             # in-memory stand-ins for the I/O boundaries

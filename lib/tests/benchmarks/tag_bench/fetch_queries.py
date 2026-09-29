@@ -13,6 +13,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import NotRequired, TypedDict
 
+from tests.benchmarks.tag_bench.paths import DEFAULT_DATA_DIR
+
 AnswerValue = int | str | list[str]
 
 SPECIAL_ANSWER_QUERY_ID = 51
@@ -229,7 +231,7 @@ def _write_json(path: Path, data: object) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Fetch and correct TAG-Bench queries")
-    parser.add_argument("--data-dir", type=Path, default=Path("data/tag_bench"))
+    parser.add_argument("--data-dir", type=Path, default=DEFAULT_DATA_DIR)
     parser.add_argument("--dev-per-type", type=int, default=DEFAULT_DEV_PER_TYPE)
     parser.add_argument("--split-seed", type=int, default=DEFAULT_SPLIT_SEED)
     parser.add_argument("--force", action="store_true")
