@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from blue_data_planner.types.plan import ColumnDataType
 
 
 class BlueDataPlannerError(Exception):
@@ -27,6 +30,19 @@ class PlanValidationError(BlueDataPlannerError):
 
 class ReturnAnswerError(BlueDataPlannerError):
     """The answer names a column, or reads a node, that a finished run cannot hand it."""
+
+
+class DeclaredTypeMismatchError(BlueDataPlannerError):
+    """A value does not spell the type declared for its column."""
+
+    def __init__(
+        self, value: Any, declared_type: ColumnDataType, row_index: int | None = None
+    ) -> None:
+        location = "" if row_index is None else f" in row {row_index}"
+        super().__init__(f"holds {value!r}{location}, which is not a valid {declared_type}")
+        self.value = value
+        self.declared_type = declared_type
+        self.row_index = row_index
 
 
 class OperatorRoutingError(BlueDataPlannerError):

@@ -7,12 +7,12 @@ from decimal import Decimal
 import pytest
 
 from blue_data_planner.execution.output_columns import (
-    DeclaredTypeMismatch,
     check_output_columns,
     coerce_value,
 )
 from blue_data_planner.types import (
     Data,
+    DeclaredTypeMismatchError,
     ErrorKind,
     ExecutionResult,
     ExecutionStatus,
@@ -83,14 +83,14 @@ def test_coerce_value_refuses_a_value_that_spells_no_such_type(
     value: object, declared_type: str
 ) -> None:
     """A value the declared type cannot hold is refused rather than salvaged."""
-    with pytest.raises(DeclaredTypeMismatch):
+    with pytest.raises(DeclaredTypeMismatchError):
         coerce_value(value, declared_type)  # pyright: ignore[reportArgumentType]
 
 
 @pytest.mark.parametrize("declared_type", ["int", "float"])
 def test_a_boolean_is_refused_for_a_numeric_column(declared_type: str) -> None:
     """bool subclasses int, so True would otherwise pass as 1 without being caught."""
-    with pytest.raises(DeclaredTypeMismatch):
+    with pytest.raises(DeclaredTypeMismatchError):
         coerce_value(True, declared_type)  # pyright: ignore[reportArgumentType]
 
 

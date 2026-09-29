@@ -11,6 +11,7 @@ from blue_data_planner.types import (
     ColumnDataType,
     Data,
     DataBundle,
+    DeclaredTypeMismatchError,
     ErrorInfo,
     ErrorKind,
     ExecutionResult,
@@ -32,19 +33,6 @@ BOOLEAN_SPELLINGS: dict[str, bool] = {
 }
 
 
-class DeclaredTypeMismatch(BlueDataPlannerError):
-    """A value does not spell the type declared for its column."""
-
-    def __init__(
-        self, value: Any, declared_type: ColumnDataType, row_index: int | None = None
-    ) -> None:
-        location = "" if row_index is None else f" in row {row_index}"
-        super().__init__(f"holds {value!r}{location}, which is not a valid {declared_type}")
-        self.value = value
-        self.declared_type = declared_type
-        self.row_index = row_index
-
-
 def coerce_value(value: Any, declared_type: ColumnDataType) -> Any:
     """Return one value as its declared type, raising when it spells no such type."""
     if value is None or declared_type == "str":
@@ -59,18 +47,18 @@ def coerce_value(value: Any, declared_type: ColumnDataType) -> Any:
             return bool(value)
         if isinstance(value, str) and value.strip().lower() in BOOLEAN_SPELLINGS:
             return BOOLEAN_SPELLINGS[value.strip().lower()]
-        raise DeclaredTypeMismatch(value, declared_type)
+        raise DeclaredTypeMismatchError(value, declared_type)
 
     # bool subclasses int, so True would pass every numeric check below. Reading it as 1
     # is the exact mistake this check exists to catch, so it is refused first.
     if isinstance(value, bool):
-        raise DeclaredTypeMismatch(value, declared_type)
+        raise DeclaredTypeMismatchError(value, declared_type)
     number: float
     if isinstance(value, str):
         try:
             number = float(value.strip())
         except ValueError:
-            raise DeclaredTypeMismatch(value, declared_type) from None
+            raise DeclaredTypeMismatchError(value, declared_type) from None
     elif isinstance(value, int | float):
         number = value
     elif isinstance(value, Decimal):
@@ -78,28 +66,28 @@ def coerce_value(value: Any, declared_type: ColumnDataType) -> Any:
         # large for a float still reaches an int column unchanged.
         return _coerce_decimal(value, declared_type)
     else:
-        raise DeclaredTypeMismatch(value, declared_type)
+        raise DeclaredTypeMismatchError(value, declared_type)
     # float() reads "nan" and "inf"; no declared column holds either, and int() raises
     # on both.
     if not math.isfinite(number):
-        raise DeclaredTypeMismatch(value, declared_type)
+        raise DeclaredTypeMismatchError(value, declared_type)
 
     if declared_type == "float":
         return float(number)
     # A fractional value is refused rather than truncated. Turning 48.7 into 48 changes
     # the answer, which is worse than a rejection a retry can read.
     if number != int(number):
-        raise DeclaredTypeMismatch(value, declared_type)
+        raise DeclaredTypeMismatchError(value, declared_type)
     return int(number)
 
 
 def _coerce_decimal(value: Decimal, declared_type: ColumnDataType) -> int | float:
     if not value.is_finite():
-        raise DeclaredTypeMismatch(value, declared_type)
+        raise DeclaredTypeMismatchError(value, declared_type)
     if declared_type == "float":
         return float(value)
     if value != value.to_integral_value():
-        raise DeclaredTypeMismatch(value, declared_type)
+        raise DeclaredTypeMismatchError(value, declared_type)
     return int(value)
 
 
@@ -109,8 +97,8 @@ def coerce_column(values: list[Any], declared_type: ColumnDataType) -> list[Any]
     for row_index, value in enumerate(values):
         try:
             coerced.append(coerce_value(value, declared_type))
-        except DeclaredTypeMismatch as mismatch:
-            raise DeclaredTypeMismatch(mismatch.value, declared_type, row_index) from None
+        except DeclaredTypeMismatchError as mismatch:
+            raise DeclaredTypeMismatchError(mismatch.value, declared_type, row_index) from None
     return coerced
 
 
@@ -187,7 +175,7 @@ def _check_one_table(
             coerced[column.name] = coerce_column(
                 [record[column.name] for record in records], column.dtype
             )
-        except DeclaredTypeMismatch as mismatch:
+        except DeclaredTypeMismatchError as mismatch:
             return _recoverable(
                 f"required output column {column.name!r} is declared {column.dtype} but "
                 f"{mismatch}{where}",

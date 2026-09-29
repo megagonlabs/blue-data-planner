@@ -13,6 +13,7 @@ from blue_data_planner.types.catalog import (
 from blue_data_planner.types.errors import (
     BlueDataPlannerError,
     BudgetExhaustedError,
+    DeclaredTypeMismatchError,
     InvalidSettingError,
     LLMError,
     OperatorRoutingError,
@@ -69,6 +70,7 @@ from blue_data_planner.types.run import (
     RunResult,
     RunStatus,
     Turn,
+    total_cost,
 )
 
 __all__ = [
@@ -79,6 +81,7 @@ __all__ = [
     "AttributeView",
     "BlueDataPlannerError",
     "BudgetExhaustedError",
+    "DeclaredTypeMismatchError",
     "CatalogPreview",
     "ColumnDataType",
     "ControlOperator",
@@ -127,6 +130,7 @@ __all__ = [
     "SourceUnreachableError",
     "TableSummary",
     "summarize_table",
+    "total_cost",
     "Turn",
     "UnknownFragmentError",
     "UnknownNodeError",
