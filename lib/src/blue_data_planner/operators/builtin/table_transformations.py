@@ -37,6 +37,7 @@ _BINARY_OPERATORS: dict[str, Callable[[Any, Any], bool]] = {
     "gt": gt,
     "gte": ge,
 }
+_ORDERING_OPERATORS: frozenset[str] = frozenset({"lt", "lte", "gt", "gte"})
 
 
 def filter_rows(table: Data, predicate: Predicate) -> Data:
@@ -205,6 +206,10 @@ def _compares(row: Record, comparison: Comparison) -> bool | None:
             return None
         return right in left
     left, right = _aligned(left, right)
+    # Python answers false for every ordering with a NaN, so not (v lt 5) would keep a NaN row
+    # that v gte 5 drops; unknown makes a negated ordering and its opposite keep the same rows.
+    if comparison.operator in _ORDERING_OPERATORS and (_is_nan(left) or _is_nan(right)):
+        return None
     try:
         return bool(_BINARY_OPERATORS[comparison.operator](left, right))
     except TypeError:
@@ -242,8 +247,9 @@ def _aligned(left: Any, right: Any) -> tuple[Any, Any]:
     # Keeps every comparison involving a SQL NUMERIC column (a Decimal) exact. Python already
     # compares a Decimal with an int exactly, but a float carries binary noise (Decimal("4.20")
     # != 4.2), so a float meeting a Decimal is read as the shortest decimal that prints it. A NaN
-    # of either kind becomes a float NaN on both sides: Decimal raises on an ordering with a NaN
-    # (always with a signaling one), where a float NaN just matches nothing.
+    # of either kind becomes a float NaN on both sides, since Decimal raises on an ordering with a
+    # NaN (always with a signaling one); a float NaN equals nothing, and _compares makes an
+    # ordering with it unknown.
     if not isinstance(left, Decimal) and not isinstance(right, Decimal):
         return left, right
     if _is_nan(left) or _is_nan(right):

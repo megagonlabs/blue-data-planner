@@ -1713,8 +1713,10 @@ keep cities where two counts are equal.
 
 **Consequences:** A comparison written against a column, or with a literal on the left, needs no
 separate operator. The ordering operators, `contains`, and `re.search` no longer refuse a table for
-one stray cell; the stray row does not match. Computing a value before comparing it stays outside
-the predicate, as a computed column in a projection.
+one stray cell; the stray row does not match. `ne` and any negated comparison no longer keep a row
+whose value is missing or is a stray cell of another type (for example `not (state eq 'CA')` no
+longer keeps rows with no state), since such a comparison is unknown. Computing a value before
+comparing it stays outside the predicate, as a computed column in a projection.
 
 ---
 

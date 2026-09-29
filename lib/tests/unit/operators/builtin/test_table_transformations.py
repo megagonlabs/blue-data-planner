@@ -417,14 +417,26 @@ def test_a_comparison_whose_sides_share_no_category_refuses_the_table(
         filter_rows(table, a_predicate(predicate))
 
 
-def test_ordering_two_values_that_have_no_order_refuses_the_table() -> None:
+_UNORDERABLE = {"left": a_column("code"), "operator": "lt", "right": a_column("code")}
+
+
+@pytest.mark.parametrize(
+    "predicate",
+    [
+        _UNORDERABLE,
+        {"and": [{"left": a_literal(1), "operator": "eq", "right": a_literal(2)}, _UNORDERABLE]},
+        {"or": [{"left": a_literal(1), "operator": "eq", "right": a_literal(1)}, _UNORDERABLE]},
+    ],
+    ids=["bare", "after_a_false_and_condition", "after_a_true_or_condition"],
+)
+def test_ordering_two_values_that_have_no_order_refuses_the_table_wherever_it_is_written(
+    predicate: dict[str, Any],
+) -> None:
     """Two dicts are one category but cannot be ordered, so an ordering comparison over them
-    is refused for the parameter repair to rewrite, not answered with no match."""
+    is refused for the parameter repair to rewrite, even when an earlier condition already
+    decides the and/or."""
     with pytest.raises(RecoverableOperatorError, match="cannot be ordered"):
-        filter_rows(
-            [{"code": {"a": 1}}],
-            a_predicate({"left": a_column("code"), "operator": "lt", "right": a_column("code")}),
-        )
+        filter_rows([{"code": {"a": 1}}], a_predicate(predicate))
 
 
 def test_an_equality_comparison_between_two_numbers_answers_no_rows_rather_than_refusing() -> None:
@@ -539,13 +551,26 @@ def a_comparison_of_v(operator: str, **operand: Any) -> dict[str, Any]:
             ["xyz"],
             id="re_search_over_a_missing",
         ),
+        pytest.param(
+            [float("nan"), 5.0, 9.0],
+            a_comparison_of_v("lt", right=a_literal(6)),
+            [9.0],  # what gte 6 keeps
+            id="lt_over_a_float_nan_keeps_what_gte_keeps",
+        ),
+        pytest.param(
+            [Decimal("NaN"), Decimal("5"), Decimal("9")],
+            a_comparison_of_v("lt", right=a_literal(6)),
+            [Decimal("9")],  # what gte 6 keeps
+            id="lt_over_a_decimal_nan_keeps_what_gte_keeps",
+        ),
     ],
 )
 def test_a_negated_comparison_keeps_only_the_rows_where_it_is_false_never_where_unknown(
     column: list[Any], comparison: dict[str, Any], expected: list[Any]
 ) -> None:
-    """A stray or missing cell makes a comparison unknown, and not of unknown is unknown, so
-    only the rows where the comparison is false are kept."""
+    """A stray or missing cell, or a NaN under an ordering operator, makes a comparison unknown,
+    and not of unknown is unknown, so only the rows where the comparison is false are kept: not
+    lt keeps what gte keeps."""
     kept = filter_rows([{"v": value} for value in column], a_predicate({"not": comparison}))
 
     assert [row["v"] for row in kept] == expected
