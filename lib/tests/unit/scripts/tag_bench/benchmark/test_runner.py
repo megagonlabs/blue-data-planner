@@ -151,6 +151,39 @@ def test_a_rejected_fragment_reaches_the_record_with_the_result_its_review_turne
     assert (filed["operator_id"], filed["row_count"]) == ("builtin.scan", 2)
 
 
+def test_a_fragments_record_carries_every_parameter_attempt_in_the_order_written() -> None:
+    """A parameter repair is counted off the record, so no attempt before the last is dropped."""
+    run = a_finished_run([[{"count": 2}]])
+    run.results["f1:SCAN"] = FragmentResult(
+        status=RunStatus.OK,
+        attempts=[
+            ParameterAttempt(
+                parameters={"predicate": "first"},
+                result=ExecutionResult(
+                    status=ExecutionStatus.OK, operator_id="builtin.filter", row_count=0
+                ),
+                assessment="the input spells the value another way",
+            ),
+            ParameterAttempt(
+                parameters={"predicate": "second"},
+                result=ExecutionResult(
+                    status=ExecutionStatus.OK, operator_id="builtin.filter", row_count=4
+                ),
+                assessment=None,
+            ),
+        ],
+        failure_reason=None,
+    )
+
+    filed = run_query(PlannerAnsweringOnce(run), A_QUERY).record["fragment_results"]["f1:SCAN"]  # pyright: ignore[reportArgumentType]
+
+    assert [attempt["parameters"] for attempt in filed["attempts"]] == [
+        {"predicate": "first"},
+        {"predicate": "second"},
+    ]
+    assert filed["attempts"][0]["assessment"] == "the input spells the value another way"
+
+
 def test_a_query_whose_run_raised_becomes_a_record_carrying_the_traceback() -> None:
     """One defect scores its own query wrong and leaves the rest of a run scorable."""
     planner = PlannerAnsweringOnce(error=RuntimeError("the registry vanished"))

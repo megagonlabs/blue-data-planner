@@ -93,19 +93,13 @@ def _failed_record(query: QueryRecord, formatted: str, elapsed: float) -> dict[s
 
 def _outcome_payload(outcome: FragmentResult | DiscoveryResult) -> dict[str, Any]:
     if isinstance(outcome, DiscoveryResult):
-        return {
-            "search_terms": outcome.search_terms,
-            "matches": [dataclasses.asdict(match) for match in outcome.matches],
-            "dropped_terms": outcome.dropped_terms,
-        }
-    # A rejected fragment is filed with the result that was rejected (ADR-033), so the ending
-    # and the last call it made are two separate readings of one entry.
+        return outcome.to_dict()
+    # A fragment is filed with every parameter attempt it made (ADR-047), which is what a parameter
+    # repair is counted off. The last call's error kind and report are added because the library's
+    # JSON form leaves them out, and triage reads both.
     call = outcome.result
     return {
-        "status": str(outcome.status),
-        "failure_reason": outcome.failure_reason,
-        "operator_id": None if call is None else call.operator_id,
-        "row_count": None if call is None else call.row_count,
+        **outcome.to_dict(),
         "error": None
         if call is None or call.error is None
         else {"kind": str(call.error.kind), "message": call.error.message},

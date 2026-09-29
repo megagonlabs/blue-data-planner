@@ -25,7 +25,10 @@ class ScoredAnswer:
 
 def states_an_answer(gold: AnswerValue) -> bool:
     """Whether the gold answer states something exact match can score."""
-    return bool(gold.strip()) if isinstance(gold, str) else bool(gold)
+    # An int always states one, 0 included; only an empty string or an empty list says nothing.
+    if isinstance(gold, str):
+        return bool(gold.strip())
+    return isinstance(gold, int) or bool(gold)
 
 
 def score_answer(answer: DataBundle | None, gold: AnswerValue) -> ScoredAnswer:

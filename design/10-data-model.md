@@ -897,13 +897,13 @@ is an ordering with a limit.
 
 ## 4. Catalog readings
 
-Three readings of the same registry serve planning, and none of them is stored. `DataCatalog`
+Four readings of the same registry serve planning, and none of them is stored. `DataCatalog`
 selects and renders what `blue-data` has collected and enriched, and never profiles an attribute or
 samples a table of its own.
 
 The shapes below live in `types/` with the rest of the shared data classes, and `data/catalog.py`
 holds the code that fills them. `EntityMatch` is why: it reaches a caller inside
-`RunResult.results`, so `types/` has to name it, and splitting one reading from the other two on
+`RunResult.results`, so `types/` has to name it, and splitting one reading from the rest on
 that basis would draw a line no reader could see
 ([06-library.md](06-library.md#shared-types)).
 
@@ -912,6 +912,7 @@ that basis would draw a line no reader could see
 | `CatalogPreview` | The logical planner, once per request, until the first cover installs | Which sources exist and what each is for |
 | `EntityMatch` | The logical planner, as the run's catalog context; the physical planner, for each entity its plan scans | Which entities exist, what each holds, and how each attribute's values are spelled |
 | `AttributeView` | Every component listing an attribute, inside an `EntityMatch`; the fragment runner, read by entity path for each entity its fragment scans | What one attribute holds: its values, how often each occurs, and how much of it is missing |
+| An entity's row count | Every component listing an entity, inside an `EntityMatch`; the fragment runner, read by entity path for each entity its fragment scans | How many rows one entity holds |
 
 An `AttributeView` is the one reading of an attribute, and every prompt that lists an attribute
 shows one (ADR-049). A match carries a view of each attribute of its entity, so the planners read
@@ -1088,6 +1089,7 @@ The runner reads its fragment's scans from the catalog and its inputs from the t
 | Source of names | Carries | For |
 | --- | --- | --- |
 | An `AttributeView` per attribute of each entity in `scan_sources` | Name, type, description, frequent values, counts, range, inferred meaning | An attribute the fragment is about to scan |
+| The row count of each entity in `scan_sources` | How many rows the entity holds, or that the registry records none | The size a scan's result is judged against |
 | The input tables | Column names, their values' type, the row count, and a sample of rows | A table an earlier fragment produced |
 
 A fragment whose frontier is empty has no input tables, which is the ordinary shape for pushdown, so
@@ -1095,6 +1097,10 @@ the catalog is the only thing that can name its columns. A fragment reading an i
 catalog call for it: the rows in hand are better evidence than a record describing the attribute as
 it was scanned, and counts taken before a filter ran would describe a table that no longer exists.
 Input columns are therefore read from the table and annotated from nowhere.
+
+A view's counts are taken over its `counted_rows`, which can be a sample of the entity. The runner
+is shown the entity's row count beside its path, so the size of a scan's result is judged against
+the entity rather than against the sample.
 
 The views cover every attribute of the entities the fragment scans, rather than a chosen few. Which
 attributes it will name is the decision the runner has yet to take when it reads them. They cover

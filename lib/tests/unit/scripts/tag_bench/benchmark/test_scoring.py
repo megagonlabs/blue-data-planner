@@ -93,3 +93,8 @@ def test_a_query_with_no_gold_answer_scores_wrong_and_says_so() -> None:
 
     assert not scored.correct
     assert scored.note is not None
+
+
+def test_a_gold_answer_of_zero_is_an_answer_and_scores_a_matching_count_correct() -> None:
+    """A count of zero states an answer, unlike an empty string, so it is scored."""
+    assert score_answer(one_table([{"count": 0}]), 0).correct

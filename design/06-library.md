@@ -36,7 +36,7 @@ rather than a copy of the code.
 | `blue_data_planner/plan/` | `validate_logical_plan`, `validate_physical_plan`, `candidate_fragments`, `signatures`, and the response schemas the planning stages send |
 | `blue_data_planner/execution/` | `execute_physical_operator`, `check_output_columns`, `project_answer` |
 | `blue_data_planner/operators/` | `OperatorRouter`, `operator_suite` over the suite names a deployment configures, one adapter per outside suite (`blue_operators` over `blue-data-ops`, `lotus_operators` over LOTUS), and `builtin/`, the suite this repository owns |
-| `blue_data_planner/data/` | The `blue-data` boundary, the three catalog readings, and opening a serialized registry |
+| `blue_data_planner/data/` | The `blue-data` boundary, the four catalog readings, and opening a serialized registry |
 | `blue_data_planner/llm/` | `LLMClient`, usage accounting, prompt templating, error types |
 
 ---
@@ -1416,9 +1416,10 @@ class DataCatalog:
     def preview(self, request: str, limit: int) -> CatalogPreview: ...
     def search_records(self, term: str) -> list[EntityMatch]: ...
     def attribute_views(self, entity_path: str) -> list[AttributeView]: ...
+    def entity_row_count(self, entity_path: str) -> int | None: ...
 ```
 
-Three readings of the same registry, all fixed in
+Four readings of the same registry, all fixed in
 [10, catalog readings](10-data-model.md#4-catalog-readings).
 
 | Method | Read by | Answers |
@@ -1426,6 +1427,7 @@ Three readings of the same registry, all fixed in
 | `preview` | `LogicalPlanner`, once per request, until the first cover installs | Which sources exist. Source-level records only, ranked against the request and capped, with the total count so the planner can tell a complete list from a sample |
 | `search_records` | `CatalogSearcher`, for a `DISCOVER` node | Which entities the request needs, and a view of every attribute each holds. One call per search term |
 | `attribute_views` | `FragmentRunner`, for each entity its fragment scans | The same views a match carries, read by entity path |
+| `entity_row_count` | `FragmentRunner`, for each entity its fragment scans | The row count a match carries, read by entity path, or `None` where the registry records none |
 
 `CatalogSearcher` is the only caller of `search_records`. A `SCAN` names an entity the run's catalog
 context already holds, and a path reaches that context only by having been searched for, so no

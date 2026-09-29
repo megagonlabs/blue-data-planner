@@ -244,6 +244,28 @@ def test_a_matched_entitys_row_count_reflects_what_the_registry_recorded(
     assert catalog.search_records("stores in a city")[0].row_count == expected
 
 
+@pytest.mark.parametrize(
+    ("stats", "entity_path", "expected"),
+    [
+        pytest.param({"row_count": 5716}, STORES, 5716, id="row_count_recorded"),
+        pytest.param({}, STORES, None, id="stats_recorded_without_row_count"),
+        pytest.param(
+            {"row_count": 5716},
+            "/source/retail/database/shop/collection/public/entity/warehouses",
+            None,
+            id="entity_not_registered",
+        ),
+    ],
+)
+def test_an_entitys_row_count_read_by_path_reflects_what_the_registry_recorded(
+    stats: dict[str, Any], entity_path: str, expected: int | None
+) -> None:
+    """The fragment runner reads the same stored count by path, or None where none is stored."""
+    catalog = DataCatalog(a_registry_with_a_store_table_recording(stats))
+
+    assert catalog.entity_row_count(entity_path) == expected
+
+
 def a_registry_with_two_store_tables_and_a_supplier_table() -> DataRegistry:
     warehouses = AttributeRef(
         source="retail",

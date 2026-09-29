@@ -1,4 +1,4 @@
-"""The three readings each planning component takes off the data catalog."""
+"""The four readings the planning components take off the data catalog."""
 
 from __future__ import annotations
 
@@ -180,6 +180,15 @@ class DataCatalog:
         """Return one view per attribute the given entity holds."""
         entity = _parse_entity_path(entity_path)
         return [self._view(entity, record) for record in self._attribute_records(entity_path)]
+
+    def entity_row_count(self, entity_path: str) -> int | None:
+        """Return the row count the given entity's record stores, or None if it stores none."""
+        entity = _parse_entity_path(entity_path)
+        scope = f"/source/{entity.source}/database/{entity.database}/collection/{entity.collection}"
+        record = self._registry.get_record(entity.entity, "entity", scope)
+        if record is None:
+            return None
+        return _row_count(_properties(cast("dict[str, Any]", record)), entity_path)
 
     def _view(self, entity: AttributeRef, record: dict[str, Any]) -> AttributeView:
         name = str(record["name"])

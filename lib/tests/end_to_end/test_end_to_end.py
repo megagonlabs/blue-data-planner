@@ -21,7 +21,7 @@ def test_a_request_over_a_registered_source_plans_twice_and_answers(
 ) -> None:
     """The first pass only asks the catalog; the second is written against what it found."""
     # with_nl2table stays off: the atomic entries answer this request, and the compound one
-    # runs a generated program, which open questions 49 and 50 have not settled.
+    # runs a generated program and is experimental (ADR-020).
     planner = build_data_planner(sqlite_registry, suites=[BuiltinSuite()], model=MODEL)
 
     result = planner.run("which cities have stores")

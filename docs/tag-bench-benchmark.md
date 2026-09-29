@@ -20,7 +20,7 @@ beside them.
 | --- | --- |
 | The library environment | `cd lib && uv sync --extra dev`, per [lib/README.md](../lib/README.md#development-setup) |
 | The `lotus` extra | Needed to run the benchmark itself, since LOTUS supplies the operators it is solved with. See [lib/README.md](../lib/README.md#the-lotus-environment) |
-| A model provider key | Needed for `--describe` below and for running the benchmark. Set in `.env`, read through `python-dotenv` |
+| A model provider key | Needed for `--describe` below and for running the benchmark. `OPENAI_API_KEY` in the environment, as for the CLI and the MCP server |
 | About 1 GB of disk | `fetch_databases.py` downloads the BIRD dev set |
 
 ## Building the input data

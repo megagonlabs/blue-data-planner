@@ -33,12 +33,12 @@ def build_benchmark_planner(settings: BenchmarkSettings) -> DataPlanner:
     if not lotus_is_installed():
         raise ValueError(
             "LOTUS is not installed, and the benchmark is solved with its operators; sync the "
-            "lotus extra as docs/development.md describes"
+            "lotus extra as lib/README.md#the-lotus-environment describes"
         )
     return build_data_planner(
         open_registry(settings.registry_path),
-        # builtin.nl2table runs a generated program, and open questions 49 and 50 have not
-        # settled its boundary, so the benchmark leaves it unregistered.
+        # builtin.nl2table runs a generated program and is experimental, registered only where a
+        # deployment chooses to (ADR-020), so the benchmark leaves it unregistered.
         suites=[
             BuiltinSuite(),
             LotusSuite(max_rows=settings.lotus_max_rows, reasoning_effort=LOTUS_REASONING_EFFORT),

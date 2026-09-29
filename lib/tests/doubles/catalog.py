@@ -8,13 +8,21 @@ from blue_data_planner.types import AttributeRef, AttributeView, ValueCount
 
 
 class FakeCatalog:
-    """Answers attribute_views from a fixed map, and nothing for an unlisted path."""
+    """Answers each reading from a fixed map, and nothing for an unlisted path."""
 
-    def __init__(self, views: dict[str, list[AttributeView]] | None = None) -> None:
+    def __init__(
+        self,
+        views: dict[str, list[AttributeView]] | None = None,
+        row_counts: dict[str, int] | None = None,
+    ) -> None:
         self.views = views or {}
+        self.row_counts = row_counts or {}
 
     def attribute_views(self, entity_path: str) -> list[AttributeView]:
         return self.views.get(entity_path, [])
+
+    def entity_row_count(self, entity_path: str) -> int | None:
+        return self.row_counts.get(entity_path)
 
 
 def an_attribute_view(

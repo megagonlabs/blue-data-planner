@@ -23,7 +23,8 @@ A parameter naming a source takes the catalog path exactly as it is spelled here
 
 Every attribute of each, with its most frequent values spelled the way the data spells them.
 The values and counts are a sample: `and N more` counts the values not listed, and each count is
-taken over the rows it states.
+taken over the rows it states, which can be fewer than the entity holds. How many rows an entity
+holds is the row count beside its path above.
 
 {{ attribute_views }}
 {% endif %}

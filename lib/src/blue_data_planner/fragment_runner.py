@@ -197,10 +197,22 @@ class FragmentRunner:
             instruction=fragment.instruction,
             operator_description=operator.description,
             operator_limitations=operator.limitations or "",
-            scan_sources=_render_scan_sources(fragment),
+            scan_sources=self._render_scan_sources(fragment),
             attribute_views="\n".join(render_attribute_views(views, "", ATTRIBUTE_VALUES)),
             input_tables=_render_inputs(fragment, inputs),
         )
+
+    def _render_scan_sources(self, fragment: PhysicalPlanFragment) -> str:
+        # An operator that reads a registered source takes its catalog path as a parameter, so
+        # the path has to be in front of the model that writes that parameter. The row count
+        # goes beside it because the attribute counts may be taken over a sample, and a model
+        # shown only those reads the sample's size as the entity's.
+        lines: list[str] = []
+        for node_id, path in sorted(fragment.scan_sources.items()):
+            row_count = self._catalog.entity_row_count(path)
+            size = "row count not recorded" if row_count is None else f"{row_count} row(s)"
+            lines.append(f"- step {node_id} reads {path} ({size})")
+        return "\n".join(lines)
 
 
 def _steps(fragment: PhysicalPlanFragment) -> str:
@@ -225,14 +237,6 @@ def _exhausted_reason(fragment: PhysicalPlanFragment, attempts: list[ParameterAt
     )
 
 
-def _render_scan_sources(fragment: PhysicalPlanFragment) -> str:
-    # An operator that reads a registered source takes its catalog path as a parameter, so
-    # the path has to be in front of the model that writes that parameter.
-    return "\n".join(
-        f"- step {node_id} reads {path}" for node_id, path in sorted(fragment.scan_sources.items())
-    )
-
-
 def _render_inputs(fragment: PhysicalPlanFragment, inputs: DataBundle) -> str:
     lines: list[str] = []
     for index, table in enumerate(inputs):
@@ -241,7 +245,7 @@ def _render_inputs(fragment: PhysicalPlanFragment, inputs: DataBundle) -> str:
         described = entry.description if entry is not None else "no description recorded"
         summary = summarize_table(table, SAMPLE_ROWS)
         lines.append(
-            f"- {name}: {described}. {summary.row_count} row(s), columns {summary.columns}"
+            f"- {name} ({summary.row_count} row(s), columns {summary.columns}): {described}"
         )
         lines.extend(render_sample_rows(summary, "    "))
     return "\n".join(lines)

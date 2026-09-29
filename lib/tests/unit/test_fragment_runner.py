@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
+import pytest
 from pydantic import BaseModel
 
 from blue_data_planner.fragment_runner import FragmentRunner
@@ -65,7 +66,9 @@ def a_runner(answers: list[Any], behavior: Any) -> FragmentRunner:
     return a_runner_over(ScriptedLLMClient(answers), behavior)
 
 
-def a_runner_over(client: ScriptedLLMClient, behavior: Any) -> FragmentRunner:
+def a_runner_over(
+    client: ScriptedLLMClient, behavior: Any, catalog: FakeCatalog | None = None
+) -> FragmentRunner:
     """A runner over one operator, driven by a client the test keeps a handle on."""
     router = OperatorRouter()
     router.register(an_operator(behavior))
@@ -73,7 +76,7 @@ def a_runner_over(client: ScriptedLLMClient, behavior: Any) -> FragmentRunner:
     # structurally; pyright's strict nominal check does not see them as related.
     return FragmentRunner(
         client,  # pyright: ignore[reportArgumentType]
-        FakeCatalog(),  # pyright: ignore[reportArgumentType]
+        catalog or FakeCatalog(),  # pyright: ignore[reportArgumentType]
         router,
     )
 
@@ -363,6 +366,26 @@ def test_the_prompt_names_the_entity_path_each_scan_is_bound_to() -> None:
         a_fragment(scan_sources={"n1": POSTINGS}), conversation, ROWS, counters()
     )
     assert POSTINGS in conversation.turns[1].content
+
+
+@pytest.mark.parametrize(
+    ("row_counts", "shown"),
+    [
+        pytest.param({POSTINGS: 5716}, f"{POSTINGS} (5716 row(s))", id="recorded"),
+        pytest.param({}, f"{POSTINGS} (row count not recorded)", id="not_recorded"),
+    ],
+)
+def test_the_prompt_states_each_scanned_entitys_row_count_beside_its_path(
+    row_counts: dict[str, int], shown: str
+) -> None:
+    """The attribute counts may cover a sample, so the entity's own size is stated separately."""
+    client = ScriptedLLMClient([{"predicate": "title is not null"}, a_review("accept")])
+    conversation = Conversation()
+    a_runner_over(client, keeps_everything, FakeCatalog(row_counts=row_counts)).run(
+        a_fragment(scan_sources={"n1": POSTINGS}), conversation, ROWS, counters()
+    )
+
+    assert shown in conversation.turns[1].content
 
 
 EIGHT_ROWS: DataBundle = [[{"title": f"posting {number}"} for number in range(8)]]

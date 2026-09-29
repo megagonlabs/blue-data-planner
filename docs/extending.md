@@ -125,7 +125,7 @@ planner = DataPlanner(
 Sources belong to [`blue-data`](https://github.com/megagon-internal/blue-data), not to this
 repository. A planner is handed a populated `DataRegistry` and reads it through
 `blue_data_planner.data`, the one module that imports `blue-data` at all: `DataCatalog` for the
-three catalog readings the planning stages need, and `connect_source`, `execute_query`, and
+four catalog readings the planning stages need, and `connect_source`, `execute_query`, and
 `execute_write` for the reads an operator makes.
 
 Adding a backend therefore means implementing `DataSource` in `blue-data` and registering it

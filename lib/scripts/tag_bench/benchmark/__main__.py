@@ -9,7 +9,7 @@ import os
 import subprocess
 import sys
 from collections.abc import Iterator
-from concurrent.futures import ProcessPoolExecutor
+from concurrent.futures import ProcessPoolExecutor, as_completed
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -104,7 +104,7 @@ def check_provider_key(model: str) -> None:
     variable = PROVIDER_KEYS.get(model.partition("/")[0])
     if variable is not None and not os.environ.get(variable):
         raise ValueError(
-            f"{variable} is not set, and model {model!r} needs it; put it in .env or export it"
+            f"{variable} is not set, and model {model!r} needs it; export it in the environment"
         )
 
 
@@ -161,7 +161,10 @@ def _outcomes(
     with ProcessPoolExecutor(
         max_workers=workers, initializer=_initialize_worker, initargs=(settings,)
     ) as pool:
-        yield from pool.map(_run_in_worker, queries)
+        # In completion order, so one slow query holds back no record that already finished.
+        futures = [pool.submit(_run_in_worker, query) for query in queries]
+        for future in as_completed(futures):
+            yield future.result()
 
 
 def _initialize_worker(settings: BenchmarkSettings) -> None:
