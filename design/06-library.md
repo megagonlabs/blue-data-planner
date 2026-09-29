@@ -607,6 +607,7 @@ class LogicalPlanner:
         carried_node_ids: frozenset[str] = frozenset(),
         results: dict[str, FragmentResult | DiscoveryResult] | None = None,
         replan_reason: str | None = None,
+        new_discovery_node_ids: frozenset[str] = frozenset(),
     ) -> LogicalPlanResult: ...
 ```
 
@@ -636,8 +637,11 @@ work around an implementation it does not choose.
 
 One conversation serves a whole request, and the run state hands the same one back on every pass. A
 continuation is a turn on top of the plans already written rather than a fresh exchange that
-describes them, so the planner answers what it wrote before and the unchanged turns stay cached. An
-entity an earlier turn showed is named by path rather than shown again
+describes them, so the planner answers what it wrote before and the unchanged turns stay cached.
+`new_discovery_node_ids` names the `DISCOVER` nodes resolved since the previous turn, and only their
+results are shown: a result shown in an earlier turn is still in the conversation, and `results`
+still holds it for validation. `DataPlanner` works the set out from the results it held when it last
+called
 ([04, one conversation per component](04-detailed-architecture.md#one-conversation-per-component)).
 
 Two things happen inside `generate` rather than above it. The response schema is assembled from the

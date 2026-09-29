@@ -1582,8 +1582,10 @@ five for the physical planner and the fragment runner. Every value is cut at a f
 list of values says how many distinct values it leaves out, and every count is shown against the
 rows it was taken over, so nothing shown reads as the whole column.
 
-A conversation shows an entity's views once. A later turn of the same conversation that would show
-the entity again names it by path.
+The logical planner is shown each search's result once, in the turn right after its `DISCOVER`
+node resolved. That turn shows every entity the search found in full, whether or not an earlier
+search found the same entity, and a search that found nothing is shown as having found nothing.
+Later turns do not repeat it.
 
 A value a prompt shows is the spelling a condition is written in. Where the words of the request or
 of an instruction spell a value differently from the data, the component writing the value writes
@@ -1614,8 +1616,11 @@ empty string is sometimes a missing value a source application wrote and sometim
 A registry may take its statistics over part of a table, so an entity's row count is not the
 denominator of an attribute's counts; the rows the statistics were read over are.
 
-Nothing already written in a conversation is rewritten, and a view shown once is still in front of
-the model. Showing it again costs its full size once per pass and adds nothing.
+Nothing already written in a conversation is rewritten, and a result shown once is still in front
+of the model, so showing it again costs its full size once per pass and adds nothing. The unit shown
+once is the search rather than the entity: a search that ran has to be seen to have run and to
+have returned what it returned, even when its entities overlap an earlier search's, and a rule by
+search needs no record of which entities an earlier turn showed.
 
 The component that writes a value into a condition is the one that sees the data, and the words it
 is handed were written by a component that saw less of it, or by a person who did not see it at all.

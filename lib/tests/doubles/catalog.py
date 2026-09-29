@@ -1,8 +1,10 @@
-"""A catalog double whose attribute views are fixed per entity path."""
+"""A catalog double whose attribute views are fixed per entity path, and a view to fill it with."""
 
 from __future__ import annotations
 
-from blue_data_planner.types import AttributeView
+from typing import Any
+
+from blue_data_planner.types import AttributeRef, AttributeView, ValueCount
 
 
 class FakeCatalog:
@@ -13,3 +15,40 @@ class FakeCatalog:
 
     def attribute_views(self, entity_path: str) -> list[AttributeView]:
         return self.views.get(entity_path, [])
+
+
+def an_attribute_view(
+    attribute: str,
+    entity: str = "postings",
+    dtype: str | None = "str",
+    description: str | None = None,
+    frequent_values: list[tuple[Any, int]] | None = None,
+    sample_values: list[Any] | None = None,
+    distinct_count: int | None = None,
+    null_count: int | None = None,
+    empty_count: int | None = None,
+    counted_rows: int | None = None,
+) -> AttributeView:
+    """One attribute of an entity in a jobs database, recording only what is given."""
+    return AttributeView(
+        ref=AttributeRef(
+            source="jobs",
+            database="jobs",
+            collection="public",
+            entity=entity,
+            attribute=attribute,
+        ),
+        dtype=dtype,
+        description=description,
+        frequent_values=[
+            ValueCount(value=value, rows=rows) for value, rows in frequent_values or []
+        ],
+        sample_values=sample_values or [],
+        distinct_count=distinct_count,
+        null_count=null_count,
+        empty_count=empty_count,
+        counted_rows=counted_rows,
+        min=None,
+        max=None,
+        semantic_type=None,
+    )

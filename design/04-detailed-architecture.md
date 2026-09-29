@@ -161,9 +161,12 @@ identical across runs and caches as a prefix. Nothing already written is rewritt
 added, never merged into an earlier one, because a rewritten turn invalidates the cache from that
 point on and contradicts what the model has already answered.
 
-A conversation also shows an entity's attribute views once. The views are the largest thing a
-planning turn carries, and one shown in an earlier turn is still in front of the model, so a later
-turn that would show the same entity again names it by path (ADR-049). How many of an attribute's
+The logical planner is shown each search's result once, in the turn right after its `DISCOVER`
+node resolved, with every entity the search found in full, whether or not an earlier search found
+the same entity. The views are the largest thing a planning turn carries, and a result shown in an
+earlier turn is still in front of the model, so later turns do not repeat it; a search that found
+nothing is shown the same way, so a search that ran is never mistaken for one that did not
+(ADR-049). How many of an attribute's
 values a turn shows is set per component: three for the logical planner, which reads every entity
 the searches found, and five for the physical planner and the fragment runner, which read only the
 entities their own work scans. Every list of values says how many distinct values it leaves out,
@@ -653,8 +656,8 @@ any other. Whether the operator vocabulary gains one is an open question
 ### Writing a continuation
 
 Returning to the planner does not discard the run. `DataPlanner` calls the logical planner again
-with the request, the catalog preview, the nodes that already succeeded, everything discovery
-found, and the replan reason: why the pass ended.
+with the request, the catalog preview, the nodes that already succeeded, what the searches
+resolved since the last pass found, and the replan reason: why the pass ended.
 
 A node that already ran is shown with its column names, its row count, and a sample of its rows.
 Since a `REPLAN` hands the planner nothing of its own, that sample is where the values a

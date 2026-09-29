@@ -36,7 +36,6 @@ from blue_data_planner.types import (
     RunLimits,
     RunStatus,
 )
-from tests.doubles.catalog import FakeCatalog
 from tests.doubles.components import (
     FakeCatalogSearcher,
     FakeFragmentRunner,
@@ -341,6 +340,40 @@ def test_every_control_node_ready_at_once_is_resolved_before_the_run_plans_again
     assert result.status is RunStatus.OK
 
 
+def a_continuation_carrying_both_discoveries(plan_id: str) -> LogicalPlan:
+    """A scan and its ending, written after two_discovery_nodes, with both searches carried."""
+    continuation = a_scan_and_ending(plan_id)
+    carried = two_discovery_nodes(plan_id).nodes
+    return LogicalPlan(
+        id=plan_id,
+        parent_id="p1",
+        output_node_id=continuation.output_node_id,
+        nodes=[*carried, *continuation.nodes],
+    )
+
+
+def test_a_search_result_reaches_the_logical_planner_as_new_only_in_the_pass_after_it_ran() -> None:
+    """The pass after the searches gets both as new; the replan after that gets neither."""
+    logical = FakeLogicalPlanner(
+        [
+            ok(two_discovery_nodes("p1")),
+            ok(a_continuation_carrying_both_discoveries("p2")),
+            ok(a_continuation_carrying_both_discoveries("p3")),
+        ]
+    )
+    uncoverable = PhysicalPlanResult(plan=None, failure_reason="no operator can run n1")
+    a_planner(
+        logical,
+        FakePhysicalPlanner(
+            [covered(an_empty_cover("c1", "p1")), uncoverable, covered(a_grouped_cover("c2", "p3"))]
+        ),
+        FakeFragmentRunner([an_accepted_fragment()]),
+        FakeCatalogSearcher(),
+    ).run("Python jobs at Fortune 500")
+
+    assert logical.new_discovery_node_ids == [frozenset(), frozenset({"d1", "d2"}), frozenset()]
+
+
 def a_planner_whose_every_repair_is_refused() -> tuple[
     DataPlanner, FakePhysicalPlanner, FakeLogicalPlanner
 ]:
@@ -479,7 +512,7 @@ def test_a_cover_repair_carries_an_unchanged_fragment_forward_without_rerunning_
             {"choice": {"candidate": "n1:reuse:[n1]"}},
         ]
     )
-    physical = PhysicalPlanner(client, router, FakeCatalog())  # pyright: ignore[reportArgumentType]
+    physical = PhysicalPlanner(client, router)  # pyright: ignore[reportArgumentType]
     runner = FakeFragmentRunner(
         [
             an_accepted_fragment(),  # n1

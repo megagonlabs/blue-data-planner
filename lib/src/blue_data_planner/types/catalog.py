@@ -39,22 +39,8 @@ class CatalogPreview:
 
 
 @dataclass(frozen=True)
-class AttributeRecord:
-    """One attribute of a matched entity, named and typed but not profiled."""
-
-    name: str
-    # None where the registry recorded no type, which a source with dynamic typing produces.
-    dtype: str | None
-    description: str | None
-
-    def to_dict(self) -> dict[str, Any]:
-        """Return the JSON form."""
-        return {"name": self.name, "dtype": self.dtype, "description": self.description}
-
-
-@dataclass(frozen=True)
 class EntityMatch:
-    """One entity a search term found, with every attribute it holds."""
+    """One entity a search term found, with a view of every attribute it holds."""
 
     path: str
     name: str
@@ -62,7 +48,7 @@ class EntityMatch:
     # The connection protocol of the source above the entity, which is what decides
     # which operators may run a fragment scanning it.
     source_kind: str
-    attributes: list[AttributeRecord]
+    attributes: list[AttributeView]
     score: float
     search_term: str
     # The registry's recorded row count for the entity. None means the registry records no
@@ -84,17 +70,60 @@ class EntityMatch:
 
 
 @dataclass(frozen=True)
+class ValueCount:
+    """One stored value, and how many of the counted rows hold it."""
+
+    value: Any
+    rows: int
+
+    def to_dict(self) -> dict[str, Any]:
+        """Return the JSON form."""
+        return {"value": self.value, "rows": self.rows}
+
+
+@dataclass(frozen=True)
 class AttributeView:
-    """What only the catalog knows about one attribute, over all of its values."""
+    """One attribute's values, how often each occurs, and how much of it is missing."""
 
     ref: AttributeRef
     dtype: str | None
     description: str | None
+    # Most frequent first. Empty where the catalog records none, and sample_values stands in.
+    frequent_values: list[ValueCount]
     sample_values: list[Any]
     distinct_count: int | None
     null_count: int | None
+    # Rows holding the empty string, read off the frequent values. None where they do not list
+    # it, which says the count is unknown rather than zero.
+    empty_count: int | None
+    # The rows every count above was taken over. A registry may take its statistics over part
+    # of a table, so the entity's row count is not their denominator.
+    counted_rows: int | None
     min: Any
     max: Any
     # The inferred meaning, such as ENUM_CATEGORY, CODE, or POSTAL_CODE. It is what tells
     # the runner an attribute holds short codes instead of readable words.
     semantic_type: str | None
+
+    def to_dict(self) -> dict[str, Any]:
+        """Return the JSON form."""
+        return {
+            "ref": {
+                "source": self.ref.source,
+                "database": self.ref.database,
+                "collection": self.ref.collection,
+                "entity": self.ref.entity,
+                "attribute": self.ref.attribute,
+            },
+            "dtype": self.dtype,
+            "description": self.description,
+            "frequent_values": [one.to_dict() for one in self.frequent_values],
+            "sample_values": list(self.sample_values),
+            "distinct_count": self.distinct_count,
+            "null_count": self.null_count,
+            "empty_count": self.empty_count,
+            "counted_rows": self.counted_rows,
+            "min": self.min,
+            "max": self.max,
+            "semantic_type": self.semantic_type,
+        }

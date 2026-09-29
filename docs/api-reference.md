@@ -314,7 +314,7 @@ One entity a `DISCOVER` node's search found, in `DiscoveryResult.matches`.
 | `name` | `str` | The entity's name |
 | `description` | `str \| None` | Its description in the registry |
 | `source_kind` | `str` | The connection protocol of the source above it, such as `sql/sqlite` |
-| `attributes` | `list[AttributeRecord]` | Every attribute it holds |
+| `attributes` | `list[AttributeView]` | A view of every attribute it holds: its type, description, most frequent values, and how many of the counted rows are null or empty |
 | `score` | `float` | How well it matched |
 | `search_term` | `str` | The term that found it |
 | `row_count` | `int \| None` | The row count the registry records. `None` when it records none |
@@ -367,7 +367,7 @@ Every data class that crosses a module boundary. The package imports nothing els
 | Plan | `LogicalPlan`, `PhysicalPlan`, `PhysicalPlanFragment`, `PipelineNode`, `DataPipeline`, `InputData`, `OutputColumn`, `ColumnDataType` |
 | Vocabulary | `LogicalOperator`, `ControlOperator`, `INPUT_ARITY` |
 | Operators | `PhysicalOperator`, `OperatorOutput` |
-| Catalog | `AttributeRef`, `AttributeRecord`, `AttributeView`, `EntityMatch`, `SourceRecord`, `CatalogPreview` |
+| Catalog | `AttributeRef`, `AttributeView`, `ValueCount`, `EntityMatch`, `SourceRecord`, `CatalogPreview` |
 | Run | `RunResult`, `RunStatus`, `RunLimits`, `RunCounters`, `RunConversations`, `Conversation`, `Turn`, `LLMUsage` |
 | Per-step results | `ExecutionResult`, `ExecutionStatus`, `ErrorInfo`, `ErrorKind`, `FragmentResult`, `ParameterAttempt`, `FragmentReviewDecision`, `FailedFragment`, `DiscoveryResult`, `LogicalPlanResult`, `PhysicalPlanResult` |
 | Exceptions | Every exception in the table above |

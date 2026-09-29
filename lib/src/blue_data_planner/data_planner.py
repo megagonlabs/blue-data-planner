@@ -20,6 +20,7 @@ from blue_data_planner.types import (
     BlueDataPlannerError,
     ControlOperator,
     DataBundle,
+    DiscoveryResult,
     FailedFragment,
     LLMError,
     LogicalOperator,
@@ -105,6 +106,7 @@ class DataPlanner:
     ) -> tuple[RunStatus, str | None, DataBundle | None]:
         """The replan loop: write a plan, run it, and write another while a replan is allowed."""
         replan_reason: str | None = None
+        shown_discovery_node_ids: frozenset[str] = frozenset()
         while True:
             has_cover = state.pipeline.current_physical_plan_id is not None
             # Read before the new version is installed: the signatures the results sit under
@@ -112,7 +114,18 @@ class DataPlanner:
             held = self._results_by_node_id(state)
             carried = state.carried_node_ids() if has_cover else frozenset[str]()
             parent = state.pipeline.logical_plan if has_cover else None
-            written = self._write_plan(state, held, carried, parent, replan_reason)
+            discovery_node_ids = frozenset(
+                node_id for node_id, result in held.items() if isinstance(result, DiscoveryResult)
+            )
+            written = self._write_plan(
+                state,
+                held,
+                carried,
+                parent,
+                replan_reason,
+                discovery_node_ids - shown_discovery_node_ids,
+            )
+            shown_discovery_node_ids = discovery_node_ids
             if written.plan is None:
                 return written.status, written.failure_reason, None
             ending = self._run_covers(state, written.plan, held, execute)
@@ -217,6 +230,7 @@ class DataPlanner:
         carried_node_ids: frozenset[str],
         parent: LogicalPlan | None,
         replan_reason: str | None,
+        new_discovery_node_ids: frozenset[str],
     ) -> LogicalPlanResult:
         return self._logical_planner.generate(
             state.request,
@@ -226,6 +240,7 @@ class DataPlanner:
             carried_node_ids=carried_node_ids,
             results=held,
             replan_reason=replan_reason,
+            new_discovery_node_ids=new_discovery_node_ids,
         )
 
     def _write_cover(
@@ -316,7 +331,7 @@ def build_data_planner(
     catalog = DataCatalog(data_registry)
     return DataPlanner(
         logical_planner=LogicalPlanner(llm_client, catalog),
-        physical_planner=PhysicalPlanner(llm_client, router, catalog),
+        physical_planner=PhysicalPlanner(llm_client, router),
         fragment_runner=FragmentRunner(llm_client, catalog, router),
         catalog_searcher=CatalogSearcher(llm_client, catalog),
         limits=limits or RunLimits(),

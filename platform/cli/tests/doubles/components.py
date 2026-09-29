@@ -8,7 +8,8 @@ from collections.abc import Mapping
 from blue_data_planner import RunResult, RunStatus
 from blue_data_planner.plan import signatures
 from blue_data_planner.types import (
-    AttributeRecord,
+    AttributeRef,
+    AttributeView,
     ControlOperator,
     DataBundle,
     DataPipeline,
@@ -86,7 +87,28 @@ def a_discovery_of_one_match() -> DiscoveryResult:
                 name="schools",
                 description="every school in the state",
                 source_kind="sql/sqlite",
-                attributes=[AttributeRecord(name="County", dtype="str", description=None)],
+                attributes=[
+                    AttributeView(
+                        ref=AttributeRef(
+                            source="bird",
+                            database="california_schools",
+                            collection="main",
+                            entity="schools",
+                            attribute="County",
+                        ),
+                        dtype="str",
+                        description=None,
+                        frequent_values=[],
+                        sample_values=[],
+                        distinct_count=None,
+                        null_count=None,
+                        empty_count=None,
+                        counted_rows=None,
+                        min=None,
+                        max=None,
+                        semantic_type=None,
+                    )
+                ],
                 score=0.91,
                 search_term="schools",
                 row_count=17686,

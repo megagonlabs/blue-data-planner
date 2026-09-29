@@ -11,7 +11,7 @@ from blue_data.registry.data_registry import (  # pyright: ignore[reportMissingT
 )
 
 from blue_data_planner.data.catalog import DataCatalog
-from blue_data_planner.types.catalog import AttributeRef
+from blue_data_planner.types.catalog import AttributeRef, ValueCount
 
 
 def a_registry_holding(*records: dict[str, Any]) -> DataRegistry:
@@ -192,12 +192,13 @@ def test_a_matched_entity_carries_every_attribute_it_holds() -> None:
 
     attributes = catalog.search_records("stores in a city")[0].attributes
 
-    assert {attribute.name: attribute.dtype for attribute in attributes} == {
+    assert {attribute.ref.attribute: attribute.dtype for attribute in attributes} == {
         "city": "TEXT",
         "store_id": "INTEGER",
     }
-    city = next(attribute for attribute in attributes if attribute.name == "city")
+    city = next(attribute for attribute in attributes if attribute.ref.attribute == "city")
     assert city.description == "city the store is in"
+    assert attributes == catalog.attribute_views(STORES)
 
 
 def test_a_matched_entity_carries_the_kind_of_source_it_sits_in() -> None:
@@ -313,8 +314,10 @@ def a_registry_holding_a_profiled_city_column() -> DataRegistry:
             description="city the store is in",
             stats={
                 "sample_values": ["Napa", "Sonoma"],
+                "most_common_vals": [["Napa", 3], ["Sonoma", 1]],
+                "count": 4,
                 "distinct_count": 2,
-                "null_count": 0,
+                "null_count": 1,
                 "min": "Napa",
                 "max": "Sonoma",
             },
@@ -332,8 +335,9 @@ def test_an_attribute_view_carries_the_catalogs_whole_attribute_statistics() -> 
     assert view.ref == CITY
     assert view.dtype == "TEXT"
     assert view.description == "city the store is in"
+    assert view.frequent_values == [ValueCount("Napa", 3), ValueCount("Sonoma", 1)]
     assert view.sample_values == ["Napa", "Sonoma"]
-    assert (view.distinct_count, view.null_count) == (2, 0)
+    assert (view.distinct_count, view.null_count, view.counted_rows) == (2, 1, 5)
     assert (view.min, view.max) == ("Napa", "Sonoma")
     assert view.semantic_type == "CITY"
 
@@ -347,12 +351,38 @@ def test_the_views_cover_every_attribute_of_the_entity_asked_for() -> None:
     assert {view.ref.attribute for view in views} == {"city", "store_id"}
 
 
-def test_a_view_carries_the_first_three_stored_sample_values() -> None:
-    """The sample-value cap is where a wide entity's cost is controlled."""
-    stats = {"sample_values": ["Napa", "Sonoma", "Ukiah", "Davis", "Chico"]}
+def test_a_view_holds_a_bounded_number_of_values_each_cut_to_a_bounded_length() -> None:
+    """Five frequent values and three samples, each at most 60 characters, marked where cut."""
+    long_text = "x" * 200
+    stats = {
+        "sample_values": [long_text, "Sonoma", "Ukiah", "Davis", "Chico"],
+        "most_common_vals": [[long_text, 9], *[[f"city {rank}", 8 - rank] for rank in range(6)]],
+    }
     catalog = DataCatalog(a_registry_holding(an_attribute(CITY, stats=stats)))
 
-    assert catalog.attribute_views(STORES)[0].sample_values == ["Napa", "Sonoma", "Ukiah"]
+    view = catalog.attribute_views(STORES)[0]
+
+    cut = "x" * 59 + "…"
+    assert [one.value for one in view.frequent_values] == [cut] + [f"city {r}" for r in range(4)]
+    assert view.sample_values == [cut, "Sonoma", "Ukiah"]
+
+
+@pytest.mark.parametrize(
+    ("most_common_vals", "empty_count"),
+    [
+        # Six values ahead of it: past the five a view holds, and still counted.
+        pytest.param([*[[f"user{rank}", 50 - rank] for rank in range(6)], ["", 3]], 3, id="listed"),
+        pytest.param([["user28", 65]], None, id="not_listed"),
+    ],
+)
+def test_the_empty_string_count_is_read_off_every_recorded_frequent_value(
+    most_common_vals: list[list[Any]], empty_count: int | None
+) -> None:
+    """A frequent-value list not naming the empty string leaves its count unknown, not zero."""
+    stats = {"most_common_vals": most_common_vals, "count": 2000, "null_count": 0}
+    catalog = DataCatalog(a_registry_holding(an_attribute(CITY, stats=stats)))
+
+    assert catalog.attribute_views(STORES)[0].empty_count == empty_count
 
 
 def test_an_unprofiled_attribute_renders_with_its_type_and_nothing_else() -> None:
@@ -363,13 +393,14 @@ def test_an_unprofiled_attribute_renders_with_its_type_and_nothing_else() -> Non
 
     assert view.dtype == "TEXT"
     assert view.description is None
-    assert view.sample_values == []
-    assert (view.distinct_count, view.null_count, view.min, view.max) == (
+    assert (view.frequent_values, view.sample_values) == ([], [])
+    assert (view.distinct_count, view.null_count, view.empty_count, view.counted_rows) == (
         None,
         None,
         None,
         None,
     )
+    assert (view.min, view.max) == (None, None)
     assert view.semantic_type is None
 
 
@@ -477,6 +508,18 @@ def a_store_table_with_a_non_int_row_count() -> list[dict[str, Any]]:
             "attribute_views",
             "stats is",
             id="stats_not_a_mapping",
+        ),
+        pytest.param(
+            [an_attribute(CITY, stats={"most_common_vals": "Napa"})],
+            "attribute_views",
+            "most_common_vals is",
+            id="frequent_values_not_a_list",
+        ),
+        pytest.param(
+            [an_attribute(CITY, stats={"most_common_vals": [["Napa"]]})],
+            "attribute_views",
+            "expected a value and its count",
+            id="frequent_value_without_a_count",
         ),
         pytest.param(
             [an_attribute_with_malformed_value_semantics()],

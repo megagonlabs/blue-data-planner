@@ -9,12 +9,12 @@ from blue_data.registry.data_registry import (  # pyright: ignore[reportMissingT
 )
 
 from blue_data_planner.types.catalog import (
-    AttributeRecord,
     AttributeRef,
     AttributeView,
     CatalogPreview,
     EntityMatch,
     SourceRecord,
+    ValueCount,
 )
 
 # blue-data's search defaults filter by score, and with no vector index every vector score
@@ -31,9 +31,12 @@ _NO_THRESHOLDS: dict[str, float] = {
 # ranking (its default page_limit is 10).
 _SEARCH_PAGE_LIMIT = 10_000
 
-# A wide entity's cost is almost all long text in a handful of attributes, so capping the
-# samples is what bounds a view; nothing else about it is capped.
+# A wide entity's cost is almost all long text in a handful of attributes, so the number of
+# values and the length of each are what bound a view; nothing else about it is capped. Five
+# frequent values is the most any component shows.
+_MAX_FREQUENT_VALUES = 5
 _MAX_SAMPLE_VALUES = 3
+_MAX_VALUE_LENGTH = 60
 
 
 def _properties(record: dict[str, Any]) -> dict[str, Any]:
@@ -108,6 +111,42 @@ def _dtype(properties: dict[str, Any], path: str) -> str | None:
     return str(declared) if declared else None
 
 
+def _frequent_values(raw: Any, path: str) -> list[ValueCount]:
+    if not isinstance(raw, list):
+        raise ValueError(
+            f"Attribute record {path}: most_common_vals is {type(raw).__name__}, expected a list"
+        )
+    frequent: list[ValueCount] = []
+    for entry in cast("list[Any]", raw):
+        if not isinstance(entry, (list, tuple)) or len(cast("list[Any]", entry)) != 2:
+            raise ValueError(
+                f"Attribute record {path}: a most_common_vals entry is {entry!r}, "
+                "expected a value and its count"
+            )
+        value, rows = cast("list[Any]", entry)
+        if not isinstance(rows, int):
+            raise ValueError(
+                f"Attribute record {path}: the count of {value!r} is {rows!r}, expected an int"
+            )
+        frequent.append(ValueCount(value=value, rows=rows))
+    return frequent
+
+
+def _counted_rows(stats: dict[str, Any]) -> int | None:
+    # blue-data's count is of non-null values, so null_count is added back to reach the rows.
+    non_null = stats.get("count")
+    null = stats.get("null_count")
+    if isinstance(non_null, int) and isinstance(null, int):
+        return non_null + null
+    return None
+
+
+def _cut(value: Any) -> Any:
+    if isinstance(value, str) and len(value) > _MAX_VALUE_LENGTH:
+        return value[: _MAX_VALUE_LENGTH - 1] + "…"
+    return value
+
+
 class DataCatalog:
     """Reads the data catalog for the three planning components."""
 
@@ -160,6 +199,7 @@ class DataCatalog:
             )
         semantics = cast("dict[str, Any]", semantics)
         samples = cast("list[Any]", stats.get("sample_values", []))
+        frequent = _frequent_values(stats.get("most_common_vals", []), path)
         return AttributeView(
             ref=AttributeRef(
                 source=entity.source,
@@ -170,9 +210,16 @@ class DataCatalog:
             ),
             dtype=_dtype(properties, path),
             description=_description(record),
-            sample_values=list(samples[:_MAX_SAMPLE_VALUES]),
+            frequent_values=[
+                ValueCount(value=_cut(one.value), rows=one.rows)
+                for one in frequent[:_MAX_FREQUENT_VALUES]
+            ],
+            sample_values=[_cut(value) for value in samples[:_MAX_SAMPLE_VALUES]],
             distinct_count=stats.get("distinct_count"),
             null_count=stats.get("null_count"),
+            # Read off the whole recorded list, since the empty string can rank below the cap.
+            empty_count=next((one.rows for one in frequent if one.value == ""), None),
+            counted_rows=_counted_rows(stats),
             min=stats.get("min"),
             max=stats.get("max"),
             semantic_type=semantics.get("semantic_type"),
@@ -188,21 +235,10 @@ class DataCatalog:
             name=name,
             description=_description(raw),
             source_kind=self._source_kind(entity.source, path),
-            attributes=[
-                self._attribute_record(record, path) for record in self._attribute_records(path)
-            ],
+            attributes=[self._view(entity, record) for record in self._attribute_records(path)],
             score=float(raw["_score"]),
             search_term=search_term,
             row_count=_row_count(_properties(raw), path),
-        )
-
-    def _attribute_record(self, record: dict[str, Any], entity_path: str) -> AttributeRecord:
-        name = str(record["name"])
-        properties = _properties(record)
-        return AttributeRecord(
-            name=name,
-            dtype=_dtype(properties, f"{entity_path}/attribute/{name}"),
-            description=_description(record),
         )
 
     def _attribute_records(self, entity_path: str) -> list[dict[str, Any]]:

@@ -26,6 +26,7 @@ class FakeLogicalPlanner:
     def __init__(self, results: list[LogicalPlanResult]) -> None:
         self.results = list(results)
         self.replan_reasons: list[str | None] = []
+        self.new_discovery_node_ids: list[frozenset[str]] = []
         self.conversations: list[Conversation] = []
 
     def generate(
@@ -37,8 +38,10 @@ class FakeLogicalPlanner:
         carried_node_ids: frozenset[str] = frozenset(),
         results: dict[str, Any] | None = None,
         replan_reason: str | None = None,
+        new_discovery_node_ids: frozenset[str] = frozenset(),
     ) -> LogicalPlanResult:
         self.replan_reasons.append(replan_reason)
+        self.new_discovery_node_ids.append(new_discovery_node_ids)
         self.conversations.append(conversation)
         if not self.results:
             raise AssertionError("the fake logical planner ran out of results")
