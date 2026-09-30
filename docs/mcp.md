@@ -2,8 +2,8 @@
 
 `platform/planner-mcp/` ships `blue-data-planner-mcp`, an MCP server exposing one tool, `query_data`, over
 stdio. It plans a request over the registered data sources, runs the plan, repairs what fails, and
-returns the rows — the same two operations the library and the CLI offer, reachable by an agent
-that speaks MCP. Installation, running, launching it from an agent framework, and the
+returns the rows. These are the same two operations the library and the CLI offer, available to any
+agent that speaks MCP. Installation, running, launching it from an agent framework, and the
 configuration reference are in [`platform/planner-mcp/README.md`](../platform/planner-mcp/README.md); this page
 covers the tool itself.
 
@@ -17,9 +17,9 @@ covers the tool itself.
 | `explain` | Write the plan and stop before the first operator call. Catalog searches run; no operator runs and no answer comes back. |
 | `include_plan` | Return every plan the request produced alongside the answer. `explain` already returns them. |
 
-Each parameter carries its description in the MCP schema, so a client renders it without reading
-this page. The schema in `platform/planner-mcp/src/blue_data_planner_mcp/server.py` is the source of truth
-for these descriptions; this table and the one in
+Each parameter has its description in the MCP schema, so a client can show it without this page.
+The schema in `platform/planner-mcp/src/blue_data_planner_mcp/server.py` is the source of truth for
+these descriptions; this table and the one in
 [`platform/planner-mcp/README.md`](../platform/planner-mcp/README.md#the-tool) copy it.
 
 ## The response
@@ -28,12 +28,12 @@ The return value is `RunResult.to_dict()`, serialized as one JSON string. `statu
 `failure_reason`, `results`, `counters`, and `conversations` travel on every call.
 
 `results` is keyed by a signature of the work behind one node, a sha256 hex digest rather than a
-fragment id. Each entry is either how that fragment ended — `status`, `failure_reason`,
+fragment id. Each entry is either how that fragment ended (`status`, `failure_reason`,
 `operator_id`, `row_count`, and an `output` list of `{row_count, columns, sample_rows}` table
-summaries — or what a catalog search found: `search_terms`, `matches`, and `dropped_terms`.
+summaries) or what a catalog search found (`search_terms`, `matches`, and `dropped_terms`).
 
-`pipeline` — every logical and physical plan the request produced — travels only when it was asked
-for, because it grows with the retries a request took rather than with its answer:
+`pipeline` holds every logical and physical plan the request produced. It is returned only when
+requested, because it grows with the retries a request took rather than with its answer:
 
 | Call | `pipeline` |
 | --- | --- |
@@ -47,8 +47,8 @@ saying why: `budget_exhausted`, `replan_exhausted`, `operator_failed`, `llm_fail
 
 ## Errors
 
-Anything the tool body raises — an unreadable registry, an unknown operator suite name, an invalid
-setting — comes back as `{"error": "<message>", "code": "<CODE>"}` in place of the run payload
+Anything the tool body raises (an unreadable registry, an unknown operator suite name, an invalid
+setting) comes back as `{"error": "<message>", "code": "<CODE>"}` in place of the run payload
 above. The server reports it as a successful tool result rather than a protocol-level error, so a
 client tells the two apart by the `error` key rather than by the protocol's error flag.
 
@@ -65,8 +65,8 @@ the client as a tool error instead.
 
 ## Connecting a LangChain agent
 
-`langchain-mcp-adapters` turns the server's tool into a LangChain tool, so an agent built with
-`create_agent`, which runs on LangGraph, calls it the way it calls any other.
+`langchain-mcp-adapters` wraps the server's tool as a LangChain tool, so an agent built with
+`create_agent`, which runs on LangGraph, calls it like any other tool.
 
 ```python
 import asyncio
@@ -96,7 +96,7 @@ client = MultiServerMCPClient(
 async def main() -> None:
     async with client.session("blue-data-planner") as session:
         tools = await load_mcp_tools(session)
-        agent = create_agent(ChatOpenAI(model="gpt-5.6-luna"), tools)
+        agent = create_agent(ChatOpenAI(model="gpt-6-luna"), tools)
         result = await agent.ainvoke(
             {"messages": [{"role": "user", "content": "Which countries do our customers come from?"}]}
         )

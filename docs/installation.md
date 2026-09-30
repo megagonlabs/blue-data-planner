@@ -79,7 +79,7 @@ alone. A library caller passes the same values to `PlannerSettings` and reads no
 | --- | --- | --- | --- |
 | `OPENAI_API_KEY` | None, required | Library, CLI, MCP | The provider key `litellm` reads on each call |
 | `BLUE_DATA_REGISTRY_PATH` | None, required | CLI, MCP | The serialized `blue-data` registry to plan against |
-| `BLUE_DATA_PLANNER_MODEL` | `BLUE_DATA_LLM_MODEL`, then `openai/gpt-5.6-luna` | CLI, MCP | The litellm model string every component uses |
+| `BLUE_DATA_PLANNER_MODEL` | `BLUE_DATA_LLM_MODEL`, then `openai/gpt-6-luna` | CLI, MCP | The litellm model string every component uses |
 | `BLUE_DATA_PLANNER_REASONING_EFFORT` | `low` | CLI, MCP | `minimal`, `low`, `medium`, `high`, `none`, or `off` to leave the parameter out of the call |
 | `BLUE_DATA_PLANNER_OPERATORS` | `builtin,lotus` | CLI, MCP | Which suites are registered, over `builtin`, `lotus`, and `blue` |
 | `BLUE_DATA_PLANNER_LOTUS_MODEL` | The planner's model | CLI, MCP | The model LOTUS runs on |

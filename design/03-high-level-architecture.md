@@ -51,6 +51,10 @@ flowchart TB
     ENTRY --> RUNNER
     ENTRY --> SEARCH
     ENTRY --> STATE
+    ENTRY --> EXEC
+    ENTRY -.->|"assembled at startup"| ROUTER
+    ENTRY -.-> DATA
+    ENTRY -.-> LLM
     PHYSICAL --> ROUTER
     RUNNER --> ROUTER
     RUNNER --> EXEC
@@ -112,11 +116,12 @@ them calls a model or invokes an operator directly.
 | Installs a cover | Adds it and moves the pointer. A result is reused when the new cover asks for work already done |
 | Assembles the result | One `RunResult` whether the request succeeded or not |
 
-Keeping the loop here rather than in `execution/` is what lets `execution/` run without importing
-a planning component (ADR-011). `DataPlanner` is given the components below rather than building them, so it
-looks up no operator and calls no model itself. `build_data_planner` does that wiring, and
-`build_data_planner_from_settings` resolves a `PlannerSettings` into the same call. Both adapters
-call the second, which keeps assembly out of the adapters.
+Keeping the loop here rather than in `execution/` is what lets `execution/` run without importing a
+planning component (ADR-055). `DataPlanner` is given the components below rather than building them,
+so it looks up no operator and calls no model itself. `build_data_planner` does that wiring, the
+dashed arrows from the entry point in the diagram, and `build_data_planner_from_settings` resolves a
+`PlannerSettings` into the same call. Both adapters call the second, which keeps assembly out of the
+adapters.
 
 ### The components
 
@@ -149,13 +154,15 @@ Four terms carry the design, and each is fixed in
 
 The single place any operator is invoked. It runs one physical operator over the tables it was
 handed, bills the call against the operator call budget, and checks the result against the output
-columns its caller declared, coercing each to its declared type.
+columns its caller declared, coercing each to its declared type. It also holds the projection that
+turns the finished rows into the answer a `RETURN` node names, which the run loop calls once the
+last fragment has run.
 
 Three things it does not do, and each one removes an import. It does not schedule, because the run
 loop decides what is ready and hands down one call at a time. It does not resolve an operator id,
 because its caller hands it a resolved operator. It does not call a model, because writing
 parameters and reviewing a result both belong to the fragment runner. Together those keep
-every planning component, `operators/`, and `llm/` out of its imports (ADR-011).
+every planning component, `operators/`, and `llm/` out of its imports (ADR-055).
 
 ### `types/` and `plan/`
 

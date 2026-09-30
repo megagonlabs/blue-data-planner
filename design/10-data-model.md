@@ -800,15 +800,18 @@ a search runs the terms it kept whatever the number is. It reaches a library cal
 @dataclass(frozen=True)
 class LLMUsage:
     model: str
-    prompt_tokens: int
-    completion_tokens: int
-    cost: float
+    prompt_tokens: int | None     # None when the provider did not report it
+    completion_tokens: int | None
+    cost: float | None            # None when no price is known for the model
     latency_seconds: float
 ```
 
 One record per model call, held by the conversation the call was made on, in call order. There is no
-accumulator: a total is a `sum()` over the list. Prompt and completion tokens are reported per call
-and never summed together, since the two are priced differently and a total of them answers nothing.
+accumulator: `total_cost` sums a list of them, and is `None` when any call's cost is unknown, so a
+total never leaves an unpriced call out. A provider response carrying no usage block, or a count
+that is not a non-negative integer, is a malformed response and fails the call as an `LLMError`.
+Prompt and completion tokens are reported per call and never summed together, since the two are
+priced differently and a total of them answers nothing.
 
 The conversations fix the scope. These are the calls the three planning components and the catalog
 searcher made through `llm/`, and nothing else. A model call an operator makes internally, as a LOTUS
@@ -1054,6 +1057,7 @@ class AttributeView:
     description: str | None
     frequent_values: list[ValueCount]  # most frequent first
     sample_values: list[Any]           # what a view shows where no frequent values are recorded
+    more_values_recorded: bool         # the registry held values past the ones kept above
     distinct_count: int | None
     null_count: int | None
     empty_count: int | None            # rows holding "", where the frequent values list it
@@ -1219,7 +1223,7 @@ than added to, so no summary mixes two runs.
 | --- | --- |
 | A `schema_version` field in a serialized plan | Nothing persists a plan. The shape is public interface, covered by semver |
 | A stored session, plan, or run | A `RunResult` is the record, and it is returned to the caller |
-| A model response cache | Every model call reaches the provider |
+| A model response cache, by default | Every model call reaches the provider unless a caller turns the cache on with `llm.cache`, which nothing in this repository does (ADR-054) |
 | Operator or router state between requests | Both are assembled once and held in process |
 | A separate error response shape | A run that did not finish returns a `RunResult` with a status (ADR-015) |
 | A row type of its own | A fragment passes plain dicts, so no shape belongs to a suite (ADR-012) |

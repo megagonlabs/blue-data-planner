@@ -34,9 +34,11 @@
 
 ## Something's out of date
 
-These pages track what the code does, not what is planned for it. A page that has drifted is a bug
-in the page. The source of truth is the code, plus [`lib/README.md`](../lib/README.md) for the
-development setup and the test commands, and
-[`platform/planner-cli/README.md`](../platform/planner-cli/README.md) for the CLI, which [cli.md](cli.md) forwards
-to, and [`platform/planner-mcp/README.md`](../platform/planner-mcp/README.md) for installing, running, and
-configuring the MCP server.
+These pages describe what the code does, not what is planned. A page that has drifted from the code
+is a bug in the page. The code is the source of truth, along with:
+
+- [`lib/README.md`](../lib/README.md) for the development setup and the test commands
+- [`platform/planner-cli/README.md`](../platform/planner-cli/README.md) for the CLI, which
+  [cli.md](cli.md) forwards to
+- [`platform/planner-mcp/README.md`](../platform/planner-mcp/README.md) for installing, running, and
+  configuring the MCP server

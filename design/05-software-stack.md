@@ -62,20 +62,20 @@ the planner cannot run without a model.
 
 ### Structured output
 
-Five model calls return structured values rather than prose, and each is constrained by a Pydantic
+Six model calls return structured values rather than prose, and each is constrained by a Pydantic
 response schema rather than parsed out of text.
 
 | Call | Fills | Described in |
 | --- | --- | --- |
-| Logical planning | A plan model assembled from the node schemas: one per logical operator, plus the terminal and control nodes | [04, section 1](04-detailed-architecture.md#1-logical-planning) |
-| Physical planning | A choice among the candidate fragments enumerated for that call, and a source for each `SCAN` in the chosen one | [04, section 2](04-detailed-architecture.md#2-physical-planning) |
+| Logical planning | A plan: its nodes, each with its kind, inputs, and attributes, and each `SCAN`'s source | [04, section 1](04-detailed-architecture.md#1-logical-planning) |
+| Physical planning | A choice among the candidate fragments enumerated for that call, and for the chosen one its instruction, a name and description for each input, and its `required_output_columns` | [04, section 2](04-detailed-architecture.md#2-physical-planning) |
 | Fragment parameters | The parameter schema of the operator the cover bound | [04, section 3](04-detailed-architecture.md#3-running-a-fragment) |
 | Fragment review | An assessment in plain language and one of accept, reject, replan | [04, reviewing the result](04-detailed-architecture.md#reviewing-the-result) |
 | Discovery search terms | The terms one `DISCOVER` node expands into | [04, resolving a discovery node](04-detailed-architecture.md#resolving-a-discovery-node) |
+| Program writing | The Python program `builtin.nl2table` runs for its fragment | [06, the built-in suite](06-library.md#the-built-in-suite) |
 
 Two of those schemas are built per call rather than declared once. Physical planning's is assembled
-from that call's own candidates, so a candidate set holding no `SCAN` has no field in which to name
-a source, and where a scan does appear the catalog's paths are the allowed values. Fragment
+from that call's own candidates, so only a candidate on offer can be chosen. Fragment
 parameters use the schema of whichever operator the cover bound, which is not known until the cover
 is written. Building the schema per call is what keeps an impossible choice from appearing as an
 option, so nothing has to reject one afterwards.
@@ -210,7 +210,7 @@ profile, with the environment above it and below a command option (ADR-028).
 
 | Setting | Read by | For |
 | --- | --- | --- |
-| `OPENAI_API_KEY` | litellm, through `llm/` | The five planner calls above, and LOTUS operators |
+| `OPENAI_API_KEY` | litellm, through `llm/` | The model calls above, and LOTUS operators |
 | `BLUE_DATA_PLANNER_MODEL` | The interface, passed to `llm/` | The default litellm model string for every component that calls a model |
 | `BLUE_DATA_REGISTRY_PATH` | The interface, passed to `data/` | The serialized registry it opens and plans against |
 
@@ -222,7 +222,7 @@ of the three repairs, and the cap on plan corrections (ADR-014).
 
 ## Quality check
 
-The gates are `pytest` with `pytest-cov`, and `pytest-asyncio` where a package has async tests, then
+The gates are `pytest`, with `pytest-asyncio` where a package has async tests, then
 `ruff`, then `pyright`. How each is configured is in [08-coding-style.md](08-coding-style.md), and
 what each test tier covers is in [11-testing-strategy.md](11-testing-strategy.md).
 
@@ -264,7 +264,7 @@ writes each one.
 | `click` | `platform/planner-cli/` | Required | CLI command routing |
 | `rich` | `platform/planner-cli/` | Required | CLI output formatting |
 | `blue-data` | `platform/planner-cli/` | Required | Profiles, configuration resolution, secret storage |
-| `pytest`, `pytest-cov` | All | `dev` extra | Test tiers |
+| `pytest` | All | `dev` extra | Test tiers |
 | `pytest-asyncio` | `platform/planner-mcp/` | `dev` extra | The MCP server's async handler tests |
 | `ruff`, `pyright` | All | `dev` extra | Lint and type gates |
 | `build`, `twine` | All | `dev` extra | Packaging and publishing |
@@ -277,7 +277,7 @@ writes each one.
 | --- | --- |
 | FastAPI, Uvicorn | No REST API in the first release |
 | `gepa` and automatic prompt optimization | Prompts are written by hand and versioned in the repository (ADR-005). Tuning one automatically needs a score to tune against, which is open question 32 |
-| A model response cache | Every model call reaches the provider. A cache keyed on the request rarely hits, since a planner's requests carry the catalog, an input sample, and the conversation so far, and what it does reliably is make a run's cost depend on invisible state from an earlier run |
+| A model response cache by default | Every model call reaches the provider unless a caller turns the cache on. A cache keyed on the request rarely hits, since a planner's requests carry the catalog, an input sample, and the conversation so far, and what it does reliably is make a run's cost depend on invisible state from an earlier run. `LLMClient` opens one only for a call carrying `llm.cache`, which nothing in this repository sets, and a consumer that sets it installs `diskcache` itself (ADR-054) |
 | LlamaIndex, DSPy, LangChain | The library needs a model client, not an application framework. Agent frameworks are consumers, reached through MCP |
 | A direct `openai` dependency | Provider libraries arrive through litellm |
 | `torch` as a declared dependency | It arrives with LOTUS, and nothing here imports it |

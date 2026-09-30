@@ -63,7 +63,7 @@ a time:
 
 1. `operators_for(kind)` returns every operator declaring that node's kind, in registration order.
 2. For each, `candidate_fragments` enumerates the node sets rooted at that node which the
-   operator's declared kinds could absorb.
+   operator's declared kinds could implement.
 3. A candidate is dropped unless the operator reads the source kind of every scan in it. An
    operator declaring no `source_kinds` takes only scans that name no source.
 4. What survives is offered to the model, largest fragment first, and the model binds one.
@@ -92,7 +92,7 @@ router.register(my_operator)
 
 Every provider call goes through `LLMClient`, which reaches the provider through litellm. Naming
 a different provider means a different model string: `"anthropic/claude-sonnet-4-5"` in place of
-`"openai/gpt-5.6-luna"`, with credentials in the environment litellm reads.
+`"openai/gpt-6-luna"`, with credentials in the environment litellm reads.
 
 Reaching a provider litellm does not cover means substituting the client. The four components call
 one method on it:
@@ -103,8 +103,8 @@ def complete_structured(self, conversation: Conversation, response_model: type[M
 
 An implementation answers the conversation with a value of `response_model`, appends that answer
 to `conversation.turns` as an assistant turn, and appends one `LLMUsage` to `conversation.usage`.
-Each answer is appended, so the conversation holds the whole exchange, and the usage is what
-`RunResult.conversations` reports as the run's cost.
+The conversation then holds the whole exchange, and the usage is what `RunResult.conversations`
+reports as the run's cost.
 
 `build_data_planner` builds the client itself, so a substitute goes to the four component
 constructors instead. Each takes its own, which is how one stage runs on a larger model.

@@ -333,7 +333,7 @@ validator wherever declaration and validator disagree.
 ## ADR-011 — `execution/` Invokes Operators; `DataPlanner` Owns the Run Loop
 
 **Date:** 2026-09-25
-**Status:** Accepted
+**Status:** Superseded by ADR-055
 
 **Decision:** `execution/` is a directory of its own beside the modules that plan, holding
 `execute_physical_operator` and `check_output_columns` and nothing else. It runs one operator its caller resolved and handed to it,
@@ -492,7 +492,7 @@ what might help.
 ## ADR-017 — The Package Root Exports the Run Path
 
 **Date:** 2026-09-25
-**Status:** Accepted
+**Status:** Superseded by ADR-056
 
 **Decision:** `blue_data_planner/__init__.py` holds `__version__` and the run path: `DataPlanner`,
 `build_data_planner`, `PlannerSettings`, `build_data_planner_from_settings`, `RunResult`,
@@ -1770,6 +1770,110 @@ written.
 
 ---
 
+## ADR-054 — The Model Response Cache Stays Opt-In
+
+**Date:** 2026-09-29
+**Status:** Accepted
+
+**Decision:** `LLMClient` keeps its response cache, opened only for a call carrying the `llm.cache`
+property, in the directory `llm.cache_dir` names. Nothing in this repository sets the property, and
+`diskcache`, which backs the cache, stays in the `dev` extra. A consumer that turns the cache on
+installs `diskcache` itself, and a client asked for a cache it cannot open is refused when it is
+built.
+
+**Rationale:** For the calls the planning components make, a cache keyed on the request rarely
+hits, since each request carries the catalog, an input sample, and the conversation so far, and what
+a cache reliably does there is make a run's cost depend on state left by an earlier run. A caller
+reaching `execute_api_call` directly with a request that repeats is the case the property was
+written for, and removing the path would take that away for no gain. Keeping it off by default and
+out of the runtime dependencies costs a planner caller nothing.
+
+**Consequences:** Every model call a run makes reaches the provider. The design set describes the
+cache as present and off by default rather than absent. Question 58 is answered.
+
+---
+
+## ADR-055 — `execution/` Invokes Operators and Projects the Answer; `DataPlanner` Owns the Run Loop
+
+**Date:** 2026-09-29
+**Status:** Accepted
+
+**Decision:** `execution/` is a directory of its own beside the modules that plan, holding
+`execute_physical_operator`, `check_output_columns`, and `project_answer`. It runs one operator its
+caller resolved and handed to it, bills the call against the operator budget, checks the result
+against the output columns its caller declared, and projects the finished rows onto the columns a
+`RETURN` node names. It imports only `types/`: no model client, no registry, no router, and no
+planning component.
+
+The run loop lives in `DataPlanner`. It schedules, dispatches on node kind, counts attempts, chooses
+the repair, installs a cover and drops what the change invalidated, and assembles the result.
+
+**Rationale:** Invoking a resolved operator and producing a plan are different jobs with different
+dependencies: writing parameters needs a model client and the router, running a call needs neither.
+Projecting the answer needs neither too: it reads rows and a list of column names. Keeping
+`execution/` free of every planning component is what makes it testable without a model and keeps
+the dependency direction one-way.
+
+**Consequences:** `execution/` is three modules and names no `RunStatus`. `DataPlanner` is the only
+thing that runs a plan. The types all three name live in the package root `types/`, so
+`execution/` can name them without importing a planning component.
+
+---
+
+## ADR-056 — The Package Root Exports the Run Path; `operators` Exports the Router and the Suite Lookup
+
+**Date:** 2026-09-29
+**Status:** Accepted
+
+**Decision:** `blue_data_planner/__init__.py` holds `__version__` and the run path: `DataPlanner`,
+`build_data_planner`, `PlannerSettings`, `build_data_planner_from_settings`, `RunResult`,
+`RunLimits`, `RunStatus`, and `BlueDataPlannerError`. Public is the root, every module directly
+inside it, and the `__init__.py` of `types/`, `plan/`, `execution/`, `operators/`, `data/`, and
+`llm/`. `prompts/` is not public. `operators/__init__.py` re-exports the router and the suite lookup
+(`OperatorSuite`, `operator_suite`, `OPERATOR_SUITE_NAMES`), and the lookup imports an adapter only
+when it is asked for that adapter's suite, so an adapter is imported from the module named for its
+suite.
+
+**Rationale:** Python runs a package's `__init__.py` before any module inside it, so whatever the
+root names is paid by every import from the package. Of everything this library imports, an operator
+suite is the only one heavy enough for that to matter, so the root can carry the run path as long as
+no adapter sits on it. The suite lookup keeps that property, since it names each adapter only inside
+the branch that builds it, and it is what `build_data_planner_from_settings` and both interfaces
+resolve a configured suite name through. The prompt text changes with the prompts, which is not a
+change a caller should have to track as an interface.
+
+**Consequences:** `from blue_data_planner import DataPlanner` and
+`from blue_data_planner.operators import operator_suite` work, and importing either loads no suite.
+`from blue_data_planner.operators import blue_operators` does not, since an adapter is
+`operators.adapters.blue`. Adding a name to the root is a deliberate act, and adding one that pulls
+in an adapter changes what every import from the package costs. The prompt files and
+`prompts/rendering.py` can change within a minor version.
+
+---
+
+## ADR-057 — Convexity Follows from the Other Fragment Rules and Is Not Checked on Its Own
+
+**Date:** 2026-09-29
+**Status:** Accepted
+
+**Decision:** A fragment is connected, convex, disjoint from every other fragment, and single exit.
+Over a plan that passed `validate_logical_plan`, convexity follows from the single-exit and
+disjointness rules, so neither the candidate enumeration nor `validate_physical_plan` checks it
+separately. [04-detailed-architecture.md](04-detailed-architecture.md#what-a-fragment-may-be) says
+which rules give it.
+
+**Rationale:** Every non-root node of a fragment has all its consumers inside the fragment, and
+following consumers ends only at the root, since a valid plan holds no node nothing reads. So every
+node of a fragment reaches its root, and an outside node lying between two inside nodes would close
+a cycle, which a valid plan has none of. A separate check would test a property the other checks
+already guarantee, and could only disagree with them through a bug in one of the two.
+
+**Consequences:** The fragment rules read as three checked rules and one property that follows from
+them. A change that drops the disjointness rule, which question 6 weighs, has to bring back a
+convexity check with it. Question 33 is answered.
+
+---
+
 ## Open Questions
 
 Design questions first, then defects in the code.
@@ -1782,7 +1886,6 @@ Design questions first, then defects in the code.
 | 15 | Where does the check that an operator receives the number of tables its logical operator declares belong? `INPUT_ARITY` governs what the logical planner writes, and validation checks a node's input count against it, but the bundle an operator is handed is the concatenation of its upstream outputs (ADR-012), and nothing ties that length back to the arity. Each adapter refuses a bundle of the wrong length inside its own callable, which is one rule written once per suite and leaves the next suite free to forget it. `execute_physical_operator` is the single place every call goes through, and for any operator declaring one logical operator it could read the count off `INPUT_ARITY` itself, so a suite added later would get the rule without doing anything. Against moving it: an adapter needs the same guard anyway before it can take its tables apart, so the check would be written twice rather than once. | Whether a wrongly shaped bundle is refused by one rule or by one rule per suite |
 | 18 | Should the three planning components and the discovery step share one model by default? [12-deployment-ops.md](12-deployment-ops.md#4-configuration) sets `BLUE_DATA_PLANNER_MODEL` for all of them, and `DataPlanner`'s constructor takes a client per component, so the split is available and simply not the default ([09-api-interface-spec.md](09-api-interface-spec.md#assembly)). The components do different work. Logical planning writes a plan from a catalog preview and is the one call whose mistakes every later stage inherits, since a badly cut plan cannot be rescued by a good cover. Writing parameters and reviewing a result are narrower, run several times per request, and see concrete columns and values rather than a whole catalog. That shape favors a stronger model for the first and a cheaper one for the rest, which is also what the cost profile favors, and nothing has measured whether the quality holds. Against it: a split default doubles what a deployment configures before it can run anything, and two model strings is two things to get wrong. The TAG-Bench harness reports model calls per component, which says where the spend is but not whether a cheaper model would have answered the same. | What a deployment pays per request, and whether one badly chosen model string degrades every component at once |
 | 32 | Should a prompt ever be optimized automatically rather than written by hand? ADR-005 fixes hand-written prompts versioned in the repository, and the reason is that tuning needs a score to tune against. The TAG-Bench harness produces end-to-end accuracy, which scores a whole run rather than one component's prompt, so a tuner reading it would credit the logical planner for what the fragment runner repaired. Answering it means either a per-component score or accepting that a whole-run score is enough, and `gepa` is the candidate dependency ([05-software-stack.md](05-software-stack.md#what-is-deliberately-absent)). | Whether `prompts/` stays hand-written, and whether `lib/` gains a tuning dependency |
-| 33 | Does the fragment rule list still need convexity? [04-detailed-architecture.md](04-detailed-architecture.md#what-a-fragment-may-be) lists connected, convex, disjoint, and single exit as four separate properties, and `validate_physical_plan` enforces that list. For a plan that already passed `validate_logical_plan`, the other three give convexity for nothing. Every non-root node of a fragment has all its consumers inside the fragment; following consumers terminates only at the root, since a valid plan holds no node nothing reads; so every node of a fragment reaches its root, and an outside node lying between two inside nodes would close a cycle, which a DAG has none of. Both premises carry the argument, and one of them is already in question: dropping the disjointness rule, which question 6 weighs, would take the argument with it. Two ways to close it. Say in `04` which of the four the others already give, so a reader learns the list is not independent and a check for it need not be written. Or leave the four standing, on the grounds that the implication holds only as long as disjointness does. | Whether the fragment rules read as four independent constraints when three of them imply the fourth |
 | 37 | What may an adapter absorb, and what must it refuse? Every suite mismatches what a plan needs in its own way, and with no shared rule each mismatch is settled in whichever adapter hits it first. Five absorptions look like translation rather than behavior, and are the candidates for a permitted list: shaping a parameter schema an operation has none of, converting between the bundle and the suite's own shape, mapping the suite's failures onto the recoverable and unrecoverable kinds, supplying the registry or model client an operation needs to run at all, and offering fewer operations or narrower capability than the suite advertises. Four look like behavior and are the candidates for a forbidden list: declaring a capability the operation lacks, computing or patching part of a result, retrying or splitting or reordering work the run loop owns, and returning an empty result in place of a reported failure. What ADR-020 settles is the planning case alone: an operation may plan how to carry out its own fragment and may not take a decision the run loop owns, which permits one that writes a query and refuses one that decomposes the request. The rest of both lists is unsettled, and so is an operation whose declared capability contradicts its own metadata, where an adapter that binds it anyway fails partway through a run and never offering the candidate would have cost nothing. | Whether a capability gap is answered in the adapter or upstream, and which `blue-data-ops` operations an adapter offers at all |
 | 38 | Where does an operation's capability declaration come from? A `PhysicalOperator` carries `logical_operators`, `source_kinds`, `accepts_bound_inputs`, and `limitations`, and the adapter hand-writes all four. `blue-data-ops` states most of them itself, on an `OperatorCard`: closed `accepts-*`, `requires-*`, and `capability-*` tags plus a `when_to_invoke` line, written by whoever wrote the operation. Reading the card where it exists would have caught the `nl2sql` defect, since the card says `accepts-none`. Against reading it: the card is `blue-data-ops`'s own scheme and nothing else has one — LOTUS declares no capability metadata at all, and a suite this repository writes declares whatever it chooses — so deriving one suite's declarations and hand-writing every other suite's is two rules for one field. The tag vocabulary is also close to but not the same question: `capability-filter` and `LogicalOperator.FILTER` agree, while `accepts-data` says an operation reads a bundle and not whether it can read one alongside a source it scans. A third route is to keep hand-writing and have the conformance test compare against the card where a suite has one, so a disagreement fails a test rather than a run. | Whether a hand-written declaration is checked against anything, and whether the adapter conformance test reads more than `AttributeSpec` |
 | 41 | Is the bundle shape chosen to match one suite's operator signature? ADR-012 fixes a list of tables on both sides of an operator call, and no document says how much conversion the Blue adapter then needs ([06-library.md](06-library.md#what-an-adapter-reads)). Two things are unsettled. Whether the alignment with the Blue operations is deliberate or incidental: if it is deliberate, the shape follows one suite and every other adapter pays the conversion, and if it is not, the shape is chosen for what a plan passes and the Blue adapter converts like any other. And what a callable invokes on the suite's side, which no document names either: a dependency's method name is a fact that goes stale, and naming it in two places is how two documents came to disagree about it. | Whether ADR-012's shape rests on a dependency's signature, and whether the Blue adapter is a pass-through |
@@ -1797,8 +1900,7 @@ Design questions first, then defects in the code.
 | 54 | Should the library be able to phrase an answer, and the CLI then offer `--format nl`? The family offers a natural-language format where a source answers in prose, and ADR-029 leaves it out because a planner answers in rows. A benchmark whose expected answers are single values, and an agent that wants a sentence rather than a table, both suggest the phrasing has to happen somewhere; doing it in an interface is behavior in an adapter (ADR-002), so the question is whether a library operation should return prose alongside the rows, and what it costs in model calls per request. | Whether `--format nl` and the MCP response ever carry a sentence, and which component writes it |
 | 55 | Should a run be kept on disk so a plan can be read back? The CLI's home directory holds profiles and nothing else, so a plan printed by `data query --explain` is gone when the terminal scrolls, and `data query` keeps no record a later command could inspect. The family's storage convention has a place for one (`~/.<cli>/<profile>/<component>/`), and `from_dict` already reads a recorded plan back ([06-library.md](06-library.md#two-operations)). What is unsettled is whether a CLI should accumulate state at all for a planner that holds none between requests, and what would remove an old run. | Whether the CLI grows an action that reads a plan it wrote earlier |
 | 56 | Should the CLI be able to write a run's whole record to a file? A fragment's result reaches a person as a summary, and the JSON on standard output carries the answer and how the run ended, so every intermediate table and every model turn is reachable only by a caller who embeds the library (ADR-032). Diagnosing a wrong answer is the case that wants them: a summary says a fragment returned 140 rows over three columns and not which 140, and a review that rejected a fragment is readable only in the conversation. A file is where they would go, since what makes them unwelcome on standard output is size rather than secrecy, and the family's storage convention already has a place for per-profile state. Against adding one: a record holds whatever the sources held, so writing one puts source data on disk, and whether a CLI over a planner that keeps nothing between requests should accumulate state at all is question 55. | Whether a wrong answer can be diagnosed from the CLI alone |
-| 58 | Should the response cache in `llm/client.py` be removed or promoted? `LLMClient` opens a per-directory `diskcache` when a call carries the `llm.cache` property, and nothing in this repository sets that property, so the path answers no caller here. `diskcache` is declared under the `dev` extra alone, so an installed consumer that did request the cache would get an `InvalidSettingError` when its client is built rather than a cache. [05-software-stack.md](05-software-stack.md#what-is-deliberately-absent) says the stack has no model response cache, on the reasoning that a planner's requests carry the catalog, an input sample, and the conversation so far, so a key on the request rarely hits, and what a cache reliably does is make a run's cost depend on invisible state from an earlier run. That reasoning holds for every call the planning components make. What argues for keeping the code is a caller outside the planner reaching `execute_api_call` directly, which is the use the property was written for. Removing it deletes a path nothing calls; keeping it means a runtime dependency and a design row that has to say so. | Whether `llm/` offers a cache at all, and whether `diskcache` becomes a runtime dependency |
-| 59 | Does a model-written pattern need a time bound? `builtin.filter` runs the regular expression the fragment runner writes (ADR-041) with no bound on how long one search takes, so a catastrophically backtracking pattern over a large column could stall one filter call, and nothing in the run loop or the operator stops it. `builtin.nl2table` runs model-written code under the same absence, so the question is not specific to patterns. | Whether an operator call that runs model-written logic is bounded in time, and which component enforces the bound |
+| 59 | Does a model-written pattern need a time bound? `builtin.filter` runs the regular expression the fragment runner writes (ADR-041) with no bound on how long one search takes, so a catastrophically backtracking pattern over a large column could stall one filter call, and nothing in the run loop or the operator stops it. `builtin.nl2table` bounds the program it runs by wall-clock and CPU time in its child process ([06-library.md](06-library.md#the-built-in-suite)), so what is open is whether a pattern gets a bound of its own and which component enforces it. | Whether a model-written pattern can stall a filter call |
 | 60 | Should a value that does not fit the type the cover declared for a column go straight to the cover repair? The physical planner writes each fragment's required output columns and their types, and the fragment runner cannot change them, so no parameter attempt can fix the mismatch: the runner spends its remaining attempts on parameters that cannot help, and each one that reaches the operator is an operator call. Every attempt reaches the cover repair (ADR-047), so the mismatch is visible to the component that can fix it, and what is at stake is the attempts spent first. Against sending it straight on: it needs a third error kind beside recoverable and unrecoverable, or a check in the run loop for one error in particular, and a model that knows which column it filled might still fix the value, as when an operator returns a unit the declaration did not expect. | How many operator calls a wrong type declaration costs before the cover repair sees it |
 | 61 | How does a component find a spelling the values it is shown leave out? A view lists an attribute's most frequent values and the fragment runner sees the first rows of each input (ADR-049), so a spelling that is rare within a column of many distinct values reaches no component. In `codebase_community`, `users.Location` holds `Vienna, Austria` in 42 rows and `Vienna` in 4, and a filter written for `Vienna` returns the 4 rows and reports no error. Three routes. The fragment runner writes a condition that tolerates spelling, such as a pattern for `builtin.filter` (ADR-041), which needs nothing new but relies on the model guessing that the spelling varies. The catalog is searched for stored values matching a term, which `blue-data`'s registry search ranks by, and the matches are shown with the view, which puts a search per condition into prompt writing. Or a lookup is a data operation of its own, which is question 47's shape. | Whether a condition on a text attribute with many distinct values is written against a spelling any component saw |
-| 62 | Should `blue.join` name a joined table's columns by ADR-050's rule? `builtin.join` and `lotus.sem_join` keep a key named alike once and suffix any other shared column `_left` and `_right`, so a declaration written for one reads the other's output. `blue.join` takes its suffixes as a parameter, so the adapter could fix them to `_left` and `_right`, or leave them to the fragment runner, which then has to know the rule to write a declaration that matches. Neither makes `blue.join` drop a key's second copy. | Whether a plan's declared columns mean the same thing whichever suite runs its join |
+| 62 | Should `blue.join` name a joined table's columns by ADR-050's rule? `builtin.join` and `lotus.sem_join` keep a key named alike once and suffix any other shared column `_left` and `_right`, so a declaration written for one reads the other's output. `blue.join` takes its suffixes as a parameter, which the adapter's parameter schema does not expose, so they are left at `blue-data-ops`'s default, `_ds` and the table's position. The adapter could fix them to `_left` and `_right`, or expose them to the fragment runner, which then has to know the rule to write a declaration that matches. Neither makes `blue.join` drop a key's second copy. | Whether a plan's declared columns mean the same thing whichever suite runs its join |

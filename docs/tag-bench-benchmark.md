@@ -11,8 +11,7 @@ twenty aggregation questions ask for a summary and carry an empty answer, so exa
 score them, and the benchmark leaves them out.
 
 None of the benchmark's input data ships in the package or is committed; a clean checkout rebuilds
-it. Building the inputs is three scripts, and running the benchmark over them is a fourth entry
-beside them.
+it. Three scripts build the inputs, and a fourth entry point runs the benchmark over them.
 
 ## Prerequisites
 
@@ -65,16 +64,15 @@ each table and column, one call per table plus several per column:
 
 ```bash
 uv run python -m tests.benchmarks.tag_bench.register_databases --force --describe \
-    --model gpt-5.6-luna --reasoning-effort none
+    --model gpt-6-luna --reasoning-effort none
 ```
 
 `--describe` needs a model, given by `--model` or the `BLUE_DATA_OPS_MODEL` environment variable,
 and a provider key that model's client accepts (`OPENAI_API_KEY` for an OpenAI model).
 `--reasoning-effort` sets how hard that model reasons over each description, and defaults to
 `none`; `off` omits the parameter entirely, for a model that rejects it. Keeping one registry built
-without `--describe` around is deliberate: it is the "nobody enriched this" case the design commits
-to handling, and planning quality against it is one of the things the benchmark is meant to
-measure.
+without `--describe` is deliberate. It is the case where nobody enriched the catalog, which the
+design commits to handling, and the benchmark is meant to measure planning quality against it.
 
 ## Running the benchmark
 
@@ -87,9 +85,9 @@ cd lib && export UV_PROJECT_ENVIRONMENT=.venv-lotus
 uv run --extra lotus --extra dev python -m tests.benchmarks.tag_bench.benchmark run --split dev --workers 4
 ```
 
-A run spends paid model calls for as long as its selection takes, so it is started by a person who
-watches it. One line reaches standard error as each query finishes, and the record is written at the
-same moment, so a run that stops keeps what it finished.
+A run makes paid model calls until its selection finishes, so a person should start it and watch
+it. Each finished query writes one line to standard error and its record at the same moment, so a
+run that stops keeps what it finished.
 
 | Option | Default | Selects |
 | --- | --- | --- |
@@ -101,13 +99,13 @@ same moment, so a run that stops keeps what it finished.
 | `--run-name` | a timestamp and the model | The directory under `data/tag_bench/runs/`. One already holding records is refused |
 | `--data-dir` | `<repository>/data/tag_bench` | Where the inputs and the run directories live |
 | `--registry` | `<data-dir>/registry.json` | The registry to plan over |
-| `--model`, `--reasoning-effort` | `openai/gpt-5.6-luna`, `low` | The model every planner component calls, LOTUS included. `off` omits the parameter |
+| `--model`, `--reasoning-effort` | `openai/gpt-6-luna`, `low` | The model every planner component calls, LOTUS included. `off` omits the parameter |
 | `--lotus-max-rows` | 5000 | Rows a LOTUS operation accepts before refusing the call |
 
 There is no resume: a stopped run is summarized with `report` for what it holds, and the queries
 that never ran go in a run of their own, named with `--query-id`.
 
-A first run is worth keeping small:
+Keep the first run small:
 
 ```bash
 uv run --extra lotus --extra dev python -m tests.benchmarks.tag_bench.benchmark run \
@@ -129,8 +127,8 @@ data/tag_bench/runs/<run-name>/
 ```
 
 Triage starts with `query_<id>.json`: it names the status the run ended in, the answer that was
-extracted, every plan version, and each fragment's result. The transcripts sit in their own file
-because they are large.
+extracted, every plan version, and each fragment's result. The transcripts are large, so they have
+their own file.
 
 ### Reading a report
 

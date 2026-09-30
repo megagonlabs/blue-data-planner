@@ -33,7 +33,7 @@ rather than a copy of the code.
 | `blue_data_planner/catalog_searcher.py` | `CatalogSearcher` |
 | `blue_data_planner/prompts/` | `prompt_text`, which reads one of the hand-written prompt files beside it, one per component and turn |
 | `blue_data_planner/prompts/rendering.py` | `render_sample_rows`, `render_attribute_views`: the run data every component that writes prompts renders the same way, with the number of values each component shows passed in |
-| `blue_data_planner/types/` | Every data class that crosses a module boundary: plans, nodes, fragments, operators, results, catalog readings, model usage, limits. `summarize_table` sits there too, since it builds one of those shapes from another and reaches nothing else |
+| `blue_data_planner/types/` | Every data class that crosses a module boundary: plans, nodes, fragments, operators, results, catalog readings, model usage, limits. `summarize_table` and `total_cost` sit there too, since each works on one of those shapes and reaches nothing else |
 | `blue_data_planner/plan/` | `validate_logical_plan`, `validate_physical_plan`, `candidate_fragments`, `fragment_frontier`, `signatures`, and the response schemas the planning stages send, with the names a cover choice uses (`candidate_label`, `REUSE`, `NONE`) and the `OutputColumnModel` a binding writes |
 | `blue_data_planner/execution/` | `execute_physical_operator`, `check_output_columns`, `project_answer` |
 | `blue_data_planner/operators/` | `OperatorRouter`, `operator_suite` over the suite names a deployment configures, one adapter per outside suite (`blue_operators` over `blue-data-ops`, `lotus_operators` over LOTUS), and `builtin/`, the suite this repository owns |
@@ -279,10 +279,10 @@ carries an operator id, operator parameters, or a result (ADR-008). All three ar
 cover or of the run, since all three can differ between passes over the same node.
 
 The three query methods read `nodes` and `input_node_ids` and nothing else, so a plan answers
-questions about its own shape without reaching into a planning component or `execution/` (ADR-011). `node`
-raises on an unknown id rather than returning `None`. `consumers` is what the single-exit check
-reads and what invalidation walks. `nodes_in_dependency_order` puts every node behind the nodes it
-reads and raises on a cycle, so `to_dict` and `validate_logical_plan` share one traversal.
+questions about its own shape without reaching into a planning component or `execution/` (ADR-055).
+`node` raises on an unknown id rather than returning `None`. `consumers` is what the single-exit
+check reads and what invalidation walks. `nodes_in_dependency_order` puts every node behind the
+nodes it reads and raises on a cycle, so `to_dict` and `validate_logical_plan` share one traversal.
 
 ```python
 @dataclass(frozen=True)
@@ -295,7 +295,8 @@ class PhysicalPlan:
     ...
 
     def fragment(self, fragment_id: str) -> PhysicalPlanFragment: ...
-    def fragment_for_node(self, node_id: str) -> PhysicalPlanFragment: ...
+    def fragment_for_node(self, logical_node_id: str) -> PhysicalPlanFragment: ...
+    def fragment_for_root(self, logical_node_id: str) -> PhysicalPlanFragment | None: ...
 
 
 @dataclass
@@ -864,6 +865,7 @@ class RunState:
     def inputs_for(self, fragment: PhysicalPlanFragment) -> DataBundle: ...
     def inputs_for_node(self, node: PipelineNode) -> DataBundle: ...
     def carried_node_ids(self) -> frozenset[str]: ...
+    def record_logical_plan(self, plan: LogicalPlan) -> None: ...
     def install_logical_plan(self, plan: LogicalPlan) -> None: ...
     def install_cover(self, cover: PhysicalPlan) -> None: ...
     def record_fragment(self, fragment: PhysicalPlanFragment, result: FragmentResult) -> None: ...
@@ -891,9 +893,11 @@ changed has a different signature and finds nothing to reuse, while one whose wo
 finds its result whatever cover or plan version it now sits in. A fragment fed by changed work is
 covered by the same rule, since its inputs' signatures are part of its own.
 
-The two pointers always name a matching pair: a logical version enters the pipeline alongside a
-cover for it, so a plan no operator could cover leaves nothing behind and every signature describes
-the plan and the cover that are current.
+Every logical version the planner writes enters `pipeline.logical_plans` through
+`record_logical_plan`, including one that never gets a cover, so the record holds a plan no operator
+could cover and one whose cover the provider failed to write. The two pointers always name a
+matching pair: the logical pointer moves only when a cover for that version is installed, so every
+signature describes the plan and the cover that are current.
 
 Three methods carry the rules that would otherwise be scattered through the loop.
 
@@ -980,7 +984,7 @@ because the alternative is the run loop growing the only place it touches rows.
 Three things `execution/` does not do, and each one removes an import. It does not schedule, because
 the run loop decides what is ready and hands down one call at a time. It does not resolve an
 operator id, because `FragmentRunner` hands it a resolved operator. It does not call a model,
-because writing parameters and reviewing a result both belong to the runner (ADR-011).
+because writing parameters and reviewing a result both belong to the runner (ADR-055).
 
 ---
 
@@ -1203,7 +1207,10 @@ node and never a group.
 
 All six judge meaning with a language model and work on the tables the fragment's frontier delivers.
 None declares a source kind, and `accepts_bound_inputs` reads n/a for every one. A deployment
-configures the suite with a model string, a row cap, and a reasoning effort. The model string
+configures the suite with a model string, a row cap, and a reasoning effort. LOTUS holds its model
+settings once per process, so every LOTUS suite built in one process has to name the same model and
+reasoning effort, and a suite naming another pair is refused with `InvalidSettingError` while it is
+built. The model string
 reaches LOTUS's own configuration rather than `llm/`, so what these operations spend is billed as
 part of the operator call that contains it (ADR-005).
 
@@ -1295,11 +1302,13 @@ program over those tables together with the ones the frontier delivered.
 
 The program runs in a child process holding copies of those tables, and is given no source, no
 registry, and no model client. Three properties follow, and the entry's declaration rests on them.
-It does not judge meaning, so a predicate that needs reading text belongs to a semantic operator.
-It reads no source the cover did not bind. It changes nothing a source holds. Each of the three is
-a fact about what the call hands the program rather than a restraint on a program written to do
+It does not judge meaning, so a predicate that needs reading text belongs to a semantic operator. It
+reads no source the cover did not bind. It changes nothing a source holds. Each of the three is a
+fact about what the call hands the program rather than a restraint on a program written to do
 otherwise: nothing checks the program before it runs, so a program that opens a source itself is
-outside all three. The entry is experimental, and a deployment registers it or does not.
+outside all three. The child process is stopped after 60 seconds of wall-clock time or 30 seconds of
+CPU time, and a program stopped either way is answered as any program that will not run is. The
+entry is experimental, and a deployment registers it or does not.
 
 The two halves fail differently, and the split follows what a repair could fix. A scan target that
 is not a catalog path, a bound column an input does not carry, a source that refused the read: no
@@ -1383,12 +1392,10 @@ how it is realized.
 | One call per value | A source with no predicate language: a document store, or an API answering one key at a time | Nothing but the key, once per distinct value, through `execute_query` called repeatedly |
 
 Choosing among the three is the operator's decision, not the planner's: the operator is what sees how
-many rows travel and what the source can accept. Two of the three cap the distinct values they will
-carry. One call per value carries the tighter cap, since every value is its own round trip: 10
-distinct values. Values embedded in the query text carry a looser one, since the source does its own
-filtering: 100 distinct values.
+many rows travel and what the source can accept. Values embedded in the query text are capped at 100
+distinct values, since the source parses every one and the query text grows with each.
 
-An operator implementing only one of the two capped realizations refuses an input past its cap
+An operator that embeds values and implements no other realization refuses an input past the cap
 rather than truncate it silently, which is a recoverable failure like any other input an operator
 cannot serve (ADR-015). An operator implementing more than one may instead escalate past a cap to a
 realization it also implements. A temporary table is capped by nothing, which is what it is for:
@@ -1501,7 +1508,7 @@ The only module that calls a provider (ADR-005).
 | `LLMClientProvider`, `CachingLLMClientProvider`, `resolve_llm_client` | Injection points, so a client is supplied rather than constructed in place |
 | `Conversation`, `Turn` | The turns of one exchange, so a later turn sees an earlier one. Defined in `types/`, since `RunResult` carries them |
 | `UsageLedger`, `UsageRecord` | One record per general provider call a client makes, with totals. A run reads its spend off its conversations instead |
-| `LLMUsage` | One model call: model, prompt and completion tokens, cost, and latency. Defined in `types/`, since it reaches a caller inside `RunResult` |
+| `LLMUsage` | One model call: model, prompt and completion tokens, cost, and latency. A count the provider did not report, and the cost of a model no price is known for, are `None`. Defined in `types/`, since it reaches a caller inside `RunResult` |
 | `LLMError` | The provider failing after retries, or answering in a shape the client cannot read. Defined in `types/`, like every exception the library defines |
 
 The planner reaches a provider through one call: it returns a value constrained by a Pydantic

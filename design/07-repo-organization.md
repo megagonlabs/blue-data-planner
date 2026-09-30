@@ -60,22 +60,24 @@ blue-data-planner/
 │   │   ├── operators/                 # the router, one adapter per outside suite, and the owned suite
 │   │   │   ├── __init__.py            # the router and the suite lookup, no suite itself
 │   │   │   ├── router.py              # OperatorRouter
+│   │   │   ├── suites.py              # the suite lookup: a configured name to its operators
+│   │   │   ├── validation.py          # the checks every suite makes before it runs one call
 │   │   │   ├── adapters/              # one per outside suite
 │   │   │   │   ├── blue/              # blue_operators, over blue-data-ops
 │   │   │   │   └── lotus/             # lotus_operators, over LOTUS
 │   │   │   └── builtin/               # builtin_operators, the suite written here
 │   │   ├── data/
 │   │   │   ├── registry.py            # open_registry, the source-level reads
+│   │   │   ├── source.py              # a live source, and the rows a query returns
 │   │   │   └── catalog.py             # DataCatalog: four readings, shapes from types/
 │   │   └── llm/
-│   │       ├── client.py              # LLMClient, Conversation
+│   │       ├── client.py              # LLMClient
 │   │       ├── provider.py
 │   │       └── templating.py
 │   └── tests/
 │       ├── conftest.py
 │       ├── doubles/                   # in-memory replacements for I/O boundaries
 │       ├── stubs/                     # deterministic fakes for heavy optional dependencies
-│       ├── fixtures/                  # recorded inputs
 │       ├── unit/                      # mirrors src/blue_data_planner/, scripts/, and benchmarks/
 │       ├── benchmarks/
 │       │   └── tag_bench/
@@ -163,9 +165,9 @@ there is no `assembly.py`.
 
 A level grouping them would have to be named for planning, and this package is a planner, so the
 name would separate nothing: it would appear in every import a consumer writes while distinguishing
-none of them from any other. The five directories that remain each name something a reader has to
+none of them from any other. The seven directories that remain each name something a reader has to
 tell apart from the rest — a data shape, a plan checked without running it, one operator call, an
-operator suite, a data source, a model provider.
+operator suite, a data source, a model provider, the text a model is sent.
 
 Wiring has no module of its own for the same reason. `build_data_planner` takes resolved values
 and constructs what a run needs — the model client, the router, each suite's operators, the catalog,
@@ -210,9 +212,10 @@ registry it sits beside: `blue-data-ops`'s `OperatorRegistry` is a versioned cat
 operator classes with ids like `select@2.0.0`, and the router answers which operators from any suite
 declare a given logical operator, with ids like `blue.select` (ADR-009).
 
-`__init__.py` re-exports `OperatorRouter` alone. An adapter is imported from `adapters/`, under the
-name of its suite, so importing the router loads no suite. `adapters/__init__.py` re-exports none
-of them either, so importing one adapter loads no other suite.
+`__init__.py` re-exports the router and the suite lookup in `suites.py`. The lookup imports an
+adapter only when it is asked for that adapter's suite, so importing `operators` loads no suite.
+`adapters/__init__.py` re-exports none of them either, so importing one adapter loads no other
+suite.
 
 An adapter is a directory rather than a module when the suite needs more than one file to wrap,
 which is why both adapters are packages. Grouping by logical operator was rejected, because an
@@ -220,18 +223,19 @@ operator may declare several and the router already answers that question.
 
 ### What a platform package holds
 
-Two modules and a console script, which is the shape both sibling repositories settled on.
+A console script and one module per subject the interface has, which is the shape both sibling
+repositories settled on.
 
 | File | Holds |
 | --- | --- |
 | `commands.py` or `server.py` | What the interface parses and which library call each command reaches, and the entry point the console script names |
 | `config.py` | The settings in force, resolved once, and the planner they assemble |
-| `profile.py`, `profile_spec.json`, `output.py` | The CLI's three subjects that are not command routing: the profile actions, the parameters a profile holds, and how a result is rendered |
+| `profile.py`, `profile_spec.json`, `output.py`, `trace.py` | The CLI's subjects that are not the `data` commands: the `profile` group and its actions, the parameters a profile holds, how a result is rendered, and what a run did, as records and as a table |
 | `pyproject.toml` | The package, and the console script under `[project.scripts]` |
-| `scripts/` | `build.sh` and `install.sh`. Publishing is a tag in CI ([12-deployment-ops.md](12-deployment-ops.md)), so no platform package carries a `publish.sh` |
+| `scripts/` | `build.sh` and `install.sh` |
 
-The CLI has no `commands/` package. Three command groups fit in one module, which is what the
-sibling Blue CLIs do with more groups than that.
+The CLI has no `commands/` package. The root command and the `data` group sit in `commands.py`, and
+the `profile` group sits in `profile.py` beside the actions it routes to.
 
 The MCP package has no module for wire shapes or for tool registration. One tool and one planner
 fit beside the bootstrap, and a suite that exposes one tool per operator — which this repository
@@ -246,7 +250,7 @@ One `LICENSE` sits at the repository root and covers everything published from i
 | --- | --- | --- |
 | An operator | `blue-data-ops`, or the suite's own package, unless it is deterministic and belongs to no suite | An adapter entry, if a plan should be able to use it |
 | A built-in operation | `operators/builtin/`, as a function over the bundle plus the entry that declares it | Its own tests. An owned operation has behavior, not translation ([11-testing-strategy.md](11-testing-strategy.md)) |
-| An operator suite | `operators/<suite>.py`, or `operators/<suite>/` | An optional dependency extra, a lazy import, and a stub in `tests/stubs/` |
+| An operator suite | `operators/adapters/<suite>/`, and its name in `suites.py` | An optional dependency extra, a lazy import, and a stub in `tests/stubs/` |
 | A way to reach the library | `platform/planner-<interface>/`, its own package | Its own `pyproject.toml` naming a console script, `scripts/`, and `tests/` |
 | A logical operator | Nowhere. The vocabulary of ten is fixed ([10-data-model.md](10-data-model.md)) | A decision log entry arguing the exception |
 | A check, a graph function, or a response schema over a plan | `plan/`, if it needs no model and no source | Nothing else |
@@ -268,7 +272,7 @@ One `LICENSE` sits at the repository root and covers everything published from i
 the component root except the packages under `src/`. A test of a demo script loads it by its file
 path.
 
-`doubles/`, `stubs/`, `fixtures/`, `benchmarks/`, `lotus/`, and `end_to_end/` sit beside `unit/`
+`doubles/`, `stubs/`, `benchmarks/`, `lotus/`, and `end_to_end/` sit beside `unit/`
 and mirror nothing. `lotus/` holds the tier that runs against an installed operator suite, so it is run by
 name, in an environment carrying the `lotus` extra. `end_to_end/` holds the one test that plans a
 real request through a provider, run by name for the same reason. What each directory holds, and
@@ -321,7 +325,7 @@ started by a person rather than by a test run.
 | Agents | Other Blue repositories, or a framework such as LangChain, reaching in through MCP |
 | The Blue operators, the abstract `Operator`, and the operator registry | `blue-data-ops`, reached only through `operators/`. The deterministic operations of `builtin/` are this repository's own (ADR-020) |
 | Data source implementations and the registry | `blue-data`, reached only through `data/` |
-| Building or populating a registry | `blue-data`'s own tooling. The benchmark script is the single exception, and it is not shipped |
+| Building or populating a registry | `blue-data`'s own tooling. The benchmark's and the demo's registration scripts are the two exceptions, and neither is shipped |
 | LOTUS source | Its own package, installed through the `lotus` extra (ADR-004) |
 | A REST API | Reserved as `platform/planner-api/`, not in the first release |
 | A hosted operator registry | The registry and the router are in-process, built by whoever assembles the planner. `blue-data` hosts its data registry that way, and nothing here needs a remote lookup |

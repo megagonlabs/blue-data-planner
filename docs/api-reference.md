@@ -5,8 +5,8 @@ Signatures and types for the `blue_data_planner` library, grouped by the module 
 [architecture.md](architecture.md) explains the run loop these types describe. The `blue-planner`
 command is documented in [cli.md](cli.md), and the MCP server in [mcp.md](mcp.md). The interface
 this page describes is specified in
-[design/09-api-interface-spec.md](../design/09-api-interface-spec.md), which it is kept in sync
-with.
+[design/09-api-interface-spec.md](../design/09-api-interface-spec.md), and the two are kept in
+sync.
 
 ---
 
@@ -55,9 +55,9 @@ and the cover `run` would start executing: a `DISCOVER` node with nothing to wai
 searched and the continuation written and covered. A `DISCOVER` node waiting on rows a fragment
 produces is left unresolved. On `planned`, `failure_reason` is `None`.
 
-The constructor takes the four components and the limits — `DataPlanner(logical_planner,
-physical_planner, fragment_runner, catalog_searcher, limits)` — which is how a caller gives one
-component a different model or substitutes one in a test. `build_data_planner` covers every other
+The constructor takes the four components and the limits: `DataPlanner(logical_planner,
+physical_planner, fragment_runner, catalog_searcher, limits)`. A caller uses it to give one
+component a different model or to substitute one in a test. `build_data_planner` covers every other
 case.
 
 ---
@@ -84,7 +84,7 @@ def build_data_planner(
 | --- | --- | --- | --- |
 | `data_registry` | `DataRegistry` | required, positional | The `blue-data` registry to plan over, from `open_registry` or built by the caller |
 | `suites` | `Sequence[OperatorSuite]` | required | The suites whose operators are registered, in order. A later duplicate operator id raises `OperatorRoutingError` |
-| `model` | `str` | required | The litellm model string every component calls, such as `"openai/gpt-5.6-luna"` |
+| `model` | `str` | required | The litellm model string every component calls, such as `"openai/gpt-6-luna"` |
 | `reasoning_effort` | `str \| None` | `None` | Passed to the model client where the provider accepts one. `None` omits the parameter |
 | `limits` | `RunLimits \| None` | `None` | The bounds the run obeys. `None` uses `RunLimits()` |
 | `llm_client_name` | `str` | `"blue_data_planner"` | Prefixes every property the model client reads, which keeps one process's clients apart in a log |
@@ -106,7 +106,7 @@ Frozen. Every value a planner is built from, with the default each one takes.
 | Field | Type | Default | Holds |
 | --- | --- | --- | --- |
 | `registry_path` | `Path` | required | The serialized `blue-data` registry to plan over |
-| `model` | `str` | `"openai/gpt-5.6-luna"` | The litellm model string every planning component calls |
+| `model` | `str` | `"openai/gpt-6-luna"` | The litellm model string every planning component calls |
 | `reasoning_effort` | `str` | `"low"` | One of `minimal`, `low`, `medium`, `high`, `none`, `off`. `off` omits the parameter, for a model that refuses it |
 | `operator_suites` | `tuple[str, ...]` | `("builtin", "lotus")` | The suites to register, in order |
 | `lotus_model` | `str \| None` | `None` | The model LOTUS operations run on. `None` runs them on `model` |
@@ -165,7 +165,8 @@ def to_dict(self) -> dict[str, Any]: ...
 ```
 
 `to_dict` returns the JSON form every interface writes a run in. `conversations` shrinks to a call
-count and a cost there; each table in `results` shrinks to a `TableSummary` of
+count and a cost there, and the cost is `null` when any call was made on a model with no known
+price; each table in `results` shrinks to a `TableSummary` of
 `SUMMARY_SAMPLE_ROWS` rows.
 
 No field reports one node's outcome: that is the entry `results` holds under the signature the
@@ -220,8 +221,8 @@ against a bound.
 | `spend_control_replan()` | `-> bool` | The same, for a control node |
 | `to_dict()` | `-> dict[str, Any]` | What the run spent, and the bounds it was spent against |
 
-The three bounds that reset inside a request — `plan_corrections`, `parameter_repairs`, and
-`cover_repairs` — have no counter here. Each is counted by the loop that obeys it.
+The three bounds that reset inside a request (`plan_corrections`, `parameter_repairs`, and
+`cover_repairs`) have no counter here. Each is counted by the loop that obeys it.
 
 ### The per-node results
 
@@ -368,7 +369,7 @@ Every data class that crosses a module boundary. The package imports nothing els
 | Vocabulary | `LogicalOperator`, `ControlOperator`, `INPUT_ARITY` |
 | Operators | `PhysicalOperator`, `OperatorOutput` |
 | Catalog | `AttributeRef`, `AttributeView`, `ValueCount`, `EntityMatch`, `SourceRecord`, `CatalogPreview` |
-| Run | `RunResult`, `RunStatus`, `RunLimits`, `RunCounters`, `RunConversations`, `Conversation`, `Turn`, `LLMUsage` |
+| Run | `RunResult`, `RunStatus`, `RunLimits`, `RunCounters`, `RunConversations`, `Conversation`, `Turn`, `LLMUsage`, `total_cost` |
 | Per-step results | `ExecutionResult`, `ExecutionStatus`, `ErrorInfo`, `ErrorKind`, `FragmentResult`, `ParameterAttempt`, `FragmentReviewDecision`, `FailedFragment`, `DiscoveryResult`, `LogicalPlanResult`, `PhysicalPlanResult` |
 | Exceptions | Every exception in the table above |
 

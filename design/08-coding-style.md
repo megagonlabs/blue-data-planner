@@ -99,7 +99,7 @@ The exception is `LLMClient`'s general provider call, `execute_api_call`, which 
 ([06-library.md](06-library.md#llm)). The planner is not such a caller: the run loop takes one ready
 fragment at a time, and inside a component each call is written against what the last one returned.
 
-**Adapter bridge.** The MCP server's handlers are async because the SDK's are. They call the
+**MCP handlers.** The MCP server's handlers are async because the SDK's are. They call the
 synchronous library directly for fast work, and through `asyncio.to_thread` for anything that runs a
 plan, so a long request does not block the event loop and stall the transport for the session.
 
@@ -113,7 +113,7 @@ plan, so a long request does not block the event loop and stall the transport fo
 | Methods and functions | snake_case | `operators_for`, `next_ready`, `execute_physical_operator` |
 | Module-level constants | UPPER_SNAKE_CASE | `INPUT_ARITY` |
 | Enum members | UPPER_SNAKE_CASE | `LogicalOperator.SORT_SUPERLATIVE`, `ErrorKind.RECOVERABLE` |
-| Private members | single `_` prefix | `_run_pass` |
+| Private members | single `_` prefix | `_run_passes` |
 | Modules and packages | lowercase | `operators/`, `fragment_runner.py` |
 
 No double-underscore name mangling. A single `_` marks everything private, whether a method, a
@@ -153,7 +153,7 @@ assigning them to machines, which runs the other way.
 
 ### Identifiers that appear in stored data
 
-Five id formats travel in plans, results, and the registry, and they are not interchangeable. The
+Six id formats travel in plans, results, and the registry, and they are not interchangeable. The
 formats and what resolves each one are fixed in
 [10-data-model.md](10-data-model.md#identifiers). One rule about them is style rather than data.
 
@@ -185,7 +185,7 @@ Six import rules carry architectural weight, and each can be checked by reading 
 | Rule | Why |
 | --- | --- |
 | `types/` imports nothing outside itself, and `plan/` imports only `types/` | Everything may import them without a cycle. It also fixes what belongs there: every data class crossing a module boundary, the catalog readings and `LLMUsage` included, since a type `RunResult` names has to be nameable by everything that reads one. The modules inside `types/` may import each other, and nothing else in `blue_data_planner`. What sits there is declarations, and a function only where it works on one of those shapes and reaches nothing else |
-| `execution/` imports only `types/`: no component, no `operators/`, no `llm/`, no `data/` | Invoking an operator needs no model, no router, and no registry (ADR-011) |
+| `execution/` imports only `types/`: no component, no `operators/`, no `llm/`, no `data/` | Invoking an operator needs no model, no router, and no registry (ADR-055) |
 | Within `lib/src/`, only `data/` imports `blue-data` | One place to change, one place to substitute in tests (ADR-003) |
 | Only `operators/adapters/lotus/` imports LOTUS, and only inside a callable | The package imports with LOTUS absent (ADR-004) |
 | Only `operators/` imports `blue-data-ops` | The Blue operator library enters through one adapter, the way LOTUS does |
@@ -315,7 +315,7 @@ Two more places catch broadly, each for a reason the rule above does not cover. 
 program's own exception, an interpreter exit, and a resource limit tripping all have to reach the
 parent as one reply rather than as an ambiguous exit code. The benchmark harness catches
 `Exception` around each query's run, so a defect in one query leaves the rest of a sweep scorable
-(ADR-016); it ships in no package.
+(ADR-015); it ships in no package.
 
 The two interfaces are the other places it is permitted, each at its boundary and nowhere else in
 its package. The MCP server's tool handler answers with a payload rather than an exception, so

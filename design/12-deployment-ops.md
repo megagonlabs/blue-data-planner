@@ -17,10 +17,10 @@ own `pyproject.toml`. There is no repository-wide version.
 | `blue-data-planner-mcp` | A change to a tool's arguments, its response shape, or the tool list |
 | `blue-data-planner-cli` | A change to a command, an option, or an exit code |
 
-The MCP package pins `blue-data-planner` to an exact version, so a library release requires an MCP
-release. That is deliberate: an adapter translates for one library version and has no reason to
-float ahead of it. Every operator suite is version-bounded for the reason ADR-004 gives: an adapter
-names each operation and its parameters.
+The CLI and MCP packages each pin `blue-data-planner` to an exact version, so a library release
+requires a release of both. That is deliberate: an adapter translates for one library version and
+has no reason to float ahead of it. Every operator suite is version-bounded for the reason ADR-004
+gives: an adapter names each operation and its parameters.
 
 ---
 
@@ -72,7 +72,8 @@ required rather than optional ([05-software-stack.md](05-software-stack.md)).
 
 The CLI and the MCP server are separate packages rather than extras of the library, so there is no
 `blue-data-planner[server]`. Each is installed on its own. The MCP package pins `mcp` below 2.0,
-which is where the decorator-based registration the server uses still sits under one import path.
+since the server is written against the 1.x interface and moving to a new major version is one
+decision for every Blue server at once.
 
 ---
 
@@ -112,7 +113,7 @@ precedence over the exported environment.
 | --- | --- | --- |
 | `OPENAI_API_KEY` | None, required | Every component that calls a model, and LOTUS operations |
 | `BLUE_DATA_REGISTRY_PATH` | None, required | The serialized registry an interface opens and plans against |
-| `BLUE_DATA_PLANNER_MODEL` | `BLUE_DATA_LLM_MODEL`, then `openai/gpt-5.6-luna` | The litellm model string every component uses |
+| `BLUE_DATA_PLANNER_MODEL` | `BLUE_DATA_LLM_MODEL`, then `openai/gpt-6-luna` | The litellm model string every component uses |
 | `BLUE_DATA_PLANNER_REASONING_EFFORT` | `low` | The reasoning effort each component's model call spends: `minimal`, `low`, `medium`, `high`, or `none`, which is sent to the provider and disables reasoning. `off` omits the parameter, for a model that does not accept it. Anything else is refused where it is read |
 | `BLUE_DATA_PLANNER_OPERATORS` | `builtin,lotus` | Which operator suites are registered, as a comma-separated list over `builtin`, `lotus`, and `blue` |
 | `BLUE_DATA_PLANNER_LOTUS_MODEL` | The planner's model, wherever it came from | The litellm model string an interface passes to `lotus_operators`, which LOTUS then configures for itself, and which a deployment can set away from the planner's model (ADR-005). A value set here is never overridden by the CLI's `--model` |
@@ -120,6 +121,7 @@ precedence over the exported environment.
 | `BLUE_DATA_PLANNER_LOTUS_MAX_ROWS` | `5000` | The rows a LOTUS operation accepts before refusing the call, passed to `lotus_operators` |
 | `BLUE_DATA_PLANNER_ENABLE_NL2TABLE` | `false` | Whether `builtin.nl2table` is registered, which writes a Python program and runs it (ADR-020) |
 | `BLUE_DATA_PLANNER_MAX_*` | The `RunLimits` defaults | One per bound a run reports back, listed in [section 5](#5-request-limits) |
+| `BLUE_DATA_PROFILE` | The profile `profile select` chose | The profile the CLI reads, when no `--profile` is given. A name with no profile behind it is refused as `PROFILE_NOT_FOUND` |
 | `BLUE_DATA_CLI_FORMAT` | `table` | The CLI's default output format |
 | `BLUE_DATA_CLI_LOG_LIMIT` | `80` | The characters each line of the log is cut to |
 
@@ -157,12 +159,11 @@ directory it names.
 ## 5. Request limits
 
 `RunLimits` holds every bound the run loop obeys, and it is set once, when the planner is built
-(ADR-014). Nothing overrides one per request. An operator enforcing a bound on work it repeats
-inside a single call holds that number itself, and a deployment does not set it. The values in force
-are the defaults on `RunLimits`. A deployment raises or lowers one of the three a run reports
-back by setting `BLUE_DATA_PLANNER_MAX_` plus the field's name
-([section 4](#4-configuration)); the other three reach a run from a caller that builds the
-planner itself.
+(ADR-014). Nothing overrides one per request. Whether a bound an operator enforces inside its own
+call belongs here is open question 45 in [13-decision-log.md](13-decision-log.md#open-questions).
+The values in force are the defaults on `RunLimits`. A deployment raises or lowers one of the three
+a run reports back by setting `BLUE_DATA_PLANNER_MAX_` plus the field's name ([section
+4](#4-configuration)); the other three reach a run from a caller that builds the planner itself.
 
 Where a bound is counted decides whether a result can report it. Three are counted across a whole
 request and are the fields of `RunCounters`. The other three are spent inside a loop and start again
@@ -215,7 +216,7 @@ rest are set low enough to stop a run that is not converging without stopping on
 The TAG-Bench harness reports operator calls per request, model calls per component, how often a plan
 schedules a replan, and how often each repair fires
 ([11-testing-strategy.md](11-testing-strategy.md#8-the-benchmark)), and the values are meant to be
-replaced by what it shows. Open question 2 holds the one that most needs the measurement.
+replaced by what it shows.
 
 ---
 
@@ -235,20 +236,19 @@ A backend has to be reachable before a request runs. An unreachable source ends 
 unrecoverable operator failure, since retrying with a different operator would fail the same way
 ([04-detailed-architecture.md](04-detailed-architecture.md#failures-that-skip-recovery)).
 
-blue-data-planner writes nothing of its own to disk. There is no plan store, no session log, and no
-model response cache ([10-data-model.md](10-data-model.md#what-is-not-stored)).
+blue-data-planner writes nothing of its own to disk by default. There is no plan store and no
+session log, and the model response cache is opened only for a caller that turns it on (ADR-054,
+[10-data-model.md](10-data-model.md#what-is-not-stored)).
 
 ---
 
 ## 7. Logging
 
-Logging uses the standard library, on a logger named for the package, with no handler configured.
-The library attaches nothing to the root logger and prints nothing on import, so an embedding
-application decides the format and the destination.
-
-```python
-logging.getLogger("blue_data_planner")
-```
+The library writes no log records of its own, attaches nothing to the root logger, and prints
+nothing on import. A dependency it calls, such as litellm, logs under its own logger, and an
+embedding application decides the level, the format, and the destination of those. The MCP server
+sets litellm's loggers to warnings when it starts, so a per-call record does not reach the client's
+log.
 
 The run record is the more useful instrument, and it is not a log. `RunResult` carries every plan
 the request produced, every fragment attempt including the rejected ones, the counters, and one
@@ -282,40 +282,24 @@ exists would be guessing at its shape.
 
 ---
 
-## 9. Release process
+## 9. Versioning a release
 
-A release is per package and driven by a tag.
+A release is per package. Its version is bumped in the package's own `pyproject.toml`, and the
+library releases together with the CLI and MCP packages whenever the pin between them changes
+([section 1](#1-versioning)).
 
-1. Bump the package's version in its own `pyproject.toml`.
-2. Add a `CHANGELOG.md` entry.
-3. Merge, then push a `v*.*.*` tag, which is what CI publishes on.
+---
 
-The library and the MCP package release together whenever the pin between them changes. Publishing
-builds and uploads one package at a time:
+## 10. Publishing
+
+Each package builds its wheel and sdist with its own `scripts/build.sh`. The library is published by
+hand, from the repository root:
 
 ```bash
 bash lib/scripts/build.sh && bash lib/scripts/publish.sh
 ```
 
----
-
-## 10. CI/CD
-
-GitHub Actions runs the gates, since the repositories are already on GitHub and nothing here needs a
-runner another platform provides.
-
-| Stage | Trigger | Actions |
-| --- | --- | --- |
-| Verify | Every push and pull request | `pytest`, `ruff check`, `ruff format --check`, `pyright`, per package |
-| Build | Every push to `dev` | Build each package's wheel and sdist |
-| Publish | A `v*.*.*` tag | Publish each changed package to PyPI |
-
-Verify has to pass before a merge. Publish is gated on a tag a maintainer pushes.
-
-Two things the pipeline deliberately does not do. It does not run the benchmark, which needs a
-provider and costs money per run, so TAG-Bench stays a run a person starts and watches
-([11-testing-strategy.md](11-testing-strategy.md#8-the-benchmark)). And it enforces no coverage
-threshold, only reporting the number.
+`publish.sh` uploads what `build.sh` wrote into `lib/dist/` to PyPI with `twine`.
 
 ---
 

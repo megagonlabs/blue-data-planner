@@ -117,7 +117,7 @@ produces the data itself, for example from the model's world knowledge.
 
 | Kind | Nodes | What happens |
 | --- | --- | --- |
-| Operator | `SCAN`, `FILTER`, `PROJECT`, `EXPAND`, `AGGREGATE`, `DISTINCT`, `SORT_SUPERLATIVE`, `JOIN`, `UNION` | Absorbed into a fragment and run by the operator that fragment is bound to |
+| Operator | `SCAN`, `FILTER`, `PROJECT`, `EXPAND`, `AGGREGATE`, `DISTINCT`, `SORT_SUPERLATIVE`, `JOIN`, `UNION` | Grouped into a fragment and run by the operator that fragment is bound to |
 | Terminal | `RETURN` | Names the columns holding the answer. Bound to no operator |
 | Control | `REPLAN`, `DISCOVER` | Ends the pass and returns to the logical planner. Ready only once every input it lists has a result |
 
@@ -136,8 +136,8 @@ from the rest.
 | Connected | The nodes describe one computation |
 | Convex — no outside node lies on a path between two inside it | Execution cannot leave an operator and come back |
 | Disjoint from every other fragment | Each node runs once, by one operator |
-| Single exit — only the root may have consumers outside | A fragment returns its root's output, so an absorbed node's table is never materialized |
-| Operator nodes only | `RETURN`, `REPLAN`, and `DISCOVER` are never absorbed |
+| Single exit — only the root may have consumers outside | A fragment returns its root's output, so the table of a non-root node is never materialized |
+| Operator nodes only | `RETURN`, `REPLAN`, and `DISCOVER` are never grouped into a fragment |
 
 Candidates follow from what each operator declares: the logical operators it can execute, the
 source kinds it can read, and whether it accepts tables bound in from elsewhere. A model picks one
@@ -161,7 +161,7 @@ outward once its own bound is spent.
 | Cover repair | The whole cover, against the same logical plan | `PhysicalPlanner` | `cover_repairs`, per logical plan |
 | Replan | The logical plan | `LogicalPlanner` | `failure_replans` and `control_replans`, per request |
 
-The cover repair decides every binding again, and results already produced are filed under a
+The cover repair decides every binding again. Results already produced are stored under a
 signature of the work that produced them (`plan/signatures.py`), so a new cover re-runs only what
 the model changed.
 
@@ -330,7 +330,7 @@ FragmentRunner.run(fragment, conversation, inputs, counters)
       out of attempts → status needs_repair, carrying the last assessment
 ```
 
-Only the fragment's root node has its declared columns checked, neither a zero-row table nor an
+Only the fragment's root node has its declared columns checked. Neither a zero-row table nor an
 empty bundle is a failure, and every attempt reads the fragment's original input.
 
 ## Data flow: resolving a discovery node

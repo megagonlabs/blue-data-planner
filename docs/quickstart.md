@@ -29,7 +29,7 @@ That writes `data/demo/registry.json`. `data/` is git-ignored, so nothing here i
 ```bash
 export OPENAI_API_KEY=sk-...                      # a real key, not this placeholder
 export BLUE_DATA_REGISTRY_PATH=$PWD/data/demo/registry.json
-export BLUE_DATA_PLANNER_MODEL=openai/gpt-5.6-luna
+export BLUE_DATA_PLANNER_MODEL=openai/gpt-6-luna
 export BLUE_DATA_PLANNER_OPERATORS=builtin        # builtin alone: the lotus extra is not installed
 ```
 
@@ -53,8 +53,8 @@ blue-planner data query "Which three countries do the most customers come from?"
 ok  operator calls 3  model calls 12  $0.00
 ```
 
-Nothing in the request named a table. The planner searched the registry, wrote a plan over what it
-found, and ran it.
+The request did not name a table. The planner searched the registry, wrote a plan over what it found,
+and ran the plan to produce the answer shown above.
 
 ## 5. See what the run did
 
@@ -63,14 +63,17 @@ blue-planner data query "Which three countries do the most customers come from?"
 ```
 
 `--log` prints each fragment: the operator it bound, the columns it produced, and the first rows.
-Its closing two lines are the bounds the run spent against:
+The last two lines show how much of each limit the run used:
 
 ```text
 counters  operator calls 3/30   failure replans 0/2   control replans 1/5
 model     12 calls   $0.00
 ```
 
-[`examples/feature-demos/inspect_a_run.output.txt`](../examples/feature-demos/inspect_a_run.output.txt) shows the whole shape.
+The full log of this command is in
+[the CLI reference](../platform/planner-cli/README.md#output-and-diagnostics). To read the same
+records from Python, see
+[`examples/feature-demos/inspect_a_run.py`](../examples/feature-demos/inspect_a_run.py).
 
 ## 6. The same from Python
 
@@ -84,7 +87,7 @@ from blue_data_planner.operators.builtin import BuiltinSuite
 planner = build_data_planner(
     open_registry(Path("data/demo/registry.json")),
     suites=[BuiltinSuite()],
-    model="openai/gpt-5.6-luna",
+    model="openai/gpt-6-luna",
 )
 
 result = planner.run("Which three countries do the most customers come from?")

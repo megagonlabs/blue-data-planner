@@ -23,8 +23,10 @@ A test is not a description of a mechanism. If a test can only fail when someone
 rewrites an internal step, it is describing how the code works rather than what it does, and it will
 have to be rewritten every time the step changes for a reason nobody disagrees with.
 
-A test is not a checklist of branches. Coverage is a report, not a target
-([section 10](#10-coverage)).
+A test is not a checklist of branches, and no coverage percentage is measured or enforced. Chasing
+one is the fastest way to write the tests this section rules out, and a module can reach any
+percentage without showing one of the behaviors [section
+6](#6-what-each-components-tests-have-to-show) names.
 
 ### The names are the description
 
@@ -122,7 +124,6 @@ is a real gap and it is named as one in [section 9](#9-what-is-not-covered).
 | --- | --- | --- |
 | `pytest` | Test runner | `dev` extra, every package |
 | `pytest-asyncio` | Async tests, `asyncio_mode = "auto"` | `dev` extra of `platform/planner-mcp/`, the one package with async tests |
-| `pytest-cov` | Coverage, reported per run | `dev` extra |
 | `ruff` | Lint and import order, line length 100 | `dev` extra |
 | `pyright` | Types, strict mode | `dev` extra |
 
@@ -144,14 +145,13 @@ uv run pyright
 `physical_planner.py` is `tests/unit/test_physical_planner.py` and the test for `plan/validation.py`
 is `tests/unit/plan/test_validation.py`. It mirrors `lib/scripts/` and
 `lib/tests/benchmarks/` too, which is why `tests/unit/scripts/demo/` and
-`tests/unit/benchmarks/tag_bench/` exist. Six directories sit beside it and mirror nothing.
+`tests/unit/benchmarks/tag_bench/` exist. Five directories sit beside it and mirror nothing.
 
 ```text
 lib/tests/
   conftest.py           # fixtures every tier shares
   doubles/              # in-memory replacements for I/O boundaries
   stubs/                # deterministic fakes for heavy optional dependencies
-  fixtures/             # recorded inputs
   unit/                 # mirrors src/blue_data_planner/, scripts/, and benchmarks/
     types/  plan/  data/  llm/  operators/  execution/  prompts/  scripts/  benchmarks/
   benchmarks/           # the TAG-Bench build steps and harness, run as modules, never by pytest
@@ -175,7 +175,7 @@ The two serve different purposes and live apart.
 | Directory | Replaces | Why |
 | --- | --- | --- |
 | `doubles/` | An I/O boundary this repository owns | So a test runs offline against real behavior |
-| `stubs/` | A heavy optional dependency | So the default suite runs without it installed |
+| `stubs/` | A dependency that would reach a provider, or a heavy optional one | So the default suite runs offline, deterministically, and without the optional one installed |
 
 Doubles are injected through a fixture. Stubs are put on the import path, and on pyright's
 resolution path through `extraPaths`, so both the test run and the type check see them.
@@ -209,6 +209,8 @@ reads is its input, not its subject.
 ### Stubs
 
 `stubs/` holds `litellm` and LOTUS, and each is installed before anything reaches its lazy import.
+`litellm` is a runtime dependency, and its stub sits ahead of the installed package so no default
+test reaches a provider.
 The LOTUS stub registers the same data frame operations the suite does and returns scripted frames,
 so the adapter's whole path runs with LOTUS absent. A stub stands in for the tiers that run by
 default; the LOTUS tier reaches the installed package.
@@ -323,20 +325,7 @@ Naming a gap is more useful than implying it is covered.
 
 ---
 
-## 10. Coverage
-
-Coverage is measured and reported, and no minimum is enforced. `lib/pyproject.toml` sets
-`addopts = "--cov=src --cov-report=term-missing"`, so every run prints it.
-
-A threshold would be the wrong instrument, and a harmful one here. Chasing a percentage is the
-fastest way to produce the tests section 1 rules out: one per branch, named after a step, asserting
-that the code did what the code does. What the number would be chasing is already named in
-[section 6](#6-what-each-components-tests-have-to-show), and a module can reach any percentage
-without demonstrating a single line of it.
-
----
-
-## 11. Running the tests
+## 10. Running the tests
 
 ```bash
 # Library unit tests: fast, offline, no API key
@@ -348,8 +337,8 @@ cd lib && uv run pytest tests/unit/test_physical_planner.py
 # The MCP adapter
 cd platform/planner-mcp && uv run pytest
 
-# The LOTUS tier, in an environment carrying the lotus extra
-cd lib && uv run pytest tests/lotus
+# The LOTUS tier, in the environment lib/README.md sets up for it
+cd lib && UV_PROJECT_ENVIRONMENT=.venv-lotus uv run --extra lotus --extra dev pytest tests/lotus
 
 # The end-to-end tier, named by path because testpaths excludes it, against a real provider
 cd lib && uv run pytest tests/end_to_end

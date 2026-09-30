@@ -27,7 +27,7 @@ The canonical interface. The CLI and the MCP server call it; neither adds behavi
 | `blue_data_planner.logical_planner`, `.physical_planner`, `.fragment_runner` | The three planning components, one module each |
 | `blue_data_planner.catalog_searcher` | `CatalogSearcher` |
 | `blue_data_planner.run_state` | `RunState` |
-| `blue_data_planner.types` | Plan, node, result, catalog, and limit types, the enums, `summarize_table`, and every exception this library defines |
+| `blue_data_planner.types` | Plan, node, result, catalog, and limit types, the enums, `summarize_table`, `total_cost`, and every exception this library defines |
 | `blue_data_planner.plan` | `validate_logical_plan`, `validate_physical_plan`, `candidate_fragments`, `candidate_label`, `fragment_frontier`, `signatures`, the response schemas, and the `NONE` and `REUSE` markers |
 | `blue_data_planner.execution` | `execute_physical_operator`, `check_output_columns`, `project_answer` |
 | `blue_data_planner.operators` | `OperatorRouter`, `OperatorSuite`, `operator_suite`, `OPERATOR_SUITE_NAMES` |
@@ -39,7 +39,9 @@ The canonical interface. The CLI and the MCP server call it; neither adds behavi
 
 Public is the package root, every module directly inside it, the `__init__.py` of `types/`,
 `plan/`, `execution/`, `operators/`, `data/`, and `llm/`, and the module of each suite listed above.
-A module nested anywhere else is not, and can be split or renamed within a minor version. A caller
+`prompts/` is not public: the prompt text and the functions that render run data into it change
+with the prompts, within a minor version. A module nested anywhere else is not public either, and
+can be split or renamed within a minor version. A caller
 who wants physical operators alone reads a suite's module and `types`, and constructs no planner.
 
 A public name is covered by semantic versioning, so renaming or removing one breaks a version.
@@ -137,7 +139,7 @@ from blue_data_planner.operators.builtin import BuiltinSuite
 planner = build_data_planner(
     open_registry(Path("registry.json")),
     suites=[BuiltinSuite()],
-    model="openai/gpt-4o",
+    model="openai/gpt-6-luna",
 )
 result = planner.run("Which three countries do the most customers come from?")
 ```
@@ -228,14 +230,15 @@ Exhaustion, operator failure, and provider failure are statuses, not exceptions 
 | Exception | Raised when | Reaches a caller |
 | --- | --- | --- |
 | `UnknownOperatorSuiteError` | A name registers no operator suite | Always, from `operator_suite` and `build_data_planner_from_settings` |
-| `InvalidSettingError` | A `PlannerSettings` field, or the properties an `LLMClient` is built with, carry a value the planner cannot be built with | Always, from constructing `PlannerSettings` or an `LLMClient`, `build_data_planner` included |
+| `InvalidSettingError` | A `PlannerSettings` field, or the properties an `LLMClient` is built with, carry a value the planner cannot be built with, or a second LOTUS suite asks for a model or reasoning effort other than the one LOTUS is configured with in this process | From constructing `PlannerSettings`, an `LLMClient`, or a suite's operators, `build_data_planner` included. Properties a single call carries are checked on that call, and inside a run that ends the request as `planner_failed` |
 | `RegistryUnreadableError` | The path a registry is opened from names no file, or the file cannot be read | Always, from `open_registry` and `build_data_planner_from_settings` |
-| `OperatorRoutingError` | Two suites register the same operator id, or an operator id is unknown | Always, from `build_data_planner` and a direct `OperatorRouter` call |
+| `OperatorRoutingError` | Two suites register the same operator id, or an operator id is unknown | From `build_data_planner` and a direct `OperatorRouter` call. Inside a run, an unknown operator id ends the request as `planner_failed` |
 | `PlanFormatError` | A plan payload read by `from_dict` is missing a key or carries a value its node kind does not take | Always, from `from_dict` |
 | `UnknownNodeError`, `UnknownFragmentError` | A node or fragment id the plan does not hold | Always, from the plan method that looked it up |
 | `PlanValidationError` | A plan fails a structural check | Only from a direct `validate_logical_plan` or `validate_physical_plan` call. Inside a run, `LogicalPlanner` catches it and writes the plan again, and a cover failing validation ends the request as `planner_failed` |
 | `ReturnAnswerError` | The finished rows do not carry a column the ending names | Only from a direct `project_answer` call. The run loop answers it with a replan |
 | `BudgetExhaustedError` | The operator call budget reaches its cap | Only from a direct `execute_physical_operator` call. `FragmentRunner` catches it and returns `budget_exhausted` |
+| `DeclaredTypeMismatchError` | A value does not spell the type declared for its column | Only from a direct call to the coercion in `execution/output_columns.py`. `check_output_columns` turns it into a recoverable failed result |
 | `RecoverableOperatorError`, `UnrecoverableOperatorError` | An operator refuses its input, or fails for a reason no other operator would avoid | Never. `execute_physical_operator` turns each into a failed `ExecutionResult` |
 | `SourceQueryError`, `SourceUnreachableError` | A source refuses a query, or the registry holds no connectable source under a name | Only from a direct call into `data/`. An operator reading the source turns each into an operator error |
 | `LLMError` | The provider fails after retries, or answers in a shape the client cannot read | Only from a direct `LLMClient` call. `DataPlanner` ends the request as `llm_failed` |
@@ -261,7 +264,7 @@ blue-planner --version
 
 | Option | Effect |
 | --- | --- |
-| `--profile NAME` | Which profile supplies configuration. Given before the component |
+| `--profile NAME` | Which profile supplies configuration. Given before the component. Without it, `BLUE_DATA_PROFILE` names the profile, then the one `profile select` chose |
 | `--version` | Print the version of the CLI package and exit |
 
 ### `blue-planner data`
@@ -271,9 +274,9 @@ blue-planner data query REQUEST [--registry-path PATH] [--model NAME] [--format 
                                 [--explain] [--log] [--log-limit N]
 ```
 
-`data query` runs `run` and prints the answer. With `--explain` it runs `plan` instead, prints the
-plan, and spends no operator call. The request is a positional parameter in plain language; no
-command accepts a plan.
+`data query` runs `run` and prints the answer. With `--explain` it runs `plan` instead, prints every
+plan version and every cover the planning produced, and spends no operator call. The request is a
+positional parameter in plain language; no command accepts a plan.
 
 | Option | Effect |
 | --- | --- |
@@ -306,7 +309,7 @@ blue-planner profile select NAME
 | `list` | Names every profile, marking the selected one |
 | `config` | Prompts for every required parameter, prompts for one, or sets one. A secret is always prompted for, never taken as a value |
 | `inspect` | Every parameter, the value in force, and the tier that supplied it |
-| `select` | Makes one profile the one later commands read |
+| `select` | Makes one profile the one later commands read, unless `--profile` or `BLUE_DATA_PROFILE` names another |
 
 ### Output
 
@@ -341,7 +344,7 @@ A usage error prints the usage message alone, whatever `--format` says.
 
 | Code | Raised for |
 | --- | --- |
-| `CONFIG_INVALID` | A required parameter with no value, such as the registry path, or a value that cannot be used, such as an unknown operator suite |
+| `CONFIG_INVALID` | A required parameter with no value, such as the registry path, a value that cannot be used, such as an unknown operator suite, or `profile add` naming a profile that already exists |
 | `REGISTRY_UNREADABLE` | A registry path that does not exist or does not parse |
 | `PROFILE_NOT_FOUND` | A named profile that does not exist |
 | `ABORTED` | A declined confirmation prompt |

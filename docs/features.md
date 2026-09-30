@@ -26,7 +26,7 @@ from blue_data_planner.operators.builtin import BuiltinSuite
 registry = open_registry(Path("data/demo/registry.json"))
 request = "Which three countries do the most customers come from?"
 
-planner = build_data_planner(registry, suites=[BuiltinSuite()], model="openai/gpt-5.6-luna")
+planner = build_data_planner(registry, suites=[BuiltinSuite()], model="openai/gpt-6-luna")
 
 result = planner.run(request)
 print(result.status)  # ok
@@ -88,9 +88,10 @@ The five rules a cover obeys are in
 
 ## Three ordered repairs
 
-A failure is answered where it was caused, by the parameter repair, the cover repair, or the
-replan, and it moves outward only when the narrower repair runs out of attempts. What each
-rewrites and what bounds it are in [architecture.md](architecture.md#the-three-repairs).
+The planner answers a failure at the narrowest repair that can fix it: the parameter repair, the
+cover repair, or the replan. It moves to the next only when the narrower repair runs out of
+attempts. What each rewrites and what bounds it are in
+[architecture.md](architecture.md#the-three-repairs).
 
 Plans are never edited in place. A repair adds a version, and results already produced are filed
 under a signature of the work that produced them, so a new cover re-runs only what changed.
@@ -101,7 +102,7 @@ from blue_data_planner import RunLimits, build_data_planner
 planner = build_data_planner(
     registry,
     suites=[BuiltinSuite()],
-    model="openai/gpt-5.6-luna",
+    model="openai/gpt-6-luna",
     limits=RunLimits(operator_calls=10, parameter_repairs=1, cover_repairs=1),
 )
 
@@ -131,7 +132,7 @@ from blue_data_planner.operators.builtin import BuiltinSuite
 planner = build_data_planner(
     registry,
     suites=[BlueSuite(), LotusSuite(max_rows=2000), BuiltinSuite(with_nl2table=True)],
-    model="openai/gpt-5.6-luna",
+    model="openai/gpt-6-luna",
 )
 ```
 
@@ -146,19 +147,19 @@ process. It is off unless a caller asks for it, and turning it on accepts three 
 
 **It is not a security boundary.** The program runs with the interpreter's own builtins and
 whatever it imports. Nothing checks it first. A program that reads the filesystem, opens a network
-connection, or reaches out of the child process is doing something this entry does not prevent and
-does not try to. The child process bounds a program that is wrong — a wall clock everywhere, a
+connection, or reaches out of the child process is doing something this operator does not prevent
+and does not try to. The child process bounds a program that is wrong — a wall clock everywhere, a
 memory and CPU limit and no file writes where the platform offers them — not one written to escape.
 
 **Turn it on only with a model and sources the deployment trusts.** Not on a deployment that
 untrusted requests reach.
 
-**The rows in a registered source reach the prompt.** The entry renders five sample rows of every
-entity a fragment reads into the prompt the program is written from. Text stored in a source is
-read by the model that writes the program, so a source someone else can write to is an input to
-that program. This is the route by which a model is coerced into writing a program it would not
-otherwise write. CVE-2025-68613 turned the same feature in LangChain's PythonREPLTool into remote
-code execution, against a check like the one this entry no longer pretends to have.
+**The rows in a registered source reach the prompt.** The operator renders five sample rows of
+every entity a fragment reads into the prompt the program is written from. Text stored in a source
+is read by the model that writes the program, so a source someone else can write to is an input to
+that program. A model can be coerced this way into writing a program it would not otherwise write.
+CVE-2025-68613 turned the same feature in LangChain's PythonREPLTool into remote code execution,
+even though that tool had a check like the one this operator no longer claims to have.
 
 ---
 
@@ -178,7 +179,7 @@ for found in result.results.values():
             print(match.path, match.source_kind, [one.name for one in match.attributes])
 ```
 
-The same search is reachable without a plan, through the catalog reading that `data/` exposes:
+The same search runs without a plan, through the catalog reading that `data/` exposes:
 
 ```python
 from blue_data_planner.data import DataCatalog, open_registry
@@ -220,8 +221,8 @@ blue-planner data query "..." --log --format json  # the answer, plus what the r
 ```
 
 `--log` reports the run cover by cover: each fragment's operator, the nodes it covered, the source
-each scan read, and how it ended. [cli.md](cli.md) forwards to the source of truth for commands,
-profiles, output, and exit codes.
+each scan read, and how it ended. [cli.md](cli.md) is the reference for commands, profiles, output,
+and exit codes.
 
 ---
 

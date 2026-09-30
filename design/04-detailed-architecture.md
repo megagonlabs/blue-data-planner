@@ -29,8 +29,8 @@ flowchart TB
     RUN -->|"budget spent"| FAILB["result: budget_exhausted"]
 ```
 
-The diagram shows the endings the flow itself produces. `operator_failed` and `llm_failed` can end a
-request from any stage, so both appear in the table under
+The diagram shows the endings the flow itself produces. `operator_failed`, `llm_failed`, and
+`planner_failed` can end a request from any stage, so all three appear in the table under
 [what the caller receives](#what-the-caller-receives) and not here. `planned` is the ending of the
 planning-only operation, which follows the same flow and stops where it would first write
 parameters and execute, or would project an answer
@@ -266,7 +266,7 @@ operator.
 | Rule | Why |
 | --- | --- |
 | Connected | The nodes have to describe one computation |
-| Convex: no node outside the fragment lies on a path between two nodes inside it | Execution cannot leave an operator and come back |
+| Convex: no node outside the fragment lies on a path between two nodes inside it | Execution cannot leave an operator and come back. Over a valid plan the single-exit and disjointness rules give it, so it is not checked on its own (ADR-057) |
 | Disjoint from every other fragment | Each node is run exactly once, by one operator |
 | Single exit: only the root may have consumers outside the fragment | A fragment returns its root's output and nothing else, so a grouped node's table is never materialized. A node read from outside the fragment would leave that reader waiting for a table nobody produces |
 | Contains only operator nodes | `RETURN`, `REPLAN`, and `DISCOVER` are never grouped |
@@ -614,8 +614,8 @@ returns that entity, its recorded row count, and a view of every attribute it ho
 attribute's name, its type, the description enrichment wrote for it, its most frequent values with
 their counts, and how many of the counted rows are null or empty
 ([10-data-model.md](10-data-model.md#what-a-search-returns)). The run keeps the hits under the
-node's id, and every resolved node's hits together are the run's catalog context. Nothing is
-converted into rows, and no operator call is spent.
+signature of the node's work, and every resolved node's hits together are the run's catalog context.
+Nothing is converted into rows, and no operator call is spent.
 
 A term that matches no entity finds nothing, and a node whose every term found nothing resolves to
 an empty result (ADR-021). The logical planner reads the catalog context node by node, each with the
@@ -794,7 +794,7 @@ it was cut up is wrong, and repairing the cut should not require rewriting the p
 The run returns to the logical planner ([section 4](#4-returning-to-the-logical-planner)), which
 writes a continuation covering the remaining work. This is the repair for a plan that asks for
 something no arrangement of the available operators can do, and it is where a review's `replan`
-decision goes directly, skipping the three narrower repairs.
+decision goes directly, skipping the two narrower repairs.
 
 A scan that named the wrong entity arrives here too. The logical planner names each scan's source,
 so reading a different entity is a continuation: a scan that already ran is carried over unchanged,

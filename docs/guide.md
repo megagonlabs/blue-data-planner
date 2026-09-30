@@ -1,7 +1,7 @@
 # Guide
 
 Task by task through the `blue_data_planner` library, in the order a caller meets them. The
-command line does the same two operations without Python — see [cli.md](cli.md).
+command line does the same two operations without Python; see [cli.md](cli.md).
 [api-reference.md](api-reference.md) holds every signature, parameter, and result type. The
 development setup and the test commands are in [lib/README.md](../lib/README.md).
 
@@ -15,7 +15,7 @@ Three things before the first call.
 | --- | --- |
 | The library | `bash lib/scripts/install.sh`, per [installation.md](installation.md) |
 | A model provider key | `OPENAI_API_KEY` in the environment. `litellm` reads it on each call, so a library-only caller sets it too |
-| A serialized `blue-data` registry | Built by `blue-data` before it reaches this package — see [quickstart.md](quickstart.md) |
+| A serialized `blue-data` registry | Built by `blue-data` before it reaches this package: see [quickstart.md](quickstart.md) |
 
 ```python
 from pathlib import Path
@@ -41,7 +41,7 @@ from blue_data_planner.operators.builtin import BuiltinSuite
 planner = build_data_planner(
     registry,
     suites=[BuiltinSuite(), LotusSuite()],
-    model="openai/gpt-5.6-luna",  # a litellm model string, used by every component
+    model="openai/gpt-6-luna",  # a litellm model string, used by every component
     reasoning_effort="low",       # omitted from the call where it is left out
     limits=RunLimits(),
 )
@@ -127,7 +127,7 @@ planner configured for a benchmark and one configured for an interactive session
 planner = build_data_planner(
     registry,
     suites=[BuiltinSuite()],
-    model="openai/gpt-5.6-luna",
+    model="openai/gpt-6-luna",
     limits=RunLimits(operator_calls=10, parameter_repairs=1, cover_repairs=1, failure_replans=1),
 )
 ```
@@ -164,8 +164,8 @@ if lotus_is_installed():
 security boundary. Read [what turning it on accepts](features.md#builtinnl2table-is-experimental)
 first.
 
-A caller that expects LOTUS operators checks `lotus_is_installed()` first, since the suite
-registers nothing and says nothing where LOTUS is missing.
+A caller that expects LOTUS operators checks `lotus_is_installed()` first, because the suite
+registers nothing and gives no warning when LOTUS is missing.
 
 A caller holding configured names rather than classes looks each one up:
 
@@ -209,10 +209,10 @@ for fragment in cover.fragments:
 ```
 
 `fragment.input_data` names each table the call reads: the node whose rows it takes, and the name
-and description the cover gave them. A fragment a review turned down is filed here too, with the
-objection as its `failure_reason` and the rows it produced still on `result`, so which step sent
-the run to a repair is read off the record. Every earlier cover is in `result.pipeline.physical_plans`, keyed by cover id; walking all
-of them is what the CLI's `--log` does.
+and description the cover gave them. A fragment that a review rejected is recorded here too, with
+the objection as its `failure_reason` and the rows it produced still on `result`, so the record
+shows which step sent the run to a repair. Every earlier cover is in
+`result.pipeline.physical_plans`, keyed by cover id; the CLI's `--log` walks all of them.
 
 A `DISCOVER` node's entry is a `DiscoveryResult` instead, carrying the search terms and the
 entities each matched:
@@ -246,7 +246,7 @@ request as `llm_failed`, and catches any other `BlueDataPlannerError` and ends i
 from blue_data_planner import BlueDataPlannerError
 
 try:
-    planner = build_data_planner(registry, suites=suites, model="openai/gpt-5.6-luna")
+    planner = build_data_planner(registry, suites=suites, model="openai/gpt-6-luna")
 except BlueDataPlannerError as error:
     raise SystemExit(f"cannot build a planner: {error}")
 ```

@@ -233,8 +233,8 @@ scientists and the review has something to hold the rows against. Titles such as
 "Research Scientist" do not answer it.
 
 The parameter repair goes first, because it is the cheapest and the most often right: the same
-operator over the same nodes, with the instruction written again. Here it does not help, since no
-wording makes SQL read a title for meaning. The run then moves to the cover repair, which decides
+operator over the same nodes, with its parameters written again. Here it does not help, since no
+query makes SQL read a title for meaning. The run then moves to the cover repair, which decides
 every binding again. The model keeps `f82d03b6e`, the profiles scan, which ran and is unaffected,
 and cuts `scan_postings`, `keep_bay_area`, and `keep_data_scientists` differently.
 
@@ -329,10 +329,10 @@ It gets back structured JSON: the rows, and what each node produced.
   "results": {
     "a3f1c208": {"search_terms": ["job postings"], "matches": [{"...": {}}], "dropped_terms": 0},
     "7b40de91": {"status": "ok", "failure_reason": null, "operator_id": "builtin.scan",
-                 "row_count": 48, "output": [{"row_count": 48, "columns": ["..."],
-                                              "sample_rows": [{"...": {}}]}],
+                 "row_count": 48, "error": null, "report": null,
+                 "output": [{"row_count": 48, "columns": ["..."], "sample_rows": [{"...": {}}]}],
                  "attempts": [{"parameters": {"...": {}}, "status": "ok", "error": null,
-                               "row_count": 48, "assessment": "..."}]}
+                               "row_count": 48, "report": null, "assessment": "..."}]}
   },
   "counters": {"operator_calls": 7, "failure_replans": 0, "control_replans": 1,
                "limits": {"...": {}}},
@@ -471,7 +471,8 @@ operator can do. Without it, a description promising SQL over anything is all th
 on.
 
 Registering is the whole integration. Nobody edits planner code and nobody edits a prompt by hand,
-because both planning components build their choices from the router while they plan.
+because the physical planner and the fragment runner build their choices from the router while
+they plan.
 
 ```python
 from blue_data_planner.operators import OperatorRouter
@@ -484,7 +485,7 @@ router = OperatorRouter()
 # operator_registry is a blue-data-ops OperatorRegistry, built the way that package documents
 for operator in blue_operators(operator_registry, data_registry):
     router.register(operator)
-for operator in lotus_operators("openai/gpt-4o"):  # empty when LOTUS is not installed
+for operator in lotus_operators("openai/gpt-6-luna"):  # empty when LOTUS is not installed
     router.register(operator)
 # with_nl2table registers the experimental entry that writes and runs a Python program; it is
 # not a security boundary (ADR-020)
