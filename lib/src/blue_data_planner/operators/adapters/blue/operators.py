@@ -251,9 +251,11 @@ OPERATIONS: tuple[Operation, ...] = (
         needs_data_registry=True,
         source_kinds=frozenset({"sql/sqlite", "sql/mysql", "sql/postgres"}),
         accepts_bound_inputs=True,
+        # A declaration has no vocabulary for "every scan reads one database", so the
+        # constraint lives here, where the physical planner reads it (open question 44).
         limitations=(
-            "express a semantic predicate, or bind tables from other fragments into the query it "
-            "writes"
+            "express a semantic predicate, or read more than one database in one query, so a "
+            "fragment whose scans name two sources is not its to take"
         ),
     ),
 )
