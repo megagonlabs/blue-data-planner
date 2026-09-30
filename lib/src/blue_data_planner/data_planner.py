@@ -104,7 +104,6 @@ class DataPlanner:
     def _run_plans(
         self, state: RunState, execute: bool
     ) -> tuple[RunStatus, str | None, DataBundle | None]:
-        """The replan loop: write a plan, run it, and write another while a replan is allowed."""
         replan_reason: str | None = None
         shown_discovery_node_ids: frozenset[str] = frozenset()
         while True:
@@ -128,6 +127,9 @@ class DataPlanner:
             shown_discovery_node_ids = discovery_node_ids
             if written.plan is None:
                 return written.status, written.failure_reason, None
+            # Every version written is kept, including one no cover is ever installed for; the
+            # pointer moves only with a cover, so the current pair always matches.
+            state.record_logical_plan(written.plan)
             ending = self._run_covers(state, written.plan, held, execute)
             if ending.status is not None:
                 return ending.status, ending.reason, ending.answer
@@ -143,13 +145,12 @@ class DataPlanner:
     def _run_covers(
         self, state: RunState, plan: LogicalPlan, held: dict[str, NodeResult], execute: bool
     ) -> _Ending:
-        """The cover loop: cover this plan, run the cover, and cover it again while allowed."""
         failed_fragment: FailedFragment | None = None
         for _repair in range(self._limits.cover_repairs + 1):
             written = self._write_cover(state, plan, held, failed_fragment)
             if written.plan is None:
                 # A plan no operator can cover goes back to the logical planner, with no operator
-                # call spent, and never enters the pipeline.
+                # call spent, and stays in the pipeline without becoming current.
                 return _Ending(reason=written.failure_reason, next_step=_Next.FAILURE_REPLAN)
             # The version and its cover are installed together, so the two pointers always name a
             # matching pair and every signature describes the plan and cover that are current.
@@ -168,7 +169,6 @@ class DataPlanner:
         return _Ending(reason=failed_fragment.result.failure_reason, next_step=_Next.FAILURE_REPLAN)
 
     def _run_passes(self, state: RunState, execute: bool) -> _Ending:
-        """Run everything the current cover makes ready, one fragment or one pass at a time."""
         while True:
             ready = state.next_ready()
             if not execute and (ready is None or isinstance(ready, PhysicalPlanFragment)):
@@ -184,7 +184,6 @@ class DataPlanner:
                 return ending
 
     def _run_fragment(self, state: RunState, fragment: PhysicalPlanFragment) -> _Ending | None:
-        """Run one fragment, and say which loop outside takes over when it fails."""
         result = self._fragment_runner.run(
             fragment,
             state.conversations.for_fragment_runner(fragment.id),
@@ -209,7 +208,6 @@ class DataPlanner:
         return _Ending(status=result.status, reason=result.failure_reason)
 
     def _resolve_control_nodes(self, state: RunState) -> _Ending:
-        """Resolve every control node ready at once, then return to the logical planner."""
         reasons: list[str] = []
         for node in state.ready_control_nodes():
             reasons.append(node.instruction)
@@ -261,7 +259,6 @@ class DataPlanner:
         )
 
     def _results_by_node_id(self, state: RunState) -> dict[str, NodeResult]:
-        """Return what the run holds for each node of the current plan, keyed by node id."""
         # The components read a node's result by the id the plan gives it, and the run state files
         # results by the signature of the work that produced them.
         if state.pipeline.current_physical_plan_id is None:
@@ -274,7 +271,6 @@ class DataPlanner:
         return held
 
     def _answer(self, state: RunState) -> _Ending:
-        """End the run on the answer the RETURN names, or on a replan that names it again."""
         # A run that reaches here has nothing left to run, so the plan it ends on has to be
         # one that answers. Returning None instead would hand a caller status ok with no
         # answer, which is the one thing RunResult.answer promises cannot happen.

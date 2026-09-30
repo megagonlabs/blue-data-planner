@@ -309,6 +309,7 @@ requires-dist = [
     { name = "jsonpath-ng" },
     { name = "litellm" },
     { name = "lotus-ai", marker = "extra == 'lotus'", specifier = ">=1.2,<2" },
+    { name = "pandas", marker = "extra == 'dev'" },
     { name = "pydantic", specifier = ">=2" },
     { name = "pyright", marker = "extra == 'dev'" },
     { name = "pytest", marker = "extra == 'dev'" },
@@ -326,6 +327,7 @@ name = "blue-data-planner-mcp"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
+    { name = "anyio" },
     { name = "blue-data-planner" },
     { name = "mcp", extra = ["cli"] },
     { name = "pydantic" },
@@ -343,6 +345,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
+    { name = "anyio", specifier = ">=4" },
     { name = "blue-data-planner", editable = "../../lib" },
     { name = "build", marker = "extra == 'dev'" },
     { name = "mcp", extras = ["cli"], specifier = ">=1.0.0,<2.0.0" },

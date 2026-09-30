@@ -60,7 +60,7 @@ def a_run_dir_with_three_records(root: Path) -> Path:
         a_record(3, "Ranking", correct=True),
     ):
         (run_dir / f"query_{record['query_id']}.json").write_text(json.dumps(record))
-    (run_dir / "config.json").write_text(json.dumps({"model": "openai/gpt-5.6-luna"}))
+    (run_dir / "config.json").write_text(json.dumps({"model": "openai/gpt-6-luna"}))
     (run_dir / "query_1.conversations.json").write_text(json.dumps({"logical_planner": {}}))
     return run_dir
 
@@ -110,3 +110,16 @@ def test_a_run_directory_with_no_record_is_refused(tmp_path: Path) -> None:
 
     with pytest.raises(ValueError, match="no query record"):
         read_records(empty)
+
+
+def test_a_query_with_an_unknown_cost_makes_the_run_total_unknown() -> None:
+    """A call no price was known for leaves the total unknown instead of undercounting it."""
+    priced = a_record(1, "Match", correct=True)
+    unpriced = a_record(2, "Match", correct=True)
+    unpriced["usage"]["cost"] = None
+    unpriced["usage"]["by_component"]["logical_planner"]["cost"] = None
+
+    summary = summarize([priced, unpriced])
+
+    assert summary["cost"]["total"] is None
+    assert summary["model_calls_by_component"]["logical_planner"]["cost"] is None

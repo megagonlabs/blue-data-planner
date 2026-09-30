@@ -19,6 +19,8 @@ dependencies = [
     # mcp 2.0 removed FastMCP for mcp.server.mcpserver.MCPServer. Every Blue Data server is on
     # v1, and moving is one decision for the family rather than for this package.
     "mcp[cli]>=1.0.0,<2.0.0",
+    # server.py wraps the stdout the protocol writes to with anyio.
+    "anyio>=4",
     "pydantic>=2",
 ]
 

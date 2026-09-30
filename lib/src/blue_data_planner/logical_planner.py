@@ -237,7 +237,6 @@ def _render_carried(
 
 
 def _describe_rows(node: PipelineNode, held: ExecutionResult) -> list[str]:
-    """Describe one node's rows: how many, which columns, and the first few of them."""
     tables = held.output or []
     # A few rows rather than the table: enough to show how the values vary, short of what a
     # column of long text would cost the prompt.

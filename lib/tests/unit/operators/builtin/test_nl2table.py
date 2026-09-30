@@ -18,7 +18,7 @@ from blue_data_planner.operators.builtin.schemas import Nl2TableParameters
 from blue_data_planner.types import OutputColumn, RecoverableOperatorError
 
 STORES = "/source/tag_bench/database/retail/collection/public/entity/stores"
-MODEL_PROPS = {"service_prefix": "openai", "openai.model": "gpt-4o"}
+MODEL_PROPS = {"service_prefix": "openai", "openai.model": "gpt-6-luna"}
 
 
 @pytest.fixture(autouse=True)

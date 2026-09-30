@@ -15,7 +15,7 @@ maintainers = [
     {name = "Naoki Otani"},
 ]
 dependencies = [
-    "blue-data-ops>=3.1.0",
+    "blue-data-ops>=3.1.0,<4",
     "blue-data>=0.1.0",
     "pydantic>=2",
     "jsonpath-ng",
@@ -33,6 +33,8 @@ blue-data = { path = "../../blue-data/lib", editable = true }
 dev = [
     # diskcache backs the optional llm.cache path; without it three cache tests fail.
     "diskcache",
+    # The LOTUS adapter's tests build frames, and the lotus extra is absent from the default run.
+    "pandas",
     "pytest",
     "ruff",
     "pyright",

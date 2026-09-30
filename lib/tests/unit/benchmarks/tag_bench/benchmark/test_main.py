@@ -32,7 +32,7 @@ def test_the_run_command_defaults_to_the_dev_split_and_the_three_scorable_types(
         (["run", "--query-id", "3", "--query-id", "9"], "query_id", [3, 9]),
         (["run", "--limit", "2"], "limit", 2),
         (["run", "--workers", "1"], "workers", 1),
-        (["run", "--model", "openai/gpt-x"], "model", "openai/gpt-x"),
+        (["run", "--model", "openai/gpt-4.1"], "model", "openai/gpt-4.1"),
         (["run", "--lotus-max-rows", "100"], "lotus_max_rows", 100),
         (["report", "--run-name", "one"], "run_name", "one"),
     ],
@@ -47,7 +47,7 @@ def test_an_option_reaches_the_setting_it_names(
 @pytest.mark.parametrize(
     ("model", "variable", "raises"),
     [
-        ("openai/gpt-5.6-luna", "OPENAI_API_KEY", True),
+        ("openai/gpt-6-luna", "OPENAI_API_KEY", True),
         ("ollama/llama3", "OPENAI_API_KEY", False),
     ],
 )

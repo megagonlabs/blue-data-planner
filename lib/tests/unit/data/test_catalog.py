@@ -362,6 +362,7 @@ def test_an_attribute_view_carries_the_catalogs_whole_attribute_statistics() -> 
     assert (view.distinct_count, view.null_count, view.counted_rows) == (2, 1, 5)
     assert (view.min, view.max) == ("Napa", "Sonoma")
     assert view.semantic_type == "CITY"
+    assert view.more_values_recorded is False
 
 
 def test_the_views_cover_every_attribute_of_the_entity_asked_for() -> None:
@@ -387,6 +388,7 @@ def test_a_view_holds_a_bounded_number_of_values_each_cut_to_a_bounded_length() 
     cut = "x" * 59 + "…"
     assert [one.value for one in view.frequent_values] == [cut] + [f"city {r}" for r in range(4)]
     assert view.sample_values == [cut, "Sonoma", "Ukiah"]
+    assert view.more_values_recorded is True  # seven recorded, five kept
 
 
 @pytest.mark.parametrize(

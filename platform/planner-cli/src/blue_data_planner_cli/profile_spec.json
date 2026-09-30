@@ -6,7 +6,7 @@
     "cast": "file"
   },
   "BLUE_DATA_PLANNER_MODEL": {
-    "default": "openai/gpt-5.6-luna",
+    "default": "openai/gpt-6-luna",
     "prompt": "litellm model string every planner component uses",
     "required": true,
     "cast": "str",

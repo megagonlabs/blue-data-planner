@@ -8,11 +8,13 @@ from blue_data_planner.data import DataCatalog
 from blue_data_planner.llm import Conversation, LLMClient, Turn
 from blue_data_planner.llm.templating import render_prompt
 from blue_data_planner.prompts import prompt_text
+from blue_data_planner.prompts.rendering import render_sample_rows
 from blue_data_planner.types import (
     DataBundle,
     DiscoveryResult,
     EntityMatch,
     PipelineNode,
+    summarize_table,
 )
 
 SAMPLE_ROWS = 5
@@ -85,7 +87,7 @@ def _render_tables(inputs: DataBundle) -> str:
         return ""
     lines: list[str] = []
     for index, table in enumerate(inputs):
-        lines.append(f"Table {index}: {len(table)} row(s)")
-        for row in table[:SAMPLE_ROWS]:
-            lines.append(f"  {row}")
+        summary = summarize_table(table, SAMPLE_ROWS)
+        lines.append(f"Table {index}: {summary.row_count} row(s)")
+        lines.extend(render_sample_rows(summary, "  "))
     return "\n".join(lines)

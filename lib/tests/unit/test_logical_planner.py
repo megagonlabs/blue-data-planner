@@ -493,7 +493,7 @@ def test_a_new_discovery_shows_each_attribute_with_its_most_frequent_values_and_
         "values, most frequent first: 'user28' (88 rows), 'Pete' (5 rows), 'Jay' (3 rows), "
         "and 54 more"
     ) in asked
-    assert "57 distinct; of 2000 rows counted, 1842 null" in asked
+    assert "of 2000 rows counted: 57 distinct, 1842 null" in asked
 
 
 def test_a_discovery_resolved_before_an_earlier_turn_is_not_shown_again() -> None:

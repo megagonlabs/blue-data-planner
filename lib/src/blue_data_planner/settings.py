@@ -14,7 +14,7 @@ from blue_data_planner.data_planner import (
 from blue_data_planner.operators import OperatorSuite, operator_suite
 from blue_data_planner.types import InvalidSettingError, RunLimits
 
-DEFAULT_MODEL: str = "openai/gpt-5.6-luna"
+DEFAULT_MODEL: str = "openai/gpt-6-luna"
 DEFAULT_OPERATOR_SUITES: tuple[str, ...] = ("builtin", "lotus")
 REASONING_EFFORTS: tuple[str, ...] = ("minimal", "low", "medium", "high", "none", "off")
 

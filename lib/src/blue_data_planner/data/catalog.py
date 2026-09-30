@@ -69,7 +69,6 @@ def _entity_scope(ref: AttributeRef) -> str:
 
 
 def _parse_entity_path(entity_path: str) -> AttributeRef:
-    """Split an entity's catalog path into its levels, with the attribute left empty."""
     parts = entity_path.strip("/").split("/")
     levels = parts[::2]
     names = parts[1::2]
@@ -224,6 +223,11 @@ class DataCatalog:
                 for one in frequent[:_MAX_FREQUENT_VALUES]
             ],
             sample_values=[_cut(value) for value in samples[:_MAX_SAMPLE_VALUES]],
+            more_values_recorded=(
+                len(frequent) > _MAX_FREQUENT_VALUES
+                if frequent
+                else len(samples) > _MAX_SAMPLE_VALUES
+            ),
             distinct_count=stats.get("distinct_count"),
             null_count=stats.get("null_count"),
             # Read off the whole recorded list, since the empty string can rank below the cap.

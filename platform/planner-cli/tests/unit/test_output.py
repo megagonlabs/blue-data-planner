@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import json
+from decimal import Decimal
 
 import pytest
 from blue_data_planner import RunStatus
+from blue_data_planner.types import LLMUsage, RunConversations
 
 from blue_data_planner_cli.output import (
     error_line,
@@ -47,6 +49,15 @@ def test_the_json_format_prints_the_payload_rather_than_a_table() -> None:
     print_answer(a_run_result(answer=[[{"school": "Lowell"}]]), "json", console)
 
     assert json.loads(buffer.getvalue())["answer"] == [[{"school": "Lowell"}]]
+
+
+def test_an_answer_value_json_has_no_type_for_is_written_as_its_string() -> None:
+    """A SQL NUMERIC column reads as a Decimal, and the JSON document still gets written."""
+    console, buffer = a_console()
+
+    print_answer(a_run_result(answer=[[{"price": Decimal("18.50")}]]), "json", console)
+
+    assert json.loads(buffer.getvalue())["answer"] == [[{"price": "18.50"}]]
 
 
 def test_the_json_document_carries_how_the_run_ended_and_how_each_fragment_did() -> None:
@@ -98,3 +109,15 @@ def test_an_error_line_names_its_code_first() -> None:
 def test_the_summary_names_the_status_and_what_the_run_spent() -> None:
     """The closing line is what a demonstration reads out loud."""
     assert "ok" in summary_line(a_run_result())
+
+
+def test_the_summary_says_the_cost_is_unknown_when_a_model_had_no_price() -> None:
+    """An unknown cost is reported as unknown, not as a spend of zero dollars."""
+    conversations = RunConversations()
+    conversations.logical_planner.usage.append(
+        LLMUsage(
+            model="local", prompt_tokens=1, completion_tokens=1, cost=None, latency_seconds=0.0
+        )
+    )
+
+    assert "cost unknown" in summary_line(a_run_result(conversations=conversations))

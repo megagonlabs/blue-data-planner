@@ -43,7 +43,7 @@ def summarize(records: list[dict[str, Any]]) -> dict[str, Any]:
         ),
         "operator_calls": _spread([_counter(record, "operator_calls") for record in records]),
         "model_calls": {"total": int(sum(_usage(record, "calls") for record in records))},
-        "cost": {"total": round(sum(_usage(record, "cost") for record in records), 6)},
+        "cost": {"total": _cost_total([_cost(record.get("usage") or {}) for record in records])},
         "model_calls_by_component": _by_component(records),
         "replans": {
             "failure_replans_total": sum(_counter(record, "failure_replans") for record in records),
@@ -68,7 +68,7 @@ def summary_lines(summary: dict[str, Any]) -> list[str]:
     lines.append(
         f"operator calls mean {summary['operator_calls']['mean']:.1f}  "
         f"model calls {summary['model_calls']['total']}  "
-        f"cost ${summary['cost']['total']:.2f}"
+        f"cost {dollars(summary['cost']['total'])}"
     )
     lines.append(f"statuses {summary['status_counts']}")
     return lines
@@ -99,6 +99,26 @@ def _counter(record: dict[str, Any], name: str) -> float:
     return float(counters.get(name, 0))
 
 
+def _cost(spend: dict[str, Any]) -> float | None:
+    # A record with no spend made no model call; one whose cost is None had a call with no
+    # known price, which makes every total it enters unknown too.
+    if "cost" not in spend:
+        return 0.0
+    cost = spend["cost"]
+    return None if cost is None else float(cost)
+
+
+def _cost_total(costs: list[float | None]) -> float | None:
+    if None in costs:
+        return None
+    return round(sum(cost for cost in costs if cost is not None), 6)
+
+
+def dollars(cost: float | None, places: int = 2) -> str:
+    """Return a cost in dollars, or say it is unknown."""
+    return "unknown" if cost is None else f"${cost:.{places}f}"
+
+
 def _usage(record: dict[str, Any], name: str) -> float:
     usage: dict[str, Any] = record.get("usage") or {}
     return float(usage.get(name, 0))
@@ -112,7 +132,7 @@ def _by_component(records: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
         for component, spend in by_component.items():
             held = totals.setdefault(component, {"calls": 0, "cost": 0.0})
             held["calls"] += int(spend.get("calls", 0))
-            held["cost"] = round(held["cost"] + float(spend.get("cost", 0.0)), 6)
+            held["cost"] = _cost_total([held["cost"], _cost(spend)])
     return totals
 
 

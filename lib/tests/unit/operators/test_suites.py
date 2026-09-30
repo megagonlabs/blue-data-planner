@@ -15,7 +15,7 @@ from blue_data_planner.operators.adapters.lotus import LotusSuite, settings
 from blue_data_planner.types import UnknownOperatorSuiteError
 from tests.doubles.blue_operations import a_registry_answering_every_operation
 
-PLANNER_MODEL = "openai/gpt-4o"
+PLANNER_MODEL = "openai/gpt-6-luna"
 
 
 @pytest.fixture
@@ -23,6 +23,7 @@ def lotus_stub() -> Any:
     """Return the stub with its model forgotten, so a suite's own choice is what it records."""
     settings._configured_model = None  # pyright: ignore[reportPrivateUsage]
     settings._configured_reasoning_effort = None  # pyright: ignore[reportPrivateUsage]
+    settings._lotus_configured = False  # pyright: ignore[reportPrivateUsage]
     import lotus
 
     lotus.settings.lm = lotus.models.LM()
@@ -62,7 +63,7 @@ def test_a_name_no_suite_registers_is_refused_rather_than_left_out() -> None:
     ("suite", "runs_on"),
     [
         (LotusSuite(), PLANNER_MODEL),
-        (LotusSuite(model="openai/gpt-4o-mini"), "openai/gpt-4o-mini"),
+        (LotusSuite(model="openai/gpt-4.1"), "openai/gpt-4.1"),
     ],
 )
 def test_a_lotus_suite_runs_on_its_own_model_or_on_the_planners(

@@ -105,10 +105,17 @@ class LLMUsage:
     """One model call: what it cost and how long it took."""
 
     model: str
-    prompt_tokens: int
-    completion_tokens: int
-    cost: float
+    # None when the provider did not report it, or no price is known for the model.
+    prompt_tokens: int | None
+    completion_tokens: int | None
+    cost: float | None
     latency_seconds: float
+
+
+def total_cost(usage: list[LLMUsage]) -> float | None:
+    """Return what the calls cost together, or None when any one call's cost is unknown."""
+    costs = [one.cost for one in usage]
+    return None if None in costs else sum(cost for cost in costs if cost is not None)
 
 
 @dataclass(frozen=True)
@@ -162,7 +169,7 @@ class RunConversations:
     def to_dict(self) -> dict[str, Any]:
         """Return the JSON form: what the model calls cost, not what was said."""
         usage = self.usage
-        return {"calls": len(usage), "cost": sum(one.cost for one in usage)}
+        return {"calls": len(usage), "cost": total_cost(usage)}
 
 
 @dataclass(frozen=True)
@@ -198,10 +205,17 @@ class ParameterAttempt:
         return {
             "parameters": self.parameters,
             "status": None if call is None else str(call.status),
-            "error": None if call is None or call.error is None else call.error.message,
+            "error": _error_payload(call),
             "row_count": None if call is None else call.row_count,
+            "report": None if call is None else call.report,
             "assessment": self.assessment,
         }
+
+
+def _error_payload(call: ExecutionResult | None) -> dict[str, str] | None:
+    if call is None or call.error is None:
+        return None
+    return {"kind": str(call.error.kind), "message": call.error.message}
 
 
 @dataclass(frozen=True)
@@ -232,6 +246,8 @@ class FragmentResult:
             "failure_reason": self.failure_reason,
             "operator_id": None if call is None else call.operator_id,
             "row_count": None if call is None else call.row_count,
+            "error": _error_payload(call),
+            "report": None if call is None else call.report,
             "output": [summarize_table(one, SUMMARY_SAMPLE_ROWS).to_dict() for one in tables],
             "attempts": [attempt.to_dict() for attempt in self.attempts],
         }
@@ -255,7 +271,7 @@ class RunResult:
     # a failed run for an empty answer.
     answer: DataBundle | None
     # Why the run ended as it did, in the words of whatever ended it. Every failure status carries
-    # one; ok never does, and planned does only when no cover could be written.
+    # one; ok and planned never do.
     failure_reason: str | None
     pipeline: DataPipeline
     # Keyed by signature: how each fragment ended, and what each search found. A fragment

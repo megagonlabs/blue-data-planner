@@ -10,6 +10,8 @@ from blue_data_planner.types import (
     SUMMARY_SAMPLE_ROWS,
     BudgetExhaustedError,
     DataPipeline,
+    ErrorInfo,
+    ErrorKind,
     ExecutionResult,
     ExecutionStatus,
     FragmentResult,
@@ -21,6 +23,7 @@ from blue_data_planner.types import (
     RunResult,
     RunStatus,
     Turn,
+    total_cost,
 )
 
 
@@ -60,11 +63,18 @@ def test_the_limits_carry_the_defaults_a_deployment_documents() -> None:
     assert not hasattr(limits, "fragment_repairs")
 
 
-def a_usage_record(cost: float) -> LLMUsage:
+def a_usage_record(cost: float | None) -> LLMUsage:
     """One model call costing what the caller named."""
     return LLMUsage(
         model="scripted", prompt_tokens=0, completion_tokens=0, cost=cost, latency_seconds=0.0
     )
+
+
+def test_a_total_over_calls_one_of_which_had_no_known_price_is_unknown() -> None:
+    """One unknown cost makes the total unknown, rather than a sum that leaves that call out."""
+    usage = [a_usage_record(cost=1.0), a_usage_record(cost=None)]
+
+    assert total_cost(usage) is None
 
 
 def test_a_run_reads_its_whole_model_spend_off_the_conversations_it_holds() -> None:
@@ -75,7 +85,7 @@ def test_a_run_reads_its_whole_model_spend_off_the_conversations_it_holds() -> N
     conversations.for_fragment_runner("f1").usage.append(a_usage_record(cost=4.0))
     conversations.for_catalog_searcher("a3f1").usage.append(a_usage_record(cost=8.0))
 
-    assert sum(record.cost for record in conversations.usage) == 15.0
+    assert total_cost(conversations.usage) == 15.0
 
 
 @pytest.mark.parametrize(
@@ -139,3 +149,30 @@ def test_the_json_form_of_a_run_reduces_its_rows_and_its_transcript_to_a_measure
     assert len(scanned["sample_rows"]) == SUMMARY_SAMPLE_ROWS
     assert payload["conversations"] == {"calls": 1, "cost": 0.5}
     json.dumps(payload)  # a document that will not encode is not a document
+
+
+def a_fragment_whose_operator_refused_its_input() -> FragmentResult:
+    """A fragment ending needing a repair, after one call that failed recoverably and reported."""
+    refused = ExecutionResult(
+        status=ExecutionStatus.FAILED,
+        operator_id="blue.nl2sql",
+        error=ErrorInfo(kind=ErrorKind.RECOVERABLE, message="no column named title"),
+        report={"sql": "SELECT title FROM postings"},
+    )
+    return FragmentResult(
+        status=RunStatus.NEEDS_REPAIR,
+        attempts=[ParameterAttempt(parameters={}, result=refused, assessment=None)],
+        failure_reason="the scan found no column named title",
+    )
+
+
+def test_the_json_form_of_a_failed_fragment_keeps_the_error_kind_and_the_report() -> None:
+    """A caller reading the document can tell a recoverable failure from one that ended the run,
+    and reads what the operator reported about its own call."""
+    payload = a_fragment_whose_operator_refused_its_input().to_dict()
+
+    expected_error = {"kind": "recoverable", "message": "no column named title"}
+    assert payload["error"] == expected_error
+    assert payload["report"] == {"sql": "SELECT title FROM postings"}
+    assert payload["attempts"][0]["error"] == expected_error
+    assert payload["attempts"][0]["report"] == {"sql": "SELECT title FROM postings"}

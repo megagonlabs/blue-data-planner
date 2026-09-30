@@ -16,7 +16,7 @@ from blue_data_planner.types import (
     RunLimits,
 )
 
-MODEL = os.environ.get("BLUE_DATA_PLANNER_LOTUS_MODEL", "openai/gpt-4o-mini")
+MODEL = os.environ.get("BLUE_DATA_PLANNER_LOTUS_MODEL", "openai/gpt-4.1")
 
 CITIES = [
     {"city": "Reno", "note": "high desert, dry all year"},

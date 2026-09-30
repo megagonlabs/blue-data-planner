@@ -116,6 +116,10 @@ class RunState:
                 carried.add(node.id)
         return frozenset(carried)
 
+    def record_logical_plan(self, plan: LogicalPlan) -> None:
+        """Add a version the logical planner wrote, leaving the pointer where it is."""
+        self.pipeline.logical_plans[plan.id] = plan
+
     def install_logical_plan(self, plan: LogicalPlan) -> None:
         """Add the version and move the pointer."""
         self.pipeline.logical_plans[plan.id] = plan

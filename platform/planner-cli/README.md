@@ -46,7 +46,7 @@ blue-planner profile config OPENAI_API_KEY
 | --- | --- | --- | --- |
 | `OPENAI_API_KEY` | secret | None, required | Yes |
 | `BLUE_DATA_REGISTRY_PATH` | file | None, required | Yes |
-| `BLUE_DATA_PLANNER_MODEL` | str | `BLUE_DATA_LLM_MODEL`, then `openai/gpt-5.6-luna` | Yes |
+| `BLUE_DATA_PLANNER_MODEL` | str | `BLUE_DATA_LLM_MODEL`, then `openai/gpt-6-luna` | Yes |
 | `BLUE_DATA_PLANNER_REASONING_EFFORT` | str | `low` | No |
 | `BLUE_DATA_PLANNER_OPERATORS` | str | `builtin,lotus` | Yes |
 | `BLUE_DATA_PLANNER_LOTUS_MODEL` | str | Unset: LOTUS uses the planner's model | No |

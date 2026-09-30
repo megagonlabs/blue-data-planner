@@ -22,8 +22,8 @@ _SCAN_SOURCE = re.compile(
     r"/collection/(?P<collection>[^/]+)/entity/(?P<entity>[^/]+)$"
 )
 
-# The values are rendered into the query text, so the source parses each one. The cap is
-# provisional (design/06-library.md): low enough to bound a run, not measured against real volumes.
+# The values are rendered into the query text, so the source parses each one, and the cap bounds
+# how long that text grows.
 MAX_EMBEDDED_VALUES = 100
 
 

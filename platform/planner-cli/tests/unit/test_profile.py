@@ -35,12 +35,10 @@ def test_config_sets_one_parameter_and_inspect_reports_where_it_came_from(
     """A surprising value has to be traceable to the tier that set it."""
     runner, env = a_runner(tmp_path)
 
-    runner.invoke(
-        cli, ["profile", "config", "BLUE_DATA_PLANNER_MODEL", "openai/gpt-4o-mini"], env=env
-    )
+    runner.invoke(cli, ["profile", "config", "BLUE_DATA_PLANNER_MODEL", "openai/gpt-4.1"], env=env)
     inspected = runner.invoke(cli, ["profile", "inspect"], env=env)
 
-    assert "openai/gpt-4o-mini" in inspected.output
+    assert "openai/gpt-4.1" in inspected.output
     assert "profile:default" in inspected.output
 
 

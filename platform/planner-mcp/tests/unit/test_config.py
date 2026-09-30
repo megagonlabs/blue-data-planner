@@ -56,10 +56,10 @@ def test_every_setting_the_environment_names_reaches_the_planner():
     settings = config.planner_settings(
         {
             "BLUE_DATA_REGISTRY_PATH": "/srv/registry.json",
-            "BLUE_DATA_PLANNER_MODEL": "openai/gpt-4o",
+            "BLUE_DATA_PLANNER_MODEL": "openai/gpt-6-luna",
             "BLUE_DATA_PLANNER_REASONING_EFFORT": "high",
             "BLUE_DATA_PLANNER_OPERATORS": "builtin, blue",
-            "BLUE_DATA_PLANNER_LOTUS_MODEL": "openai/gpt-4o-mini",
+            "BLUE_DATA_PLANNER_LOTUS_MODEL": "openai/gpt-4.1",
             "BLUE_DATA_PLANNER_LOTUS_REASONING_EFFORT": "minimal",
             "BLUE_DATA_PLANNER_LOTUS_MAX_ROWS": "120",
             "BLUE_DATA_PLANNER_ENABLE_NL2TABLE": "yes",
@@ -70,10 +70,10 @@ def test_every_setting_the_environment_names_reaches_the_planner():
     )
     assert settings == PlannerSettings(
         registry_path=Path("/srv/registry.json"),
-        model="openai/gpt-4o",
+        model="openai/gpt-6-luna",
         reasoning_effort="high",
         operator_suites=("builtin", "blue"),
-        lotus_model="openai/gpt-4o-mini",
+        lotus_model="openai/gpt-4.1",
         lotus_reasoning_effort="minimal",
         lotus_max_rows=120,
         enable_nl2table=True,
@@ -91,9 +91,12 @@ def test_every_parameter_the_cli_profile_names_configures_the_server(name: str):
 
 def test_the_family_wide_model_is_read_where_the_planner_names_none():
     settings = config.planner_settings(
-        {"BLUE_DATA_REGISTRY_PATH": "/srv/registry.json", "BLUE_DATA_LLM_MODEL": "openai/gpt-4o"}
+        {
+            "BLUE_DATA_REGISTRY_PATH": "/srv/registry.json",
+            "BLUE_DATA_LLM_MODEL": "openai/gpt-6-luna",
+        }
     )
-    assert settings.model == "openai/gpt-4o"
+    assert settings.model == "openai/gpt-6-luna"
 
 
 @pytest.mark.parametrize(

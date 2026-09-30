@@ -21,19 +21,16 @@ from tests.benchmarks.tag_bench.fetch_queries import (
 )
 
 
-def test_parse_answer_cell_parses_int() -> None:
-    """A plain integer cell parses to an int."""
-    assert parse_answer_cell("42") == 42
-
-
-def test_parse_answer_cell_parses_list_literal() -> None:
-    """A Python list-literal cell parses to a list of strings."""
-    assert parse_answer_cell("['a', 'b']") == ["a", "b"]
-
-
-def test_parse_answer_cell_falls_back_to_string() -> None:
-    """A cell that is neither an int nor a list literal stays a plain string."""
-    assert parse_answer_cell("Lakeport") == "Lakeport"
+@pytest.mark.parametrize(
+    ("cell", "expected"),
+    [("42", 42), ("['a', 'b']", ["a", "b"]), ("Lakeport", "Lakeport")],
+    ids=["integer", "list-literal", "plain-string"],
+)
+def test_an_answer_cell_parses_to_the_type_it_spells(
+    cell: str, expected: int | list[str] | str
+) -> None:
+    """An integer cell gives an int, a list literal a list of strings, anything else a string."""
+    assert parse_answer_cell(cell) == expected
 
 
 def test_corrected_answer_applies_static_override() -> None:
@@ -52,14 +49,16 @@ def test_corrected_answer_parses_uncorrected_cell() -> None:
     assert corrected_answer(999, "7") == 7
 
 
-def test_corrected_db_name_applies_override() -> None:
-    """Query 25's db_name override replaces its vendor CSV value."""
-    assert corrected_db_name(25, "codebase_community") == "debit_card_specializing"
-
-
-def test_corrected_db_name_passes_through_uncorrected() -> None:
-    """A query id with no db_name override keeps its vendor CSV value."""
-    assert corrected_db_name(999, "formula_1") == "formula_1"
+@pytest.mark.parametrize(
+    ("query_id", "vendor_name", "expected"),
+    [(25, "codebase_community", "debit_card_specializing"), (999, "formula_1", "formula_1")],
+    ids=["overridden", "uncorrected"],
+)
+def test_a_db_name_is_replaced_only_for_a_query_with_an_override(
+    query_id: int, vendor_name: str, expected: str
+) -> None:
+    """Query 25's db_name override replaces its vendor CSV value; other queries keep theirs."""
+    assert corrected_db_name(query_id, vendor_name) == expected
 
 
 _FIXTURE_CSV = (

@@ -54,7 +54,7 @@ def a_finished_run(answer: Any) -> RunResult:
             turns=[Turn(role="user", content="write a plan")],
             usage=[
                 LLMUsage(
-                    model="openai/gpt-5.6-luna",
+                    model="openai/gpt-6-luna",
                     prompt_tokens=10,
                     completion_tokens=2,
                     cost=0.5,

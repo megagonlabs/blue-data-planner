@@ -91,6 +91,9 @@ class AttributeView:
     # Most frequent first. Empty where the catalog records none, and sample_values stands in.
     frequent_values: list[ValueCount]
     sample_values: list[Any]
+    # Whether the registry recorded more values than the list above keeps, which is what says a
+    # list is a cut rather than the whole column where no distinct count is recorded.
+    more_values_recorded: bool
     distinct_count: int | None
     null_count: int | None
     # Rows holding the empty string, read off the frequent values. None where they do not list
@@ -119,6 +122,7 @@ class AttributeView:
             "description": self.description,
             "frequent_values": [one.to_dict() for one in self.frequent_values],
             "sample_values": list(self.sample_values),
+            "more_values_recorded": self.more_values_recorded,
             "distinct_count": self.distinct_count,
             "null_count": self.null_count,
             "empty_count": self.empty_count,

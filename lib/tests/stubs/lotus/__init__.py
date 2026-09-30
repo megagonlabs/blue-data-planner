@@ -39,7 +39,7 @@ class _Stats:
 class LM:
     """The model LOTUS runs its operations on."""
 
-    def __init__(self, model: str = "gpt-4o-mini", **kwargs: Any) -> None:
+    def __init__(self, model: str = "gpt-4.1", **kwargs: Any) -> None:
         self.model = model
         self.kwargs = kwargs
         self.stats = _Stats()

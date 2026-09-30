@@ -34,6 +34,16 @@ def test_sample_rows_count_the_rows_left_out() -> None:
             id="frequent_values_and_no_distinct_count",
         ),
         pytest.param(
+            {"frequent_values": [("SME", 1390), ("LAM", 423)], "more_values_recorded": True},
+            "    values, most frequent first: 'SME' (1390 rows), 'LAM' (423 rows), and more",
+            id="every_value_kept_shown_but_more_recorded",
+        ),
+        pytest.param(
+            {"frequent_values": [("SME", 1390), ("LAM", 423)]},
+            "    values, most frequent first: 'SME' (1390 rows), 'LAM' (423 rows)",
+            id="the_whole_recorded_list_shown",
+        ),
+        pytest.param(
             {"sample_values": ["SME", "LAM", "SME"], "distinct_count": 3},
             "    sample values: 'SME', 'LAM', and 1 more",
             id="sample_values_where_no_frequent_values_are_recorded",
@@ -54,12 +64,12 @@ def test_a_list_of_values_says_how_many_it_leaves_out(
     [
         pytest.param(
             {"distinct_count": 22, "null_count": 0, "empty_count": 1893, "counted_rows": 2000},
-            "    22 distinct; of 2000 rows counted, 0 null, 1893 empty",
+            "    of 2000 rows counted: 22 distinct, 0 null, 1893 empty",
             id="every_count_recorded",
         ),
         pytest.param(
-            {"null_count": 5},
-            "    5 null",
+            {"distinct_count": 22, "null_count": 5},
+            "    22 distinct, 5 null",
             id="no_rows_counted",
         ),
         pytest.param({}, None, id="nothing_recorded"),

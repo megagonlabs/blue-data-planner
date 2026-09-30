@@ -592,6 +592,33 @@ def test_a_plan_no_operator_can_cover_is_replanned_with_the_reason_in_hand() -> 
     assert logical.replan_reasons == [None, uncoverable.failure_reason]
 
 
+@pytest.mark.parametrize(
+    ("status", "reason"),
+    [
+        (RunStatus.BUDGET_EXHAUSTED, "the operator call budget of 1 is spent"),
+        (RunStatus.OPERATOR_FAILED, "the source could not be reached"),
+    ],
+)
+def test_a_fragment_ending_the_run_ends_the_request_with_its_status_and_reason(
+    status: RunStatus, reason: str
+) -> None:
+    """No repair answers a spent budget or an unrecoverable operator, so the run stops there."""
+    ended = FragmentResult(status=status, attempts=[], failure_reason=reason)
+    physical = FakePhysicalPlanner([covered(a_grouped_cover("c1", "p1"))])
+
+    result = a_planner(
+        FakeLogicalPlanner([ok(a_scan_and_ending("p1"))]),
+        physical,
+        FakeFragmentRunner([ended]),
+        FakeCatalogSearcher(),
+    ).run("list the job titles")
+
+    assert result.status is status
+    assert result.failure_reason == reason
+    assert result.answer is None
+    assert physical.covered_plan_ids == ["p1"]  # no cover repair was tried
+
+
 def test_a_replan_limit_ends_the_request_as_replan_exhausted() -> None:
     """Each replan path counts separately and either ends the run on its own bound."""
     result = a_planner(
@@ -630,9 +657,57 @@ def test_a_defect_in_a_component_ends_the_request_instead_of_raising_at_the_call
     assert result.status is RunStatus.PLANNER_FAILED
     assert result.failure_reason is not None
     assert "n9" in result.failure_reason
-    # A logical plan is installed only once it is paired with a cover that covers it, so the
-    # defective attempt never enters the pipeline.
-    assert result.pipeline.logical_plans == {}
+
+
+class PhysicalPlannerRaising(FakePhysicalPlanner):
+    """A physical planner that raises the error it was built with on every cover."""
+
+    def __init__(self, error: Exception) -> None:
+        super().__init__([])
+        self.error = error
+
+    def cover(
+        self,
+        request: str,
+        plan: LogicalPlan,
+        conversation: Conversation,
+        previous: PhysicalPlan | None,
+        results: dict[str, Any],
+        failed_fragment: FailedFragment | None = None,
+    ) -> PhysicalPlanResult:
+        raise self.error
+
+
+@pytest.mark.parametrize(
+    ("physical", "status"),
+    [
+        (
+            FakePhysicalPlanner([PhysicalPlanResult(plan=None, failure_reason="no operator")]),
+            RunStatus.REPLAN_EXHAUSTED,
+        ),
+        (PhysicalPlannerRaising(PlanValidationError("a bad cut")), RunStatus.PLANNER_FAILED),
+        (
+            PhysicalPlannerRaising(LLMError("the provider failed", code="provider_error")),
+            RunStatus.LLM_FAILED,
+        ),
+    ],
+    ids=["uncoverable", "defect", "provider"],
+)
+def test_a_plan_no_cover_was_installed_for_stays_in_the_record_without_becoming_current(
+    physical: FakePhysicalPlanner, status: RunStatus
+) -> None:
+    """Every plan the run wrote is returned, whatever stopped it from being covered."""
+    result = a_planner(
+        FakeLogicalPlanner([ok(a_scan_and_ending("p1"))]),
+        physical,
+        FakeFragmentRunner([]),
+        FakeCatalogSearcher(),
+        RunLimits(failure_replans=0),
+    ).run("list the job titles")
+
+    assert result.status is status
+    assert list(result.pipeline.logical_plans) == ["p1"]
+    assert result.pipeline.current_logical_plan_id is None
 
 
 def test_planning_searches_the_catalog_and_stops_before_the_first_operator_call() -> None:
@@ -747,13 +822,13 @@ def test_an_assembled_planners_model_client_names_its_values_under_its_own_prefi
     build_data_planner(
         an_empty_registry(),
         suites=[_RegistersOneOperator()],
-        model="gpt-4o",
+        model="gpt-6-luna",
         reasoning_effort=reasoning_effort,
         llm_client_name="a_planner",
     )
 
     assert captured["name"] == "a_planner"
-    assert captured["properties"]["a_planner.model"] == "gpt-4o"
+    assert captured["properties"]["a_planner.model"] == "gpt-6-luna"
     assert captured["properties"].get("a_planner.reasoning_effort") == reasoning_effort
 
 
@@ -764,7 +839,7 @@ def test_each_suite_is_built_over_the_registry_and_the_model_the_planner_was_giv
     registry = an_empty_registry()
 
     build_data_planner(
-        registry, suites=[_RegistersOneOperator(seen=seen)], model="gpt-4o", limits=RunLimits()
+        registry, suites=[_RegistersOneOperator(seen=seen)], model="gpt-6-luna", limits=RunLimits()
     )
 
-    assert seen == {"data_registry": registry, "model": "gpt-4o"}
+    assert seen == {"data_registry": registry, "model": "gpt-6-luna"}

@@ -36,7 +36,7 @@ from langchain_openai import ChatOpenAI
 
 REGISTRY_PATH = Path(__file__).resolve().parents[2] / "data" / "demo" / "registry.json"
 SERVER_COMMAND = "blue-data-planner-mcp"
-AGENT_MODEL = "gpt-5.6-luna"
+AGENT_MODEL = "gpt-6-luna"
 
 SYSTEM_PROMPT = """\
 You are a sales analyst at Northwind Traders, a food wholesaler. You reach the company's data
@@ -87,7 +87,7 @@ async def main() -> None:
         print(f"Tools from {SERVER_COMMAND}: {[tool.name for tool in tools]}\n")
         print(f"Task: {TASK}\n")
 
-        # gpt-5.6-luna takes function tools with reasoning only through the Responses API.
+        # gpt-6-luna takes function tools with reasoning only through the Responses API.
         model = ChatOpenAI(model=AGENT_MODEL, use_responses_api=True)
         agent = create_agent(model, tools, system_prompt=SYSTEM_PROMPT)
         report = ""

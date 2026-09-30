@@ -36,6 +36,7 @@ def an_attribute_view(
     null_count: int | None = None,
     empty_count: int | None = None,
     counted_rows: int | None = None,
+    more_values_recorded: bool = False,
 ) -> AttributeView:
     """One attribute of an entity in a jobs database, recording only what is given."""
     return AttributeView(
@@ -52,6 +53,7 @@ def an_attribute_view(
             ValueCount(value=value, rows=rows) for value, rows in frequent_values or []
         ],
         sample_values=sample_values or [],
+        more_values_recorded=more_values_recorded,
         distinct_count=distinct_count,
         null_count=null_count,
         empty_count=empty_count,

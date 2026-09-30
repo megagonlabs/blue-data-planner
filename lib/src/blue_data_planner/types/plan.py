@@ -213,20 +213,20 @@ class PhysicalPlan:
                 return fragment
         raise UnknownFragmentError(f"no fragment with id {fragment_id!r} in the cover")
 
-    def fragment_for_node(self, node_id: str) -> PhysicalPlanFragment:
+    def fragment_for_node(self, logical_node_id: str) -> PhysicalPlanFragment:
         """Return the fragment covering this node, raising when no fragment covers it."""
         for fragment in self.fragments:
-            if node_id in fragment.logical_node_ids:
+            if logical_node_id in fragment.logical_node_ids:
                 return fragment
-        raise UnknownFragmentError(f"no fragment of the cover covers node {node_id!r}")
+        raise UnknownFragmentError(f"no fragment of the cover covers node {logical_node_id!r}")
 
-    def fragment_for_root(self, node_id: str) -> PhysicalPlanFragment | None:
+    def fragment_for_root(self, logical_node_id: str) -> PhysicalPlanFragment | None:
         """Return the fragment rooted at this node, or nothing when none is."""
         # None rather than a raise, because a node rooting no fragment of the cover being replaced
         # is the ordinary case: it may now be grouped into another fragment, or the plan may have
         # grown since.
         for fragment in self.fragments:
-            if fragment.root_logical_node_id == node_id:
+            if fragment.root_logical_node_id == logical_node_id:
                 return fragment
         return None
 

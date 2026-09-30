@@ -78,6 +78,9 @@ def lotus_operators(
     """Return one physical operator per LOTUS operation, or none where LOTUS is not installed."""
     if not settings.lotus_is_installed():
         return []
+    # Checked here rather than on the first call, so a planner that cannot run is refused while it
+    # is built instead of ending a run as planner_failed.
+    settings.claim_lotus_settings(model, reasoning_effort)
     return [
         PhysicalOperator(
             operator_id=entry.operator_id,

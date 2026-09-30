@@ -161,7 +161,7 @@ def test_llm_client_properties_sends_the_resolved_effort_and_off_omits_the_key(
     chosen_effort: str, expected_reasoning_effort_property: str | None
 ) -> None:
     """A --reasoning-effort value reaches openai.reasoning_effort, except "off", which omits it."""
-    properties = llm_client_properties("gpt-5.6-luna", effective_reasoning_effort(chosen_effort))
+    properties = llm_client_properties("gpt-6-luna", effective_reasoning_effort(chosen_effort))
 
     assert properties.get("openai.reasoning_effort") == expected_reasoning_effort_property
     assert ("openai.reasoning_effort" in properties) == (

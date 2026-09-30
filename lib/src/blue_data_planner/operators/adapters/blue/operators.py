@@ -262,7 +262,6 @@ OPERATIONS: tuple[Operation, ...] = (
 
 
 def _table_count(operation: Operation) -> int | None:
-    """Return the tables an operation reads, or None where it covers a group and reads none."""
     # A compound operation covers a group of nodes, and how many tables that group is handed
     # depends on the cut, so only a single-node operation has a count to hold it to.
     if len(operation.logical_operators) != 1:

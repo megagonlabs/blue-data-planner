@@ -52,7 +52,7 @@ python lib/scripts/demo/register_northwind.py
 
 export OPENAI_API_KEY=sk-...                      # a real key, not this placeholder
 export BLUE_DATA_REGISTRY_PATH=$PWD/data/demo/registry.json
-export BLUE_DATA_PLANNER_MODEL=openai/gpt-5.6-luna
+export BLUE_DATA_PLANNER_MODEL=openai/gpt-6-luna
 export BLUE_DATA_PLANNER_OPERATORS=builtin        # builtin alone: the lotus extra is not installed
 
 blue-planner data query "Which three countries do the most customers come from?"

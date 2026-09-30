@@ -7,7 +7,7 @@ import sys
 import pytest
 
 from blue_data_planner.operators.adapters.lotus import settings
-from blue_data_planner.types import BlueDataPlannerError
+from blue_data_planner.types import InvalidSettingError
 
 
 @pytest.fixture(autouse=True)
@@ -15,6 +15,7 @@ def unconfigured() -> None:
     """Forget the model a previous test configured, since LOTUS holds one per process."""
     settings._configured_model = None  # pyright: ignore[reportPrivateUsage]
     settings._configured_reasoning_effort = None  # pyright: ignore[reportPrivateUsage]
+    settings._lotus_configured = False  # pyright: ignore[reportPrivateUsage]
 
 
 def test_lotus_is_reported_installed_without_being_imported(
@@ -29,51 +30,51 @@ def test_lotus_is_reported_installed_without_being_imported(
 
 def test_the_first_call_configures_the_model_it_was_given() -> None:
     """Asking for LOTUS imports it and hands its own settings the model string."""
-    lotus = settings.configured_lotus("openai/gpt-4o")
+    lotus = settings.configured_lotus("openai/gpt-6-luna")
 
-    assert lotus.settings.lm.model == "openai/gpt-4o"
+    assert lotus.settings.lm.model == "openai/gpt-6-luna"
 
 
 def test_a_second_model_is_refused_rather_than_overwriting_the_first() -> None:
     """LOTUS holds one model per process, so a second string is a failure, not a silent swap."""
-    settings.configured_lotus("openai/gpt-4o")
+    settings.configured_lotus("openai/gpt-6-luna")
 
-    with pytest.raises(BlueDataPlannerError):
-        settings.configured_lotus("openai/gpt-4o-mini")
+    with pytest.raises(InvalidSettingError):
+        settings.configured_lotus("openai/gpt-4.1")
 
 
 def test_asking_twice_for_the_same_model_configures_once() -> None:
     """Every call reaches for LOTUS, and only the first one configures it."""
-    first = settings.configured_lotus("openai/gpt-4o")
+    first = settings.configured_lotus("openai/gpt-6-luna")
     configured = first.settings.lm
 
-    assert settings.configured_lotus("openai/gpt-4o").settings.lm is configured
+    assert settings.configured_lotus("openai/gpt-6-luna").settings.lm is configured
 
 
 def test_the_first_call_forwards_the_reasoning_effort_it_was_given() -> None:
     """A reasoning effort reaches LOTUS's model the same way litellm receives it elsewhere."""
-    lotus = settings.configured_lotus("openai/gpt-4o", "none")
+    lotus = settings.configured_lotus("openai/gpt-6-luna", "none")
 
     assert lotus.settings.lm.kwargs["reasoning_effort"] == "none"
 
 
 def test_a_call_with_no_reasoning_effort_omits_the_parameter_entirely() -> None:
     """No reasoning effort means the kwarg is left out, not passed through as None."""
-    lotus = settings.configured_lotus("openai/gpt-4o")
+    lotus = settings.configured_lotus("openai/gpt-6-luna")
 
     assert "reasoning_effort" not in lotus.settings.lm.kwargs
 
 
 def test_the_first_call_configures_the_model_with_the_token_budget() -> None:
     """The token budget reaches LOTUS's model on every call, not only a caller-supplied one."""
-    lotus = settings.configured_lotus("openai/gpt-4o")
+    lotus = settings.configured_lotus("openai/gpt-6-luna")
 
     assert lotus.settings.lm.kwargs["max_tokens"] == 15000
 
 
 def test_a_second_reasoning_effort_is_refused_rather_than_overwriting_the_first() -> None:
     """Reasoning effort is process-wide too, so a second value is a failure, not a silent swap."""
-    settings.configured_lotus("openai/gpt-4o", "none")
+    settings.configured_lotus("openai/gpt-6-luna", "none")
 
-    with pytest.raises(BlueDataPlannerError):
-        settings.configured_lotus("openai/gpt-4o", "low")
+    with pytest.raises(InvalidSettingError):
+        settings.configured_lotus("openai/gpt-6-luna", "low")

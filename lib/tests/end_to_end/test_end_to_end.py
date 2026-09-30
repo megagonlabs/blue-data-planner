@@ -13,7 +13,7 @@ from blue_data_planner import RunStatus, build_data_planner
 from blue_data_planner.data import DataRegistry
 from blue_data_planner.operators.builtin import BuiltinSuite
 
-MODEL = os.environ.get("BLUE_DATA_PLANNER_MODEL", "openai/gpt-4o-mini")
+MODEL = os.environ.get("BLUE_DATA_PLANNER_MODEL", "openai/gpt-4.1")
 
 
 def test_a_request_over_a_registered_source_plans_twice_and_answers(

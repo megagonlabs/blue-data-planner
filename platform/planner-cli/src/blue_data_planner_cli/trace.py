@@ -18,10 +18,13 @@ from blue_data_planner.types import (
     RunStatus,
     TableSummary,
     summarize_table,
+    total_cost,
 )
 from rich.console import Console
 from rich.table import Table
 from rich.text import Text
+
+from blue_data_planner_cli.output import format_cost
 
 # Every string a user reads says "physical plan", the library's own word for a cover.
 NOT_REACHED = "not reached under this physical plan"
@@ -107,7 +110,7 @@ def spend_lines(result: RunResult) -> list[str]:
         f"counters  operator calls {counters.operator_calls}/{counters.limits.operator_calls}   "
         f"failure replans {counters.failure_replans}/{counters.limits.failure_replans}   "
         f"control replans {counters.control_replans}/{counters.limits.control_replans}",
-        f"model     {len(usage)} calls   ${sum(one.cost for one in usage):.2f}",
+        f"model     {len(usage)} calls   {format_cost(total_cost(usage))}",
     ]
     if result.failure_reason:
         lines.append(f"ended     {result.failure_reason}")
@@ -257,13 +260,11 @@ class _CoverWalk:
         return found if isinstance(found, FragmentResult) else None
 
     def _first_seen_in(self, signature: str, position: int) -> int | None:
-        """Return the cover that first ran this work, or None where this cover is that one."""
         first = self.first_seen.setdefault(signature, position)
         return None if first == position else first
 
 
 def _in_run_order(plan: LogicalPlan, cover: PhysicalPlan) -> list[PhysicalPlanFragment]:
-    """Return the cover's fragments in the order the run could have reached them."""
     reached = {node.id: place for place, node in enumerate(plan.nodes_in_dependency_order())}
     return sorted(
         cover.fragments, key=lambda one: reached.get(one.root_logical_node_id, len(reached))
@@ -287,7 +288,6 @@ def _traced_discover_node(node: PipelineNode) -> TracedNode:
 
 
 def _fragment_detail(fragment: TracedFragment, max_output_chars: int) -> list[str]:
-    """Return the lines a narrow column cannot hold: a scan's source, then the output."""
     lines = [
         f"      reads  {node.id}  {node.scan_source}"
         for node in fragment.nodes
@@ -299,7 +299,6 @@ def _fragment_detail(fragment: TracedFragment, max_output_chars: int) -> list[st
 
 
 def _output_lines(fragment: TracedFragment, max_output_chars: int, indent: str) -> list[str]:
-    """Return a fragment's columns and sample rows, each cut to the cap."""
     if fragment.rows is None:
         return []
     lines = [f"{indent}columns  {', '.join(fragment.rows.columns)}"]
@@ -312,7 +311,6 @@ def _capped(line: str, max_output_chars: int) -> str:
 
 
 def _print_block(console: Console, name: str, lines: list[str]) -> None:
-    """Print what a table cannot hold, under the id of the work it belongs to."""
     if not lines:
         return
     console.print(Text(f"  {name}"))

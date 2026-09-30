@@ -12,7 +12,7 @@ from blue_data_planner.llm.templating import build_message, extract_output, rend
 BASE: dict[str, Any] = {
     "service_prefix": "openai",
     "openai.api": "ChatCompletion",
-    "openai.model": "gpt-4o",
+    "openai.model": "gpt-6-luna",
     "input_json": '[{"role": "user"}]',
     "input_context": "$[0]",
     "input_context_field": "content",
@@ -21,10 +21,11 @@ BASE: dict[str, Any] = {
 }
 
 
-def test_message_build_end_to_end() -> None:
+def test_a_built_message_carries_the_api_model_and_prompt() -> None:
+    """The message has the prefix-stripped api and model, and the prompt in the input field."""
     message = build_message("DATA", BASE)
     assert message["api"] == "ChatCompletion"  # prefix-stripped api property
-    assert message["model"] == "gpt-4o"
+    assert message["model"] == "gpt-6-luna"
     assert message["messages"] == [{"role": "user", "content": "DATA"}]
 
 
@@ -34,48 +35,55 @@ OPENAI_PAYLOAD: dict[str, Any] = {
 }
 
 
-def test_output_path_extraction() -> None:
+def test_the_output_path_selects_the_answer_from_the_response() -> None:
+    """The text at the output path is returned as written, whitespace included."""
     assert extract_output(OPENAI_PAYLOAD, {"output_path": BASE["output_path"]}) == "  42  "
 
 
-def test_output_strip_and_cast_int() -> None:
-    props = {"output_path": BASE["output_path"], "output_strip": True, "output_cast": "int"}
-    assert extract_output(OPENAI_PAYLOAD, props) == 42
+@pytest.mark.parametrize(
+    "content,extra_props,expected",
+    [
+        ("  42  ", {"output_strip": True, "output_cast": "int"}, 42),
+        ('{"a": 1}', {"output_cast": "json"}, {"a": 1}),
+    ],
+    ids=["strip-and-int", "json"],
+)
+def test_output_options_convert_the_extracted_text_to_the_named_type(
+    content: str, extra_props: dict[str, Any], expected: Any
+) -> None:
+    """Stripping and casting the text at the output path gives a value of the cast type."""
+    payload = {"choices": [{"message": {"content": content}}]}
+    props = {"output_path": BASE["output_path"], **extra_props}
+    assert extract_output(payload, props) == expected
 
 
-def test_output_cast_bool_is_a_no_op() -> None:
+def test_an_output_cast_to_bool_leaves_the_text_unchanged() -> None:
+    """Only int, float, json, and str are cast; a bool cast returns the text as it was."""
     # Only int/float/json/str are implemented; "bool" falls through unchanged.
     payload = {"choices": [{"message": {"content": "false"}}]}
     props = {"output_path": "$.choices[0].message.content", "output_cast": "bool"}
     assert extract_output(payload, props) == "false"
 
 
-def test_output_cast_json() -> None:
-    payload = {"choices": [{"message": {"content": '{"a": 1}'}}]}
-    props = {"output_path": "$.choices[0].message.content", "output_cast": "json"}
-    assert extract_output(payload, props) == {"a": 1}
+@pytest.mark.parametrize(
+    "content,transformation,expected",
+    [
+        ("a-b-c", {"transformation": "replace", "from": "-", "to": "_"}, "a_b_c"),
+        ("x12y34", {"transformation": "sub", "from": r"\d+", "to": "#"}, "x#y#"),
+    ],
+    ids=["replace", "sub"],
+)
+def test_an_output_transformation_rewrites_the_extracted_text(
+    content: str, transformation: dict[str, str], expected: str
+) -> None:
+    """A configured replace or sub transformation applies its from and to strings."""
+    payload = {"choices": [{"message": {"content": content}}]}
+    props = {"output_path": BASE["output_path"], "output_transformations": [transformation]}
+    assert extract_output(payload, props) == expected
 
 
-def test_output_replace_transformation() -> None:
-    payload = {"choices": [{"message": {"content": "a-b-c"}}]}
-    props = {
-        "output_path": "$.choices[0].message.content",
-        "output_transformations": [{"transformation": "replace", "from": "-", "to": "_"}],
-    }
-    assert extract_output(payload, props) == "a_b_c"
-
-
-def test_output_sub_transformation_fixed() -> None:
-    # A sub transformation uses the configured replacement string.
-    payload = {"choices": [{"message": {"content": "x12y34"}}]}
-    props = {
-        "output_path": "$.choices[0].message.content",
-        "output_transformations": [{"transformation": "sub", "from": r"\d+", "to": "#"}],
-    }
-    assert extract_output(payload, props) == "x#y#"
-
-
-def test_json_set_old_index_surface() -> None:
+def test_setting_a_value_works_with_the_old_jsonpath_index_surface() -> None:
+    """The setter handles the jsonpath-ng 1.5 match shape, which exposes index, not indices."""
     # jsonpath-ng 1.5.x exposes Index.index; modern versions expose indices.
     # The setter must handle BOTH: simulate the old surface directly.
     from blue_data_planner.llm.templating import _json_set  # pyright: ignore[reportPrivateUsage]
@@ -100,13 +108,15 @@ def test_json_set_old_index_surface() -> None:
     assert target == [{"role": "user", "content": "hello"}]
 
 
-def test_json_set_installed_index_surface() -> None:
+def test_building_a_message_sets_the_prompt_with_the_installed_jsonpath_version() -> None:
+    """The installed jsonpath-ng puts the prompt into the input field."""
     # The installed jsonpath-ng (modern API) end-to-end through build_message.
     message = build_message("hello", BASE)
     assert message["messages"] == [{"role": "user", "content": "hello"}]
 
 
-def test_missing_output_path_yields_none() -> None:
+def test_a_response_without_the_output_path_yields_none() -> None:
+    """A response holding nothing at the output path gives None."""
     assert (
         extract_output({"nothing": True}, {"output_path": "$.choices[0].message.content"}) is None
     )

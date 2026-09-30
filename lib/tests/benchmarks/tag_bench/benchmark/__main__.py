@@ -27,7 +27,7 @@ from tests.benchmarks.tag_bench.benchmark.runner import QueryOutcome, run_query
 from tests.benchmarks.tag_bench.fetch_queries import QueryRecord
 from tests.benchmarks.tag_bench.paths import DEFAULT_DATA_DIR
 
-DEFAULT_MODEL: str = "openai/gpt-5.6-luna"
+DEFAULT_MODEL: str = "openai/gpt-6-luna"
 DEFAULT_REASONING_EFFORT: str = "low"
 DEFAULT_LOTUS_MAX_ROWS: int = 5000
 DEFAULT_WORKERS: int = 4
@@ -257,10 +257,10 @@ def _progress_line(outcome: QueryOutcome) -> str:
     record = outcome.record
     mark = "correct" if record["correct"] else "wrong  "
     usage: dict[str, Any] = record["usage"] or {}
-    cost = float(usage.get("cost", 0.0))
+    cost = usage.get("cost", 0.0)
     return (
         f"query {record['query_id']:>4}  {mark}  {record['status']:<18} "
-        f"{record['elapsed_seconds']:>7.1f}s  ${cost:.3f}"
+        f"{record['elapsed_seconds']:>7.1f}s  {report.dollars(cost, places=3)}"
     )
 
 

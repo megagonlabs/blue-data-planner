@@ -60,7 +60,7 @@ def a_captured_build_data_planner(monkeypatch: pytest.MonkeyPatch) -> dict[str, 
 def test_a_caller_who_names_only_a_registry_gets_the_documented_defaults():
     """Every default lives here, and profile_spec.json is checked against these values."""
     settings = a_settings()
-    assert settings.model == "openai/gpt-5.6-luna"
+    assert settings.model == "openai/gpt-6-luna"
     assert settings.reasoning_effort == "low"
     assert settings.operator_suites == ("builtin", "lotus")
     assert settings.lotus_model is None
@@ -145,7 +145,7 @@ def test_the_bounds_a_caller_sets_reach_the_planner(
 
 @pytest.mark.parametrize(
     ("lotus_model", "runs_lotus_on"),
-    [(None, "openai/gpt-4o"), ("openai/gpt-4o-mini", "openai/gpt-4o-mini")],
+    [(None, "openai/gpt-6-luna"), ("openai/gpt-4.1", "openai/gpt-4.1")],
 )
 def test_each_suite_option_reaches_the_suite_it_configures(
     lotus_model: str | None,
@@ -160,7 +160,7 @@ def test_each_suite_option_reaches_the_suite_it_configures(
     build_data_planner_from_settings(
         a_settings(
             registry_path=a_readable_registry(tmp_path),
-            model="openai/gpt-4o",
+            model="openai/gpt-6-luna",
             enable_nl2table=True,
             lotus_model=lotus_model,
             lotus_reasoning_effort="high",

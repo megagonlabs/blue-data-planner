@@ -42,7 +42,7 @@ from blue_data_planner.operators.builtin import BuiltinSuite
 planner = build_data_planner(
     open_registry(Path("data/demo/registry.json")),
     suites=[BuiltinSuite(), LotusSuite()],
-    model="openai/gpt-5.6-luna",
+    model="openai/gpt-6-luna",
     limits=RunLimits(),
 )
 

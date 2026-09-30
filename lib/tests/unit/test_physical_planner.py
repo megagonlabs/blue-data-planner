@@ -703,7 +703,7 @@ def test_the_opening_turn_shows_each_scanned_entitys_attribute_views_and_no_othe
     assert f"- {POSTINGS} (sql/sqlite, 11060 row(s)): job postings" in section
     assert "- postings.remote [bool]: whether the role is remote" in section
     assert "values, most frequent first: True (7000 rows), False (4060 rows)" in section
-    assert "2 distinct; of 11060 rows counted, 0 null" in section
+    assert "of 11060 rows counted: 2 distinct, 0 null" in section
     assert REVIEWS not in section
 
 

@@ -14,6 +14,7 @@ from blue_data_planner.types import (
     DiscoveryResult,
     FragmentResult,
     RunConversations,
+    total_cost,
 )
 from tests.benchmarks.tag_bench.benchmark.scoring import score_answer
 from tests.benchmarks.tag_bench.fetch_queries import QueryRecord
@@ -95,16 +96,8 @@ def _outcome_payload(outcome: FragmentResult | DiscoveryResult) -> dict[str, Any
     if isinstance(outcome, DiscoveryResult):
         return outcome.to_dict()
     # A fragment is filed with every parameter attempt it made (ADR-047), which is what a parameter
-    # repair is counted off. The last call's error kind and report are added because the library's
-    # JSON form leaves them out, and triage reads both.
-    call = outcome.result
-    return {
-        **outcome.to_dict(),
-        "error": None
-        if call is None or call.error is None
-        else {"kind": str(call.error.kind), "message": call.error.message},
-        "report": None if call is None else call.report,
-    }
+    # repair is counted off, and with the last call's error kind and report, which triage reads.
+    return outcome.to_dict()
 
 
 def _usage_payload(result: RunResult) -> dict[str, Any]:
@@ -118,14 +111,18 @@ def _usage_payload(result: RunResult) -> dict[str, Any]:
     usage = conversations.usage
     return {
         "calls": len(usage),
-        "cost": round(sum(one.cost for one in usage), 6),
+        "cost": _rounded(total_cost(usage)),
         "by_component": by_component,
     }
 
 
 def _spend(conversations: list[Conversation]) -> dict[str, Any]:
     usage = [one for conversation in conversations for one in conversation.usage]
-    return {"calls": len(usage), "cost": round(sum(one.cost for one in usage), 6)}
+    return {"calls": len(usage), "cost": _rounded(total_cost(usage))}
+
+
+def _rounded(cost: float | None) -> float | None:
+    return None if cost is None else round(cost, 6)
 
 
 def _conversations_payload(conversations: RunConversations) -> dict[str, Any]:

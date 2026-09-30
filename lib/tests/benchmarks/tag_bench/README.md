@@ -39,35 +39,9 @@ It needs a provider key in the environment. `--reasoning-effort`
 controls how hard that model reasons, and defaults to `none`; `off` omits the parameter entirely.
 
 ```bash
-python -m tests.benchmarks.tag_bench.register_databases --force --describe --model gpt-4o
+python -m tests.benchmarks.tag_bench.register_databases --force --describe --model gpt-6-luna
 ```
 
 Keeping one registry of each kind is deliberate. Planning quality depends on how well a source was
 enriched, and the registry without descriptions is the "nobody enriched this" case the design
 promises to work with.
-
-## The test fixture
-
-`lib/tests/fixtures/tag_bench_registry.json` is a miniature of the same thing, built from the two
-synthetic databases the unit tests stage. Tests that read a catalog can then assert against real
-record shapes instead of hand-written guesses. To regenerate it:
-
-```python
-import json, tempfile
-from pathlib import Path
-
-from tests.benchmarks.tag_bench.register_databases import build_registry, write_registry
-from tests.unit.benchmarks.tag_bench.test_register_databases import two_staged_databases
-
-path = Path("tests/fixtures/tag_bench_registry.json")  # run from lib/
-write_registry(build_registry(two_staged_databases(Path(tempfile.mkdtemp()))), path)
-
-# The staging directory is a temporary one, so replace the recorded path with the
-# location a real build would have used.
-records = json.loads(path.read_text())
-for record in records:
-    connection = record.get("properties", {}).get("connection")
-    if connection is not None:
-        connection["database_directory"] = "data/tag_bench/databases"
-path.write_text(json.dumps(records, indent=2) + "\n")
-```

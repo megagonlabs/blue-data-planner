@@ -37,7 +37,6 @@ def check_instruction_columns(operator_id: str, instruction: str, frames: list[l
 
 
 def _resolve(operator_id: str, reference: str, frames: list[list[str]]) -> tuple[str, list[str]]:
-    """Return the column a reference names and the columns of the table it is looked up in."""
     for tag, index in _SIDES.items():
         if reference.endswith(tag):
             if index >= len(frames):

@@ -99,8 +99,13 @@ def summary_line(result: RunResult) -> str:
     spend = result.conversations.to_dict()
     return (
         f"{result.status}  operator calls {result.counters.operator_calls}  "
-        f"model calls {spend['calls']}  ${spend['cost']:.2f}"
+        f"model calls {spend['calls']}  {format_cost(spend['cost'])}"
     )
+
+
+def format_cost(cost: float | None) -> str:
+    """Return a cost in dollars, or say it is unknown when a model had no price."""
+    return "cost unknown" if cost is None else f"${cost:.2f}"
 
 
 def error_line(code: str, description: str) -> str:
@@ -138,7 +143,9 @@ def print_table(headers: Sequence[str], rows: Iterable[Sequence[str]], console: 
 
 def print_json(payload: Any, console: Console) -> None:
     """Print one JSON document, the way every JSON this CLI writes is written."""
-    console.print_json(data=payload)
+    # A row value can be something JSON has no type for, such as the Decimal a SQL NUMERIC
+    # column reads as, and it is written in its string form, as the MCP server writes it.
+    console.print_json(data=payload, default=str)
 
 
 def _as_table(rows: list[dict[str, Any]]) -> Table:

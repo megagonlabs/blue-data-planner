@@ -175,9 +175,9 @@ def test_an_unset_lotus_model_is_left_to_follow_whatever_model_the_planner_resol
     model wherever that came from: --model here, BLUE_DATA_LLM_MODEL below."""
     resolver = a_resolver_over(tmp_path)
 
-    settings: ResolvedSettings = resolve_settings(resolver, model="openai/gpt-4o-mini")
+    settings: ResolvedSettings = resolve_settings(resolver, model="openai/gpt-4.1")
 
-    assert settings.planner.model == "openai/gpt-4o-mini"
+    assert settings.planner.model == "openai/gpt-4.1"
     assert settings.planner.lotus_model is None
 
 
@@ -185,22 +185,22 @@ def test_the_family_model_reaches_the_planner_when_no_planner_model_is_set(
     tmp_path: Path,
 ) -> None:
     """BLUE_DATA_PLANNER_MODEL falls back to BLUE_DATA_LLM_MODEL, and LOTUS follows the planner."""
-    resolver = a_resolver_over(tmp_path, BLUE_DATA_LLM_MODEL="openai/gpt-4o")
+    resolver = a_resolver_over(tmp_path, BLUE_DATA_LLM_MODEL="openai/gpt-6-luna")
 
     settings: ResolvedSettings = resolve_settings(resolver)
 
-    assert settings.planner.model == "openai/gpt-4o"
+    assert settings.planner.model == "openai/gpt-6-luna"
     assert settings.planner.lotus_model is None
 
 
 def test_the_model_option_leaves_a_set_lotus_model_alone(tmp_path: Path) -> None:
     """--model overrides the planner's model only; a LOTUS model set on its own is kept."""
-    resolver = a_resolver_over(tmp_path, BLUE_DATA_PLANNER_LOTUS_MODEL="openai/gpt-4o-mini")
+    resolver = a_resolver_over(tmp_path, BLUE_DATA_PLANNER_LOTUS_MODEL="openai/gpt-4.1")
 
-    settings: ResolvedSettings = resolve_settings(resolver, model="openai/gpt-4o")
+    settings: ResolvedSettings = resolve_settings(resolver, model="openai/gpt-6-luna")
 
-    assert settings.planner.model == "openai/gpt-4o"
-    assert settings.planner.lotus_model == "openai/gpt-4o-mini"
+    assert settings.planner.model == "openai/gpt-6-luna"
+    assert settings.planner.lotus_model == "openai/gpt-4.1"
 
 
 def test_a_profile_set_lotus_model_resolves_apart_from_the_planners_own(tmp_path: Path) -> None:
@@ -208,14 +208,14 @@ def test_a_profile_set_lotus_model_resolves_apart_from_the_planners_own(tmp_path
     settings resolve side by side."""
     resolver = a_resolver_over(
         tmp_path,
-        BLUE_DATA_PLANNER_MODEL="openai/gpt-4o",
-        BLUE_DATA_PLANNER_LOTUS_MODEL="openai/gpt-4o-mini",
+        BLUE_DATA_PLANNER_MODEL="openai/gpt-6-luna",
+        BLUE_DATA_PLANNER_LOTUS_MODEL="openai/gpt-4.1",
     )
 
     settings: ResolvedSettings = resolve_settings(resolver)
 
-    assert settings.planner.model == "openai/gpt-4o"
-    assert settings.planner.lotus_model == "openai/gpt-4o-mini"
+    assert settings.planner.model == "openai/gpt-6-luna"
+    assert settings.planner.lotus_model == "openai/gpt-4.1"
 
 
 def test_an_unknown_operator_suite_is_a_configuration_error(tmp_path: Path) -> None:

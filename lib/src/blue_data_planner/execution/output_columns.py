@@ -147,7 +147,6 @@ def _check_one_table(
     table_count: int,
     report: dict[str, Any] | None,
 ) -> Data | ExecutionResult:
-    """Return one table with its declared columns coerced, or the failure that rejects it."""
     # A zero-row table carries no column evidence either way, and an empty result is an
     # answer rather than a failure.
     if not records:

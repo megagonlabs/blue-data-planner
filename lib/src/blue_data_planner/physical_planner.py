@@ -175,7 +175,6 @@ class PhysicalPlanner:
         preamble: dict[str, str],
         bound_so_far: dict[str, PhysicalPlanFragment],
     ) -> PhysicalPlanFragment | str:
-        """Bind the root to one candidate, or return the reason it turned every one down."""
         conversation.turns.append(
             Turn(
                 role="user",
@@ -360,7 +359,6 @@ def _repeated(attempt: ParameterAttempt, earlier: list[ParameterAttempt]) -> int
 def _carried_cover(
     plan: LogicalPlan, previous: PhysicalPlan | None, results: dict[str, NodeResult]
 ) -> PhysicalPlan | None:
-    """Return the previous cover under this plan's id, when every node it covers has already run."""
     # A continuation rewriting only the ending asks for no work at all, and offering each node
     # whose rows the run already holds back to the model costs one call per fragment to be told
     # what the results already say.

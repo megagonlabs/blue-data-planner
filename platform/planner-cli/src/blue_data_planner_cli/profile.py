@@ -159,7 +159,6 @@ def profile_select(ctx: click.Context, name: str) -> None:
 
 @contextmanager
 def _as_cli_error(profile_code: str = "PROFILE_NOT_FOUND") -> Generator[None]:
-    """Report the configuration engine's own failures under this CLI's error codes."""
     try:
         yield
     except ProfileError as error:
@@ -179,7 +178,6 @@ def _resolver(ctx: click.Context) -> ConfigResolver:
 def _store_parameter(
     store: ProfileStore, profile: str, param: ParamSpec, value: str | None
 ) -> bool:
-    """Store one parameter, prompting where no value was given, and say whether it was written."""
     if param.is_secret:
         # A secret on the command line reaches the shell history, so it is always prompted.
         given = click.prompt(
@@ -206,7 +204,6 @@ def _store_parameter(
 
 
 def _displayed_value(resolver: ConfigResolver, param: ParamSpec) -> str:
-    """The value inspect prints, masked where the parameter is a secret."""
     if param.is_secret:
         if resolver.source_of(param.name) == "environment":
             return MASK

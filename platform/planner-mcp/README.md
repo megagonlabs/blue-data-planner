@@ -111,13 +111,16 @@ it. [`docs/mcp.md`](../../docs/mcp.md) covers the response keys and the error pa
       "failure_reason": null,
       "operator_id": "builtin.sort_superlative",
       "row_count": 3,
+      "error": null,
+      "report": null,
       "output": [
         {
           "row_count": 3,
           "columns": ["country", "customer_count"],
           "sample_rows": [{"country": "Mexico", "customer_count": 3}, "..."]
         }
-      ]
+      ],
+      "attempts": ["..."]
     }
   },
   "counters": {
@@ -146,7 +149,7 @@ the same thing to both.
 | --- | --- | --- |
 | `BLUE_DATA_REGISTRY_PATH` | `registry_path` | None, required |
 | `OPENAI_API_KEY` | — | None, required for the default model |
-| `BLUE_DATA_PLANNER_MODEL`, else `BLUE_DATA_LLM_MODEL` | `model` | `openai/gpt-5.6-luna` |
+| `BLUE_DATA_PLANNER_MODEL`, else `BLUE_DATA_LLM_MODEL` | `model` | `openai/gpt-6-luna` |
 | `BLUE_DATA_PLANNER_REASONING_EFFORT` | `reasoning_effort` | `low` |
 | `BLUE_DATA_PLANNER_OPERATORS` | `operator_suites`, comma separated | `builtin,lotus` |
 | `BLUE_DATA_PLANNER_LOTUS_MODEL` | `lotus_model` | Unset: LOTUS uses the planner's model |

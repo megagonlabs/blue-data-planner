@@ -18,6 +18,7 @@ from blue_data_planner.types import (
     Data,
     DataBundle,
     ExecutionResult,
+    InvalidSettingError,
     LogicalOperator,
     OutputColumn,
     PhysicalOperator,
@@ -26,7 +27,7 @@ from blue_data_planner.types import (
     RunLimits,
 )
 
-MODEL = "openai/gpt-4o"
+MODEL = "openai/gpt-6-luna"
 
 
 @pytest.fixture(autouse=True)
@@ -34,11 +35,20 @@ def lotus_stub() -> Any:
     """Return the stub with its script emptied and its model and reasoning effort forgotten."""
     settings._configured_model = None  # pyright: ignore[reportPrivateUsage]
     settings._configured_reasoning_effort = None  # pyright: ignore[reportPrivateUsage]
+    settings._lotus_configured = False  # pyright: ignore[reportPrivateUsage]
     import lotus
 
     lotus.settings.lm = lotus.models.LM()
     lotus.reset()
     return lotus
+
+
+def test_a_second_suite_on_another_model_is_refused_while_it_is_built() -> None:
+    """LOTUS holds one model per process, so a planner that would conflict never starts a run."""
+    lotus_operators(MODEL)
+
+    with pytest.raises(InvalidSettingError):
+        lotus_operators("openai/gpt-4.1")
 
 
 def operator(operator_id: str, max_rows: int = 5000) -> PhysicalOperator:

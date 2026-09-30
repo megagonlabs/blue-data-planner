@@ -51,7 +51,7 @@ def _with_rest(listed: list[str], view: AttributeView, held: int) -> str:
         rest = view.distinct_count - len(listed)
         if rest > 0:
             listed.append(f"and {rest} more")
-    elif held > len(listed):
+    elif held > len(listed) or view.more_values_recorded:
         listed.append("and more")
     return ", ".join(listed)
 
@@ -62,13 +62,14 @@ def _counts_line(view: AttributeView) -> str:
         missing.append(f"{view.null_count} null")
     if view.empty_count is not None:
         missing.append(f"{view.empty_count} empty")
-    parts: list[str] = []
+    counts: list[str] = []
     if view.distinct_count is not None:
-        parts.append(f"{view.distinct_count} distinct")
-    if missing:
-        # The catalog may count over part of a table, so a count is stated against its own rows.
-        if view.counted_rows is not None:
-            parts.append(f"of {view.counted_rows} rows counted, " + ", ".join(missing))
-        else:
-            parts.append(", ".join(missing))
-    return "; ".join(parts)
+        counts.append(f"{view.distinct_count} distinct")
+    counts.extend(missing)
+    if not counts:
+        return ""
+    # The catalog may count over part of a table, so every count is stated against its own rows
+    # where the catalog recorded them.
+    if view.counted_rows is not None:
+        return f"of {view.counted_rows} rows counted: " + ", ".join(counts)
+    return ", ".join(counts)

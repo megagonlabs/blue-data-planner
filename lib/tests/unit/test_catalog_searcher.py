@@ -95,6 +95,20 @@ def test_one_entity_found_by_two_terms_appears_once_keeping_its_better_score() -
     assert [(match.path, match.score) for match in result.matches] == [(POSTINGS, 0.9)]
 
 
+def test_an_input_table_is_shown_with_its_first_rows_and_a_count_of_the_rows_left_out() -> None:
+    """The rows not shown are counted, so the model does not take the sample for the table."""
+    conversation = Conversation()
+    rows = [{"owner_id": index} for index in range(8)]
+
+    a_searcher(["users"], FakeCatalog({})).search(a_discover_node(), conversation, [rows])
+
+    turn = conversation.turns[-2].content
+    assert "Table 0: 8 row(s)" in turn
+    assert "{'owner_id': 4}" in turn
+    assert "{'owner_id': 5}" not in turn
+    assert "(+3 more row(s))" in turn  # eight rows, five shown
+
+
 def test_the_opening_instructions_carry_nothing_that_varies_by_node() -> None:
     """A search is one exchange, and its opening is the same one every search opens with."""
     first, second = Conversation(), Conversation()

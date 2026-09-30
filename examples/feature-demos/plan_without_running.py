@@ -34,7 +34,7 @@ def main() -> None:
     planner = build_data_planner(
         open_registry(REGISTRY),
         suites=[BuiltinSuite()],
-        model="openai/gpt-5.6-luna",
+        model="openai/gpt-6-luna",
     )
 
     result = planner.plan(REQUEST)

@@ -100,6 +100,7 @@ def a_discovery_of_one_match() -> DiscoveryResult:
                         description=None,
                         frequent_values=[],
                         sample_values=[],
+                        more_values_recorded=False,
                         distinct_count=None,
                         null_count=None,
                         empty_count=None,
