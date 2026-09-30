@@ -34,6 +34,27 @@ INTERNAL_ENTITY_NAMES = ("sqlite_sequence",)
 # Nothing here calls a model. Syncing and statistics are deterministic, and the attribute
 # descriptions are the ones blue-data generated once and committed alongside the seed.
 
+# The catalog search matches whole words in an entity's name and description, so a name such as
+# order_details answers to no term a model writes ("order details", "line items"), and the
+# committed file describes attributes only. These give each entity words a search term can hit,
+# singular and plural both, until entity descriptions come from blue-data itself. A word with
+# punctuation attached ("quantity,") does not match the bare word, so the text carries none.
+ENTITY_DESCRIPTIONS = {
+    "categories": "product categories where each category groups products of one kind",
+    "customers": "customers where each customer is a company that places orders with its "
+    "contact and city and country",
+    "employees": "employees where each employee is a sales staff member who handles orders",
+    "order_details": "order details or order lines or line items where each order line holds "
+    "one product of one order with its unit price and quantity and discount so sales and units "
+    "sold per product come from here",
+    "orders": "orders where each order is placed by one customer and handled by one employee "
+    "and shipped to a ship country with its order date and freight",
+    "products": "products where each product is an item sold with its product name and "
+    "category and supplier and unit price",
+    "suppliers": "suppliers where each supplier is a company that supplies products with its "
+    "country",
+}
+
 
 def build_sqlite_database(seed_path: Path, database_path: Path) -> None:
     """Run the Northwind seed script into a fresh SQLite file at database_path.
@@ -133,6 +154,31 @@ def apply_descriptions(
     return len(descriptions)
 
 
+def apply_entity_descriptions(
+    registry: Any,
+    descriptions: dict[str, str],
+    source_name: str = SOURCE_NAME,
+    database_name: str = DATABASE_NAME,
+) -> int:
+    """Write one description per named entity onto the registry, returning how many.
+
+    Raises:
+        ValueError: If a description names an entity the registry lacks.
+    """
+    entity_names = {
+        str(record["name"])
+        for record in registry.list_collection_entities(source_name, database_name, COLLECTION_NAME)
+    }
+    missing = sorted(set(descriptions) - entity_names)
+    if missing:
+        raise ValueError(f"Entity descriptions name entities the registry lacks: {missing}")
+    for entity, description in sorted(descriptions.items()):
+        registry.set_source_database_collection_entity_description(
+            source_name, database_name, COLLECTION_NAME, entity, description
+        )
+    return len(descriptions)
+
+
 def attribute_counts_by_entity(
     registry: Any, source_name: str = SOURCE_NAME, database_name: str = DATABASE_NAME
 ) -> dict[str, int]:
@@ -202,6 +248,10 @@ def main() -> None:
         registry, data_dir / DESCRIPTIONS_FILE_NAME, source_name=args.source_name
     )
     print(f"applied {described} committed attribute descriptions")
+    described = apply_entity_descriptions(
+        registry, ENTITY_DESCRIPTIONS, source_name=args.source_name
+    )
+    print(f"applied {described} entity descriptions")
 
     write_registry(registry, registry_path)
     counts = attribute_counts_by_entity(registry, args.source_name)

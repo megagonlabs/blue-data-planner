@@ -12,6 +12,7 @@ from tests.unit.scripts.demo.script_loader import load_demo_script
 
 register_northwind = load_demo_script("register_northwind")
 apply_descriptions = register_northwind.apply_descriptions
+apply_entity_descriptions = register_northwind.apply_entity_descriptions
 check_database_registered = register_northwind.check_database_registered
 deregister_internal_entities = register_northwind.deregister_internal_entities
 
@@ -55,6 +56,12 @@ class FakeRegistry:
     ) -> None:
         assert (source, database, collection) == (SOURCE, DATABASE, COLLECTION)
         self.descriptions[f"{entity}.{attribute}"] = description
+
+    def set_source_database_collection_entity_description(
+        self, source: str, database: str, collection: str, entity: str, description: str
+    ) -> None:
+        assert (source, database, collection) == (SOURCE, DATABASE, COLLECTION)
+        self.descriptions[entity] = description
 
     def deregister_source_database_collection_entity(
         self, source: str, database: str, collection: str, entity: str
@@ -115,6 +122,39 @@ def test_apply_descriptions_rejects_a_key_that_does_not_name_an_attribute(
     with pytest.raises(ValueError, match="entity.attribute"):
         apply_descriptions(registry, path)
     assert registry.descriptions == {}
+
+
+def test_apply_entity_descriptions_writes_each_description_onto_its_entity() -> None:
+    """Each named entity receives its description, and the count written is returned."""
+    registry = a_northwind_registry(order_details=["quantity"], orders=["order_id"])
+    descriptions = {"order_details": "Order line items.", "orders": "Customer orders."}
+
+    written = apply_entity_descriptions(registry, descriptions)
+
+    assert written == 2
+    assert registry.descriptions == descriptions
+
+
+def test_apply_entity_descriptions_rejects_an_entity_the_registry_lacks() -> None:
+    """A description naming an unregistered entity raises before anything is written."""
+    registry = a_northwind_registry(orders=["order_id"])
+
+    with pytest.raises(ValueError, match="shipments"):
+        apply_entity_descriptions(registry, {"orders": "Orders.", "shipments": "Shipments."})
+    assert registry.descriptions == {}
+
+
+def test_every_demo_entity_description_names_an_entity_the_seed_creates() -> None:
+    """The hard-coded descriptions cover exactly the seven Northwind tables."""
+    assert set(register_northwind.ENTITY_DESCRIPTIONS) == {
+        "categories",
+        "customers",
+        "employees",
+        "order_details",
+        "orders",
+        "products",
+        "suppliers",
+    }
 
 
 def test_check_database_registered_accepts_a_database_that_synced_with_entities() -> None:
