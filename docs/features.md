@@ -258,12 +258,6 @@ alongside the answer. [mcp.md](mcp.md) covers the tool, the response, and the er
 
 ---
 
-## REST API
-
-Not built, and not in the first release. [api.md](api.md) says what to use instead.
-
----
-
 ## TAG-Bench harness
 
 TAG-Bench is a set of natural-language questions over five BIRD SQLite databases, and the

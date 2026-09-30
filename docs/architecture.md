@@ -91,7 +91,6 @@ operators are registered, and repairs what fails. It has two tiers, `lib/` and `
 | --- | --- | --- | --- |
 | `platform/planner-cli/` | `blue-data-planner-cli` | `blue-planner` (terminal, Click) | Built — see [cli.md](cli.md) |
 | `platform/planner-mcp/` | `blue-data-planner-mcp` | stdio (MCP), one tool: `query_data` | Built — see [mcp.md](mcp.md) |
-| `platform/planner-api/` | — | HTTP | Reserved, not built, not in the first release — see [api.md](api.md) |
 
 An adapter translates arguments and results and holds no planning logic.
 

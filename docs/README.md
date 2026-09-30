@@ -17,7 +17,6 @@
 | [api-reference.md](api-reference.md) | Look up an exact signature, parameter, default, or result type |
 | [cli.md](cli.md) | Use the `blue-planner` command: every command, profiles, output formats, exit codes |
 | [mcp.md](mcp.md) | Call the planner from an agent: the `query_data` tool, its response, and its errors |
-| [api.md](api.md) | REST API — reserved, not in the first release |
 
 ## Building on it
 
