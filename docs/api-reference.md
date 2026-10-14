@@ -194,14 +194,16 @@ Frozen. Every bound a run obeys, set once when the planner is built.
 
 | Field | Default | Counts | Reaching it |
 | --- | --- | --- | --- |
-| `operator_calls` | `30` | Every operator call in the request | `budget_exhausted` |
+| `operator_calls` | `30` | Every operator call in the request. Also the most operator and `DISCOVER` nodes one plan may hold | `budget_exhausted` |
 | `plan_corrections` | `5` | Rewrites after validation turned a plan down | `invalid_plan` |
 | `parameter_repairs` | `3` | Parameter rewrites within one fragment | The cover repair |
 | `cover_repairs` | `2` | Covers after the first, per logical plan | The replan |
 | `failure_replans` | `2` | Replans a failure forced | `replan_exhausted` |
 | `control_replans` | `5` | Replans a control node asked for | `replan_exhausted` |
 
-Model calls are not budgeted. The three repairs and their order are in
+Model calls have no limit of their own. Their number is bounded through the size of a plan: a plan
+holding more operator and `DISCOVER` nodes than `operator_calls` is turned down and written again,
+which uses one of the `plan_corrections`. The three repairs and their order are in
 [architecture.md](architecture.md#the-three-repairs).
 
 ### `RunCounters`
@@ -380,7 +382,7 @@ how a plan travels out of the process and back.
 What can be answered about a plan with no model, no source, and no operator call.
 
 ```python
-def validate_logical_plan(plan: LogicalPlan, entity_paths: frozenset[str], carried_node_ids: frozenset[str] = frozenset()) -> None: ...
+def validate_logical_plan(plan: LogicalPlan, entity_paths: frozenset[str], carried_node_ids: frozenset[str] = frozenset(), *, max_nodes: int) -> None: ...
 def validate_physical_plan(plan: LogicalPlan, physical_plan: PhysicalPlan) -> None: ...
 def candidate_fragments(plan: LogicalPlan, root_node_id: str, logical_operators: frozenset[LogicalOperator]) -> list[frozenset[str]]: ...
 def fragment_frontier(plan: LogicalPlan, node_ids: frozenset[str]) -> list[str]: ...

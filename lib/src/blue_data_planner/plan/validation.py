@@ -19,11 +19,14 @@ def validate_logical_plan(
     plan: LogicalPlan,
     entity_paths: frozenset[str],
     carried_node_ids: frozenset[str] = frozenset(),
+    *,
+    max_nodes: int,
 ) -> None:
     """Raise unless the plan is a sound DAG with one ending, enough inputs, and known scans."""
     _check_structure(plan)
     _check_arity(plan)
     _check_replan_count(plan)
+    _check_size(plan, max_nodes)
     _check_replan_waits_for_work(plan, carried_node_ids)
     _check_controls_are_terminal(plan)
     terminal_ids = _check_ending(plan, carried_node_ids)
@@ -88,6 +91,21 @@ def _check_replan_count(plan: LogicalPlan) -> None:
         raise PlanValidationError(
             "a plan takes at most one REPLAN node, since resolving one runs nothing and a "
             f"second asks for the continuation the first already asked for; got {len(replans)}"
+        )
+
+
+def _check_size(plan: LogicalPlan, max_nodes: int) -> None:
+    # When each fragment runs one node, a plan with more of these nodes than the operator call
+    # budget cannot run to its end (ADR-060).
+    counted = [
+        node
+        for node in plan.nodes
+        if node.kind not in (LogicalOperator.RETURN, ControlOperator.REPLAN)
+    ]
+    if len(counted) > max_nodes:
+        raise PlanValidationError(
+            f"the plan has {len(counted)} operator and DISCOVER nodes, more than the operator "
+            f"call budget of {max_nodes}; write a plan with at most {max_nodes}"
         )
 
 

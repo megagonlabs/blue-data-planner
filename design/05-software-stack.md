@@ -96,7 +96,7 @@ to one does not affect the other.
 
 Only one budget exists: operator calls. A model call LOTUS makes happens inside an operator call, so
 it bills against that budget like the rest of the call; a call through `llm/` bills against nothing
-(ADR-014). The client records tokens, cost, and latency per call regardless, and a result carries
+(ADR-060). The client records tokens, cost, and latency per call regardless, and a result carries
 one such record per call, which is what a caller reads to convert a call count into money.
 
 ---
@@ -215,7 +215,7 @@ profile, with the environment above it and below a command option (ADR-028).
 
 The full list of settings and their defaults belongs to
 [12-deployment-ops.md](12-deployment-ops.md), including the operator call budget, the bound on each
-of the three repairs, and the cap on plan corrections (ADR-014).
+of the three repairs, and the cap on plan corrections (ADR-060).
 
 ---
 

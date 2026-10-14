@@ -141,7 +141,9 @@ print(counters.operator_calls, "of", counters.limits.operator_calls)
 print(counters.failure_replans, counters.control_replans)
 ```
 
-Model calls are not budgeted. What each of the planner's own calls cost is in
+`operator_calls` also caps the size of a plan: a plan holding more operator and `DISCOVER` nodes
+than it is turned down and written again. Model calls have no limit of their own; this cap bounds
+the ones made while planning. What each of the planner's own calls cost is in
 `result.conversations.usage`. A model call an operator makes on its own, as a LOTUS operation does,
 is not there; the operator reports its cost in the `report` on its result.
 

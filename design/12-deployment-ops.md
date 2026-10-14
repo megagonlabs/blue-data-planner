@@ -158,7 +158,7 @@ directory it names.
 ## 5. Request limits
 
 `RunLimits` holds every bound the run loop obeys, and it is set once, when the planner is built
-(ADR-014). Nothing overrides one per request. Whether a bound an operator enforces inside its own
+(ADR-060). Nothing overrides one per request. Whether a bound an operator enforces inside its own
 call belongs here is open question 45 in [13-decision-log.md](13-decision-log.md#open-questions).
 The values in force are the defaults on `RunLimits`. A deployment raises or lowers one of the three
 a run reports back by setting `BLUE_DATA_PLANNER_MAX_` plus the field's name ([section
@@ -196,15 +196,30 @@ spend in total
 out they permit far more work than any request should do: several covers of one logical plan, inside
 several logical plans, each fragment of each cover writing parameters several times over.
 
-`operator_calls` is the only ceiling on the total, which is why ADR-014 says its value matters more
+`operator_calls` is the only ceiling on the total, which is why ADR-060 says its value matters more
 than it otherwise would. A plan that runs cleanly spends one call per fragment. A cover repair
 spends one more per fragment the model chose to change, and a rejected fragment spends its parameter
 repairs on top, so exhausting the budget takes a run in which most fragments failed and the repairs
 kept finding something else to try. A request stopped by `operator_calls` rather than by a recovery
 bound is a request that was not converging.
 
-Model calls are not budgeted (ADR-014). Every one of them happens inside a loop one of these bounds
-already limits, so a separate cap would restate them under another name.
+`operator_calls` also caps the size of a plan: validation turns down a plan holding more operator
+and `DISCOVER` nodes than it, not counting `RETURN` and `REPLAN` (ADR-060). This cap bounds the
+model calls made while planning: a run makes one catalog search per `DISCOVER` node and at most one
+binding per operator node in each cover.
+
+Model calls have no cap of their own. One request makes at most the product of these limits:
+
+| Model calls | At most |
+| --- | --- |
+| Logical planning, per pass | `1 + plan_corrections` |
+| Catalog searches, per pass | `operator_calls` |
+| Bindings, per pass | `operator_calls × (1 + cover_repairs)` |
+| Passes, per request | `1 + failure_replans + control_replans` |
+| Parameter writing and review | A number that grows with the operator calls billed |
+
+With the defaults, the product is about a thousand calls. The count is finite, but it is not a cost
+ceiling: no setting caps what one request spends on model calls.
 
 ### Where the values come from
 

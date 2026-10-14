@@ -130,10 +130,11 @@ nodes and its ending has not been written yet. Validation accepts exactly two sh
 and no terminal control node, or one or more terminal control nodes and no `RETURN` (ADR-007). A
 plan carrying both is rejected, since the planner cannot both defer the ending and write it.
 
-A plan holds at most one `REPLAN` node and any number of `DISCOVER` nodes. Resolving a `REPLAN`
-runs nothing, so a second one asks for a continuation the first already asked for, while each
-`DISCOVER` carries its own instruction and searches on its own terms
-([04](04-detailed-architecture.md#three-kinds-of-node)).
+A plan holds at most one `REPLAN` node. Resolving a `REPLAN` runs nothing, so a second one asks for
+a continuation the first already asked for, while each `DISCOVER` carries its own instruction and
+searches on its own terms ([04](04-detailed-architecture.md#three-kinds-of-node)). Operator nodes
+and `DISCOVER` nodes together number at most `RunLimits.operator_calls`, carried nodes included;
+`RETURN` and `REPLAN` are not counted (ADR-060).
 
 A plan holding a `REPLAN` has to write at least one step it did not carry over. The node marks where
 the pass stops so the rest can be written against the rows the pass produced, and a pass running

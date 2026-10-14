@@ -546,6 +546,19 @@ def test_running_out_of_corrections_ends_as_invalid_plan_carrying_the_last_objec
     assert sum(1 for turn in conversation.turns if turn.role == "assistant") == 3
 
 
+def test_a_plan_larger_than_the_operator_call_budget_is_turned_down() -> None:
+    """Two operator nodes do not fit an operator call budget of 1, which caps the plan size."""
+    client = ScriptedLLMClient([a_complete_plan()])
+
+    written = a_planner_over(client).generate(
+        "a request", Conversation(), RunCounters(RunLimits(operator_calls=1, plan_corrections=0))
+    )
+
+    assert written.status is RunStatus.INVALID_PLAN
+    assert written.failure_reason is not None
+    assert "operator call budget of 1" in written.failure_reason
+
+
 def test_a_continuation_is_a_turn_on_top_of_the_plans_already_written() -> None:
     """One conversation serves a whole request, so a second pass is not a fresh exchange."""
     client = ScriptedLLMClient([a_plan_ending_in_discovery(), a_continuation_plan()])

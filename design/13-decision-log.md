@@ -428,7 +428,7 @@ it owes, so an incomplete one leaves the review nothing to catch a bad call with
 ## ADR-014 — One Operator-Call Budget; Model Calls Go Unmetered
 
 **Date:** 2026-09-25
-**Status:** Accepted
+**Status:** Superseded by ADR-060
 
 **Decision:** A request carries one budget, counting calls through `execute_physical_operator`;
 reaching its cap ends the request. Every bound the run loop obeys is a field of `RunLimits`, set
@@ -1968,6 +1968,54 @@ the value another way, such as through a `REPLAN` that reads it first. An operat
 inputs and refusing a frontier it was offered is still possible, which is question 51. A bundle of
 the wrong length for any other reason is still refused inside each adapter, which is question 15.
 
+## ADR-060 — The Operator-Call Budget Also Bounds the Size of a Plan
+
+**Date:** 2026-10-14
+**Status:** Accepted
+
+**Decision:** A request carries one budget, counting calls through `execute_physical_operator`;
+reaching its cap ends the request. Every bound the run loop obeys is a field of `RunLimits`, set
+once when the planner is built: plan corrections, parameter repairs, cover repairs, failure
+replans, and control replans. `RunCounters` counts one request against them, carries the
+`RunLimits` it counted against, and is what a result reports. A number whose only effect on
+reaching it is to drop work rather than to redirect a request is not a bound of this kind, which is
+where the cap on one `DISCOVER` node's search terms sits: `CatalogSearcher` holds it, as
+`LogicalPlanner` holds the size of the catalog preview. An operator may bound work it repeats
+inside one call, and the number belongs to the operator.
+
+A logical plan holding more operator and `DISCOVER` nodes than `operator_calls` fails validation,
+and the logical planner writes it again as it does any plan validation turns down. `RETURN` and
+`REPLAN` are not counted. Calls through `llm/` have no cap of their own.
+
+**Rationale:** Two kinds of model call grow with the size of a plan: one catalog search per
+`DISCOVER` node, and one binding per operator node in every cover. The model writing the plan
+decides how many nodes it holds, and the request shapes what the model writes, so the request
+decides how many of these calls a run makes, even in a run that calls no operator. In a review, one
+request produced 30 `DISCOVER` nodes and 53 model calls.
+
+When each fragment runs one node, as it usually does, a plan with more nodes than `operator_calls`
+cannot run to its end. Refusing it at validation costs one correction instead of the calls the plan
+would make before the budget stopped it. Reusing `operator_calls` keeps one number for how much work
+a request may do: raising it lets a request both run and plan more. The bound is approximate, since
+a compound operator can run several nodes in one call and a plan over the bound might still fit.
+Plans that large are rare, so the occasional extra correction is acceptable.
+
+A separate cap on model calls would need a counter carried into every component that calls a model.
+With the plan size bounded, every model call happens inside a loop an existing bound limits, so the
+calls are bounded without such a counter.
+
+**Consequences:** The model calls one request makes are bounded by the product of the existing
+bounds. One pass makes at most `1 + plan_corrections` logical planning calls, at most
+`operator_calls` catalog searches, and at most `operator_calls × (1 + cover_repairs)` binding calls,
+and a request makes at most `1 + failure_replans + control_replans` passes. The fragment runner's
+calls grow with the operator calls it bills. With the defaults, the product is about a thousand
+calls: the count is finite, but it is not a cost ceiling, and no setting caps the cost of one
+request.
+
+The conversations a run holds record one usage entry per model call, so model cost is visible after
+the fact. With no cost model, `operator_calls` bounds both the work a request runs and the work it
+plans, so its value matters more than it otherwise would.
+
 ---
 
 ## Open Questions
@@ -1988,7 +2036,7 @@ Design questions first, then defects in the code.
 | 42 | Does anything here emit traces or logs of its own, and if so which package? [12-deployment-ops.md](12-deployment-ops.md#7-logging) fixes the library at standard-library logging with no handler configured, so an embedding application decides the format and the destination, and nothing in [05-software-stack.md](05-software-stack.md) declares a tracing dependency. Three routes. The adapters own it: the MCP package declares an exporter, emits structured JSON logs, and opens one span per tool request, leaving the library uninstrumented. The library owns it: spans cover each planning component, each operator call, and each model call, which is the only route that can show where a run's time and money went, at the price of a tracing dependency in `lib/` and an import in code every consumer runs. Or nothing ships in the first release and the run record stays the instrument. What argues for instrumenting at all is the fragment span: it would carry the logical nodes a fragment covered and the operator that ran them, which is where the pushdown boundary was drawn, and a trace can show that where a counter cannot. Against it: `RunResult` already carries every plan, every attempt, the counters, and one usage record per model call, so a trace would restate what the caller is handed. | Whether a deployment can see inside a run without reading the returned result, and which package pays for it |
 | 43 | How is the physical planner made to choose a more capable operator over a built-in one? The built-in suite has a deterministic candidate for every operator node kind (ADR-058), so a node is almost never answered as `no_operator` and a wrong choice is refused at review instead, one operator call later. A binding turning every candidate down (ADR-040) answers the node nothing fits; this question is the other one, where a built-in candidate returns rows that look like an answer. `description` and `limitations` are the whole of what separates two candidates in the prompt, so a built-in entry that cannot judge meaning has to say so in terms a model weighs against a LOTUS or Blue operator that can, and one that reads whole tables into memory to work over them has to say that too. `builtin.filter` can approximate a semantic predicate — a regular expression matching a phrase where a reader would have judged a title — and the approximation returns rows and reports no error, so nothing but review stands between it and an answer. The review rejection rate of fragments bound to a built-in entry, which the TAG-Bench harness reports, is what measures it. | Whether a floor that always has a candidate raises the cost of every request that needed the ceiling |
 | 44 | Can an operator declare that every scan in one fragment reads the same source? `source_kinds` is a set of kinds and says nothing about identity, and each `SCAN` names its source separately, so nothing stops a cover from grouping scans of two databases into one operator's fragment. `blue.nl2sql` needs the constraint, since one SQL query cannot span two of them. Without a way to declare it the constraint lives in `limitations` as plain language, and a candidate that cannot work is offered anyway. This is question 8's family: a capability the declaration has no vocabulary for. | Whether an operator limited to one source at a time can be declared at all, or is offered candidates it has to refuse |
-| 45 | Is a bound an operator enforces inside its own call a bound of ADR-014's kind? `RunLimits` holds every bound the run loop obeys, and two numbers sit below it instead: the distinct values a bind join carries, and the rows a LOTUS operation accepts before refusing the call. Both are shaped like `RunLimits` fields, and they do not agree with each other about who sets them: the LOTUS cap is an argument to `lotus_operators`, so a deployment chooses it where it builds the suite, while the bind-join cap is fixed in the operator that enforces it. `builtin.scan` reads only `sql/sqlite`, a source with a predicate language, and implements two of the three realizations in [06](06-library.md#data): values embedded in the query text, capped at 100 distinct values, and a temporary table, capped by nothing. Past the embedded-values cap it escalates to the temporary table rather than refusing the input, so `builtin.scan` never refuses a bind join for carrying too many values; 100 is where it switches realization, not a limit it enforces. The one-call-per-value realization, and the tighter cap that would bound it, belong to an operator reading a source with no predicate language, a case nothing in the built-in suite covers. Every number here is a placeholder set low enough not to break a run rather than measured against real volumes or real failure rates. A `RunLimits` field would let a deployment raise a cap past a default nobody has tested; leaving each number inside its operator keeps the choice with whichever component already sees what decides it. | Whether a bound below the run loop is configurable per deployment, and what real volumes and failure rates call for |
+| 45 | Is a bound an operator enforces inside its own call a bound of ADR-060's kind? `RunLimits` holds every bound the run loop obeys, and two numbers sit below it instead: the distinct values a bind join carries, and the rows a LOTUS operation accepts before refusing the call. Both are shaped like `RunLimits` fields, and they do not agree with each other about who sets them: the LOTUS cap is an argument to `lotus_operators`, so a deployment chooses it where it builds the suite, while the bind-join cap is fixed in the operator that enforces it. `builtin.scan` reads only `sql/sqlite`, a source with a predicate language, and implements two of the three realizations in [06](06-library.md#data): values embedded in the query text, capped at 100 distinct values, and a temporary table, capped by nothing. Past the embedded-values cap it escalates to the temporary table rather than refusing the input, so `builtin.scan` never refuses a bind join for carrying too many values; 100 is where it switches realization, not a limit it enforces. The one-call-per-value realization, and the tighter cap that would bound it, belong to an operator reading a source with no predicate language, a case nothing in the built-in suite covers. Every number here is a placeholder set low enough not to break a run rather than measured against real volumes or real failure rates. A `RunLimits` field would let a deployment raise a cap past a default nobody has tested; leaving each number inside its operator keeps the choice with whichever component already sees what decides it. | Whether a bound below the run loop is configurable per deployment, and what real volumes and failure rates call for |
 | 47 | Should the operator vocabulary gain a node that looks the catalog up once per input row? ADR-049 keeps a `DISCOVER` node to a bounded set of entities however many rows it was handed, so a request such as "find the press release document for each of these 500 companies" has nowhere to go: that lookup is per row, what it returns is data rather than context, and it should be billed against the operator budget and reviewed like any other data operation. An operator node would give it all three. Against adding one: none of the ten logical operators reads the catalog, so this would be the first, and what it returns — paths rather than values — is a kind of row nothing else in a plan produces. How often a request needs one is unmeasured. | Whether a per-row catalog lookup is expressible at all, and whether the logical vocabulary stays as it is |
 | 48 | Which component reads a `relation` record when a plan scans a knowledge-base source? `blue-data` records relations alongside entities and attributes, each with a name, a source, and a target, and nothing in this design reads one. A `JOIN` is the obvious consumer, since a relation says which attributes join two entities, and it could arrive as part of the run's catalog context or as part of the fragment runner's deeper reading. What stops the question being answered for tables alone is that relations are the structure a knowledge-base source carries, and how this planner reads a knowledge base is itself unsettled, so an answer shaped for two SQL tables would likely be the wrong shape for a graph. | Whether a `JOIN` is written against a declared relation or against column names a model matched up, and what a knowledge-base source contributes to a plan |
 | 51 | What does a compound operation do with a fragment whose frontier carries rows, before it can read one? `blue.nl2sql` declares bound inputs, so the physical planner offers it groups whose inputs arrive from an earlier fragment. A query written from a source's schema alone would answer from that source and leave those rows out, which is a wrong answer rather than a failure, and refusing the bundle as a recoverable failure is what keeps it from being returned. That refusal costs an operator call on a candidate that could not have worked. Narrowing the declaration instead would stop the candidate being enumerated at all, and would have to be widened again by hand once the operation reads its bundle, so the declaration states the target state and is not narrowed. What is unsettled is whether the refusal should cost a call, and whether a candidate an operator is known to refuse should be enumerated at all. That is question 44's shape: a constraint the declaration has no vocabulary for is stated in `limitations`, and the candidate is offered anyway. | Whether a fragment with a non-empty frontier reaches the compound Blue operation, and what a run spends finding out that it cannot serve one |

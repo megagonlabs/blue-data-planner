@@ -170,14 +170,16 @@ the model changed.
 
 | Field | Default | Counts |
 | --- | --- | --- |
-| `operator_calls` | 30 | Every operator call in the request. The one budget |
+| `operator_calls` | 30 | Every operator call in the request. The one budget, and the most operator and `DISCOVER` nodes one plan may hold |
 | `plan_corrections` | 5 | Rewrites after validation turned a plan down |
 | `parameter_repairs` | 3 | Parameter rewrites within one fragment |
 | `cover_repairs` | 2 | Covers after the first, per logical plan |
 | `failure_replans` | 2 | Replans a failure forced |
 | `control_replans` | 5 | Replans a control node asked for |
 
-Model calls are not budgeted.
+Model calls have no limit of their own. A plan holding more operator and `DISCOVER` nodes than
+`operator_calls` is turned down. This bounds the model calls made while planning: one catalog search
+per `DISCOVER` node and at most one binding per operator node.
 
 ### How a request ends
 

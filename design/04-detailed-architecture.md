@@ -228,8 +228,9 @@ error both stay in the session, so a run that ends in `invalid_plan` shows what 
 Validation accepts two plan shapes: exactly one `RETURN` node, or one or more terminal control nodes
 and no `RETURN` at all. The `RETURN` arrives in a continuation. A plan carrying a control node and a
 `RETURN` after it is rejected, since the planner cannot both defer the ending and write it. Of those
-terminal control nodes at most one is a `REPLAN`, while the number of `DISCOVER` nodes is not
-bounded.
+terminal control nodes at most one is a `REPLAN`. Operator nodes and `DISCOVER` nodes together
+number at most `operator_calls`, since a larger plan could not run to its end within the budget
+(ADR-060).
 
 A `REPLAN` is rejected in one further case: a plan writing no step for it to wait for. Such a pass
 runs nothing, so the prompt the next pass reads is the prompt this one read, and the run spends a
@@ -837,7 +838,7 @@ candidates that can carry the work is caught at review one operator call later (
 ## Budgets and limits
 
 Six limits bound a request. Each is fixed when the planner is built and counted at the scope its
-row below gives. ADR-014 covers which of them is budgeted and why, and
+row below gives. ADR-060 covers which of them is budgeted and why, and
 [06-library.md](06-library.md#budgets-and-limits) says which component enforces each.
 
 What each one counts, where it starts again, and what happens when it is reached are in
@@ -846,10 +847,12 @@ What each one counts, where it starts again, and what happens when it is reached
 bound it was counted against. The other three reset inside one, so no single number describes what
 a run spent against them.
 
-Calls through `llm/` are not budgeted. A plan correction spends one and no operator call, since the
-rejected plan never runs, and so does every physical planning decision. The parameter repair is the
-only one whose attempts each spend an operator call, which is what the operator call budget is there
-to bound.
+Calls through `llm/` have no cap of their own. A plan correction spends one and no operator call,
+since the rejected plan never runs, and so does every physical planning decision. The parameter
+repair is the only one whose attempts each spend an operator call, which is what the operator call
+budget is there to bound. The planning calls are bounded through the size of a plan instead:
+validation caps the operator and `DISCOVER` nodes at `operator_calls`, and each of those nodes
+costs at most one catalog search or one binding per cover (ADR-060).
 
 ---
 

@@ -17,6 +17,9 @@ from blue_data_planner.types import (
     PlanValidationError,
 )
 
+# A cap no plan in these tests comes near, for the tests about every other rule.
+ANY_SIZE = 100
+
 
 def a_node(
     node_id: str,
@@ -116,7 +119,7 @@ def a_cover(fragments: list[PhysicalPlanFragment]) -> PhysicalPlan:
 )
 def test_a_sound_plan_passes(plan: LogicalPlan) -> None:
     """A plan with one ending, no cycle, and enough inputs per node runs."""
-    validate_logical_plan(plan, frozenset())
+    validate_logical_plan(plan, frozenset(), max_nodes=ANY_SIZE)
 
 
 @pytest.mark.parametrize(
@@ -249,7 +252,7 @@ def test_an_unsound_plan_is_rejected_and_the_error_names_what_was_wrong(
 ) -> None:
     """Whatever makes a plan invalid, the check raises and says which node and which rule."""
     with pytest.raises(PlanValidationError, match=expected_message):
-        validate_logical_plan(plan, frozenset())
+        validate_logical_plan(plan, frozenset(), max_nodes=ANY_SIZE)
 
 
 def test_a_carried_node_is_exempt_from_the_shape_and_reachability_checks() -> None:
@@ -265,7 +268,7 @@ def test_a_carried_node_is_exempt_from_the_shape_and_reachability_checks() -> No
         output_node_id="n5",
     )
 
-    validate_logical_plan(plan, frozenset(), carried_node_ids=frozenset({"n2"}))
+    validate_logical_plan(plan, frozenset(), carried_node_ids=frozenset({"n2"}), max_nodes=ANY_SIZE)
 
 
 def test_a_continuation_reading_a_carried_discover_node_is_rejected() -> None:
@@ -280,7 +283,9 @@ def test_a_continuation_reading_a_carried_discover_node_is_rejected() -> None:
     )
 
     with pytest.raises(PlanValidationError, match="produces no rows"):
-        validate_logical_plan(plan, frozenset(), carried_node_ids=frozenset({"n1"}))
+        validate_logical_plan(
+            plan, frozenset(), carried_node_ids=frozenset({"n1"}), max_nodes=ANY_SIZE
+        )
 
 
 def test_a_legal_cover_passes() -> None:
@@ -384,7 +389,7 @@ def test_a_plan_ending_on_several_terminal_control_nodes_is_accepted() -> None:
         ],
         output_node_id=None,
     )
-    validate_logical_plan(plan, frozenset())
+    validate_logical_plan(plan, frozenset(), max_nodes=ANY_SIZE)
 
 
 def test_a_plan_ending_at_a_replan_may_leave_the_step_it_wrote_unread() -> None:
@@ -397,7 +402,7 @@ def test_a_plan_ending_at_a_replan_may_leave_the_step_it_wrote_unread() -> None:
         ],
         output_node_id=None,
     )
-    validate_logical_plan(plan, frozenset())
+    validate_logical_plan(plan, frozenset(), max_nodes=ANY_SIZE)
 
 
 def test_a_plan_holding_two_replan_nodes_is_rejected() -> None:
@@ -410,7 +415,7 @@ def test_a_plan_holding_two_replan_nodes_is_rejected() -> None:
         output_node_id=None,
     )
     with pytest.raises(PlanValidationError, match="at most one REPLAN"):
-        validate_logical_plan(plan, frozenset())
+        validate_logical_plan(plan, frozenset(), max_nodes=ANY_SIZE)
 
 
 def test_a_return_naming_a_column_its_input_does_not_declare_is_rejected() -> None:
@@ -430,7 +435,7 @@ def test_a_return_naming_a_column_its_input_does_not_declare_is_rejected() -> No
         output_node_id="n3",
     )
     with pytest.raises(PlanValidationError, match="posting_count"):
-        validate_logical_plan(plan, frozenset())
+        validate_logical_plan(plan, frozenset(), max_nodes=ANY_SIZE)
 
 
 def test_the_node_a_return_reads_has_to_declare_its_output_columns() -> None:
@@ -450,7 +455,7 @@ def test_the_node_a_return_reads_has_to_declare_its_output_columns() -> None:
     )
     plan = a_plan([a_node("n1", LogicalOperator.SCAN, []), filtered, ending], output_node_id="n3")
     with pytest.raises(PlanValidationError, match="declares no output columns"):
-        validate_logical_plan(plan, frozenset())
+        validate_logical_plan(plan, frozenset(), max_nodes=ANY_SIZE)
 
 
 def test_a_return_reading_a_scan_directly_is_rejected() -> None:
@@ -463,7 +468,7 @@ def test_a_return_reading_a_scan_directly_is_rejected() -> None:
         output_node_id="n2",
     )
     with pytest.raises(PlanValidationError, match="add a PROJECT node"):
-        validate_logical_plan(plan, frozenset())
+        validate_logical_plan(plan, frozenset(), max_nodes=ANY_SIZE)
 
 
 def test_a_scan_naming_a_path_no_discover_node_found_is_rejected() -> None:
@@ -477,7 +482,7 @@ def test_a_scan_naming_a_path_no_discover_node_found_is_rejected() -> None:
         output_node_id="n3",
     )
     with pytest.raises(PlanValidationError, match="/source/invented"):
-        validate_logical_plan(plan, frozenset({"/source/jobs/entity/postings"}))
+        validate_logical_plan(plan, frozenset({"/source/jobs/entity/postings"}), max_nodes=ANY_SIZE)
 
 
 @pytest.mark.parametrize(
@@ -495,4 +500,41 @@ def test_a_scan_naming_a_discovered_path_or_null_is_accepted(source: str | None)
         ],
         output_node_id="n3",
     )
-    validate_logical_plan(plan, frozenset({"/source/jobs/entity/postings"}))
+    validate_logical_plan(plan, frozenset({"/source/jobs/entity/postings"}), max_nodes=ANY_SIZE)
+
+
+@pytest.mark.parametrize(
+    "ending",
+    [
+        a_node("n3", LogicalOperator.RETURN, ["n2"]),
+        a_node("n3", ControlOperator.REPLAN, []),
+    ],
+    ids=["return", "replan"],
+)
+def test_a_plan_whose_operator_and_discover_nodes_fit_the_cap_passes_whatever_ends_it(
+    ending: PipelineNode,
+) -> None:
+    """RETURN and REPLAN are not counted, so two operator nodes and an ending fit a cap of two."""
+    plan = a_plan(
+        [
+            a_node("n1", LogicalOperator.SCAN, []),
+            a_node("n2", LogicalOperator.FILTER, ["n1"]),
+            ending,
+        ],
+        output_node_id="n3" if ending.kind is LogicalOperator.RETURN else None,
+    )
+    validate_logical_plan(plan, frozenset(), max_nodes=2)
+
+
+def test_a_plan_with_more_operator_and_discover_nodes_than_the_cap_is_rejected() -> None:
+    """DISCOVER nodes count toward the cap, and the error gives both numbers."""
+    plan = a_plan(
+        [
+            a_node("n1", ControlOperator.DISCOVER, []),
+            a_node("n2", ControlOperator.DISCOVER, []),
+            a_node("n3", ControlOperator.DISCOVER, []),
+        ],
+        output_node_id=None,
+    )
+    with pytest.raises(PlanValidationError, match="has 3 operator and DISCOVER nodes.*at most 2"):
+        validate_logical_plan(plan, frozenset(), max_nodes=2)

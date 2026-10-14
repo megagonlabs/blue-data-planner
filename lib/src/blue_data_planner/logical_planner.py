@@ -75,7 +75,12 @@ class LogicalPlanner:
             written = self._llm_client.complete_structured(conversation, logical_plan_schema())
             try:
                 plan = _assemble(written.model_dump(), parent, carried_node_ids)
-                validate_logical_plan(plan, entity_paths, carried_node_ids)
+                validate_logical_plan(
+                    plan,
+                    entity_paths,
+                    carried_node_ids,
+                    max_nodes=counters.limits.operator_calls,
+                )
             except PlanValidationError as error:
                 failure_reason = str(error)
                 conversation.turns.append(

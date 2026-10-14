@@ -414,8 +414,9 @@ way the size of the catalog preview does. `CatalogSearcher` holds it.
 The values in force are the defaults on `RunLimits`, and
 [12-deployment-ops.md](12-deployment-ops.md#5-request-limits) covers how a deployment sets them.
 
-Model calls are not budgeted (ADR-014): how many a request makes already falls out of the bounds
-above, and `RunResult.conversations` holds one usage record per call so the spend stays readable.
+Model calls have no cap of their own (ADR-060). Their number is limited by the bounds above and by
+the cap `validate_logical_plan` puts on plan size, and `RunResult.conversations` holds one usage
+record per call so the spend stays readable.
 
 ### What a caller receives
 
@@ -484,6 +485,8 @@ def validate_logical_plan(
     plan: LogicalPlan,
     entity_paths: frozenset[str],
     carried_node_ids: frozenset[str] = frozenset(),
+    *,
+    max_nodes: int,
 ) -> None: ...
 
 
@@ -497,7 +500,8 @@ defines.
 `validate_logical_plan` enforces the plan rules ([10-data-model.md](10-data-model.md#1-the-plan))
 and `validate_physical_plan` the fragment and cover rules
 ([04, what a fragment may be](04-detailed-architecture.md#what-a-fragment-may-be)). Neither adds a
-rule of its own.
+rule of its own. `LogicalPlanner` passes `operator_calls` as `max_nodes`, the cap on operator and
+`DISCOVER` nodes.
 
 `carried_node_ids` exempts the nodes a continuation carried over from the shape and reachability
 checks, whose objections do not apply to a node the run already has something for. `LogicalPlanner`
