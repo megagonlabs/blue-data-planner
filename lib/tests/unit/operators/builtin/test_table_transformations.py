@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from decimal import Decimal
-from typing import Any
+from typing import Any, Literal
 
 import pytest
 
@@ -211,6 +211,21 @@ def test_an_aggregation_writes_one_row_per_group(table: Data, expected: Data) ->
     )
 
     assert aggregated == expected
+
+
+@pytest.mark.parametrize("function", ["sum", "avg", "min", "max"])
+def test_a_column_aggregation_over_a_group_with_no_values_is_none(
+    function: Literal["sum", "avg", "min", "max"],
+) -> None:
+    """A group whose rows all miss the aggregated column gets None, as SQL gives NULL, rather
+    than a value no row recorded."""
+    aggregated = aggregate_rows(
+        [{"state": "CA", "rating": None}, {"state": "CA", "rating": None}],
+        ["state"],
+        [ColumnAggregation(function=function, column="rating", into="result")],
+    )
+
+    assert aggregated == [{"state": "CA", "result": None}]
 
 
 def test_distinct_keeps_the_first_row_of_each_repeated_key() -> None:

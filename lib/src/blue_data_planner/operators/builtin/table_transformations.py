@@ -440,7 +440,7 @@ def _aggregate(rows: Data, aggregation: Aggregation) -> Any:
     if aggregation.function in ("sum", "avg"):
         numbers = _numbers(present, column)
         if aggregation.function == "sum":
-            return sum(numbers)
+            return sum(numbers) if numbers else None
         return sum(numbers) / len(numbers) if numbers else None
     if not present:
         return None
