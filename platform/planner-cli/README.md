@@ -126,7 +126,7 @@ one document: the result, or an error document if the command failed before prod
 `--format table` renders each table of the result under its own column names, and a terminal shows a
 progress indicator naming the stage that is running; a redirected stream gets none of it.
 `--format json` writes one document: the result asked for, how the run ended, how each fragment
-ended, what the run spent, and what its model calls cost. It holds what `--format table` leaves to
+ended, what the run spent, and what the planner's own model calls cost. It holds what `--format table` leaves to
 the closing summary on standard error, because a JSON document is read where no terminal is
 attached. Every plan version the request produced is the one part it holds back, and that travels
 where `--explain` asked for the plan as the result, or where `--log` asked for the run behind the
@@ -215,12 +215,13 @@ physical plan 2   logical plan 2d0c5d89-189f-4698-ac36-e5bfd0cd1d3f
       {'country': 'UK', 'customer_count': 2}
 
 counters  operator calls 3/30   failure replans 0/2   control replans 1/5
-model     12 calls   $0.01
-ok  operator calls 3  model calls 12  $0.01
+planner   12 model calls   $0.01
+ok  operator calls 3  planner model calls 12  $0.01
 ```
 
 Every run closes with a summary line on standard error: the status it ended with, the operator calls
-and model calls it spent, and their cost.
+it spent, and the model calls the planner made and their cost. A model call an operator makes on its
+own, as a LOTUS operation does, is not counted there; the operator reports its cost on its result.
 
 ## Errors and exit codes
 

@@ -110,7 +110,7 @@ def spend_lines(result: RunResult) -> list[str]:
         f"counters  operator calls {counters.operator_calls}/{counters.limits.operator_calls}   "
         f"failure replans {counters.failure_replans}/{counters.limits.failure_replans}   "
         f"control replans {counters.control_replans}/{counters.limits.control_replans}",
-        f"model     {len(usage)} calls   {format_cost(total_cost(usage))}",
+        f"planner   {len(usage)} model calls   {format_cost(total_cost(usage))}",
     ]
     if result.failure_reason:
         lines.append(f"ended     {result.failure_reason}")

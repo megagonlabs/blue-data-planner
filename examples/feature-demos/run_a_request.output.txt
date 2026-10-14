@@ -4,5 +4,5 @@ status:  ok
 {'country': 'Germany', 'customer_count': 2}
 {'country': 'UK', 'customer_count': 2}
 
-operator calls: 3
-model calls:    12
+operator calls:      3
+planner model calls: 12

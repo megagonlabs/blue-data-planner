@@ -99,7 +99,7 @@ def summary_line(result: RunResult) -> str:
     spend = result.conversations.to_dict()
     return (
         f"{result.status}  operator calls {result.counters.operator_calls}  "
-        f"model calls {spend['calls']}  {format_cost(spend['cost'])}"
+        f"planner model calls {spend['calls']}  {format_cost(spend['cost'])}"
     )
 
 

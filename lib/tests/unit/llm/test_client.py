@@ -229,6 +229,20 @@ def test_a_reply_the_response_model_refuses_raises() -> None:
         client.complete_structured(conversation, _OneField)
 
 
+def test_a_reply_the_response_model_refuses_still_counts_toward_the_conversations_usage() -> None:
+    """The provider was paid for the call, so its usage is recorded; the refused reply is not
+    added as a turn."""
+    litellm.replies.append("not json at all")
+    client = LLMClient("test", STRUCTURED_PROPS)
+    conversation = Conversation(turns=[Turn(role="user", content="write a program")])
+
+    with pytest.raises(LLMError):
+        client.complete_structured(conversation, _OneField)
+
+    assert len(conversation.usage) == 1
+    assert [turn.role for turn in conversation.turns] == ["user"]
+
+
 # --- async surface ---
 def test_an_async_call_returns_the_provider_answer() -> None:
     """The async call returns the same answer the synchronous call would."""

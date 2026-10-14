@@ -141,7 +141,9 @@ print(counters.operator_calls, "of", counters.limits.operator_calls)
 print(counters.failure_replans, counters.control_replans)
 ```
 
-Model calls are not budgeted. What each call cost is in `result.conversations.usage`.
+Model calls are not budgeted. What each of the planner's own calls cost is in
+`result.conversations.usage`. A model call an operator makes on its own, as a LOTUS operation does,
+is not there; the operator reports its cost in the `report` on its result.
 
 ---
 

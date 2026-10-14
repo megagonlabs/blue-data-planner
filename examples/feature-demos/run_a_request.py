@@ -48,8 +48,8 @@ def main() -> None:
             print(row)
 
     usage = result.conversations.usage
-    print(f"\noperator calls: {result.counters.operator_calls}")
-    print(f"model calls:    {len(usage)}")
+    print(f"\noperator calls:      {result.counters.operator_calls}")
+    print(f"planner model calls: {len(usage)}")
 
 
 if __name__ == "__main__":

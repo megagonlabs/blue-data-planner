@@ -125,6 +125,19 @@ class LLMClient:
         self._apply_rate_limit(self.properties)
         payload, cost = self._call_provider(kwargs)
         record = self._record(kwargs, payload, started, cache_hit=False, cost=cost)
+        # Recorded before the answer is validated: a reply the schema refuses was still paid
+        # for. Read off the record _record just built rather than self.last_usage: two calls
+        # sharing one client across threads could otherwise interleave between another call's
+        # write and this read, and silently record the wrong call's cost.
+        conversation.usage.append(
+            LLMUsage(
+                model=record.model,
+                prompt_tokens=record.prompt_tokens,
+                completion_tokens=record.completion_tokens,
+                cost=record.cost,
+                latency_seconds=record.latency_seconds,
+            )
+        )
         content = _message_content(payload)
         try:
             value = response_model.model_validate_json(content)
@@ -135,18 +148,6 @@ class LLMClient:
                 code="bad_response",
             ) from error
         conversation.turns.append(Turn(role="assistant", content=content))
-        # Read off the record _record just built rather than self.last_usage: two calls
-        # sharing one client across threads could otherwise interleave between another
-        # call's write and this read, and silently record the wrong call's cost.
-        conversation.usage.append(
-            LLMUsage(
-                model=record.model,
-                prompt_tokens=record.prompt_tokens,
-                completion_tokens=record.completion_tokens,
-                cost=record.cost,
-                latency_seconds=record.latency_seconds,
-            )
-        )
         return value
 
     # ----------------------------------------------------------------- async --

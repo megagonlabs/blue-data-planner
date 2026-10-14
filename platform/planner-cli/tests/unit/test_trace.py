@@ -190,7 +190,7 @@ def test_the_log_closes_with_what_the_run_spent_and_why_it_ended() -> None:
     lines = spend_lines(a_run_result(failure_reason="30 calls spent"))
 
     assert lines[0].startswith("counters  operator calls 0/30")
-    assert lines[1].startswith("model     0 calls")
+    assert lines[1].startswith("planner   0 model calls")
     assert lines[2] == "ended     30 calls spent"
 
 

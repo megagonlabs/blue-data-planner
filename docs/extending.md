@@ -104,7 +104,7 @@ def complete_structured(self, conversation: Conversation, response_model: type[M
 An implementation answers the conversation with a value of `response_model`, appends that answer
 to `conversation.turns` as an assistant turn, and appends one `LLMUsage` to `conversation.usage`.
 The conversation then holds the whole exchange, and the usage is what `RunResult.conversations`
-reports as the run's cost.
+reports as the cost of the planner's own model calls.
 
 `build_data_planner` builds the client itself, so a substitute goes to the four component
 constructors instead. Each takes its own, which is how one stage runs on a larger model.

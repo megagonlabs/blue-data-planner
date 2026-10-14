@@ -50,7 +50,7 @@ blue-planner data query "Which three countries do the most customers come from?"
 │ Germany │ 2              │
 │ UK      │ 2              │
 └─────────┴────────────────┘
-ok  operator calls 3  model calls 12  $0.00
+ok  operator calls 3  planner model calls 12  $0.00
 ```
 
 The request did not name a table. The planner searched the registry, wrote a plan over what it found,
@@ -67,7 +67,7 @@ The last two lines show how much of each limit the run used:
 
 ```text
 counters  operator calls 3/30   failure replans 0/2   control replans 1/5
-model     12 calls   $0.00
+planner   12 model calls   $0.00
 ```
 
 The full log of this command is in
