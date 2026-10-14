@@ -282,6 +282,13 @@ kinds decide whether it can: an operator declaring source kinds takes the fragme
 scan names a source of one of them, and an operator declaring none only when no scan names a
 source.
 
+The fragment's frontier is the other half. A frontier table is a bound input when the fragment
+contains a `SCAN` that reads a source, or when no node of the fragment transforms it: a reference
+input arriving from outside the fragment. A fragment receiving a bound input is offered only with
+an operator that accepts bound inputs, which only an operator reading a source can declare
+(ADR-059). A `FILTER` comparing its rows against an aggregate another fragment produced is
+therefore never offered to an operator that transforms one table.
+
 An operator declaring a single logical operator can only ever match a single node, which is what
 every atomic operator declares.
 
@@ -307,8 +314,9 @@ It walks the operator nodes in reverse dependency order, a node's consumers befo
 and for each one still uncovered it enumerates the candidate fragments rooted there, one per
 matching operator per subgraph, and a model picks one. The
 enumeration already includes the node on its own, so a node reaching this point with no candidate
-is one of two: a node whose kind no registered operator declares, or a `SCAN` whose source no
-operator declaring `SCAN` can read. Either way that node has no operator.
+is one of three: a node whose kind no registered operator declares, a `SCAN` whose source no
+operator declaring `SCAN` can read, or a node whose reference input arrives from outside and no
+operator declaring its kind accepts bound inputs. Either way that node has no operator.
 
 Where a fragment's boundary falls is decided by what an operator can do with the values inside the
 nodes and with the number of rows it reads, which its description and its limitations state. For a
@@ -819,8 +827,8 @@ plan and a reason naming the node, and the run goes straight to the replan with 
 spent. Neither is a failure kind, since a failure kind describes a call that was made.
 
 With the built-in suite registered, every operator node kind has a candidate, so the first is
-reserved for a scan the suite cannot read: one naming a source of a kind outside its declarations,
-or one that names no source at all. The second covers what a declaration cannot state, an operator
+reserved for a scan the suite cannot read, one naming a source of a kind outside its declarations
+or naming no source at all, and for a node reading a reference input no operator can take. The second covers what a declaration cannot state, an operator
 that groups a node's kind and cannot do what that node asks of the values. A poor choice among
 candidates that can carry the work is caught at review one operator call later (ADR-058).
 

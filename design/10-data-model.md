@@ -345,7 +345,7 @@ class PhysicalOperator:
 | --- | --- |
 | `logical_operators` | Every logical operator this implementation can execute. A single member means it can only ever cover one node |
 | `source_kinds` | The kinds of registered source it can read, or `None` when it reads none |
-| `accepts_bound_inputs` | Whether it can take tables from other fragments alongside the source it reads. A source-access operator that cannot is limited to fragments with an empty frontier |
+| `accepts_bound_inputs` | Whether it can take tables from other fragments alongside the source it reads, a reference input arriving from outside included. Only an operator declaring `source_kinds` can declare it. A fragment receiving such a table is offered only to an operator that does (ADR-059) |
 | `limitations` | What it cannot do, in plain language, where its author can state it. A Text-to-SQL operator cannot express a semantic predicate, and saying so is what gives the physical planner something to weigh against a description that otherwise promises everything. It is written as a phrase that completes "Cannot: …", such as `judge what text means`; what the operator can do belongs in `description` |
 | `description`, `parameter_schema`, `call` | What it does, the shape of its parameters, and the callable execution invokes. A callable is handed the bundle, its parameters, and the fragment's `required_output_columns` (ADR-012) |
 

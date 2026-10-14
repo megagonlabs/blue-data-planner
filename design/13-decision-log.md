@@ -1930,6 +1930,44 @@ deployment has nothing to turn on or off: `builtin_operators` takes the data reg
 `BuiltinSuite` takes no options. Whether writing a program beats sequencing named operations on
 TAG-Bench is no longer measured inside this repository.
 
+## ADR-059 — A Candidate Pairs a Fragment Only with an Operator That Can Read Its Frontier
+
+**Date:** 2026-10-14
+**Status:** Accepted
+
+**Decision:** The physical planner leaves out a candidate whose operator could not read the tables
+the fragment's frontier hands it. A frontier table is a bound input when the fragment contains a
+`SCAN` that reads a source, or when no node of the fragment transforms it, which is what a reference
+input arriving from outside the fragment is. A candidate whose fragment receives a bound input is
+offered only with an operator declaring `accepts_bound_inputs`.
+
+`accepts_bound_inputs` is a declaration about reading a source: whether an operator can take tables
+from other fragments alongside the source it reads. An operator declaring no source kinds cannot
+declare it, and a `PhysicalOperator` declaring both raises when it is built.
+
+**Rationale:** A candidate an operator is certain to refuse costs a run more than the refusal. The
+fragment runner answers a recoverable failure by writing the parameters again, so each attempt is
+billed as an operator call, then the cover repair and the replan spend their own bounds on a node no
+parameter could have fixed. A node listing a reference input admitted by the arity floor reaches an
+operation that transforms only the tables its arity names, and such a run has spent most of its
+operator calls before the logical planner hears that the node cannot run. Left out at enumeration,
+the same node has no candidate, and the run returns to the logical planner with a reason and no
+call spent.
+
+The declaration already says what the check needs. An operator reading a source and accepting
+bound inputs, such as `builtin.scan` and its bind join, takes a table it does not transform. No
+operator reading no source takes one, so a second field naming that capability would declare
+something no operator has. A declaration set where it means nothing is one a suite author reads as
+meaning something, which is why the contradictory pair raises rather than being ignored.
+
+**Consequences:** Question 52 is answered. A node whose reference input arrives from outside its
+fragment is offered only to operators accepting bound inputs, or inside a fragment that also holds
+the node producing the reference input. Where no registered operator qualifies, the node has no
+operator and the reason names the reference input, so the logical planner can write a plan reaching
+the value another way, such as through a `REPLAN` that reads it first. An operator declaring bound
+inputs and refusing a frontier it was offered is still possible, which is question 51. A bundle of
+the wrong length for any other reason is still refused inside each adapter, which is question 15.
+
 ---
 
 ## Open Questions
@@ -1954,7 +1992,6 @@ Design questions first, then defects in the code.
 | 47 | Should the operator vocabulary gain a node that looks the catalog up once per input row? ADR-049 keeps a `DISCOVER` node to a bounded set of entities however many rows it was handed, so a request such as "find the press release document for each of these 500 companies" has nowhere to go: that lookup is per row, what it returns is data rather than context, and it should be billed against the operator budget and reviewed like any other data operation. An operator node would give it all three. Against adding one: none of the ten logical operators reads the catalog, so this would be the first, and what it returns — paths rather than values — is a kind of row nothing else in a plan produces. How often a request needs one is unmeasured. | Whether a per-row catalog lookup is expressible at all, and whether the logical vocabulary stays as it is |
 | 48 | Which component reads a `relation` record when a plan scans a knowledge-base source? `blue-data` records relations alongside entities and attributes, each with a name, a source, and a target, and nothing in this design reads one. A `JOIN` is the obvious consumer, since a relation says which attributes join two entities, and it could arrive as part of the run's catalog context or as part of the fragment runner's deeper reading. What stops the question being answered for tables alone is that relations are the structure a knowledge-base source carries, and how this planner reads a knowledge base is itself unsettled, so an answer shaped for two SQL tables would likely be the wrong shape for a graph. | Whether a `JOIN` is written against a declared relation or against column names a model matched up, and what a knowledge-base source contributes to a plan |
 | 51 | What does a compound operation do with a fragment whose frontier carries rows, before it can read one? `blue.nl2sql` declares bound inputs, so the physical planner offers it groups whose inputs arrive from an earlier fragment. A query written from a source's schema alone would answer from that source and leave those rows out, which is a wrong answer rather than a failure, and refusing the bundle as a recoverable failure is what keeps it from being returned. That refusal costs an operator call on a candidate that could not have worked. Narrowing the declaration instead would stop the candidate being enumerated at all, and would have to be widened again by hand once the operation reads its bundle, so the declaration states the target state and is not narrowed. What is unsettled is whether the refusal should cost a call, and whether a candidate an operator is known to refuse should be enumerated at all. That is question 44's shape: a constraint the declaration has no vocabulary for is stated in `limitations`, and the candidate is offered anyway. | Whether a fragment with a non-empty frontier reaches the compound Blue operation, and what a run spends finding out that it cannot serve one |
-| 52 | Should a group whose node lists reference inputs be offered to an operation declaring one logical operator? Arity is a floor in a plan, so a node may list more inputs than its kind transforms ([10-data-model.md](10-data-model.md#how-many-inputs-a-node-takes)), and the bundle built for such a group carries one table per input the fragment reads, which is more tables than the arity names. An operation reading only the tables its arity names refuses that bundle as a recoverable failure, and the physical planner covers the node set again, so the run spends an operator call on a candidate the cover could have skipped. Nothing in a declaration says whether an operation can read a table without transforming it: `logical_operators` names the kinds an operation covers and no field carries the rest, which is the shape questions 44 and 51 share. Two routes. The cover compares a node's input count against the arity and offers only operators declared to read a reference input, which needs that field written first. Or the refusal stays where it is and its cost is accepted, on the grounds that what an operation can read moves with its own suite while a hand-written declaration has to be rewritten to follow. | Whether a plan the arity floor admits is one every operator bound to it can run, and what a run spends on a call refused for the length of its bundle |
 | 54 | Should the library be able to phrase an answer, and the CLI then offer `--format nl`? The family offers a natural-language format where a source answers in prose, and ADR-029 leaves it out because a planner answers in rows. A benchmark whose expected answers are single values, and an agent that wants a sentence rather than a table, both suggest the phrasing has to happen somewhere; doing it in an interface is behavior in an adapter (ADR-002), so the question is whether a library operation should return prose alongside the rows, and what it costs in model calls per request. | Whether `--format nl` and the MCP response ever carry a sentence, and which component writes it |
 | 55 | Should a run be kept on disk so a plan can be read back? The CLI's home directory holds profiles and nothing else, so a plan printed by `data query --explain` is gone when the terminal scrolls, and `data query` keeps no record a later command could inspect. The family's storage convention has a place for one (`~/.<cli>/<profile>/<component>/`), and `from_dict` already reads a recorded plan back ([06-library.md](06-library.md#two-operations)). What is unsettled is whether a CLI should accumulate state at all for a planner that holds none between requests, and what would remove an old run. | Whether the CLI grows an action that reads a plan it wrote earlier |
 | 56 | Should the CLI be able to write a run's whole record to a file? A fragment's result reaches a person as a summary, and the JSON on standard output carries the answer and how the run ended, so every intermediate table and every model turn is reachable only by a caller who embeds the library (ADR-032). Diagnosing a wrong answer is the case that wants them: a summary says a fragment returned 140 rows over three columns and not which 140, and a review that rejected a fragment is readable only in the conversation. A file is where they would go, since what makes them unwelcome on standard output is size rather than secrecy, and the family's storage convention already has a place for per-profile state. Against adding one: a record holds whatever the sources held, so writing one puts source data on disk, and whether a CLI over a planner that keeps nothing between requests should accumulate state at all is question 55. | Whether a wrong answer can be diagnosed from the CLI alone |

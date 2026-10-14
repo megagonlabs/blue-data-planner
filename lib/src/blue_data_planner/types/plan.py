@@ -376,6 +376,15 @@ class PhysicalOperator:
     accepts_bound_inputs: bool = False
     limitations: str | None = None
 
+    def __post_init__(self) -> None:
+        # Taking tables alongside a source is a way of reading one (ADR-059), so on an operator
+        # reading none the flag would claim a capability nothing checks.
+        if self.accepts_bound_inputs and self.source_kinds is None:
+            raise ValueError(
+                f"operator {self.operator_id!r} accepts bound inputs but declares no "
+                "source_kinds; only an operator reading a source can take tables alongside it"
+            )
+
 
 _LOGICAL_PLAN_KEYS: tuple[str, ...] = ("id", "parent_id", "output_node_id", "nodes")
 _PHYSICAL_PLAN_KEYS: tuple[str, ...] = ("id", "parent_id", "logical_plan_id", "fragments")

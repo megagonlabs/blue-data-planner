@@ -21,6 +21,7 @@ from blue_data_planner.plan import (
 from blue_data_planner.prompts import prompt_text
 from blue_data_planner.prompts.rendering import render_attribute_views, render_sample_rows
 from blue_data_planner.types import (
+    INPUT_ARITY,
     BlueDataPlannerError,
     DiscoveryResult,
     ExecutionResult,
@@ -102,7 +103,7 @@ class PhysicalPlanner:
             if not candidates:
                 return PhysicalPlanResult(
                     plan=None,
-                    failure_reason=self._no_candidate_reason(node, entity_source_kinds),
+                    failure_reason=self._no_candidate_reason(plan, node, entity_source_kinds),
                 )
             # A node id reaches results only because a fragment rooted there already produced
             # something, so no signature knowledge is needed here to offer it back.
@@ -227,7 +228,9 @@ class PhysicalPlanner:
             ],
         )
 
-    def _no_candidate_reason(self, node: PipelineNode, entity_source_kinds: dict[str, str]) -> str:
+    def _no_candidate_reason(
+        self, plan: LogicalPlan, node: PipelineNode, entity_source_kinds: dict[str, str]
+    ) -> str:
         operators = (
             self._router.operators_for(node.kind) if isinstance(node.kind, LogicalOperator) else []
         )
@@ -236,22 +239,25 @@ class PhysicalPlanner:
                 f"no operator can run node {node.id!r} of kind {node.kind.value}, "
                 "alone or in any fragment containing it"
             )
-        # An operator declaring the kind always yields the candidate holding the root alone, and a
-        # candidate with no SCAN is always bindable, so when every candidate was dropped the root
-        # is necessarily the SCAN itself.
-        source = node.attributes["source"]
-        reads = (
-            f"{source!r} ({entity_source_kinds[source]})"
-            if source is not None
-            else "world knowledge"
-        )
-        wanted = {
-            kind for operator in operators for kind in operator.source_kinds or frozenset[str]()
-        }
-        if any(not operator.source_kinds for operator in operators):
-            wanted.add("world knowledge")
+        # An operator declaring the kind always yields the candidate holding the root alone, so
+        # when every candidate was dropped, every operator turned down the root on its own: for
+        # the source a SCAN reads, or for a table it would be handed and cannot take.
+        root_alone = frozenset({node.id})
+        if node.kind is LogicalOperator.SCAN and not any(
+            _reads_its_scans(plan, root_alone, operator, entity_source_kinds)
+            for operator in operators
+        ):
+            return _no_source_reason(node, operators, entity_source_kinds)
+        bound_inputs = _bound_inputs(plan, root_alone)
+        if not bound_inputs:
+            raise BlueDataPlannerError(
+                f"node {node.id!r} has operators for its kind and was offered none of them, "
+                "though it reads its source and takes no bound input"
+            )
         return (
-            f"SCAN node {node.id!r} reads {reads}, and the operators for SCAN read {sorted(wanted)}"
+            f"node {node.id!r} of kind {node.kind.value} lists {bound_inputs} as reference "
+            f"inputs, and no registered {node.kind.value} operator can read a reference input. "
+            f"Get what {node.id!r} needs from them another way."
         )
 
 
@@ -430,15 +436,22 @@ def _bindable(
     operator: PhysicalOperator,
     entity_source_kinds: dict[str, str],
 ) -> bool:
+    if not _reads_its_scans(plan, node_ids, operator, entity_source_kinds):
+        return False
+    return operator.accepts_bound_inputs or not _bound_inputs(plan, node_ids)
+
+
+def _reads_its_scans(
+    plan: LogicalPlan,
+    node_ids: frozenset[str],
+    operator: PhysicalOperator,
+    entity_source_kinds: dict[str, str],
+) -> bool:
     # Every SCAN in the candidate names the source it reads, and the operator's declared
     # source kinds decide whether it can (10-data-model.md, the Sources rule): an operator
     # declaring source kinds reads every scan only when each names a source of one of them,
     # and an operator declaring none reads every scan only when each names no source at all.
-    scans = [
-        plan.node(node_id)
-        for node_id in node_ids
-        if plan.node(node_id).kind is LogicalOperator.SCAN
-    ]
+    scans = _scans(plan, node_ids)
     if not scans:
         return True
     if operator.source_kinds:
@@ -448,6 +461,45 @@ def _bindable(
             for scan in scans
         )
     return all(scan.attributes["source"] is None for scan in scans)
+
+
+def _bound_inputs(plan: LogicalPlan, node_ids: frozenset[str]) -> list[str]:
+    # A frontier table is bound when it arrives alongside a source the fragment reads, or when
+    # no node of the fragment transforms it, as with a reference input (ADR-059).
+    frontier = fragment_frontier(plan, node_ids)
+    if any(scan.attributes["source"] is not None for scan in _scans(plan, node_ids)):
+        return frontier
+    transformed = {
+        input_id for node_id in node_ids for input_id in _transformed_inputs(plan.node(node_id))
+    }
+    return [frontier_id for frontier_id in frontier if frontier_id not in transformed]
+
+
+def _transformed_inputs(node: PipelineNode) -> list[str]:
+    if not isinstance(node.kind, LogicalOperator):
+        raise BlueDataPlannerError(f"node {node.id!r} is a control node inside a fragment")
+    return node.input_node_ids[: INPUT_ARITY[node.kind]]
+
+
+def _scans(plan: LogicalPlan, node_ids: frozenset[str]) -> list[PipelineNode]:
+    return [
+        plan.node(node_id)
+        for node_id in node_ids
+        if plan.node(node_id).kind is LogicalOperator.SCAN
+    ]
+
+
+def _no_source_reason(
+    node: PipelineNode, operators: list[PhysicalOperator], entity_source_kinds: dict[str, str]
+) -> str:
+    source = node.attributes["source"]
+    reads = (
+        f"{source!r} ({entity_source_kinds[source]})" if source is not None else "world knowledge"
+    )
+    wanted = {kind for operator in operators for kind in operator.source_kinds or frozenset[str]()}
+    if any(not operator.source_kinds for operator in operators):
+        wanted.add("world knowledge")
+    return f"SCAN node {node.id!r} reads {reads}, and the operators for SCAN read {sorted(wanted)}"
 
 
 def _scan_sources(plan: LogicalPlan, node_ids: frozenset[str]) -> dict[str, str]:

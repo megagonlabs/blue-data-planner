@@ -49,6 +49,7 @@ def an_operator(
     operator_id: str,
     kinds: frozenset[LogicalOperator],
     source_kinds: frozenset[str] | None = frozenset({"sql/sqlite"}),
+    accepts_bound_inputs: bool = False,
 ) -> PhysicalOperator:
     """One registered operator declaring the kinds given and the source kinds it reads."""
     return PhysicalOperator(
@@ -58,6 +59,7 @@ def an_operator(
         parameter_schema=NoParameters,
         call=lambda inputs, parameters, columns: None,  # pyright: ignore[reportArgumentType]
         source_kinds=source_kinds,
+        accepts_bound_inputs=accepts_bound_inputs,
     )
 
 
@@ -571,7 +573,15 @@ def test_a_scan_naming_a_source_absent_from_the_results_raises() -> None:
     ("right_source", "right_operator"),
     [
         (None, an_operator("wk.all", ALL_KINDS, source_kinds=None)),
-        (REVIEWS, an_operator("vec.all", ALL_KINDS, source_kinds=frozenset({"vector/chroma"}))),
+        (
+            REVIEWS,
+            an_operator(
+                "vec.all",
+                ALL_KINDS,
+                source_kinds=frozenset({"vector/chroma"}),
+                accepts_bound_inputs=True,
+            ),
+        ),
     ],
     ids=["registered_and_world_knowledge", "two_source_kinds"],
 )
@@ -579,7 +589,7 @@ def test_a_join_over_scans_no_one_operator_reads_is_offered_only_per_scan_cuts(
     right_source: str | None, right_operator: PhysicalOperator
 ) -> None:
     """No operator reads both scans, so none is offered the fused join, only one side each."""
-    left_operator = an_operator("sql.all", ALL_KINDS)
+    left_operator = an_operator("sql.all", ALL_KINDS, accepts_bound_inputs=True)
     client = ScriptedLLMClient(
         [
             a_binding("n3:sql.all:[n1,n3]", inputs=("n2",)),
@@ -600,6 +610,118 @@ def test_a_join_over_scans_no_one_operator_reads_is_offered_only_per_scan_cuts(
     assert "[n1,n2,n3]" not in join_turn
     assert "n3:sql.all:[n1,n3]" in join_turn
     assert f"n3:{right_operator.operator_id}:[n2,n3]" in join_turn
+
+
+def a_plan_whose_n3_takes_n2_without_transforming_it(n3_kind: LogicalOperator) -> LogicalPlan:
+    """n1 SCAN -> n2 -> n3 -> n4 RETURN, where n3 also lists n2 as a table it does not transform.
+
+    As a FILTER, n3 transforms n1 and compares against the aggregate n2 produced; as a SCAN, n3
+    reads the postings narrowed by the values n2 carries.
+    """
+    if n3_kind is LogicalOperator.FILTER:
+        n2_kind, n3_inputs, n3_attributes = (
+            LogicalOperator.AGGREGATE,
+            ["n1", "n2"],
+            {"instruction": "keep the postings paying above the average"},
+        )
+    else:
+        n2_kind, n3_inputs, n3_attributes = (
+            LogicalOperator.PROJECT,
+            ["n2"],
+            {"instruction": "read the postings with those titles", "source": POSTINGS},
+        )
+    return LogicalPlan(
+        id="p9",
+        parent_id=None,
+        output_node_id="n4",
+        nodes=[
+            PipelineNode(
+                id="n1",
+                kind=LogicalOperator.SCAN,
+                input_node_ids=[],
+                attributes={"instruction": "read the postings", "source": POSTINGS},
+                required_output_columns=[],
+            ),
+            PipelineNode(
+                id="n2",
+                kind=n2_kind,
+                input_node_ids=["n1"],
+                attributes={"instruction": "work out the values n3 needs"},
+                required_output_columns=[OutputColumn(name="title", dtype="str")],
+            ),
+            PipelineNode(
+                id="n3",
+                kind=n3_kind,
+                input_node_ids=n3_inputs,
+                attributes=n3_attributes,
+                required_output_columns=(
+                    [OutputColumn(name="title", dtype="str")]
+                    if n3_kind is not LogicalOperator.SCAN
+                    else []
+                ),
+            ),
+            PipelineNode(
+                id="n4",
+                kind=LogicalOperator.RETURN,
+                input_node_ids=["n3"],
+                attributes={"columns": ["title"]},
+            ),
+        ],
+    )
+
+
+@pytest.mark.parametrize(
+    ("n3_kind", "declining_operator"),
+    [
+        (
+            LogicalOperator.FILTER,
+            an_operator("one.filter", frozenset({LogicalOperator.FILTER}), source_kinds=None),
+        ),
+        (LogicalOperator.SCAN, an_operator("plain.scan", frozenset({LogicalOperator.SCAN}))),
+    ],
+    ids=["reference_input_to_a_filter", "table_alongside_a_source"],
+)
+def test_a_fragment_receiving_a_bound_input_is_offered_only_with_an_operator_accepting_one(
+    n3_kind: LogicalOperator, declining_operator: PhysicalOperator
+) -> None:
+    """A table the fragment does not transform, or one arriving beside a source it reads,
+    reaches only an operator declaring that it takes one (ADR-059)."""
+    accepting_operator = an_operator("sql.all", ALL_KINDS, accepts_bound_inputs=True)
+    client = ScriptedLLMClient([a_binding("n3:sql.all:[n1,n2,n3]")])
+    planner = a_planner(client, a_router(declining_operator, accepting_operator))
+
+    planner.cover(
+        REQUEST,
+        a_plan_whose_n3_takes_n2_without_transforming_it(n3_kind),
+        Conversation(),
+        None,
+        a_discovery(),
+    )
+
+    n3_turn = client.conversations[0][-1][1]
+    assert f"n3:{declining_operator.operator_id}:[n3]" not in n3_turn
+    assert "n3:sql.all:[n3]" in n3_turn
+
+
+def test_a_node_whose_reference_input_no_operator_takes_ends_the_cover_naming_it() -> None:
+    """No operator call is spent, and the reason names the table the node could not be handed."""
+    planner = a_planner(
+        ScriptedLLMClient([]),
+        a_router(an_operator("one.filter", frozenset({LogicalOperator.FILTER}), source_kinds=None)),
+    )
+
+    result = planner.cover(
+        REQUEST,
+        a_plan_whose_n3_takes_n2_without_transforming_it(LogicalOperator.FILTER),
+        Conversation(),
+        None,
+        a_discovery(),
+    )
+
+    assert result.plan is None
+    assert result.failure_reason is not None
+    assert "'n3'" in result.failure_reason
+    assert "['n2']" in result.failure_reason
 
 
 def the_plan_nodes(turn: str) -> list[dict[str, Any]]:

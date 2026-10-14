@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Callable
 
 import pytest
+from pydantic import BaseModel
 
 from blue_data_planner.types import (
     INPUT_ARITY,
@@ -13,7 +14,9 @@ from blue_data_planner.types import (
     DataPipeline,
     LogicalOperator,
     LogicalPlan,
+    OperatorOutput,
     OutputColumn,
+    PhysicalOperator,
     PhysicalPlan,
     PhysicalPlanFragment,
     PipelineNode,
@@ -450,3 +453,16 @@ def test_a_negative_row_cap_raises_rather_than_being_read_as_a_slice() -> None:
     """Python would read -1 as "all but the last row," which is not a cap."""
     with pytest.raises(ValueError, match="max_rows"):
         summarize_table([{"n": 1}], -1)
+
+
+def test_an_operator_reading_no_source_cannot_declare_that_it_accepts_bound_inputs() -> None:
+    """The flag says how an operator reads a source, so declaring it without one is refused."""
+    with pytest.raises(ValueError, match="source_kinds"):
+        PhysicalOperator(
+            operator_id="mine.filter",
+            logical_operators=frozenset({LogicalOperator.FILTER}),
+            description="Keeps the rows a condition holds for.",
+            parameter_schema=BaseModel,
+            call=lambda inputs, parameters, columns: OperatorOutput(data=[]),
+            accepts_bound_inputs=True,
+        )
