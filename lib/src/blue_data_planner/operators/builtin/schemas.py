@@ -249,8 +249,8 @@ class BoundValues(BaseModel):
     )
 
 
-class ScanSource(BaseModel):
-    """One registered entity to read, and the values a reference input narrows it to."""
+class ScanParameters(BaseModel):
+    """Which registered entity is read, and the values a reference input narrows it to."""
 
     model_config = _STRICT
 
@@ -264,37 +264,3 @@ class ScanSource(BaseModel):
         ),
     )
     bound_values: BoundValues | None = None
-
-
-class ScanParameters(ScanSource):
-    """Which registered entity is read, and the values a reference input narrows it to."""
-
-
-class IndexedBoundValues(BoundValues):
-    """The same, naming which input table of a multi-input read carries the values."""
-
-    input_index: int = Field(
-        default=0, ge=0, description="Which table of the input bundle carries the values"
-    )
-
-
-class IndexedScanSource(ScanSource):
-    """A `ScanSource` whose bound values may point at any of several input tables."""
-
-    # Narrows the field pydantic still validates as IndexedBoundValues at runtime; pyright
-    # treats a mutable attribute as invariant and flags the narrower annotation on its own.
-    bound_values: IndexedBoundValues | None = None  # pyright: ignore[reportIncompatibleVariableOverride]
-
-
-class Nl2TableParameters(BaseModel):
-    """What the fragment asks for, and the entities a program needs read before it runs."""
-
-    model_config = _STRICT
-
-    instruction: str = Field(
-        min_length=1, description="What this fragment has to produce, in plain language"
-    )
-    scan_sources: list[IndexedScanSource] = Field(
-        default_factory=list["IndexedScanSource"],
-        description="Every entity this fragment reads, one entry per SCAN node it covers",
-    )

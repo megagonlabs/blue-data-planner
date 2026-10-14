@@ -35,7 +35,6 @@ class PlannerSettings:
     lotus_model: str | None = None
     lotus_reasoning_effort: str = "none"
     lotus_max_rows: int = 5000
-    enable_nl2table: bool = False
     limits: RunLimits = RunLimits()
 
     def __post_init__(self) -> None:
@@ -67,7 +66,7 @@ def _suite(name: str, settings: PlannerSettings) -> OperatorSuite:
     if name == "builtin":
         from blue_data_planner.operators.builtin import BuiltinSuite
 
-        return BuiltinSuite(with_nl2table=settings.enable_nl2table)
+        return BuiltinSuite()
     if name == "lotus":
         from blue_data_planner.operators.adapters.lotus import LotusSuite
 

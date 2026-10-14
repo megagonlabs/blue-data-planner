@@ -153,7 +153,7 @@ benchmark and demo scripts hold an import the library does not allow itself.
 | `types/` | Every data class that crosses a module boundary, the catalog readings and `LLMUsage` included, since a type `RunResult` names has to be nameable by everything that reads one. Its four modules split those classes by subject, and `__init__.py` re-exports them under the one name `blue_data_planner.types`. Imports nothing outside itself |
 | `plan/` | The functions over a plan that need no model, no source, and no operator: checking one, enumerating the fragments an operator could cover, and building the response schema a planning stage sends. Imports only `types/` |
 | `execution/` | Beside the planning components rather than inside one, so invoking an operator, checking what it returned, and projecting the answer all need no model |
-| `operators/` | The router, one adapter per outside operator suite, and `builtin/`, the suite written here (ADR-020) |
+| `operators/` | The router, one adapter per outside operator suite, and `builtin/`, the suite written here (ADR-058) |
 | `data/` | The only packaged module that imports `blue-data` (ADR-003) |
 | `llm/` | The only module that calls a model provider (ADR-005) |
 
@@ -193,14 +193,14 @@ versioning covers.
 
 The router, one adapter per outside suite, and the one suite written here. The Blue operator library
 and its registry belong to `blue-data-ops`, and LOTUS is its own package; `builtin/` belongs to this
-repository (ADR-020).
+repository (ADR-058).
 
 | Module | Holds |
 | --- | --- |
 | `router.py` | `OperatorRouter`, the only lookup read while planning (ADR-009) |
 | `adapters/blue/` | `blue_operators`, over a `blue-data-ops` `OperatorRegistry`: the parameter models and the operation table that binds them |
 | `adapters/lotus/` | `lotus_operators`, over the LOTUS package |
-| `builtin/` | `builtin_operators`: one module of transformations over the bundle, the deterministic entries wrapping them, `builtin.scan`, `builtin.nl2table`, and the child process its program runs in |
+| `builtin/` | `builtin_operators`: one module of transformations over the bundle, the deterministic entries wrapping them, and `builtin.scan` |
 
 `builtin/` sits beside `adapters/` because the router reads every suite the same way and a
 deployment turns any of them on or off the same way. It is a directory for the same reason the two
@@ -323,7 +323,7 @@ started by a person rather than by a test run.
 | Not here | Where instead |
 | --- | --- |
 | Agents | Other Blue repositories, or a framework such as LangChain, reaching in through MCP |
-| The Blue operators, the abstract `Operator`, and the operator registry | `blue-data-ops`, reached only through `operators/`. The deterministic operations of `builtin/` are this repository's own (ADR-020) |
+| The Blue operators, the abstract `Operator`, and the operator registry | `blue-data-ops`, reached only through `operators/`. The deterministic operations of `builtin/` are this repository's own (ADR-058) |
 | Data source implementations and the registry | `blue-data`, reached only through `data/` |
 | Building or populating a registry | `blue-data`'s own tooling. The benchmark's and the demo's registration scripts are the two exceptions, and neither is shipped |
 | LOTUS source | Its own package, installed through the `lotus` extra (ADR-004) |

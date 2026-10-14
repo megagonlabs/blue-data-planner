@@ -155,14 +155,10 @@ each is configured. The options each suite takes, and their defaults, are in
 from blue_data_planner.operators.adapters.blue import BlueSuite
 from blue_data_planner.operators.adapters.lotus import LotusSuite, lotus_is_installed
 
-suites = [BuiltinSuite(with_nl2table=True), BlueSuite()]
+suites = [BuiltinSuite(), BlueSuite()]
 if lotus_is_installed():
     suites.append(LotusSuite(max_rows=2000))
 ```
-
-`with_nl2table=True` turns on an experimental entry that runs model-written Python and is not a
-security boundary. Read [what turning it on accepts](features.md#builtinnl2table-is-experimental)
-first.
 
 A caller that expects LOTUS operators checks `lotus_is_installed()` first, because the suite
 registers nothing and gives no warning when LOTUS is missing.

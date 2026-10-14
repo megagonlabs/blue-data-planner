@@ -105,7 +105,7 @@ def a_cover() -> PhysicalPlan:
         fragments=[
             a_fragment("f1", ["n1"], "n1", "builtin.scan"),
             a_fragment("f2", ["n2"], "n2", "builtin.scan"),
-            a_fragment("f3", ["n3", "n4"], "n4", "builtin.nl2table", inputs=["n1", "n2"]),
+            a_fragment("f3", ["n3", "n4"], "n4", "blue.nl2sql", inputs=["n1", "n2"]),
         ],
     )
 
@@ -157,7 +157,7 @@ def a_cover_with_fresh_fragment_ids() -> PhysicalPlan:
         fragments=[
             a_fragment("f7", ["n1"], "n1", "builtin.scan"),
             a_fragment("f8", ["n2"], "n2", "builtin.scan"),
-            a_fragment("f9", ["n3", "n4"], "n4", "builtin.nl2table", inputs=["n1", "n2"]),
+            a_fragment("f9", ["n3", "n4"], "n4", "blue.nl2sql", inputs=["n1", "n2"]),
         ],
     )
 
@@ -169,9 +169,9 @@ def a_cover_binding_n1_to_another_operator() -> PhysicalPlan:
         parent_id="c1",
         logical_plan_id="p1",
         fragments=[
-            a_fragment("f7", ["n1"], "n1", "builtin.nl2table"),
+            a_fragment("f7", ["n1"], "n1", "blue.nl2sql"),
             a_fragment("f8", ["n2"], "n2", "builtin.scan"),
-            a_fragment("f9", ["n3", "n4"], "n4", "builtin.nl2table", inputs=["n1", "n2"]),
+            a_fragment("f9", ["n3", "n4"], "n4", "blue.nl2sql", inputs=["n1", "n2"]),
         ],
     )
 
@@ -218,7 +218,7 @@ def a_cover_of_the_second_version() -> PhysicalPlan:
         fragments=[
             a_fragment("f10", ["n1"], "n1", "builtin.scan"),
             a_fragment("f11", ["n6"], "n6", "builtin.scan"),
-            a_fragment("f12", ["n7"], "n7", "builtin.nl2table", inputs=["n1", "n6"]),
+            a_fragment("f12", ["n7"], "n7", "blue.nl2sql", inputs=["n1", "n6"]),
         ],
     )
 

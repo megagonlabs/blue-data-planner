@@ -15,10 +15,8 @@ from blue_data_planner.operators.builtin.schemas import (
     DistinctParameters,
     ExpandParameters,
     FilterParameters,
-    IndexedBoundValues,
     JoinParameters,
     MembershipComparison,
-    Nl2TableParameters,
     NotPredicate,
     OrPredicate,
     Predicate,
@@ -36,7 +34,6 @@ BUILTIN_PARAMETER_SCHEMAS = [
     ExpandParameters,
     FilterParameters,
     JoinParameters,
-    Nl2TableParameters,
     ProjectParameters,
     ScanParameters,
     SortSuperlativeParameters,
@@ -223,71 +220,6 @@ def test_a_scan_refuses_parameters_it_cannot_act_on(parameters: dict[str, Any]) 
     """A missing path, an unknown key, or half a binding is refused rather than defaulted."""
     with pytest.raises(ValidationError):
         ScanParameters.model_validate(parameters)
-
-
-def test_an_indexed_bound_value_names_the_first_input_unless_told_otherwise() -> None:
-    """input_index defaults to the first input of a multi-input read and can name a later one."""
-    default = IndexedBoundValues.model_validate({"input_column": "id", "attribute": "store_id"})
-    named = IndexedBoundValues.model_validate(
-        {"input_index": 2, "input_column": "id", "attribute": "store_id"}
-    )
-
-    assert (default.input_index, named.input_index) == (0, 2)
-
-
-def test_a_negative_input_index_is_not_a_parameter_the_operator_takes() -> None:
-    """No table sits before the first, so the schema refuses the index rather than the operator."""
-    with pytest.raises(ValidationError):
-        IndexedBoundValues.model_validate(
-            {"input_index": -1, "input_column": "id", "attribute": "store_id"}
-        )
-
-
-def test_builtin_scans_bound_values_cannot_name_an_input_index() -> None:
-    """builtin.scan takes exactly one input, so its own schema has no index to set at all."""
-    with pytest.raises(ValidationError):
-        BoundValues.model_validate({"input_index": 1, "input_column": "city", "attribute": "city"})
-
-
-def test_nl2table_takes_an_instruction_and_the_entities_to_read() -> None:
-    """A fragment scanning nothing is a valid parameter set: the entity list may be empty."""
-    parameters = Nl2TableParameters.model_validate(
-        {
-            "instruction": "count the stores in each city",
-            "scan_sources": [
-                {"scan_source": "/source/tag_bench/database/retail/collection/public/entity/stores"}
-            ],
-        }
-    )
-    empty = Nl2TableParameters.model_validate({"instruction": "join what you were given"})
-
-    assert parameters.scan_sources[0].bound_values is None
-    assert empty.scan_sources == []
-
-
-def test_nl2tables_scan_source_keeps_the_input_index_its_bound_values_were_given() -> None:
-    """A non-default input_index set on one scan source's bound values survives model_validate()
-    through Nl2TableParameters and IndexedScanSource, not just through IndexedBoundValues built
-    on its own."""
-    parameters = Nl2TableParameters.model_validate(
-        {
-            "instruction": "join stores with their sales",
-            "scan_sources": [
-                {
-                    "scan_source": "/source/tag_bench/database/retail/collection/public/entity/s",
-                    "bound_values": {
-                        "input_index": 1,
-                        "input_column": "store_id",
-                        "attribute": "id",
-                    },
-                }
-            ],
-        }
-    )
-
-    bound_values = parameters.scan_sources[0].bound_values
-    assert bound_values is not None
-    assert bound_values.input_index == 1
 
 
 def typeless_subschemas(schema: dict[str, Any]) -> list[str]:

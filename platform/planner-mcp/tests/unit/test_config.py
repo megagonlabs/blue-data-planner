@@ -40,8 +40,6 @@ def a_value_other_than_the_default(parameter: dict[str, Any]) -> str:
         return "/elsewhere/registry.json"
     if cast == "int":
         return str(parameter["default"] + 1)
-    if cast == "bool":
-        return str(not parameter["default"]).lower()
     # A reasoning effort, and also a string no str parameter defaults to.
     return "high"
 
@@ -62,7 +60,6 @@ def test_every_setting_the_environment_names_reaches_the_planner():
             "BLUE_DATA_PLANNER_LOTUS_MODEL": "openai/gpt-4.1",
             "BLUE_DATA_PLANNER_LOTUS_REASONING_EFFORT": "minimal",
             "BLUE_DATA_PLANNER_LOTUS_MAX_ROWS": "120",
-            "BLUE_DATA_PLANNER_ENABLE_NL2TABLE": "yes",
             "BLUE_DATA_PLANNER_MAX_OPERATOR_CALLS": "7",
             "BLUE_DATA_PLANNER_MAX_FAILURE_REPLANS": "1",
             "BLUE_DATA_PLANNER_MAX_CONTROL_REPLANS": "3",
@@ -76,7 +73,6 @@ def test_every_setting_the_environment_names_reaches_the_planner():
         lotus_model="openai/gpt-4.1",
         lotus_reasoning_effort="minimal",
         lotus_max_rows=120,
-        enable_nl2table=True,
         limits=RunLimits(operator_calls=7, failure_replans=1, control_replans=3),
     )
 
@@ -103,7 +99,7 @@ def test_the_family_wide_model_is_read_where_the_planner_names_none():
     ("name", "value"),
     [
         ("BLUE_DATA_PLANNER_LOTUS_MAX_ROWS", "many"),
-        ("BLUE_DATA_PLANNER_ENABLE_NL2TABLE", "perhaps"),
+        ("BLUE_DATA_PLANNER_MAX_OPERATOR_CALLS", "several"),
     ],
 )
 def test_a_value_the_server_cannot_read_is_refused_by_name(name: str, value: str):

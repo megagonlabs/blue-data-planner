@@ -223,11 +223,11 @@ def test_a_binding_naming_a_scans_source_is_refused() -> None:
     schema = cover_choice_schema(
         a_two_scan_plan(),
         "n4",
-        [(frozenset({"n1", "n2", "n3", "n4"}), an_operator("builtin.nl2table"))],
+        [(frozenset({"n1", "n2", "n3", "n4"}), an_operator("blue.nl2sql"))],
         None,
     )
     with pytest.raises(ValidationError):
-        schema.model_validate(a_binding("n4:builtin.nl2table:[n1,n2,n3,n4]", source=POSTINGS))
+        schema.model_validate(a_binding("n4:blue.nl2sql:[n1,n2,n3,n4]", source=POSTINGS))
 
 
 def test_a_binding_picks_one_candidate_by_its_label() -> None:
@@ -237,7 +237,7 @@ def test_a_binding_picks_one_candidate_by_its_label() -> None:
         a_two_scan_plan(),
         "n4",
         [
-            (frozenset({"n1", "n2", "n3", "n4"}), an_operator("builtin.nl2table")),
+            (frozenset({"n1", "n2", "n3", "n4"}), an_operator("blue.nl2sql")),
             (frozenset({"n4"}), an_operator("builtin.aggregate")),
         ],
         None,

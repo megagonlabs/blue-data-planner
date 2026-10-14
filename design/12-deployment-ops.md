@@ -65,7 +65,7 @@ The `lotus` extra also narrows what else the environment can hold, which
 
 Which Blue operators an install can bind is a `blue-data-ops` question, answered by that package's
 own extras. The `builtin` suite is behind no extra: it is written here and needs nothing installed
-(ADR-020).
+(ADR-058).
 
 A model client is not an extra: the planner cannot run without one, so its dependencies are
 required rather than optional ([05-software-stack.md](05-software-stack.md)).
@@ -119,7 +119,6 @@ precedence over the exported environment.
 | `BLUE_DATA_PLANNER_LOTUS_MODEL` | The planner's model, wherever it came from | The litellm model string an interface passes to `lotus_operators`, which LOTUS then configures for itself, and which a deployment can set away from the planner's model (ADR-005). A value set here is never overridden by the CLI's `--model` |
 | `BLUE_DATA_PLANNER_LOTUS_REASONING_EFFORT` | `none` | The reasoning effort LOTUS's own model spends per call, passed to `lotus_operators`, and independent of `BLUE_DATA_PLANNER_REASONING_EFFORT` |
 | `BLUE_DATA_PLANNER_LOTUS_MAX_ROWS` | `5000` | The rows a LOTUS operation accepts before refusing the call, passed to `lotus_operators` |
-| `BLUE_DATA_PLANNER_ENABLE_NL2TABLE` | `false` | Whether `builtin.nl2table` is registered, which writes a Python program and runs it (ADR-020) |
 | `BLUE_DATA_PLANNER_MAX_*` | The `RunLimits` defaults | One per bound a run reports back, listed in [section 5](#5-request-limits) |
 | `BLUE_DATA_PROFILE` | The profile `profile select` chose | The profile the CLI reads, when no `--profile` is given. A name with no profile behind it is refused as `PROFILE_NOT_FOUND` |
 | `BLUE_DATA_CLI_FORMAT` | `table` | The CLI's default output format |
@@ -313,5 +312,4 @@ bash lib/scripts/build.sh && bash lib/scripts/publish.sh
 | A hosted operator registry | The registry and router are in-process, built by whoever assembles the planner |
 | An ingestion path | Building and populating a registry belongs to `blue-data`, and this package only reads one (ADR-003) |
 | Authentication and authorization | Belongs to the deployment. The MCP server listens on no socket, so whoever may launch the subprocess may plan |
-| Isolation for model-written code | `builtin.nl2table` runs its program in a child process holding copies of its tables and given an empty environment, which bounds a program that is wrong. It is not a security boundary: nothing checks the program, and the process runs as the user who launched the planner. The entry is experimental and off until a deployment registers it, and a deployment needing the operating system to bound it arranges that itself |
 | Per-request limit overrides | Bounds are set when a planner is built. A deployment that needs two sets of bounds builds two planners |

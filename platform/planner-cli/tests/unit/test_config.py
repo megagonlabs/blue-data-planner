@@ -36,7 +36,6 @@ def test_the_profile_spec_declares_the_library_defaults() -> None:
         "BLUE_DATA_PLANNER_OPERATORS": ",".join(defaults.operator_suites),
         "BLUE_DATA_PLANNER_LOTUS_REASONING_EFFORT": defaults.lotus_reasoning_effort,
         "BLUE_DATA_PLANNER_LOTUS_MAX_ROWS": defaults.lotus_max_rows,
-        "BLUE_DATA_PLANNER_ENABLE_NL2TABLE": defaults.enable_nl2table,
         "BLUE_DATA_PLANNER_MAX_OPERATOR_CALLS": defaults.limits.operator_calls,
         "BLUE_DATA_PLANNER_MAX_FAILURE_REPLANS": defaults.limits.failure_replans,
         "BLUE_DATA_PLANNER_MAX_CONTROL_REPLANS": defaults.limits.control_replans,
@@ -275,13 +274,13 @@ def test_the_settings_a_profile_resolved_reach_the_library_under_the_cli_client_
     captured = a_captured_build(monkeypatch)
     resolver = a_resolver_over(
         tmp_path,
-        BLUE_DATA_PLANNER_ENABLE_NL2TABLE="true",
+        BLUE_DATA_PLANNER_LOTUS_REASONING_EFFORT="minimal",
         BLUE_DATA_PLANNER_LOTUS_MAX_ROWS="10",
     )
 
     assemble_planner(resolve_settings(resolver))
 
-    assert captured["settings"].enable_nl2table is True
+    assert captured["settings"].lotus_reasoning_effort == "minimal"
     assert captured["settings"].lotus_max_rows == 10
     assert captured["llm_client_name"] == "blue_planner"
 

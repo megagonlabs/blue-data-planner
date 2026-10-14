@@ -62,7 +62,7 @@ the planner cannot run without a model.
 
 ### Structured output
 
-Six model calls return structured values rather than prose, and each is constrained by a Pydantic
+Five model calls return structured values rather than prose, and each is constrained by a Pydantic
 response schema rather than parsed out of text.
 
 | Call | Fills | Described in |
@@ -72,7 +72,6 @@ response schema rather than parsed out of text.
 | Fragment parameters | The parameter schema of the operator the cover bound | [04, section 3](04-detailed-architecture.md#3-running-a-fragment) |
 | Fragment review | An assessment in plain language and one of accept, reject, replan | [04, reviewing the result](04-detailed-architecture.md#reviewing-the-result) |
 | Discovery search terms | The terms one `DISCOVER` node expands into | [04, resolving a discovery node](04-detailed-architecture.md#resolving-a-discovery-node) |
-| Program writing | The Python program `builtin.nl2table` runs for its fragment | [06, the built-in suite](06-library.md#the-built-in-suite) |
 
 Two of those schemas are built per call rather than declared once. Physical planning's is assembled
 from that call's own candidates, so only a candidate on offer can be chosen. Fragment
@@ -144,7 +143,7 @@ results. Whether a data frame library reaches an install at all is a dependency'
 | --- | --- | --- |
 | Blue | `blue-data-ops` | Required |
 | LOTUS | `lotus-ai` | `lotus` |
-| `builtin` | This repository | None. Its deterministic entries are always present, and `builtin.nl2table` is registered when specified (ADR-020) |
+| `builtin` | This repository | None. Its entries are always present (ADR-058) |
 
 LOTUS is the first outside suite integrated. It is called as an outside dependency and its source is
 never copied in (ADR-004). It sits behind an extra because its install constraints are heavier than
@@ -155,10 +154,10 @@ pays for none of that.
 The extra states a version range, because the adapter describes each LOTUS operator by name and
 parameters.
 
-`builtin` is written here rather than depended on (ADR-020), and it declares nothing new in the
+`builtin` is written here rather than depended on (ADR-058), and it declares nothing new in the
 dependency table. Its operators work on the bundle, which is plain lists and dicts, so no data
-frame library is needed; it reads sources through `data/`, which the library already depends on; and
-it calls a model through `llm/`, which it already does too. The cost of owning a suite is the tests
+frame library is needed, and it reads sources through `data/`, which the library already depends
+on. The cost of owning a suite is the tests
 its behavior needs, not an install.
 
 ---

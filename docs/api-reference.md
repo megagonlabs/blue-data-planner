@@ -112,7 +112,6 @@ Frozen. Every value a planner is built from, with the default each one takes.
 | `lotus_model` | `str \| None` | `None` | The model LOTUS operations run on. `None` runs them on `model` |
 | `lotus_reasoning_effort` | `str` | `"none"` | The reasoning effort a LOTUS call spends, from the same six values |
 | `lotus_max_rows` | `int` | `5000` | The rows a LOTUS operation accepts before refusing the call |
-| `enable_nl2table` | `bool` | `False` | Whether `builtin.nl2table`, which writes a Python program and runs it, is registered |
 | `limits` | `RunLimits` | `RunLimits()` | The bounds every run obeys |
 
 A reasoning effort outside those six raises `InvalidSettingError` from the constructor, naming the
@@ -453,7 +452,7 @@ OPERATOR_SUITE_NAMES: tuple[str, ...] = ("builtin", "lotus", "blue")
 
 | Suite | Import | Options | Also exports |
 | --- | --- | --- | --- |
-| `BuiltinSuite` | `blue_data_planner.operators.builtin` | `with_nl2table: bool = False` ([experimental](features.md#builtinnl2table-is-experimental)) | `builtin_operators` |
+| `BuiltinSuite` | `blue_data_planner.operators.builtin` | None | `builtin_operators` |
 | `LotusSuite` | `blue_data_planner.operators.adapters.lotus` | `model: str \| None = None`, `max_rows: int = 5000`, `reasoning_effort: str \| None = None` | `lotus_operators`, `lotus_is_installed` |
 | `BlueSuite` | `blue_data_planner.operators.adapters.blue` | `operator_registry: OperatorRegistry \| None = None` | `blue_operators` |
 

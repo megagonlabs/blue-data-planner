@@ -487,18 +487,16 @@ for operator in blue_operators(operator_registry, data_registry):
     router.register(operator)
 for operator in lotus_operators("openai/gpt-6-luna"):  # empty when LOTUS is not installed
     router.register(operator)
-# with_nl2table registers the experimental entry that writes and runs a Python program; it is
-# not a security boundary (ADR-020)
-for operator in builtin_operators(data_registry, llm_client, with_nl2table=True):
+for operator in builtin_operators(data_registry):
     router.register(operator)
 
 [op.operator_id for op in router.operators_for(LogicalOperator.FILTER)]
 # ["blue.select", "blue.semantic_filter", "blue.nl2sql", "lotus.sem_filter",
-#  "builtin.filter", "builtin.nl2table"]
+#  "builtin.filter"]
 ```
 
-Four of those six filter and nothing else. The other two answer for `FILTER` because it is one of
-several kinds each declares, so a filter node can be run on its own or grouped into a wider call.
+Four of those five filter and nothing else. The fifth, `blue.nl2sql`, answers for `FILTER` because
+it is one of several kinds it declares, so a filter node can be run on its own or grouped into a wider call.
 That is why the physical planner had a choice to make at `scan_postings`, `keep_bay_area`, and
 `keep_data_scientists` in Scenario 1, and why it had somewhere to go when the choice turned out
 wrong.

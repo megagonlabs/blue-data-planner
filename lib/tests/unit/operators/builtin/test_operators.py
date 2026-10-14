@@ -33,12 +33,8 @@ TWO_TABLE_IDS = ["builtin.join", "builtin.union"]
 
 
 def the_built_in_operators() -> dict[str, PhysicalOperator]:
-    """Return every built-in operator by id.
-
-    Only builtin.scan's call reads either argument; the compound entry closes over both
-    without reading either until it runs.
-    """
-    operators = builtin_operators(cast(Any, None), cast(Any, None))
+    """Return every built-in operator by id; only builtin.scan's call reads the registry."""
+    operators = builtin_operators(cast(Any, None))
     return {operator.operator_id: operator for operator in operators}
 
 
@@ -66,7 +62,7 @@ def a_bundle_of_two_id_tables() -> DataBundle:
 def test_every_deterministic_node_kind_has_a_built_in_operator() -> None:
     """A router holding the suite answers every operator node kind."""
     router = OperatorRouter()
-    for operator in builtin_operators(cast(Any, None), cast(Any, None)):
+    for operator in builtin_operators(cast(Any, None)):
         router.register(operator)
 
     for kind in DETERMINISTIC_KINDS:
@@ -74,10 +70,9 @@ def test_every_deterministic_node_kind_has_a_built_in_operator() -> None:
 
 
 def test_every_bundle_only_operator_declares_that_it_reads_no_source() -> None:
-    """Every operator but the two that read a source works on the bundle alone and says what it
-    cannot do."""
+    """Every operator but builtin.scan works on the bundle alone and says what it cannot do."""
     for operator_id, operator in the_built_in_operators().items():
-        if operator_id not in ("builtin.scan", "builtin.nl2table"):
+        if operator_id != "builtin.scan":
             assert operator.source_kinds is None
             assert operator.accepts_bound_inputs is False
         assert operator.limitations
@@ -191,15 +186,3 @@ def test_an_operator_refuses_parameters_its_schema_does_not_take() -> None:
         the_built_in_operators()["builtin.filter"].call(
             a_bundle_of_restaurants(), {"predicate": {"column": "state"}}, []
         )
-
-
-def test_the_suite_offers_the_compound_entry_only_when_it_is_asked_for() -> None:
-    """A deployment decides whether model-written code runs at all (ADR-020)."""
-    without = {op.operator_id for op in builtin_operators(cast(Any, None), cast(Any, None))}
-    with_it = {
-        op.operator_id
-        for op in builtin_operators(cast(Any, None), cast(Any, None), with_nl2table=True)
-    }
-
-    assert "builtin.nl2table" not in without
-    assert with_it - without == {"builtin.nl2table"}

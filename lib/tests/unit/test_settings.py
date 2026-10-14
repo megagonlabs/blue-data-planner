@@ -66,7 +66,6 @@ def test_a_caller_who_names_only_a_registry_gets_the_documented_defaults():
     assert settings.lotus_model is None
     assert settings.lotus_reasoning_effort == "none"
     assert settings.lotus_max_rows == 5000
-    assert settings.enable_nl2table is False
     assert settings.limits.operator_calls == 30
     assert settings.limits.failure_replans == 2
     assert settings.limits.control_replans == 5
@@ -161,7 +160,6 @@ def test_each_suite_option_reaches_the_suite_it_configures(
         a_settings(
             registry_path=a_readable_registry(tmp_path),
             model="openai/gpt-6-luna",
-            enable_nl2table=True,
             lotus_model=lotus_model,
             lotus_reasoning_effort="high",
             lotus_max_rows=10,
@@ -169,6 +167,6 @@ def test_each_suite_option_reaches_the_suite_it_configures(
     )
 
     assert captured["suites"] == [
-        BuiltinSuite(with_nl2table=True),
+        BuiltinSuite(),
         LotusSuite(model=runs_lotus_on, max_rows=10, reasoning_effort="high"),
     ]

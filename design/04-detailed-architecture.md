@@ -290,7 +290,6 @@ every atomic operator declares.
 | A semantic filter | `{FILTER}` | One `FILTER` node |
 | A join | `{JOIN}` | One `JOIN` node |
 | A Text-to-SQL operator | `{SCAN, FILTER, PROJECT, JOIN, AGGREGATE, DISTINCT, SORT_SUPERLATIVE}`, SQL sources, accepts bound inputs | Any convex subgraph of those kinds whose scans are SQL |
-| The built-in compound operator | Every operator kind, the source kinds it reads, accepts bound inputs | Any convex subgraph, including one that scans nothing and one that scans two sources (ADR-020) |
 
 A node several other nodes read is a fragment of its own, because grouping it would break the
 single-exit rule. Pushing it into both branches would mean scanning twice, which no cover does.
@@ -526,11 +525,10 @@ query processing. The mechanism is borrowed from there.
     the coercion rules are in [10-data-model.md](10-data-model.md#declared-output-columns).
 
 An operation that writes something of its own from a model writes it during step 3, on the far side
-of the billing. A query or a program the model got wrong therefore costs an operator call, and
-costs one call however many times the operation writes it again, where a parameter the runner got
-wrong costs none (ADR-020). The operator returns whatever it
-wants recorded about the call alongside its rows, and that report travels out on the result whether
-the call succeeded or failed.
+of the billing. A query the model got wrong therefore costs an operator call, and costs one call
+however many times the operation writes it again, where a parameter the runner got wrong costs
+none. The operator returns whatever it wants recorded about the call alongside its rows, and that
+report travels out on the result whether the call succeeded or failed.
 
 Only the fragment's root node has its declaration checked. The declarations on the nodes the
 fragment grouped are not checked against anything, because a fragment call produces no intermediate
@@ -824,7 +822,7 @@ With the built-in suite registered, every operator node kind has a candidate, so
 reserved for a scan the suite cannot read: one naming a source of a kind outside its declarations,
 or one that names no source at all. The second covers what a declaration cannot state, an operator
 that groups a node's kind and cannot do what that node asks of the values. A poor choice among
-candidates that can carry the work is caught at review one operator call later (ADR-020).
+candidates that can carry the work is caught at review one operator call later (ADR-058).
 
 ---
 

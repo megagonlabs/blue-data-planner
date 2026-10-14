@@ -37,8 +37,6 @@ def build_benchmark_planner(settings: BenchmarkSettings) -> DataPlanner:
         )
     return build_data_planner(
         open_registry(settings.registry_path),
-        # builtin.nl2table runs a generated program and is experimental, registered only where a
-        # deployment chooses to (ADR-020), so the benchmark leaves it unregistered.
         suites=[
             BuiltinSuite(),
             LotusSuite(max_rows=settings.lotus_max_rows, reasoning_effort=LOTUS_REASONING_EFFORT),

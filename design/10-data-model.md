@@ -304,7 +304,7 @@ class PhysicalPlan:
 | --- | --- |
 | Coverage | Every operator node of the logical plan appears in exactly one fragment. `RETURN`, `REPLAN`, and `DISCOVER` appear in none |
 | Shape | Each fragment is connected, convex, and single exit: only the root may have consumers outside it ([04, what a fragment may be](04-detailed-architecture.md#what-a-fragment-may-be)) |
-| Sources | `scan_sources` is copied from the fragment's `SCAN` nodes: each scan naming a source maps to that path, and a scan naming none is left out. An operator declaring `source_kinds` takes a fragment only when every scan in it names a source of one of those kinds, and an operator declaring none only when every scan is left out. A fragment containing no `SCAN` is bound to an operator that owns its engine (ADR-020) |
+| Sources | `scan_sources` is copied from the fragment's `SCAN` nodes: each scan naming a source maps to that path, and a scan naming none is left out. An operator declaring `source_kinds` takes a fragment only when every scan in it names a source of one of those kinds, and an operator declaring none only when every scan is left out. A fragment containing no `SCAN` is bound to an operator that owns its engine (ADR-058) |
 | Instruction | One instruction to the operator, starting with a verb as a node instruction does, stating every condition the grouped nodes state and joining them with *and*, and saying what the fragment produces rather than how to produce it: "Find Bay Area job postings whose title is a data scientist role, with their title, company id, and location" |
 | Inputs | `input_data` lists the frontier nodes, which are the nodes outside the fragment feeding nodes inside it, in the order the fragment's nodes read them. The list is the plan's to decide, and only each entry's name and description are written during physical planning. One entry covers everything that node produced, so it may stand for more than one table; those tables share the name and keep their order |
 | Columns | `required_output_columns` is written by the model and holds at least one column, worked out from the declarations of the fragment's nodes and from what reads its root, named as the operator produces them ([04, choosing among candidates](04-detailed-architecture.md#choosing-among-candidates)) |
@@ -512,7 +512,7 @@ class OperatorOutput:
 The report is free-form and nothing reads it while a run continues. It travels to the caller so a
 finished run can be read: the query an operator wrote, the operations it ran, what its own model
 calls cost. Most operations can report nothing and leave it unset, which is why the field is one
-untyped dict rather than named fields (ADR-020). What an operation puts in it is that operation's
+untyped dict rather than named fields (ADR-058). What an operation puts in it is that operation's
 own business, so a benchmark may rely on the keys `builtin` writes without this shape promising
 them.
 

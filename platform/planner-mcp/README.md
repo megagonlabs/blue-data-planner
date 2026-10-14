@@ -155,7 +155,6 @@ the same thing to both.
 | `BLUE_DATA_PLANNER_LOTUS_MODEL` | `lotus_model` | Unset: LOTUS uses the planner's model |
 | `BLUE_DATA_PLANNER_LOTUS_REASONING_EFFORT` | `lotus_reasoning_effort` | `none` |
 | `BLUE_DATA_PLANNER_LOTUS_MAX_ROWS` | `lotus_max_rows` | `5000` |
-| `BLUE_DATA_PLANNER_ENABLE_NL2TABLE` | `enable_nl2table` | `false` |
 | `BLUE_DATA_PLANNER_MAX_OPERATOR_CALLS` | `limits.operator_calls` | `30` |
 | `BLUE_DATA_PLANNER_MAX_FAILURE_REPLANS` | `limits.failure_replans` | `2` |
 | `BLUE_DATA_PLANNER_MAX_CONTROL_REPLANS` | `limits.control_replans` | `5` |

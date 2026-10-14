@@ -172,7 +172,7 @@ def a_grouped_cover(cover_id: str, logical_plan_id: str) -> PhysicalPlan:
                 id="f1",
                 logical_node_ids=["n1", "n2"],
                 root_logical_node_id="n2",
-                operator_id="builtin.nl2table",
+                operator_id="blue.nl2sql",
                 scan_sources={},
                 instruction="read the postings and return their titles",
                 input_data=[],

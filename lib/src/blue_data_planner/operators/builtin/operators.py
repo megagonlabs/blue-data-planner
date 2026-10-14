@@ -11,7 +11,6 @@ from pydantic import BaseModel
 from blue_data_planner.data import DataRegistry
 from blue_data_planner.llm import LLMClient
 from blue_data_planner.operators.builtin import source_scan, table_transformations
-from blue_data_planner.operators.builtin.nl2table import nl2table_operator
 from blue_data_planner.operators.builtin.schemas import (
     AggregateParameters,
     DistinctParameters,
@@ -57,14 +56,10 @@ _SCAN_LIMITATIONS = (
 )
 
 
-def builtin_operators(
-    data_registry: DataRegistry,
-    llm_client: LLMClient,
-    with_nl2table: bool = False,
-) -> list[PhysicalOperator]:
-    """Return the suite's operators, with the compound entry only where it was asked for."""
+def builtin_operators(data_registry: DataRegistry) -> list[PhysicalOperator]:
+    """Return the suite's operators."""
     entries = (*_ENTRIES, _scan_entry(data_registry))
-    operators = [
+    return [
         PhysicalOperator(
             operator_id=entry.operator_id,
             logical_operators=frozenset({entry.logical_operator}),
@@ -77,11 +72,6 @@ def builtin_operators(
         )
         for entry in entries
     ]
-    # The compound entry runs model-written code, so a deployment enables it on purpose
-    # (ADR-020). It is built here rather than as an _Entry because it declares every kind.
-    if with_nl2table:
-        operators.append(nl2table_operator(data_registry, llm_client))
-    return operators
 
 
 def _filter(
@@ -309,13 +299,12 @@ _ENTRIES: tuple[_Entry, ...] = (
 
 @dataclass(frozen=True)
 class BuiltinSuite:
-    """The suite this repository owns, and whether its compound entry is registered."""
+    """The suite this repository owns."""
 
     name: ClassVar[str] = "builtin"
-    with_nl2table: bool = False
 
     def operators(
         self, *, data_registry: DataRegistry, llm_client: LLMClient, model: str
     ) -> list[PhysicalOperator]:
-        """Return the suite's operators, with the compound entry only where it was asked for."""
-        return builtin_operators(data_registry, llm_client, with_nl2table=self.with_nl2table)
+        """Return the suite's operators."""
+        return builtin_operators(data_registry)

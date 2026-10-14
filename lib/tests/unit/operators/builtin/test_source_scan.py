@@ -24,7 +24,7 @@ STORES = "/source/tag_bench/database/retail/collection/public/entity/stores"
 
 def the_scan_operator(registry: DataRegistry) -> PhysicalOperator:
     """Return the one operator the built-in suite offers for SCAN."""
-    operators = builtin_operators(registry, cast(Any, None))
+    operators = builtin_operators(registry)
     return next(operator for operator in operators if operator.operator_id == "builtin.scan")
 
 

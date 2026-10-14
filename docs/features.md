@@ -120,7 +120,7 @@ Blue operator compete for the same work.
 
 | Suite | Offers | Needs |
 | --- | --- | --- |
-| `builtin` | One deterministic operator per node kind: `builtin.scan`, `builtin.filter`, `builtin.project`, `builtin.expand`, `builtin.aggregate`, `builtin.distinct`, `builtin.sort_superlative`, `builtin.join`, `builtin.union`. `builtin.nl2table` writes a Python program from the fragment's instruction and runs it, and is registered only when asked for ([experimental](#builtinnl2table-is-experimental)) | Nothing beyond the library |
+| `builtin` | One deterministic operator per node kind: `builtin.scan`, `builtin.filter`, `builtin.project`, `builtin.expand`, `builtin.aggregate`, `builtin.distinct`, `builtin.sort_superlative`, `builtin.join`, `builtin.union`. | Nothing beyond the library |
 | `lotus` | LOTUS's semantic operations: `lotus.sem_filter`, `lotus.sem_map`, `lotus.sem_extract`, `lotus.sem_topk`, `lotus.sem_agg`, `lotus.sem_join` | The `lotus` extra. The suite registers nothing where LOTUS is not installed |
 | `blue` | One operator per operation in a `blue-data-ops` registry: eleven relational and aggregate operations, five semantic ones, `blue.nl2llm` for an answer from the model's own knowledge, and the compound `blue.nl2sql`, which covers a whole SQL region in one call | `blue-data-ops` |
 
@@ -131,35 +131,12 @@ from blue_data_planner.operators.builtin import BuiltinSuite
 
 planner = build_data_planner(
     registry,
-    suites=[BlueSuite(), LotusSuite(max_rows=2000), BuiltinSuite(with_nl2table=True)],
+    suites=[BlueSuite(), LotusSuite(max_rows=2000), BuiltinSuite()],
     model="openai/gpt-6-luna",
 )
 ```
 
 Adding a suite through an adapter is covered in [extending.md](extending.md).
-
----
-
-### `builtin.nl2table` is experimental
-
-`builtin.nl2table` writes a Python program from the fragment's instruction and runs it in a child
-process. It is off unless a caller asks for it, and turning it on accepts three things.
-
-**It is not a security boundary.** The program runs with the interpreter's own builtins and
-whatever it imports. Nothing checks it first. A program that reads the filesystem, opens a network
-connection, or reaches out of the child process is doing something this operator does not prevent
-and does not try to. The child process bounds a program that is wrong — a wall clock everywhere, a
-memory and CPU limit and no file writes where the platform offers them — not one written to escape.
-
-**Turn it on only with a model and sources the deployment trusts.** Not on a deployment that
-untrusted requests reach.
-
-**The rows in a registered source reach the prompt.** The operator renders five sample rows of
-every entity a fragment reads into the prompt the program is written from. Text stored in a source
-is read by the model that writes the program, so a source someone else can write to is an input to
-that program. A model can be coerced this way into writing a program it would not otherwise write.
-CVE-2025-68613 turned the same feature in LangChain's PythonREPLTool into remote code execution,
-even though that tool had a check like the one this operator no longer claims to have.
 
 ---
 

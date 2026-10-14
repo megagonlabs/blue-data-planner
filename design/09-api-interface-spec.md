@@ -77,7 +77,6 @@ class PlannerSettings:
     lotus_model: str | None = None            # None: use model
     lotus_reasoning_effort: str = "none"
     lotus_max_rows: int = 5000
-    enable_nl2table: bool = False
     limits: RunLimits = RunLimits()
 
 
@@ -109,7 +108,7 @@ def operator_suite(name: str) -> OperatorSuite: ...
 
 @dataclass(frozen=True)
 class BuiltinSuite:
-    with_nl2table: bool = False
+    pass
 
 
 @dataclass(frozen=True)

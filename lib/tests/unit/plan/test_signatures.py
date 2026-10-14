@@ -111,7 +111,7 @@ def test_a_fresh_set_of_fragment_ids_leaves_every_signature_unchanged() -> None:
 @pytest.mark.parametrize(
     "overrides",
     [
-        {"operator_id": "builtin.nl2table"},
+        {"operator_id": "blue.nl2sql"},
         {"instruction": "read the postings, quickly"},
         {"scan_sources": {"n1": "tag_bench/retail/stores"}},
         {"required_output_columns": [OutputColumn(name="title", dtype="str")]},

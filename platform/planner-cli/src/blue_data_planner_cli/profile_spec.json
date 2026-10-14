@@ -42,12 +42,6 @@
     "required": false,
     "cast": "int"
   },
-  "BLUE_DATA_PLANNER_ENABLE_NL2TABLE": {
-    "default": false,
-    "prompt": "Register builtin.nl2table, which writes a Python program and runs it (experimental, and not a security boundary)",
-    "required": false,
-    "cast": "bool"
-  },
   "BLUE_DATA_PLANNER_MAX_OPERATOR_CALLS": {
     "default": 30,
     "prompt": "Operator calls one request may spend",

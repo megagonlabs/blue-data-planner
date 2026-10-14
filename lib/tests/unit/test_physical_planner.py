@@ -431,8 +431,8 @@ def a_new_version_of(plan: LogicalPlan) -> LogicalPlan:
 
 def test_a_plan_one_operator_can_absorb_comes_back_as_one_fragment() -> None:
     """The widest candidate is offered first, and taking it ends the cover in one turn."""
-    client = ScriptedLLMClient([a_binding("n3:builtin.nl2table:[n1,n2,n3]")])
-    planner = a_planner(client, a_router(an_operator("builtin.nl2table", ALL_KINDS)))
+    client = ScriptedLLMClient([a_binding("n3:blue.nl2sql:[n1,n2,n3]")])
+    planner = a_planner(client, a_router(an_operator("blue.nl2sql", ALL_KINDS)))
     result = planner.cover(REQUEST, a_plan(), Conversation(), None, a_discovery())
     assert result.plan is not None
     assert [sorted(f.logical_node_ids) for f in result.plan.fragments] == [["n1", "n2", "n3"]]
@@ -454,7 +454,7 @@ def test_a_binding_that_turns_every_candidate_down_ends_the_cover_with_no_plan()
     """No fragment is bound and no operator runs; the reason names the node and the model's why."""
     reason = "the plan filters on what a photo shows, and no operator offered reads images"
     client = ScriptedLLMClient([a_none_choice(reason)])
-    planner = a_planner(client, a_router(an_operator("builtin.nl2table", ALL_KINDS)))
+    planner = a_planner(client, a_router(an_operator("blue.nl2sql", ALL_KINDS)))
 
     result = planner.cover(REQUEST, a_plan(), Conversation(), None, a_discovery())
 
@@ -512,8 +512,8 @@ def test_a_cover_taking_one_node_at_a_time_sends_one_turn_per_node() -> None:
 def test_a_scan_an_operator_answers_from_its_own_knowledge_is_bound_to_no_source() -> None:
     """An operator declaring no source kinds needs no discovery, and names no entity path."""
     planner = a_planner(
-        ScriptedLLMClient([a_binding("n2:builtin.nl2table:[n1,n2]")]),
-        a_router(an_operator("builtin.nl2table", ALL_KINDS, source_kinds=None)),
+        ScriptedLLMClient([a_binding("n2:blue.nl2llm:[n1,n2]")]),
+        a_router(an_operator("blue.nl2llm", ALL_KINDS, source_kinds=None)),
     )
     result = planner.cover(REQUEST, a_scan_and_return(source=None), Conversation(), None, {})
     assert result.plan is not None

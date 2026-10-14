@@ -116,7 +116,6 @@ def resolve_settings(
                 _require(resolver, "BLUE_DATA_PLANNER_LOTUS_REASONING_EFFORT")
             ),
             lotus_max_rows=int(_get(resolver, "BLUE_DATA_PLANNER_LOTUS_MAX_ROWS")),
-            enable_nl2table=bool(_get(resolver, "BLUE_DATA_PLANNER_ENABLE_NL2TABLE")),
             # The three bounds a run reports back are the three a profile sets. The rest reset
             # inside a request, so nothing reports what one spent against them, and they keep
             # the RunLimits defaults unless a library caller sets them.

@@ -22,9 +22,6 @@ from blue_data_planner.types import InvalidSettingError, RunLimits
 
 LLM_CLIENT_NAME: str = "blue_planner_mcp"
 
-_TRUE: tuple[str, ...] = ("1", "true", "yes", "y", "on")
-_FALSE: tuple[str, ...] = ("0", "false", "no", "n", "off")
-
 # Every variable that carries a value straight through, by the field it fills.
 _TEXT_FIELDS: dict[str, str] = {
     "BLUE_DATA_PLANNER_REASONING_EFFORT": "reasoning_effort",
@@ -78,10 +75,6 @@ def planner_settings(environ: Mapping[str, str]) -> PlannerSettings:
             for suite in environ["BLUE_DATA_PLANNER_OPERATORS"].split(",")
             if suite.strip()
         )
-    if environ.get("BLUE_DATA_PLANNER_ENABLE_NL2TABLE"):
-        given["enable_nl2table"] = _boolean(
-            "BLUE_DATA_PLANNER_ENABLE_NL2TABLE", environ["BLUE_DATA_PLANNER_ENABLE_NL2TABLE"]
-        )
 
     bounds = {
         field: _whole_number(name, environ[name])
@@ -98,13 +91,3 @@ def _whole_number(name: str, value: str) -> int:
         return int(value.strip())
     except ValueError as error:
         raise InvalidSettingError(f"{name} is {value!r}; expected a whole number") from error
-
-
-def _boolean(name: str, value: str) -> bool:
-    # The spellings blue_data.utils.config accepts, so a value means the same thing to the CLI.
-    lowered = value.strip().lower()
-    if lowered in _TRUE:
-        return True
-    if lowered in _FALSE:
-        return False
-    raise InvalidSettingError(f"{name} is {value!r}; expected a boolean such as true or false")

@@ -310,11 +310,8 @@ naming the original error in its message and keeping it as the cause: the regist
 `RegistryUnreadableError`, the source read raises `SourceQueryError`, the provider call raises
 `LLMError`.
 
-Two more places catch broadly, each for a reason the rule above does not cover. The child process
-`builtin.nl2table` runs a written program in catches `BaseException` around that program, since a
-program's own exception, an interpreter exit, and a resource limit tripping all have to reach the
-parent as one reply rather than as an ambiguous exit code. The benchmark harness catches
-`Exception` around each query's run, so a defect in one query leaves the rest of a sweep scorable
+One more place catches broadly, for a reason the rule above does not cover. The benchmark harness
+catches `Exception` around each query's run, so a defect in one query leaves the rest of a sweep scorable
 (ADR-015); it ships in no package.
 
 The two interfaces are the other places it is permitted, each at its boundary and nowhere else in

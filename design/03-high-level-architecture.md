@@ -203,7 +203,7 @@ suite this repository owns.
 | `router.py` | `OperatorRouter`. Maps a logical operator to the physical operators that can carry it out, and resolves an operator id to the operator behind it. Lookup and nothing more: whether a particular node has an operator depends on the fragment it sits in and the sources its scans name, so it is asked per node by the physical planner and answered as `no_operator`. Only the router is read while planning, never the registry (ADR-009). |
 | `adapters/blue/` | Declares the operators of a `blue-data-ops` registry as physical operators. |
 | `adapters/lotus/` | Declares LOTUS operations as physical operators. |
-| `builtin/` | The suite written here (ADR-020): deterministic operations over the bundle, one per operator node kind, and `builtin.nl2table`, which writes a Python program from a fragment's instruction and runs it in a child process holding copies of its tables, registered only where a deployment asks for it. This is what the planner falls back to when no outside suite can take a node, and what hosts a fragment that scans nothing. |
+| `builtin/` | The suite written here (ADR-058): deterministic operations, one per operator node kind, with `builtin.scan` reading a source and the rest working over the bundle. This is what the planner falls back to when no outside suite can take a node, and what hosts a fragment that scans nothing. |
 
 `__init__.py` re-exports the router and the lookup that turns a suite name into its operators. An
 adapter is imported only when that lookup is asked for its suite, so importing `operators` loads no
@@ -245,8 +245,7 @@ Each is a build step that ships in no package and calls `blue-data` directly
 ### `llm/`
 
 The model client shared by everything in the library that calls a model: the logical planner, the
-physical planner, the fragment runner, the catalog searcher, and the `builtin.nl2table` operator,
-which writes its program with one. It holds prompt templating.
+physical planner, the fragment runner, and the catalog searcher. It holds prompt templating.
 
 ---
 
