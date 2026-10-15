@@ -2,26 +2,26 @@
 
 Operator-agnostic data planners for the Blue **Data Intelligence Layer (DIL)**.
 
-A planner turns a plain-language request into a declarative plan, a DAG of operator calls, then
-runs the plan and repairs it where it fails. The operators come from other packages: the Blue
-operators and their registry from `blue-data-ops`, semantic operators from LOTUS, and the data
-sources and data registry from `blue-data`. Agents and UI are out of scope and come from other Blue
-repositories or from frameworks such as LangChain.
+A planner turns a plain-language request into a declarative plan (a DAG of operator calls), runs
+the plan, and repairs it when a call fails. The planner depends on `blue-data-ops` for the Blue
+operators and their registry, and on `blue-data` for data sources and the data registry.
 
 → **[Full documentation](docs/README.md)** · **[Quick start](docs/quickstart.md)** · **[Installation](docs/installation.md)** · **[Examples](examples/README.md)** · **[CLI](docs/cli.md)** · **[MCP](docs/mcp.md)**
 
 ## What it does
 
-- **Plan** a request as a DAG of logical operators, with each `SCAN` naming the catalog entity it
-  reads, and search a `blue-data` registry when the tables it needs are not yet known.
+- **Plan** a request as a DAG of logical operators. Each `SCAN` names the catalog entity it reads,
+  and the planner searches a `blue-data` registry when the request does not name its tables.
 - **Push down** as much of the plan as each operator can take. A compound operator such as
-  `blue.nl2sql` covers a whole region of the plan in one call; others take one node.
-- **Run** each fragment with parameters a model writes, then review the rows before accepting them.
-- **Repair** a failure in three ordered steps: the parameter repair, the cover repair, the replan.
-- **Combine** operator suites: the deterministic `builtin` suite, LOTUS, and `blue-data-ops`, each
-  entering through one adapter.
-- **Read back** a run afterwards. Plans, per-fragment results, failure reasons, and every model
-  exchange are structured data in one `RunResult`.
+  `blue.nl2sql` runs several nodes in one call, while other operators take one node each.
+- **Run** each fragment, the group of nodes one operator call covers, with parameters a model
+  writes. The model reviews the returned rows before the planner accepts them.
+- **Repair** a failure in three ordered steps, each rewriting more than the one before: the
+  parameters of one call, then the assignment of nodes to operators, then the plan itself.
+- **Combine** the deterministic `builtin` operators with the Blue operators from `blue-data-ops`,
+  which enter through their own adapter.
+- **Inspect** a finished run. One `RunResult` holds the plans, the per-fragment results, the failure
+  reasons, and every model exchange as structured data.
 
 See [docs/features.md](docs/features.md) for the full list with snippets, and
 [examples/](examples/README.md) for runnable scripts with captured output.
@@ -46,10 +46,10 @@ blue-data-planner/
 
 ## Requirements
 
-- Python 3.11 or later; the `lotus` extra needs 3.11 or 3.12
+- Python 3.11 or later
 - [`blue-data`](../blue-data) and [`blue-data-ops`](../blue-data-ops) checked out beside this
   repository. The install scripts install both from there.
-- An OpenAI API key, since every planning stage calls a model
+- An OpenAI API key for the default model. Every planning stage calls a model.
 
 ```bash
 export OPENAI_API_KEY=sk-...
@@ -76,7 +76,7 @@ python lib/scripts/demo/register_northwind.py
 export OPENAI_API_KEY=sk-...                      # a real key, not this placeholder
 export BLUE_DATA_REGISTRY_PATH=$PWD/data/demo/registry.json
 export BLUE_DATA_PLANNER_MODEL=openai/gpt-6-luna
-export BLUE_DATA_PLANNER_OPERATORS=builtin        # builtin alone: the lotus extra is not installed
+export BLUE_DATA_PLANNER_OPERATORS=builtin        # the built-in operators only
 
 # Ask a question
 blue-planner data query "Which three countries do the most customers come from?"
@@ -91,4 +91,4 @@ shows how to read back what the run did, and runs the same request from Python.
 | --- | --- |
 | [lib/](lib/README.md) | `blue-data-planner`: the planner library |
 | [platform/planner-cli/](platform/planner-cli/README.md) | `blue-data-planner-cli`: the `blue-planner` command |
-| [platform/planner-mcp/](platform/planner-mcp/README.md) | `blue-data-planner-mcp`: the `blue-data-planner-mcp` MCP server, with one tool over the planner |
+| [platform/planner-mcp/](platform/planner-mcp/README.md) | `blue-data-planner-mcp`: the MCP server of the same name, whose one tool, `query_data`, runs the planner |
