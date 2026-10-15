@@ -1130,7 +1130,7 @@ declared beside that suite and nothing that builds a planner names them. `Builti
 none. A name no suite registers raises `UnknownOperatorSuiteError`, which is
 what keeps a typo in a suite list from running with fewer operators than it asked for. A suite
 naming no model of its own runs on the planner's, and `BlueSuite` naming no registry resolves
-against the default registry of `blue-data-ops`.
+against the active registry of `blue-data-ops`, the one reviewed version of each operation.
 
 Nothing else changes when a suite is added. The physical planner builds its candidates from the
 router while it covers a plan, so a newly registered operator competes for every fragment its

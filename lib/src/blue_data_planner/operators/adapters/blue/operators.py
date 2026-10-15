@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from typing import Any, ClassVar
 
 from blue_data_ops.operators.operator import Operator
-from blue_data_ops.operators.registry import OperatorRegistry, default_registry
+from blue_data_ops.operators.registry import OperatorRegistry, ResolveError, active_registry
 from blue_data_ops.operators.types import Properties
 from pydantic import BaseModel
 
@@ -39,6 +39,7 @@ from blue_data_planner.types import (
     DataBundle,
     LogicalOperator,
     OperatorOutput,
+    OperatorRoutingError,
     OutputColumn,
     PhysicalOperator,
     RecoverableOperatorError,
@@ -277,7 +278,13 @@ def blue_operators(
     # planner/, which would make operators/ depend on the component that routes them.
     operators: list[PhysicalOperator] = []
     for operation in OPERATIONS:
-        operator = registry.resolve(operation.registry_operator_id)
+        try:
+            operator = registry.resolve(operation.registry_operator_id)
+        except ResolveError as error:
+            raise OperatorRoutingError(
+                f"{operation.operator_id} is bound to {operation.registry_operator_id}, which "
+                "the operator registry does not carry"
+            ) from error
         properties: Properties | None = (
             {"data_registry": data_registry} if operation.needs_data_registry else None
         )
@@ -307,11 +314,12 @@ class BlueSuite:
     """The Blue operator library's operations, over the registry that resolves them."""
 
     name: ClassVar[str] = "blue"
-    # None resolves each operation against the registry blue-data-ops builds by default.
+    # None resolves each operation against the active registry of blue-data-ops, which holds
+    # the one reviewed version of each operation that OPERATIONS pins.
     operator_registry: OperatorRegistry | None = None
 
     def operators(
         self, *, data_registry: DataRegistry, llm_client: LLMClient, model: str
     ) -> list[PhysicalOperator]:
         """Return one physical operator per Blue operation a fragment can be bound to."""
-        return blue_operators(self.operator_registry or default_registry(), data_registry)
+        return blue_operators(self.operator_registry or active_registry(), data_registry)

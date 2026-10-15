@@ -11,6 +11,7 @@ from blue_data_planner.data import DataRegistry
 from blue_data_planner.llm import LLMClient
 from blue_data_planner.operators import OPERATOR_SUITE_NAMES, operator_suite
 from blue_data_planner.operators.adapters.blue import BlueSuite
+from blue_data_planner.operators.adapters.blue.operators import OPERATIONS
 from blue_data_planner.operators.adapters.lotus import LotusSuite, settings
 from blue_data_planner.types import UnknownOperatorSuiteError
 from tests.doubles.blue_operations import a_registry_answering_every_operation
@@ -84,3 +85,11 @@ def test_a_blue_suite_resolves_its_operations_against_the_registry_it_was_given(
     operators = built(BlueSuite(operator_registry=a_registry_answering_every_operation()))
 
     assert [one.operator_id for one in operators if one.operator_id == "blue.select"]
+
+
+def test_a_blue_suite_given_no_registry_builds_every_operation() -> None:
+    """The suite a configured name returns names no registry, so its default has to resolve
+    every operation the suite pins."""
+    operators = built(operator_suite("blue"))
+
+    assert [one.operator_id for one in operators] == [one.operator_id for one in OPERATIONS]

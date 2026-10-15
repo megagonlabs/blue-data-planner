@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import pytest
-from blue_data_ops.operators.registry import versioned_registry
+from blue_data_ops.operators.registry import OperatorRegistry, versioned_registry
 
 from blue_data_planner.data import DataRegistry
 from blue_data_planner.operators import OperatorRouter
@@ -12,6 +12,7 @@ from blue_data_planner.operators.adapters.blue.operators import OPERATIONS
 from blue_data_planner.types import (
     INPUT_ARITY,
     LogicalOperator,
+    OperatorRoutingError,
     PhysicalOperator,
     RecoverableOperatorError,
 )
@@ -36,12 +37,11 @@ def test_the_scripted_registry_names_the_same_operations_the_table_does() -> Non
     )
 
 
-def test_every_operation_resolves_the_registry_id_it_names() -> None:
-    """An id the registry does not carry has to fail while the suite is built, not mid-run."""
-    registry = versioned_registry()
-
-    for operation in OPERATIONS:
-        assert registry.resolve(operation.registry_operator_id) is not None
+def test_a_registry_missing_an_operation_fails_while_the_suite_is_built() -> None:
+    """An id the registry does not carry has to fail before a run starts, and as a planner
+    error the interfaces know how to report."""
+    with pytest.raises(OperatorRoutingError, match="blue.select is bound to select@2.0.0"):
+        blue_operators(OperatorRegistry(), DataRegistry(name="test", rebuild=True))
 
 
 def test_each_operation_binds_the_newest_card_the_registry_carries_for_it() -> None:
