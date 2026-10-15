@@ -1185,6 +1185,12 @@ reading text stays outside the group. And one query reads one database, so a fra
 name two sources is not its to take, a constraint that lives in `limitations` because the
 declaration has no vocabulary for it (open question 44).
 
+`blue.nl2sql` takes its scan target as the catalog path of one scan the fragment names, the form
+`builtin.scan` takes, and the adapter reads the source, database, and collection out of it. The
+protocol is the source's, read off its registry record at call time, so no parameter names it. A
+path that names no entity is refused as a parameter error. A source the registry does not hold, or
+one of a kind the operation cannot query, is refused as a recoverable failure naming the source.
+
 Each operation names the registry version it binds, rather than the suite naming one version for all
 eighteen. A version is where an operation's validator and its result shape are fixed, so an upstream
 release changes what an operation does here only once the adapter names the new version, and two

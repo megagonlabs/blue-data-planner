@@ -6,6 +6,8 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from blue_data_planner.data.catalog import parse_entity_path
+
 # Unknown keys are refused so a runner cannot reach a tuning parameter a declaration
 # deliberately leaves out. Everything omitted keeps the operator's own default.
 _STRICT = ConfigDict(extra="forbid")
@@ -312,16 +314,34 @@ class NL2SQLParameters(BlueParameters):
     """Write one SQL query against a registered relational source and run it."""
 
     question: str = Field(description="The question to translate into SQL")
-    source: str = Field(
-        description="Registered source name, from the fragment's scan_sources catalog path"
-    )
-    database: str = Field(description="Database name within the source")
-    collection: str = Field(description="Collection or schema name within the database")
-    protocol: Literal["sqlite", "mysql", "postgres"] = Field(
-        description="The source's database protocol"
+    # One of the catalog paths PhysicalPlanFragment.scan_sources holds. The operation reads a
+    # whole collection and picks its tables itself, so the entity the path ends in only says
+    # which collection.
+    scan_source: str = Field(
+        description=(
+            "Catalog path of one entity the fragment reads, in the form "
+            "/source/{source}/database/{database}/collection/{collection}/entity/{entity}"
+        ),
     )
     context: str = Field(default="", description="Optional domain knowledge for the translation")
     attr_names: list[str] = Field(
         default_factory=list[str],
         description="The field names each returned record should carry",
     )
+
+    @field_validator("scan_source")
+    @classmethod
+    def scan_source_is_an_entity_path(cls, scan_source: str) -> str:
+        """Refuse a scan source that is not a catalog path to an entity."""
+        parse_entity_path(scan_source)
+        return scan_source
+
+    def operation_attributes(self) -> dict[str, Any]:
+        """Return the attributes the operation is called with, the scan source split into the
+        source, database, and collection it names."""
+        attributes = super().operation_attributes()
+        entity = parse_entity_path(attributes.pop("scan_source"))
+        attributes["source"] = entity.source
+        attributes["database"] = entity.database
+        attributes["collection"] = entity.collection
+        return attributes

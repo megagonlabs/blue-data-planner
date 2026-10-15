@@ -11,6 +11,7 @@ from blue_data_ops.operators.registry import OperatorRegistry, ResolveError, act
 from blue_data_ops.operators.types import Properties
 
 from blue_data_planner.data import DataRegistry
+from blue_data_planner.data.catalog import source_kind
 from blue_data_planner.llm import LLMClient
 from blue_data_planner.llm.model_names import model_without_provider
 from blue_data_planner.operators.adapters.blue import error_mapping
@@ -44,7 +45,28 @@ from blue_data_planner.types import (
     OutputColumn,
     PhysicalOperator,
     RecoverableOperatorError,
+    SourceUnreachableError,
 )
+
+# The source kinds blue.nl2sql reads, and the protocol name it takes for each.
+_NL2SQL_PROTOCOLS: dict[str, str] = {
+    "sql/sqlite": "sqlite",
+    "sql/mysql": "mysql",
+    "sql/postgres": "postgres",
+}
+
+
+def _nl2sql_protocol(data_registry: DataRegistry, source: str, operator_id: str) -> str:
+    try:
+        kind = source_kind(data_registry, source)
+    except SourceUnreachableError as error:
+        raise RecoverableOperatorError(f"{operator_id} cannot read {source!r}: {error}") from error
+    if kind not in _NL2SQL_PROTOCOLS:
+        raise RecoverableOperatorError(
+            f"{operator_id} reads only {', '.join(_NL2SQL_PROTOCOLS)} sources, and {source!r} "
+            f"is a {kind} source"
+        )
+    return _NL2SQL_PROTOCOLS[kind]
 
 
 def _build_call(
@@ -53,6 +75,7 @@ def _build_call(
     parameters: type[BlueParameters],
     properties: Properties | None,
     table_count: int | None,
+    data_registry: DataRegistry,
 ) -> Callable[[DataBundle, dict[str, Any], list[OutputColumn]], OperatorOutput]:
     def call(
         inputs: DataBundle,
@@ -77,9 +100,14 @@ def _build_call(
         # A fragment and operator.run speak the same bundle, so nothing is converted here.
         # The list is copied because an operator may write into the bundle it is handed
         # and the caller reuses one bundle across retries.
-        output, reported, meta = operator.run(
-            list(inputs), validated.operation_attributes(), properties
-        )
+        attributes_sent = validated.operation_attributes()
+        if isinstance(validated, NL2SQLParameters):
+            # The protocol is the source's, so it is read off the registry rather than written
+            # by the model.
+            attributes_sent["protocol"] = _nl2sql_protocol(
+                data_registry, attributes_sent["source"], operator_id
+            )
+        output, reported, meta = operator.run(list(inputs), attributes_sent, properties)
         error_mapping.raise_for_errors(meta, operator_id, reported or None)
         # ExecMeta.traces stays out: the base class attaches timings and shapes to every call,
         # which is instrumentation rather than something the operation chose to say, and open
@@ -255,7 +283,7 @@ OPERATIONS: tuple[Operation, ...] = (
         ),
         "nl2sql@3.0.0",
         NL2SQLParameters,
-        source_kinds=frozenset({"sql/sqlite", "sql/mysql", "sql/postgres"}),
+        source_kinds=frozenset(_NL2SQL_PROTOCOLS),
         accepts_bound_inputs=True,
         # A declaration has no vocabulary for "every scan reads one database", so the
         # constraint lives here, where the physical planner reads it (open question 44).
@@ -322,6 +350,7 @@ def blue_operators(
                     operation.parameters,
                     properties or None,
                     _table_count(operation),
+                    data_registry,
                 ),
                 source_kinds=operation.source_kinds,
                 accepts_bound_inputs=operation.accepts_bound_inputs,

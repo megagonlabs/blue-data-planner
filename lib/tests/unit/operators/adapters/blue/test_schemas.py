@@ -8,9 +8,10 @@ import pytest
 from blue_data_ops.operators.registry import versioned_registry
 from pydantic import ValidationError
 
-from blue_data_planner.operators.adapters.blue.operators import OPERATIONS
+from blue_data_planner.operators.adapters.blue.operators import OPERATIONS, Operation
 from blue_data_planner.operators.adapters.blue.schemas import (
     BlueParameters,
+    NL2SQLParameters,
     ProjectParameters,
     SemanticFilterParameters,
     SemanticTransformParameters,
@@ -43,10 +44,7 @@ A_CALL_THE_MODEL_ACCEPTS: dict[str, dict[str, Any]] = {
     "blue.nl2llm": {"query": "how many states are there"},
     "blue.nl2sql": {
         "question": "how many drivers are there",
-        "source": "tag_bench",
-        "database": "formula_1",
-        "collection": "main",
-        "protocol": "sqlite",
+        "scan_source": "/source/tag_bench/database/formula_1/collection/main/entity/drivers",
     },
 }
 
@@ -56,30 +54,39 @@ _ROWS: list[list[dict[str, Any]]] = [
 ]
 
 
+def attributes_the_adapter_sends(operation: Operation) -> dict[str, Any]:
+    """Return what the call in A_CALL_THE_MODEL_ACCEPTS hands the operation."""
+    parameters = operation.parameters.model_validate(
+        A_CALL_THE_MODEL_ACCEPTS[operation.operator_id]
+    )
+    attributes = parameters.operation_attributes()
+    if operation.operator_id == "blue.nl2sql":
+        # The adapter reads the protocol off the source's registry record at call time.
+        attributes["protocol"] = "sqlite"
+    return attributes
+
+
 def test_a_call_every_model_accepts_is_one_its_operation_accepts_too() -> None:
     """The model and the operation's validator are written separately and can disagree."""
     registry = versioned_registry()
 
     refused: list[str] = []
     for operation in OPERATIONS:
-        parameters = operation.parameters.model_validate(
-            A_CALL_THE_MODEL_ACCEPTS[operation.operator_id]
-        )
-        attributes = parameters.operation_attributes()
+        attributes = attributes_the_adapter_sends(operation)
         if not registry.resolve(operation.registry_operator_id).validate(_ROWS, attributes):
             refused.append(f"{operation.operator_id} refused {attributes}")
 
     assert not refused, refused
 
 
-def test_every_model_field_names_an_attribute_its_operation_declares() -> None:
-    """A field the operation does not declare would be dropped without a word."""
+def test_every_attribute_the_adapter_sends_is_one_its_operation_declares() -> None:
+    """An attribute the operation does not declare would be dropped without a word."""
     registry = versioned_registry()
 
     unknown: list[str] = []
     for operation in OPERATIONS:
         declared = set(registry.resolve(operation.registry_operator_id).attributes)
-        extra = set(operation.parameters.model_fields) - declared
+        extra = set(attributes_the_adapter_sends(operation)) - declared
         if extra:
             unknown.append(f"{operation.operator_id} names {sorted(extra)}")
 
@@ -87,14 +94,15 @@ def test_every_model_field_names_an_attribute_its_operation_declares() -> None:
 
 
 def test_no_operation_is_left_without_an_attribute_it_requires() -> None:
-    """An attribute the operation requires comes from the model or from the operation's default."""
+    """An attribute the operation requires comes from the adapter or from the operation's
+    default."""
     registry = versioned_registry()
 
     missing: list[str] = []
     for operation in OPERATIONS:
-        fields = set(operation.parameters.model_fields)
+        sent = set(attributes_the_adapter_sends(operation))
         for name, attribute in registry.resolve(operation.registry_operator_id).attributes.items():
-            if attribute.required and name not in fields and not attribute.has_default:
+            if attribute.required and name not in sent and not attribute.has_default:
                 missing.append(f"{operation.operator_id} leaves {name} unset")
 
     assert not missing, missing
@@ -212,3 +220,28 @@ def test_a_name_written_twice_is_refused_rather_than_one_entry_dropped(
     """The map an operation takes holds one entry per name, so a second one would be lost."""
     with pytest.raises(ValidationError, match="may appear once"):
         schema.model_validate(written)
+
+
+def test_a_scan_source_that_is_not_an_entity_path_is_refused() -> None:
+    """The operation is called with the source, database, and collection the path names, so a
+    value that names no entity has nothing to split."""
+    with pytest.raises(ValidationError, match="is not an entity path"):
+        NL2SQLParameters.model_validate(
+            {"question": "how many orders are there", "scan_source": "northwind"}
+        )
+
+
+def test_a_scan_source_reaches_the_operation_as_the_source_database_and_collection_it_names() -> (
+    None
+):
+    """The model copies one path the fragment shows, and the operation takes three names."""
+    parameters = NL2SQLParameters.model_validate(A_CALL_THE_MODEL_ACCEPTS["blue.nl2sql"])
+
+    attributes = parameters.operation_attributes()
+
+    assert (attributes["source"], attributes["database"], attributes["collection"]) == (
+        "tag_bench",
+        "formula_1",
+        "main",
+    )
+    assert "scan_source" not in attributes

@@ -10,8 +10,9 @@ from blue_data.registry.data_registry import (  # pyright: ignore[reportMissingT
     DataRegistry,  # blue-data ships no py.typed
 )
 
-from blue_data_planner.data.catalog import DataCatalog
+from blue_data_planner.data.catalog import DataCatalog, source_kind
 from blue_data_planner.types.catalog import AttributeRef, ValueCount
+from blue_data_planner.types.errors import SourceUnreachableError
 
 
 def a_registry_holding(*records: dict[str, Any]) -> DataRegistry:
@@ -596,3 +597,18 @@ def test_a_malformed_record_raises(
             catalog.search_records("stores")
         else:
             catalog.preview("anything", limit=10)
+
+
+def test_a_sources_kind_is_read_off_the_record_registered_under_its_name() -> None:
+    """An operator that reads a source by name learns its protocol the way the catalog does."""
+    registry = a_registry_holding(a_source("tag_bench"), a_source("jobs", protocol="sql/postgres"))
+
+    assert source_kind(registry, "jobs") == "sql/postgres"
+
+
+def test_the_kind_of_a_source_the_registry_does_not_hold_cannot_be_read() -> None:
+    """A name with no record behind it is a source nothing can be read from."""
+    registry = a_registry_holding(a_source("tag_bench"))
+
+    with pytest.raises(SourceUnreachableError, match="no source named 'jobs'"):
+        source_kind(registry, "jobs")

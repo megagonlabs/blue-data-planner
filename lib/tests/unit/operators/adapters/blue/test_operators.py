@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from typing import Any
 
 import pytest
@@ -30,6 +31,26 @@ from tests.unit.operators.adapters.blue.test_schemas import A_CALL_THE_MODEL_ACC
 MODEL = "openai/gpt-6-luna"
 
 
+def a_data_registry_holding(source_kind: str = "sql/sqlite") -> DataRegistry:
+    """Return a data registry holding one source, tag_bench, of the given kind."""
+    registry: Any = DataRegistry(name="test", rebuild=True)
+    registry.loads(
+        json.dumps(
+            [
+                {
+                    "name": "tag_bench",
+                    "type": "source",
+                    "scope": "/",
+                    "description": "",
+                    "properties": {"connection": {"protocol": source_kind}},
+                    "contents": {},
+                }
+            ]
+        )
+    )
+    return registry
+
+
 def test_the_table_offers_the_eighteen_operations_the_suite_is_made_of() -> None:
     """A row dropped from the table leaves a node kind one candidate short, and quietly."""
     assert len(OPERATIONS) == 18
@@ -46,7 +67,7 @@ def test_a_registry_missing_an_operation_fails_while_the_suite_is_built() -> Non
     """An id the registry does not carry has to fail before a run starts, and as a planner
     error the interfaces know how to report."""
     with pytest.raises(OperatorRoutingError, match="blue.select is bound to select@2.0.0"):
-        blue_operators(OperatorRegistry(), DataRegistry(name="test", rebuild=True), model=MODEL)
+        blue_operators(OperatorRegistry(), a_data_registry_holding(), model=MODEL)
 
 
 def test_each_operation_binds_the_newest_card_the_registry_carries_for_it() -> None:
@@ -67,7 +88,7 @@ def test_each_operation_binds_the_newest_card_the_registry_carries_for_it() -> N
 def a_suite(*scripted: ScriptedOperation) -> dict[str, PhysicalOperator]:
     """Return the suite built over scripted operations, keyed by operator id."""
     registry = a_registry_answering_every_operation(*scripted)
-    built = blue_operators(registry, DataRegistry(name="test", rebuild=True), model=MODEL)
+    built = blue_operators(registry, a_data_registry_holding(), model=MODEL)
     return {one.operator_id: one for one in built}
 
 
@@ -133,7 +154,7 @@ def test_a_call_the_operation_reported_a_failure_for_leaves_another_operator_to_
 def test_the_compound_operation_is_handed_the_data_registry_it_reads_a_source_through() -> None:
     """It writes its query from a source's schema, which it has no way to read without one."""
     scripted = scripted_operation("nl2sql")
-    data_registry = DataRegistry(name="test", rebuild=True)
+    data_registry = a_data_registry_holding()
     built = blue_operators(
         a_registry_answering_every_operation(scripted), data_registry, model=MODEL
     )
@@ -163,7 +184,7 @@ def model_settings_each_model_calling_operation_saw(
         scripted = scripted_operation(operation.registry_operator_id.partition("@")[0])
         built = blue_operators(
             a_registry_answering_every_operation(scripted),
-            DataRegistry(name="test", rebuild=True),
+            a_data_registry_holding(),
             model=model,
             reasoning_effort=reasoning_effort,
         )
@@ -293,3 +314,38 @@ def test_the_suite_answers_for_every_logical_operator_but_expand_and_return() ->
     # RETURN names the columns an answer carries rather than a step, so no operator runs one.
     # EXPAND opens one row into many, which no Blue operation does.
     assert unanswered == {LogicalOperator.EXPAND, LogicalOperator.RETURN}
+
+
+def test_the_compound_operation_is_handed_the_protocol_of_the_source_it_reads() -> None:
+    """The protocol is the source's, so the model never writes one."""
+    scripted = scripted_operation("nl2sql")
+    one = a_suite(scripted)["blue.nl2sql"]
+
+    one.call([], A_CALL_THE_MODEL_ACCEPTS["blue.nl2sql"], [])
+
+    assert scripted.seen_attributes is not None
+    assert scripted.seen_attributes["protocol"] == "sqlite"
+
+
+@pytest.mark.parametrize(
+    ("data_registry", "reason"),
+    [
+        (a_data_registry_holding("file/csv"), "is a file/csv source"),
+        (DataRegistry(name="test", rebuild=True), "holds no source named 'tag_bench'"),
+    ],
+)
+def test_a_source_the_compound_operation_cannot_query_is_refused_naming_the_source(
+    data_registry: DataRegistry, reason: str
+) -> None:
+    """The parameter repair can correct a scan source only if the refusal says what was wrong
+    with it."""
+    scripted = scripted_operation("nl2sql")
+    built = blue_operators(
+        a_registry_answering_every_operation(scripted), data_registry, model=MODEL
+    )
+    one = {each.operator_id: each for each in built}["blue.nl2sql"]
+
+    with pytest.raises(RecoverableOperatorError, match=reason):
+        one.call([], A_CALL_THE_MODEL_ACCEPTS["blue.nl2sql"], [])
+
+    assert scripted.seen_inputs is None

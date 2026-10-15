@@ -16,6 +16,7 @@ from blue_data_planner.types.catalog import (
     SourceRecord,
     ValueCount,
 )
+from blue_data_planner.types.errors import SourceUnreachableError
 
 # blue-data's search defaults filter by score, and with no vector index every vector score
 # is zero, so a search over a populated registry returns almost nothing. The readings rank
@@ -68,7 +69,8 @@ def _entity_scope(ref: AttributeRef) -> str:
     )
 
 
-def _parse_entity_path(entity_path: str) -> AttributeRef:
+def parse_entity_path(entity_path: str) -> AttributeRef:
+    """Return the source, database, collection, and entity one entity path names."""
     parts = entity_path.strip("/").split("/")
     levels = parts[::2]
     names = parts[1::2]
@@ -81,6 +83,29 @@ def _parse_entity_path(entity_path: str) -> AttributeRef:
         entity=names[3],
         attribute="",
     )
+
+
+def _protocol(raw: dict[str, Any]) -> str:
+    connection = _properties(raw).get("connection", {})
+    if not isinstance(connection, dict):
+        raise ValueError(
+            f"Source record {raw.get('name')}: properties.connection missing or not a mapping"
+        )
+    protocol = cast("dict[str, Any]", connection).get("protocol")
+    if not protocol:
+        raise ValueError(
+            f"Source record {raw.get('name')}: properties.connection has no protocol field"
+        )
+    return str(protocol)
+
+
+def source_kind(registry: DataRegistry, source: str) -> str:
+    """Return the connection protocol one registered source declares, such as sql/sqlite."""
+    registry_calls: Any = registry
+    record = registry_calls.get_record(source, "source", "/")
+    if record is None:
+        raise SourceUnreachableError(f"the registry holds no source named {source!r}")
+    return _protocol(cast("dict[str, Any]", record))
 
 
 def _row_count(properties: dict[str, Any], path: str) -> int | None:
@@ -177,12 +202,12 @@ class DataCatalog:
 
     def attribute_views(self, entity_path: str) -> list[AttributeView]:
         """Return one view per attribute the given entity holds."""
-        entity = _parse_entity_path(entity_path)
+        entity = parse_entity_path(entity_path)
         return [self._view(entity, record) for record in self._attribute_records(entity_path)]
 
     def entity_row_count(self, entity_path: str) -> int | None:
         """Return the row count the given entity's record stores, or None if it stores none."""
-        entity = _parse_entity_path(entity_path)
+        entity = parse_entity_path(entity_path)
         scope = f"/source/{entity.source}/database/{entity.database}/collection/{entity.collection}"
         record = self._registry.get_record(entity.entity, "entity", scope)
         if record is None:
@@ -242,7 +267,7 @@ class DataCatalog:
         scope = str(raw["scope"]).rstrip("/")
         name = str(raw["name"])
         path = f"{scope}/entity/{name}"
-        entity = _parse_entity_path(path)
+        entity = parse_entity_path(path)
         return EntityMatch(
             path=path,
             name=name,
@@ -264,7 +289,7 @@ class DataCatalog:
         record = self._registry.get_record(source, "source", "/")
         if record is None:
             raise ValueError(f"Entity record {entity_path}: no source record named {source!r}")
-        return self._protocol(cast("dict[str, Any]", record))
+        return _protocol(cast("dict[str, Any]", record))
 
     def _search(
         self, query: str, page_size: int, record_type: str | None = None
@@ -282,19 +307,6 @@ class DataCatalog:
         return SourceRecord(
             path=f"/source/{raw['name']}",
             name=str(raw["name"]),
-            kind=self._protocol(raw),
+            kind=_protocol(raw),
             description=_description(raw),
         )
-
-    def _protocol(self, raw: dict[str, Any]) -> str:
-        connection = _properties(raw).get("connection", {})
-        if not isinstance(connection, dict):
-            raise ValueError(
-                f"Source record {raw.get('name')}: properties.connection missing or not a mapping"
-            )
-        protocol = cast("dict[str, Any]", connection).get("protocol")
-        if not protocol:
-            raise ValueError(
-                f"Source record {raw.get('name')}: properties.connection has no protocol field"
-            )
-        return str(protocol)
