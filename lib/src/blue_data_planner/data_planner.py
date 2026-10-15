@@ -315,9 +315,10 @@ def build_data_planner(
     reasoning_effort: str | None = None,
     limits: RunLimits | None = None,
     llm_client_name: str = DEFAULT_LLM_CLIENT_NAME,
+    provider_timeout_seconds: int | None = None,
 ) -> DataPlanner:
     """Assemble a planner over these suites, on one model, reading one registry."""
-    llm_client = _llm_client(llm_client_name, model, reasoning_effort)
+    llm_client = _llm_client(llm_client_name, model, reasoning_effort, provider_timeout_seconds)
     router = OperatorRouter()
     for suite in suites:
         for operator in suite.operators(
@@ -334,9 +335,13 @@ def build_data_planner(
     )
 
 
-def _llm_client(name: str, model: str, reasoning_effort: str | None) -> LLMClient:
+def _llm_client(
+    name: str, model: str, reasoning_effort: str | None, timeout_seconds: int | None
+) -> LLMClient:
     # The name prefixes every property the client reads, which is how blue-data keys them.
     properties: dict[str, Any] = {f"{name}.model": model}
     if reasoning_effort is not None:
         properties[f"{name}.reasoning_effort"] = reasoning_effort
+    if timeout_seconds is not None:
+        properties[f"{name}.timeout"] = timeout_seconds
     return LLMClient(name=name, properties=properties)

@@ -2016,6 +2016,32 @@ The conversations a run holds record one usage entry per model call, so model co
 the fact. With no cost model, `operator_calls` bounds both the work a request runs and the work it
 plans, so its value matters more than it otherwise would.
 
+## ADR-061 — Every Provider Call Carries a Timeout
+
+**Date:** 2026-10-14
+**Status:** Accepted
+
+**Decision:** `LLMClient` passes a timeout to every provider call it makes, 120 seconds unless its
+properties set another. The timeout applies to each attempt, and a call that times out fails like
+any other provider failure: the client retries it, and once the retries are spent the run ends
+`llm_failed`. `PlannerSettings.provider_timeout_seconds` sets the value for a planner, and
+`BLUE_DATA_PLANNER_PROVIDER_TIMEOUT_SECONDS` sets it for the CLI and the MCP server.
+
+**Rationale:** A provider that accepts a request and never answers holds the run on that call, and
+litellm's own default waits 6000 seconds per attempt. With three attempts, one stalled call can
+hold a run for hours while the caller sees nothing. Every other wait in a run is either bounded by
+the run loop or is an operator's own work, so the provider call is the one wait the library starts
+and could not end.
+
+The value is per call rather than per request because a planning call is the unit the client sees.
+120 seconds is long enough for a structured answer from a reasoning model and short enough that
+three attempts end within minutes. It is not measured, which is why a deployment can change it.
+
+**Consequences:** The longest a run waits on one provider call is three timeouts plus the backoff
+between them. A model slow enough to need more than 120 seconds per answer needs the setting raised,
+or every call it makes fails. A model call an operator makes through its own suite, as LOTUS does,
+is outside `LLMClient` and keeps that suite's own timeout.
+
 ---
 
 ## Open Questions

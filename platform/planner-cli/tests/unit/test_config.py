@@ -36,6 +36,7 @@ def test_the_profile_spec_declares_the_library_defaults() -> None:
         "BLUE_DATA_PLANNER_OPERATORS": ",".join(defaults.operator_suites),
         "BLUE_DATA_PLANNER_LOTUS_REASONING_EFFORT": defaults.lotus_reasoning_effort,
         "BLUE_DATA_PLANNER_LOTUS_MAX_ROWS": defaults.lotus_max_rows,
+        "BLUE_DATA_PLANNER_PROVIDER_TIMEOUT_SECONDS": defaults.provider_timeout_seconds,
         "BLUE_DATA_PLANNER_MAX_OPERATOR_CALLS": defaults.limits.operator_calls,
         "BLUE_DATA_PLANNER_MAX_FAILURE_REPLANS": defaults.limits.failure_replans,
         "BLUE_DATA_PLANNER_MAX_CONTROL_REPLANS": defaults.limits.control_replans,

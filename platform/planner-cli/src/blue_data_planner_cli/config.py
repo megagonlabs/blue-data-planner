@@ -116,6 +116,9 @@ def resolve_settings(
                 _require(resolver, "BLUE_DATA_PLANNER_LOTUS_REASONING_EFFORT")
             ),
             lotus_max_rows=int(_get(resolver, "BLUE_DATA_PLANNER_LOTUS_MAX_ROWS")),
+            provider_timeout_seconds=int(
+                _get(resolver, "BLUE_DATA_PLANNER_PROVIDER_TIMEOUT_SECONDS")
+            ),
             # The three bounds a run reports back are the three a profile sets. The rest reset
             # inside a request, so nothing reports what one spent against them, and they keep
             # the RunLimits defaults unless a library caller sets them.

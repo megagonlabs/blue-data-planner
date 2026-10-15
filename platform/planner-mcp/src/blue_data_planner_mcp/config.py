@@ -30,6 +30,7 @@ _TEXT_FIELDS: dict[str, str] = {
 }
 _WHOLE_NUMBER_FIELDS: dict[str, str] = {
     "BLUE_DATA_PLANNER_LOTUS_MAX_ROWS": "lotus_max_rows",
+    "BLUE_DATA_PLANNER_PROVIDER_TIMEOUT_SECONDS": "provider_timeout_seconds",
 }
 _LIMIT_FIELDS: dict[str, str] = {
     "BLUE_DATA_PLANNER_MAX_OPERATOR_CALLS": "operator_calls",

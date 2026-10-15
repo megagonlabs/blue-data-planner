@@ -66,6 +66,7 @@ def test_a_caller_who_names_only_a_registry_gets_the_documented_defaults():
     assert settings.lotus_model is None
     assert settings.lotus_reasoning_effort == "none"
     assert settings.lotus_max_rows == 5000
+    assert settings.provider_timeout_seconds == 120
     assert settings.limits.operator_calls == 30
     assert settings.limits.failure_replans == 2
     assert settings.limits.control_replans == 5
@@ -76,6 +77,30 @@ def test_a_reasoning_effort_no_model_accepts_is_refused(field: str):
     """A typo reaches the provider as a call that fails, so it is caught where it is written."""
     with pytest.raises(InvalidSettingError, match=field):
         a_settings(**{field: "maximum"})
+
+
+@pytest.mark.parametrize("seconds", [0, -5])
+def test_a_provider_timeout_that_is_not_above_zero_is_refused(seconds: int):
+    """A timeout of zero or less would fail every provider call, so it is caught here."""
+    with pytest.raises(InvalidSettingError, match="provider_timeout_seconds"):
+        a_settings(provider_timeout_seconds=seconds)
+
+
+def test_the_provider_timeout_reaches_the_model_client(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """The client the planner builds carries the timeout the settings name."""
+    captured = a_captured_llm_client(monkeypatch)
+
+    build_data_planner_from_settings(
+        a_settings(
+            registry_path=a_readable_registry(tmp_path),
+            provider_timeout_seconds=45,
+            operator_suites=(),
+        )
+    )
+
+    assert captured["properties"]["blue_data_planner.timeout"] == 45
 
 
 def test_a_registry_path_naming_no_file_is_refused_when_the_planner_is_built():

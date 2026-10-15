@@ -35,6 +35,7 @@ class PlannerSettings:
     lotus_model: str | None = None
     lotus_reasoning_effort: str = "none"
     lotus_max_rows: int = 5000
+    provider_timeout_seconds: int = 120
     limits: RunLimits = RunLimits()
 
     def __post_init__(self) -> None:
@@ -44,6 +45,11 @@ class PlannerSettings:
                 raise InvalidSettingError(
                     f"{field} is {value!r}; expected one of {', '.join(REASONING_EFFORTS)}"
                 )
+        if self.provider_timeout_seconds <= 0:
+            raise InvalidSettingError(
+                f"provider_timeout_seconds is {self.provider_timeout_seconds}; expected a "
+                "number of seconds above 0"
+            )
 
 
 def build_data_planner_from_settings(
@@ -57,6 +63,7 @@ def build_data_planner_from_settings(
         reasoning_effort=_effort(settings.reasoning_effort),
         limits=settings.limits,
         llm_client_name=llm_client_name,
+        provider_timeout_seconds=settings.provider_timeout_seconds,
     )
 
 

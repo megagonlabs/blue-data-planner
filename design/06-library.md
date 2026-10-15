@@ -1469,7 +1469,7 @@ The only module that calls a provider (ADR-005).
 
 | Name | Role |
 | --- | --- |
-| `LLMClient` | One provider call, through litellm, with retry and rate limiting |
+| `LLMClient` | One provider call, through litellm, with a timeout, retry, and rate limiting (ADR-061) |
 | `LLMClientProvider`, `CachingLLMClientProvider`, `resolve_llm_client` | Injection points, so a client is supplied rather than constructed in place |
 | `Conversation`, `Turn` | The turns of one exchange, so a later turn sees an earlier one. Defined in `types/`, since `RunResult` carries them |
 | `UsageLedger`, `UsageRecord` | One record per general provider call a client makes, with totals. A run reads its spend off its conversations instead |

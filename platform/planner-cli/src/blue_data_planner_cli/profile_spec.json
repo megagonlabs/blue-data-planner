@@ -42,6 +42,12 @@
     "required": false,
     "cast": "int"
   },
+  "BLUE_DATA_PLANNER_PROVIDER_TIMEOUT_SECONDS": {
+    "default": 120,
+    "prompt": "Seconds one provider call may take before it fails",
+    "required": false,
+    "cast": "int"
+  },
   "BLUE_DATA_PLANNER_MAX_OPERATOR_CALLS": {
     "default": 30,
     "prompt": "Operator calls one request may spend",

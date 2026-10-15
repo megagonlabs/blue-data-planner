@@ -77,6 +77,7 @@ def build_data_planner(
     reasoning_effort: str | None = None,
     limits: RunLimits | None = None,
     llm_client_name: str = "blue_data_planner",
+    provider_timeout_seconds: int | None = None,
 ) -> DataPlanner: ...
 ```
 
@@ -88,6 +89,7 @@ def build_data_planner(
 | `reasoning_effort` | `str \| None` | `None` | Passed to the model client where the provider accepts one. `None` omits the parameter |
 | `limits` | `RunLimits \| None` | `None` | The bounds the run obeys. `None` uses `RunLimits()` |
 | `llm_client_name` | `str` | `"blue_data_planner"` | Prefixes every property the model client reads, which keeps one process's clients apart in a log |
+| `provider_timeout_seconds` | `int \| None` | `None` | The seconds one provider call may take before it fails and is retried. `None` uses the client's default of 120 |
 
 The call builds the model client, registers what each suite returns with an `OperatorRouter`,
 wraps the registry in a `DataCatalog`, and hands `DataPlanner` its four components.
@@ -112,10 +114,11 @@ Frozen. Every value a planner is built from, with the default each one takes.
 | `lotus_model` | `str \| None` | `None` | The model LOTUS operations run on. `None` runs them on `model` |
 | `lotus_reasoning_effort` | `str` | `"none"` | The reasoning effort a LOTUS call spends, from the same six values |
 | `lotus_max_rows` | `int` | `5000` | The rows a LOTUS operation accepts before refusing the call |
+| `provider_timeout_seconds` | `int` | `120` | The seconds one provider call may take before it fails and is retried |
 | `limits` | `RunLimits` | `RunLimits()` | The bounds every run obeys |
 
-A reasoning effort outside those six raises `InvalidSettingError` from the constructor, naming the
-field. Nothing else is validated here: an unknown suite name and an unreadable registry are both
+A reasoning effort outside those six, and a provider timeout of zero or less, raise
+`InvalidSettingError` from the constructor, naming the field. Nothing else is validated here: an unknown suite name and an unreadable registry are both
 found when the planner is built.
 
 ## `build_data_planner_from_settings`

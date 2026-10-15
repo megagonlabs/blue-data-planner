@@ -60,6 +60,20 @@ def test_operator_defaults_reach_the_provider() -> None:
     assert call["messages"] == [{"role": "user", "content": "hi"}]
 
 
+@pytest.mark.parametrize(
+    ("timeout_property", "expected"),
+    [({}, 120.0), ({"openai.timeout": 30}, 30)],
+    ids=["unset", "set"],
+)
+def test_every_provider_call_carries_the_timeout_its_properties_set_or_the_default(
+    timeout_property: dict[str, Any], expected: float
+) -> None:
+    """A call never waits on litellm's own 6000-second default (ADR-061)."""
+    client = LLMClient("test", PROPS | timeout_property)
+    client.execute_api_call("hi")
+    assert litellm.calls[-1]["timeout"] == expected
+
+
 def test_reserved_fields_never_reach_the_provider() -> None:
     """Routing fields such as api and service_url are dropped from the provider call."""
     client = LLMClient("test", OP_PROPS)

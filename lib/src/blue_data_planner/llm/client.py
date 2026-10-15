@@ -15,6 +15,10 @@ from blue_data_planner.types import Conversation, InvalidSettingError, LLMError,
 
 M = TypeVar("M", bound=BaseModel)
 
+# Seconds one provider attempt may take when the properties set no `<prefix>.timeout`. litellm's
+# own default is 6000, which lets one stalled call hold a run for hours (ADR-061).
+DEFAULT_TIMEOUT_SECONDS: float = 120.0
+
 # The closed adapter-override key set; unknown llm.* keys are rejected (InvalidSettingError).
 _ACCEPTED_LLM_KEYS = {
     "model",
@@ -197,6 +201,7 @@ class LLMClient:
         # Remove transport-resolution fields after every override has been merged.
         for reserved in _RESERVED_FIELDS:
             kwargs.pop(reserved, None)
+        kwargs.setdefault("timeout", DEFAULT_TIMEOUT_SECONDS)
         return kwargs
 
     def _cache_lookup(

@@ -52,6 +52,7 @@ blue-planner profile config OPENAI_API_KEY
 | `BLUE_DATA_PLANNER_LOTUS_MODEL` | str | Unset: LOTUS uses the planner's model | No |
 | `BLUE_DATA_PLANNER_LOTUS_REASONING_EFFORT` | str | `none` | No |
 | `BLUE_DATA_PLANNER_LOTUS_MAX_ROWS` | int | `5000` | No |
+| `BLUE_DATA_PLANNER_PROVIDER_TIMEOUT_SECONDS` | int | `120` | No |
 | `BLUE_DATA_PLANNER_MAX_OPERATOR_CALLS` | int | `30` | No |
 | `BLUE_DATA_PLANNER_MAX_FAILURE_REPLANS` | int | `2` | No |
 | `BLUE_DATA_PLANNER_MAX_CONTROL_REPLANS` | int | `5` | No |

@@ -60,6 +60,7 @@ def build_data_planner(
     reasoning_effort: str | None = None,
     limits: RunLimits | None = None,
     llm_client_name: str = "blue_data_planner",
+    provider_timeout_seconds: int | None = None,  # None: the client's default of 120
 ) -> DataPlanner: ...
 
 
@@ -77,6 +78,7 @@ class PlannerSettings:
     lotus_model: str | None = None            # None: use model
     lotus_reasoning_effort: str = "none"
     lotus_max_rows: int = 5000
+    provider_timeout_seconds: int = 120
     limits: RunLimits = RunLimits()
 
 

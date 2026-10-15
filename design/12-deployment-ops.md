@@ -119,6 +119,7 @@ precedence over the exported environment.
 | `BLUE_DATA_PLANNER_LOTUS_MODEL` | The planner's model, wherever it came from | The litellm model string an interface passes to `lotus_operators`, which LOTUS then configures for itself, and which a deployment can set away from the planner's model (ADR-005). A value set here is never overridden by the CLI's `--model` |
 | `BLUE_DATA_PLANNER_LOTUS_REASONING_EFFORT` | `none` | The reasoning effort LOTUS's own model spends per call, passed to `lotus_operators`, and independent of `BLUE_DATA_PLANNER_REASONING_EFFORT` |
 | `BLUE_DATA_PLANNER_LOTUS_MAX_ROWS` | `5000` | The rows a LOTUS operation accepts before refusing the call, passed to `lotus_operators` |
+| `BLUE_DATA_PLANNER_PROVIDER_TIMEOUT_SECONDS` | `120` | The seconds one provider call through `llm/` may take before it fails and is retried (ADR-061) |
 | `BLUE_DATA_PLANNER_MAX_*` | The `RunLimits` defaults | One per bound a run reports back, listed in [section 5](#5-request-limits) |
 | `BLUE_DATA_PROFILE` | The profile `profile select` chose | The profile the CLI reads, when no `--profile` is given. A name with no profile behind it is refused as `PROFILE_NOT_FOUND` |
 | `BLUE_DATA_CLI_FORMAT` | `table` | The CLI's default output format |
