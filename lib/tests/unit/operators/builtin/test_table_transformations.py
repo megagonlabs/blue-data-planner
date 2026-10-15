@@ -260,6 +260,20 @@ def test_a_sort_puts_a_missing_value_last_regardless_of_direction(
     assert sorted_rows[-1]["id"] == 4
 
 
+@pytest.mark.parametrize("nan", [float("nan"), Decimal("NaN")])
+@pytest.mark.parametrize(("direction", "expected"), [("asc", [1, 2, 3]), ("desc", [3, 2, 1])])
+def test_a_sort_puts_a_nan_last_and_orders_the_other_rows_regardless_of_direction(
+    nan: Any, direction: SortDirection, expected: list[int]
+) -> None:
+    """A NaN sort key lands last, as a missing value does, and the other rows keep their order."""
+    sorted_rows = sort_rows(
+        [{"n": 2}, {"n": nan}, {"n": 3}, {"n": 1}], [SortKey(column="n", direction=direction)], None
+    )
+
+    assert [row["n"] for row in sorted_rows[:-1]] == expected
+    assert sorted_rows[-1]["n"] is nan
+
+
 def test_a_sort_cuts_the_rows_to_the_limit_it_was_given() -> None:
     """A limit keeps the first rows of the order and drops the rest."""
     sorted_rows = sort_rows(

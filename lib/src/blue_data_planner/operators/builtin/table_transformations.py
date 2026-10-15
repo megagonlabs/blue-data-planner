@@ -113,7 +113,7 @@ def distinct_rows(table: Data, columns: list[str] | None) -> Data:
 
 
 def sort_rows(table: Data, keys: list[SortKey], limit: int | None) -> Data:
-    """Return the rows ordered by each key in turn, missing values last, cut to the limit."""
+    """Return the rows ordered by each key in turn, missing values and NaN last, then cut."""
     _require_columns(table, [key.column for key in keys])
     ordered = list(table)
     # Sorted once per key, last key first, because Python's sort is stable and the first key
@@ -568,8 +568,10 @@ def _free_name(name: str, taken: set[str]) -> str:
 
 def _sort_key(value: Any, descending: bool) -> tuple[bool, Any]:
     # The first element decides where a missing value lands, and it flips with the direction
-    # so that a missing value sorts last whichever way the rows are ordered.
-    if value is None:
+    # so that a missing value sorts last whichever way the rows are ordered. A NaN counts as
+    # missing, as the filter treats it: a float NaN compares false against everything, which
+    # breaks the order of the rows around it, and a Decimal NaN raises on any ordering.
+    if value is None or _is_nan(value):
         return (not descending, 0)
     return (descending, value)
 
