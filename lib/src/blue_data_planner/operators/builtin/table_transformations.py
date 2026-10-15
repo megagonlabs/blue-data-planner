@@ -451,7 +451,9 @@ def _aggregate(rows: Data, aggregation: Aggregation) -> Any:
         return len(rows)
     column = aggregation.column
     values = [row.get(column) for row in rows]
-    present = [value for value in values if value is not None]
+    # A NaN counts as missing, as the sort and the filter treat it: max([nan, 5]) is nan while
+    # max([5, nan]) is 5, a Decimal NaN raises on any ordering, and one NaN turns a sum into NaN.
+    present = [value for value in values if value is not None and not _is_nan(value)]
     if aggregation.function == "count":
         return len(present)
     if aggregation.function in ("sum", "avg"):

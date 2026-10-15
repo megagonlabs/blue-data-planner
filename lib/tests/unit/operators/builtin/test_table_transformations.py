@@ -55,6 +55,14 @@ def a_literal(value: Any) -> dict[str, Any]:
     return {"value": value}
 
 
+def a_column_aggregation(
+    function: Literal["count", "sum", "avg", "min", "max"], column: str, into: str
+) -> CountAggregation | ColumnAggregation:
+    if function == "count":
+        return CountAggregation(function=function, column=column, into=into)
+    return ColumnAggregation(function=function, column=column, into=into)
+
+
 def a_table_of_cities() -> Data:
     """Three cities with their school counts; Fresno is missing its virtual count."""
     return [
@@ -213,19 +221,38 @@ def test_an_aggregation_writes_one_row_per_group(table: Data, expected: Data) ->
     assert aggregated == expected
 
 
+@pytest.mark.parametrize("missing", [None, float("nan"), Decimal("NaN")])
 @pytest.mark.parametrize("function", ["sum", "avg", "min", "max"])
 def test_a_column_aggregation_over_a_group_with_no_values_is_none(
-    function: Literal["sum", "avg", "min", "max"],
+    function: Literal["sum", "avg", "min", "max"], missing: Any
 ) -> None:
-    """A group whose rows all miss the aggregated column gets None, as SQL gives NULL, rather
-    than a value no row recorded."""
+    """A group whose rows all miss the aggregated column, or hold only NaN there, gets None, as
+    SQL gives NULL, rather than a value no row recorded."""
     aggregated = aggregate_rows(
-        [{"state": "CA", "rating": None}, {"state": "CA", "rating": None}],
+        [{"state": "CA", "rating": missing}, {"state": "CA", "rating": missing}],
         ["state"],
         [ColumnAggregation(function=function, column="rating", into="result")],
     )
 
     assert aggregated == [{"state": "CA", "result": None}]
+
+
+@pytest.mark.parametrize("nan", [float("nan"), Decimal("NaN")])
+@pytest.mark.parametrize(
+    ("function", "expected"), [("count", 2), ("sum", 6), ("avg", 3), ("min", 1), ("max", 5)]
+)
+def test_a_column_aggregation_skips_a_nan_as_it_skips_a_missing_value(
+    nan: Any, function: Literal["count", "sum", "avg", "min", "max"], expected: float
+) -> None:
+    """A NaN in the aggregated column leaves the result to the other values, wherever the NaN
+    row falls in the group."""
+    aggregated = aggregate_rows(
+        [{"n": nan}, {"n": 5}, {"n": 1}],
+        [],
+        [a_column_aggregation(function, "n", "result")],
+    )
+
+    assert aggregated == [{"result": expected}]
 
 
 def test_distinct_keeps_the_first_row_of_each_repeated_key() -> None:
