@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import asyncio
 import pathlib
-import time
 from typing import Any
 
 import litellm  # the tests/stubs deterministic fake (conftest inserts the stub path)
@@ -287,18 +286,6 @@ def test_async_calls_run_concurrently_when_max_parallel_is_unset() -> None:
 
     asyncio.run(burst())
     assert litellm.inflight["max"] > 2  # no artificial serialization by default
-
-
-# --- rate limit ---
-def test_a_rate_limit_spaces_consecutive_calls_apart() -> None:
-    """Three calls at 20 per second take at least two enforced gaps."""
-    client = LLMClient("test", {**PROPS, "llm.rate_limit": 20})  # >= 50ms apart
-    started = time.monotonic()
-    client.execute_api_call("hi")
-    client.execute_api_call("hi")
-    client.execute_api_call("hi")
-    elapsed = time.monotonic() - started
-    assert elapsed >= 0.1  # two enforced gaps of ~50ms
 
 
 # --- ledger semantics (per API call, cache-aware, end-to-end latency) ---

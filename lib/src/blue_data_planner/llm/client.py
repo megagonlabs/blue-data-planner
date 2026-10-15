@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import asyncio
 import json
-import threading
 import time
 from dataclasses import dataclass
 from typing import Any, TypeVar, cast
@@ -28,10 +27,9 @@ _ACCEPTED_LLM_KEYS = {
     "cache",
     "cache_dir",
     "max_parallel",
-    "rate_limit",
 }
 # Adapter-control keys: consumed by the client, never forwarded to the provider.
-_CONTROL_KEYS = {"cache", "cache_dir", "max_parallel", "rate_limit"}
+_CONTROL_KEYS = {"cache", "cache_dir", "max_parallel"}
 # Strip dispatch-only and transport-resolution fields after all merges so an
 # override cannot forward them to the provider.
 _RESERVED_FIELDS = {"api", "service_url"}
@@ -77,7 +75,7 @@ class LLMClient:
 
     OpenAI-shaped responses feed the configured output-path extraction. The client
     also provides per-call usage records, async execution, bounded concurrency,
-    caching, and rate limiting.
+    and caching.
     """
 
     def __init__(self, name: str, properties: dict[str, Any] | None = None) -> None:
@@ -88,8 +86,6 @@ class LLMClient:
         self.last_usage: UsageRecord | None = None
         self._caches: dict[str, Any] = {}  # cache_dir -> diskcache.Cache
         self._semaphores: dict[int, asyncio.Semaphore] = {}
-        self._rate_lock = threading.Lock()
-        self._last_call_at = 0.0
 
     # ------------------------------------------------------------------ sync --
     def execute_api_call(
@@ -110,7 +106,6 @@ class LLMClient:
             self._record(kwargs, payload, started, cache_hit=True)
             return extract_output(payload, merged)
 
-        self._apply_rate_limit(merged)
         payload, cost = self._call_provider(kwargs)
         if cache is not None and cache_key is not None:
             cache[cache_key] = payload
@@ -126,7 +121,6 @@ class LLMClient:
         ]
         kwargs = self._build_call_kwargs(message, self.properties)
         kwargs["response_format"] = response_model
-        self._apply_rate_limit(self.properties)
         payload, cost = self._call_provider(kwargs)
         record = self._record(kwargs, payload, started, cache_hit=False, cost=cost)
         # Recorded before the answer is validated: a reply the schema refuses was still paid
@@ -175,7 +169,6 @@ class LLMClient:
 
         semaphore = self._resolve_semaphore(merged)
         async with semaphore:
-            self._apply_rate_limit(merged)
             payload, cost = await self._acall_provider(kwargs)
         if cache is not None and cache_key is not None:
             cache[cache_key] = payload
@@ -229,17 +222,6 @@ class LLMClient:
             semaphore = asyncio.Semaphore(max_parallel)
             self._semaphores[key] = semaphore
         return semaphore
-
-    def _apply_rate_limit(self, properties: dict[str, Any]) -> None:
-        rate = properties.get("llm.rate_limit")
-        if not rate:
-            return
-        min_interval = 1.0 / float(rate)  # calls per second
-        with self._rate_lock:
-            wait_for = self._last_call_at + min_interval - time.monotonic()
-            if wait_for > 0:
-                time.sleep(wait_for)
-            self._last_call_at = time.monotonic()
 
     def _record(
         self,
