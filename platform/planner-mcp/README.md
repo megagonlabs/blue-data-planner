@@ -155,6 +155,8 @@ the same thing to both.
 | `BLUE_DATA_PLANNER_LOTUS_MODEL` | `lotus_model` | Unset: LOTUS uses the planner's model |
 | `BLUE_DATA_PLANNER_LOTUS_REASONING_EFFORT` | `lotus_reasoning_effort` | `none` |
 | `BLUE_DATA_PLANNER_LOTUS_MAX_ROWS` | `lotus_max_rows` | `5000` |
+| `BLUE_DATA_PLANNER_BLUE_MODEL` | `blue_model` | Unset: the Blue suite uses the planner's model |
+| `BLUE_DATA_PLANNER_BLUE_REASONING_EFFORT` | `blue_reasoning_effort` | `none` |
 | `BLUE_DATA_PLANNER_PROVIDER_TIMEOUT_SECONDS` | `provider_timeout_seconds` | `120` |
 | `BLUE_DATA_PLANNER_MAX_OPERATOR_CALLS` | `limits.operator_calls` | `30` |
 | `BLUE_DATA_PLANNER_MAX_FAILURE_REPLANS` | `limits.failure_replans` | `2` |

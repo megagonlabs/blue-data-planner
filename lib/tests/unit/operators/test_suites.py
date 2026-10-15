@@ -14,7 +14,10 @@ from blue_data_planner.operators.adapters.blue import BlueSuite
 from blue_data_planner.operators.adapters.blue.operators import OPERATIONS
 from blue_data_planner.operators.adapters.lotus import LotusSuite, settings
 from blue_data_planner.types import UnknownOperatorSuiteError
-from tests.doubles.blue_operations import a_registry_answering_every_operation
+from tests.doubles.blue_operations import (
+    a_registry_answering_every_operation,
+    scripted_operation,
+)
 
 PLANNER_MODEL = "openai/gpt-6-luna"
 
@@ -93,3 +96,24 @@ def test_a_blue_suite_given_no_registry_builds_every_operation() -> None:
     operators = built(operator_suite("blue"))
 
     assert [one.operator_id for one in operators] == [one.operator_id for one in OPERATIONS]
+
+
+@pytest.mark.parametrize(
+    ("own_model", "runs_on"),
+    [(None, "gpt-6-luna"), ("openai/gpt-4.1", "gpt-4.1")],
+)
+def test_a_blue_suite_runs_on_its_own_model_or_on_the_planners(
+    own_model: str | None, runs_on: str
+) -> None:
+    """A deployment sets the Blue suite's model away from the planner's, or leaves it to follow.
+    The provider route is left off, since blue-data-ops takes its provider from the
+    environment."""
+    scripted = scripted_operation("nl2llm")
+    suite = BlueSuite(
+        operator_registry=a_registry_answering_every_operation(scripted), model=own_model
+    )
+    operators = [one for one in built(suite) if one.operator_id == "blue.nl2llm"]
+
+    operators[0].call([], {"query": "how many states are there"}, [])
+
+    assert scripted.seen_properties == {"llm.model": runs_on}

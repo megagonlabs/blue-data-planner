@@ -12,6 +12,7 @@ from blue_data_ops.operators.types import Properties
 
 from blue_data_planner.data import DataRegistry
 from blue_data_planner.llm import LLMClient
+from blue_data_planner.llm.model_names import model_without_provider
 from blue_data_planner.operators.adapters.blue import error_mapping
 from blue_data_planner.operators.adapters.blue.schemas import (
     ArgmaxParameters,
@@ -98,10 +99,13 @@ class Operation:
     # names one rather than the suite naming one for all eighteen.
     registry_operator_id: str
     parameters: type[BlueParameters]
-    needs_data_registry: bool = False
     source_kinds: frozenset[str] | None = None
     accepts_bound_inputs: bool = False
     limitations: str | None = None
+    # What the adapter hands the operation as call properties: the data registry it reads a
+    # source through, and the model and reasoning effort its LLM calls run on.
+    uses_data_registry: bool = False
+    uses_llm: bool = False
 
 
 # Four aggregates and two superlatives each carry one of these two sentences, because what
@@ -195,30 +199,35 @@ OPERATIONS: tuple[Operation, ...] = (
         frozenset({LogicalOperator.FILTER}),
         "semantic_filter@3.0.0",
         SemanticFilterParameters,
+        uses_llm=True,
     ),
     Operation(
         "blue.semantic_project",
         frozenset({LogicalOperator.PROJECT}),
         "semantic_project@3.0.0",
         SemanticProjectParameters,
+        uses_llm=True,
     ),
     Operation(
         "blue.semantic_extract",
         frozenset({LogicalOperator.PROJECT}),
         "semantic_extract@3.0.0",
         SemanticExtractParameters,
+        uses_llm=True,
     ),
     Operation(
         "blue.semantic_transform",
         frozenset({LogicalOperator.PROJECT}),
         "semantic_transform@3.0.0",
         SemanticTransformParameters,
+        uses_llm=True,
     ),
     Operation(
         "blue.semantic_join",
         frozenset({LogicalOperator.JOIN}),
         "semantic_join@3.0.0",
         SemanticJoinParameters,
+        uses_llm=True,
     ),
     Operation(
         "blue.nl2llm",
@@ -229,6 +238,7 @@ OPERATIONS: tuple[Operation, ...] = (
             "read a registered source, since it answers from the model's own world knowledge, so "
             "its rows cannot be checked against one"
         ),
+        uses_llm=True,
     ),
     Operation(
         "blue.nl2sql",
@@ -245,7 +255,6 @@ OPERATIONS: tuple[Operation, ...] = (
         ),
         "nl2sql@3.0.0",
         NL2SQLParameters,
-        needs_data_registry=True,
         source_kinds=frozenset({"sql/sqlite", "sql/mysql", "sql/postgres"}),
         accepts_bound_inputs=True,
         # A declaration has no vocabulary for "every scan reads one database", so the
@@ -254,6 +263,8 @@ OPERATIONS: tuple[Operation, ...] = (
             "express a semantic predicate, or read more than one database in one query, so a "
             "fragment whose scans name two sources is not its to take"
         ),
+        uses_data_registry=True,
+        uses_llm=True,
     ),
 )
 
@@ -266,8 +277,21 @@ def _table_count(operation: Operation) -> int | None:
     return INPUT_ARITY[next(iter(operation.logical_operators))]
 
 
+def _model_properties(model: str, reasoning_effort: str | None) -> Properties:
+    # blue-data-ops refuses a model string that names a provider: the provider every call is sent
+    # to is the one BLUE_DATA_LLM_PROVIDER names in the deployment's environment.
+    properties: Properties = {"llm.model": model_without_provider(model)}
+    if reasoning_effort is not None:
+        properties["llm.reasoning_effort"] = reasoning_effort
+    return properties
+
+
 def blue_operators(
-    registry: OperatorRegistry, data_registry: DataRegistry
+    registry: OperatorRegistry,
+    data_registry: DataRegistry,
+    *,
+    model: str,
+    reasoning_effort: str | None = None,
 ) -> list[PhysicalOperator]:
     """Return one physical operator per Blue operation a fragment can be bound to."""
     # The operators are returned rather than registered so this module never imports
@@ -281,9 +305,11 @@ def blue_operators(
                 f"{operation.operator_id} is bound to {operation.registry_operator_id}, which "
                 "the operator registry does not carry"
             ) from error
-        properties: Properties | None = (
-            {"data_registry": data_registry} if operation.needs_data_registry else None
-        )
+        properties: Properties = {}
+        if operation.uses_data_registry:
+            properties["data_registry"] = data_registry
+        if operation.uses_llm:
+            properties.update(_model_properties(model, reasoning_effort))
         operators.append(
             PhysicalOperator(
                 operator_id=operation.operator_id,
@@ -294,7 +320,7 @@ def blue_operators(
                     operation.operator_id,
                     operator,
                     operation.parameters,
-                    properties,
+                    properties or None,
                     _table_count(operation),
                 ),
                 source_kinds=operation.source_kinds,
@@ -307,15 +333,25 @@ def blue_operators(
 
 @dataclass(frozen=True)
 class BlueSuite:
-    """The Blue operator library's operations, over the registry that resolves them."""
+    """The Blue operator library's operations, the registry that resolves them, and the model
+    they run on."""
 
     name: ClassVar[str] = "blue"
     # None resolves each operation against the active registry of blue-data-ops, which holds
     # the one reviewed version of each operation that OPERATIONS pins.
     operator_registry: OperatorRegistry | None = None
+    # None runs the operations on the model every other component uses.
+    model: str | None = None
+    # None omits the parameter, for a model that does not accept one.
+    reasoning_effort: str | None = None
 
     def operators(
         self, *, data_registry: DataRegistry, llm_client: LLMClient, model: str
     ) -> list[PhysicalOperator]:
         """Return one physical operator per Blue operation a fragment can be bound to."""
-        return blue_operators(self.operator_registry or active_registry(), data_registry)
+        return blue_operators(
+            self.operator_registry or active_registry(),
+            data_registry,
+            model=self.model or model,
+            reasoning_effort=self.reasoning_effort,
+        )

@@ -2,15 +2,18 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 import pytest
 from blue_data_ops.operators.registry import OperatorRegistry, versioned_registry
 
 from blue_data_planner.data import DataRegistry
 from blue_data_planner.operators import OperatorRouter
 from blue_data_planner.operators.adapters.blue import blue_operators
-from blue_data_planner.operators.adapters.blue.operators import OPERATIONS
+from blue_data_planner.operators.adapters.blue.operators import OPERATIONS, Operation
 from blue_data_planner.types import (
     INPUT_ARITY,
+    DataBundle,
     LogicalOperator,
     OperatorRoutingError,
     PhysicalOperator,
@@ -23,6 +26,8 @@ from tests.doubles.blue_operations import (
     scripted_operation,
 )
 from tests.unit.operators.adapters.blue.test_schemas import A_CALL_THE_MODEL_ACCEPTS
+
+MODEL = "openai/gpt-6-luna"
 
 
 def test_the_table_offers_the_eighteen_operations_the_suite_is_made_of() -> None:
@@ -41,7 +46,7 @@ def test_a_registry_missing_an_operation_fails_while_the_suite_is_built() -> Non
     """An id the registry does not carry has to fail before a run starts, and as a planner
     error the interfaces know how to report."""
     with pytest.raises(OperatorRoutingError, match="blue.select is bound to select@2.0.0"):
-        blue_operators(OperatorRegistry(), DataRegistry(name="test", rebuild=True))
+        blue_operators(OperatorRegistry(), DataRegistry(name="test", rebuild=True), model=MODEL)
 
 
 def test_each_operation_binds_the_newest_card_the_registry_carries_for_it() -> None:
@@ -62,7 +67,7 @@ def test_each_operation_binds_the_newest_card_the_registry_carries_for_it() -> N
 def a_suite(*scripted: ScriptedOperation) -> dict[str, PhysicalOperator]:
     """Return the suite built over scripted operations, keyed by operator id."""
     registry = a_registry_answering_every_operation(*scripted)
-    built = blue_operators(registry, DataRegistry(name="test", rebuild=True))
+    built = blue_operators(registry, DataRegistry(name="test", rebuild=True), model=MODEL)
     return {one.operator_id: one for one in built}
 
 
@@ -129,12 +134,74 @@ def test_the_compound_operation_is_handed_the_data_registry_it_reads_a_source_th
     """It writes its query from a source's schema, which it has no way to read without one."""
     scripted = scripted_operation("nl2sql")
     data_registry = DataRegistry(name="test", rebuild=True)
-    built = blue_operators(a_registry_answering_every_operation(scripted), data_registry)
+    built = blue_operators(
+        a_registry_answering_every_operation(scripted), data_registry, model=MODEL
+    )
     one = {each.operator_id: each for each in built}["blue.nl2sql"]
 
     one.call([], A_CALL_THE_MODEL_ACCEPTS["blue.nl2sql"], [])
 
-    assert scripted.seen_properties == {"data_registry": data_registry}
+    assert scripted.seen_properties is not None
+    assert scripted.seen_properties["data_registry"] is data_registry
+
+
+def a_bundle_for(operation: Operation) -> DataBundle:
+    """Return the tables a call to this operation reads: none for a scan or the compound one."""
+    if len(operation.logical_operators) != 1:
+        return []
+    return [[{"city": "Austin"}]] * INPUT_ARITY[next(iter(operation.logical_operators))]
+
+
+def model_settings_each_model_calling_operation_saw(
+    model: str, reasoning_effort: str | None
+) -> dict[str, dict[str, Any]]:
+    """Call every operation that calls a model once, and return the llm.* properties each saw."""
+    seen: dict[str, dict[str, Any]] = {}
+    for operation in OPERATIONS:
+        if not operation.uses_llm:
+            continue
+        scripted = scripted_operation(operation.registry_operator_id.partition("@")[0])
+        built = blue_operators(
+            a_registry_answering_every_operation(scripted),
+            DataRegistry(name="test", rebuild=True),
+            model=model,
+            reasoning_effort=reasoning_effort,
+        )
+        one = {each.operator_id: each for each in built}[operation.operator_id]
+        one.call(a_bundle_for(operation), A_CALL_THE_MODEL_ACCEPTS[operation.operator_id], [])
+        properties = scripted.seen_properties or {}
+        seen[operation.operator_id] = {
+            key: value for key, value in properties.items() if key.startswith("llm.")
+        }
+    return seen
+
+
+@pytest.mark.parametrize(
+    ("model", "reasoning_effort", "model_properties"),
+    [
+        ("openai/gpt-6-luna", "none", {"llm.model": "gpt-6-luna", "llm.reasoning_effort": "none"}),
+        ("gpt-6-luna", None, {"llm.model": "gpt-6-luna"}),
+    ],
+)
+def test_every_operation_calling_a_model_runs_on_the_model_the_suite_was_given(
+    model: str, reasoning_effort: str | None, model_properties: dict[str, str]
+) -> None:
+    """blue-data-ops refuses a model string naming a provider, so the route is left off, and an
+    unset effort is left out rather than sent."""
+    seen = model_settings_each_model_calling_operation_saw(model, reasoning_effort)
+
+    assert seen == {operator_id: model_properties for operator_id in seen}
+    assert len(seen) == 7
+
+
+def test_an_operation_calling_no_model_is_handed_no_model_setting() -> None:
+    """The setting only reaches the operations that send a request to a provider."""
+    scripted = scripted_operation("select")
+    one = a_suite(scripted)["blue.select"]
+
+    one.call([[{"city": "Austin"}]], A_CALL_THE_MODEL_ACCEPTS["blue.select"], [])
+
+    assert scripted.seen_properties is None
 
 
 def test_what_an_operation_reported_about_its_run_reaches_the_result() -> None:

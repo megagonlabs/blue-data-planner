@@ -36,6 +36,7 @@ def test_the_profile_spec_declares_the_library_defaults() -> None:
         "BLUE_DATA_PLANNER_OPERATORS": ",".join(defaults.operator_suites),
         "BLUE_DATA_PLANNER_LOTUS_REASONING_EFFORT": defaults.lotus_reasoning_effort,
         "BLUE_DATA_PLANNER_LOTUS_MAX_ROWS": defaults.lotus_max_rows,
+        "BLUE_DATA_PLANNER_BLUE_REASONING_EFFORT": defaults.blue_reasoning_effort,
         "BLUE_DATA_PLANNER_PROVIDER_TIMEOUT_SECONDS": defaults.provider_timeout_seconds,
         "BLUE_DATA_PLANNER_MAX_OPERATOR_CALLS": defaults.limits.operator_calls,
         "BLUE_DATA_PLANNER_MAX_FAILURE_REPLANS": defaults.limits.failure_replans,
@@ -127,7 +128,11 @@ def test_the_configured_reasoning_effort_reaches_planner_settings_unchanged(
 
 @pytest.mark.parametrize(
     "parameter",
-    ["BLUE_DATA_PLANNER_REASONING_EFFORT", "BLUE_DATA_PLANNER_LOTUS_REASONING_EFFORT"],
+    [
+        "BLUE_DATA_PLANNER_REASONING_EFFORT",
+        "BLUE_DATA_PLANNER_LOTUS_REASONING_EFFORT",
+        "BLUE_DATA_PLANNER_BLUE_REASONING_EFFORT",
+    ],
 )
 def test_a_reasoning_effort_outside_the_documented_values_names_the_parameter_that_set_it(
     parameter: str, tmp_path: Path

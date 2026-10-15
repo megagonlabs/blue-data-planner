@@ -52,6 +52,8 @@ blue-planner profile config OPENAI_API_KEY
 | `BLUE_DATA_PLANNER_LOTUS_MODEL` | str | Unset: LOTUS uses the planner's model | No |
 | `BLUE_DATA_PLANNER_LOTUS_REASONING_EFFORT` | str | `none` | No |
 | `BLUE_DATA_PLANNER_LOTUS_MAX_ROWS` | int | `5000` | No |
+| `BLUE_DATA_PLANNER_BLUE_MODEL` | str | Unset: the Blue suite uses the planner's model | No |
+| `BLUE_DATA_PLANNER_BLUE_REASONING_EFFORT` | str | `none` | No |
 | `BLUE_DATA_PLANNER_PROVIDER_TIMEOUT_SECONDS` | int | `120` | No |
 | `BLUE_DATA_PLANNER_MAX_OPERATOR_CALLS` | int | `30` | No |
 | `BLUE_DATA_PLANNER_MAX_FAILURE_REPLANS` | int | `2` | No |
@@ -64,13 +66,16 @@ The first row, `BLUE_DATA_CLI_FORMAT`, and `BLUE_DATA_CLI_LOG_LIMIT` are family-
 declared once for every Blue CLI rather than by `blue-planner` alone. `BLUE_DATA_PLANNER_MODEL`
 reads `BLUE_DATA_LLM_MODEL` where it is unset. LOTUS runs on the planner's model, `--model`
 included, unless `BLUE_DATA_PLANNER_LOTUS_MODEL` is set, and `--model` never overrides a value set
-there. Either reasoning effort takes `minimal`, `low`, `medium`, `high`, `none`, or `off`, and
+there. The Blue suite follows the same rule with `BLUE_DATA_PLANNER_BLUE_MODEL`. `blue-data-ops`
+sends a Blue operation's model call to the provider `BLUE_DATA_LLM_PROVIDER` names, `openai` by
+default, so a Blue model served by another provider needs that parameter set to match. Each
+reasoning effort takes `minimal`, `low`, `medium`, `high`, `none`, or `off`, and
 anything else is refused where it is read. `off` omits the parameter from the LLM call, for a model
 that does not accept it; `none` is a different, real value that litellm still forwards to the
 provider, disabling reasoning rather than omitting the parameter.
-`BLUE_DATA_PLANNER_LOTUS_REASONING_EFFORT` does not inherit from
-`BLUE_DATA_PLANNER_REASONING_EFFORT`: it defaults to `none` on its own, since a LOTUS operation
-spends many calls per row and gains little from added reasoning. A `MAX_` name is a bound on one
+`BLUE_DATA_PLANNER_LOTUS_REASONING_EFFORT` and `BLUE_DATA_PLANNER_BLUE_REASONING_EFFORT` do not
+inherit from `BLUE_DATA_PLANNER_REASONING_EFFORT`. Each defaults to `none` on its own, since a LOTUS
+or Blue operation makes many model calls, often one per row, and gains little from added reasoning. A `MAX_` name is a bound on one
 run: the three a run reports back in its counters, and its time limit in seconds. The bounds that
 reset inside a request reach a run from a caller that builds the planner itself. `--registry-path`
 and `--model` are the two settings an operator changes between one invocation and the next, so each

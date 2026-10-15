@@ -227,7 +227,7 @@ class OperatorSuite(Protocol):
 
 - `operator_suite("lotus")` returns a suite by name with its defaults
 - The suite classes take their own options: `LotusSuite(model=..., max_rows=...)`,
-  `BlueSuite(operator_registry=...)`. `BuiltinSuite()` takes none
+  `BlueSuite(operator_registry=..., model=...)`. `BuiltinSuite()` takes none
 - Each import sits inside the branch that needs it, so naming one suite never loads another's
   dependency. Adding a suite is covered in [extending.md](extending.md).
 

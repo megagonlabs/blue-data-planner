@@ -116,6 +116,8 @@ Frozen. Every value a planner is built from, with the default each one takes.
 | `lotus_model` | `str \| None` | `None` | The model LOTUS operations run on. `None` runs them on `model` |
 | `lotus_reasoning_effort` | `str` | `"none"` | The reasoning effort a LOTUS call spends, from the same six values |
 | `lotus_max_rows` | `int` | `5000` | The most rows a LOTUS operation accepts. A call with more is refused |
+| `blue_model` | `str \| None` | `None` | The model the Blue operations run on. `None` runs them on `model` |
+| `blue_reasoning_effort` | `str` | `"none"` | The reasoning effort a Blue operation's model call spends, from the same six values |
 | `provider_timeout_seconds` | `int` | `120` | How many seconds one provider call may take before it fails and is retried |
 | `limits` | `RunLimits` | `RunLimits()` | The bounds every run obeys |
 
@@ -479,11 +481,14 @@ OPERATOR_SUITE_NAMES: tuple[str, ...] = ("builtin", "lotus", "blue")
 | --- | --- | --- | --- |
 | `BuiltinSuite` | `blue_data_planner.operators.builtin` | None | `builtin_operators` |
 | `LotusSuite` | `blue_data_planner.operators.adapters.lotus` | `model: str \| None = None`, `max_rows: int = 5000`, `reasoning_effort: str \| None = None` | `lotus_operators`, `lotus_is_installed` |
-| `BlueSuite` | `blue_data_planner.operators.adapters.blue` | `operator_registry: OperatorRegistry \| None = None` | `blue_operators` |
+| `BlueSuite` | `blue_data_planner.operators.adapters.blue` | `operator_registry: OperatorRegistry \| None = None`, `model: str \| None = None`, `reasoning_effort: str \| None = None` | `blue_operators` |
 
 `LotusSuite.model` defaults to the model every other component uses. `LotusSuite.operators`
 returns an empty list when LOTUS is not installed. `BlueSuite.operator_registry` defaults to the
 active registry of `blue-data-ops`, which holds the one reviewed version of each operation.
+`BlueSuite.model` defaults to the model every other component uses, and reaches `blue-data-ops`
+without its provider route. `blue-data-ops` sends the call to the provider `BLUE_DATA_LLM_PROVIDER`
+names, `openai` by default.
 [architecture.md](architecture.md#operator-suites) describes what each suite offers, and
 [extending.md](extending.md) how to add one.
 

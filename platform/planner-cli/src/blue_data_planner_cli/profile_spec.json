@@ -42,6 +42,18 @@
     "required": false,
     "cast": "int"
   },
+  "BLUE_DATA_PLANNER_BLUE_MODEL": {
+    "default": null,
+    "prompt": "litellm model string the Blue suite's operations call; unset, they use the planner's model. The provider comes from BLUE_DATA_LLM_PROVIDER",
+    "required": false,
+    "cast": "str"
+  },
+  "BLUE_DATA_PLANNER_BLUE_REASONING_EFFORT": {
+    "default": "none",
+    "prompt": "Reasoning effort the Blue suite's model spends per call (minimal, low, medium, high, none; off omits the parameter, for a model that does not support it)",
+    "required": false,
+    "cast": "str"
+  },
   "BLUE_DATA_PLANNER_PROVIDER_TIMEOUT_SECONDS": {
     "default": 120,
     "prompt": "Seconds one provider call may take before it fails",

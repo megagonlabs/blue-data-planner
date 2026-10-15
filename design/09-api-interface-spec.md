@@ -78,6 +78,8 @@ class PlannerSettings:
     lotus_model: str | None = None            # None: use model
     lotus_reasoning_effort: str = "none"
     lotus_max_rows: int = 5000
+    blue_model: str | None = None             # None: use model
+    blue_reasoning_effort: str = "none"
     provider_timeout_seconds: int = 120
     limits: RunLimits = RunLimits()
 
@@ -116,6 +118,8 @@ class BuiltinSuite:
 @dataclass(frozen=True)
 class BlueSuite:
     operator_registry: OperatorRegistry | None = None
+    model: str | None = None
+    reasoning_effort: str | None = None
 
 
 @dataclass(frozen=True)
@@ -299,7 +303,7 @@ positional parameter in plain language; no command accepts a plan.
 | Option | Effect |
 | --- | --- |
 | `--registry-path PATH` | The `blue-data` registry to plan over. Overrides `BLUE_DATA_REGISTRY_PATH` |
-| `--model NAME` | The litellm model string the planner uses. Overrides `BLUE_DATA_PLANNER_MODEL`, and reaches LOTUS only where `BLUE_DATA_PLANNER_LOTUS_MODEL` is unset |
+| `--model NAME` | The litellm model string the planner uses. Overrides `BLUE_DATA_PLANNER_MODEL`. Reaches LOTUS where `BLUE_DATA_PLANNER_LOTUS_MODEL` is unset, and the Blue suite where `BLUE_DATA_PLANNER_BLUE_MODEL` is unset |
 | `--format table\|json` | How the result is written. Defaults to `BLUE_DATA_CLI_FORMAT` |
 | `--explain` | Write the plan for the request and stop before the first operator call |
 | `--log` | Report what the run did, fragment by fragment, after the run |

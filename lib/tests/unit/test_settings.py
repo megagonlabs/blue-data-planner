@@ -9,6 +9,7 @@ import pytest
 
 from blue_data_planner import data_planner as data_planner_module
 from blue_data_planner import settings as settings_module
+from blue_data_planner.operators.adapters.blue import BlueSuite
 from blue_data_planner.operators.adapters.lotus import LotusSuite
 from blue_data_planner.operators.builtin import BuiltinSuite
 from blue_data_planner.settings import PlannerSettings, build_data_planner_from_settings
@@ -66,13 +67,17 @@ def test_a_caller_who_names_only_a_registry_gets_the_documented_defaults():
     assert settings.lotus_model is None
     assert settings.lotus_reasoning_effort == "none"
     assert settings.lotus_max_rows == 5000
+    assert settings.blue_model is None
+    assert settings.blue_reasoning_effort == "none"
     assert settings.provider_timeout_seconds == 120
     assert settings.limits.operator_calls == 30
     assert settings.limits.failure_replans == 2
     assert settings.limits.control_replans == 5
 
 
-@pytest.mark.parametrize("field", ["reasoning_effort", "lotus_reasoning_effort"])
+@pytest.mark.parametrize(
+    "field", ["reasoning_effort", "lotus_reasoning_effort", "blue_reasoning_effort"]
+)
 def test_a_reasoning_effort_no_model_accepts_is_refused(field: str):
     """A typo reaches the provider as a call that fails, so it is caught where it is written."""
     with pytest.raises(InvalidSettingError, match=field):
@@ -168,30 +173,34 @@ def test_the_bounds_a_caller_sets_reach_the_planner(
 
 
 @pytest.mark.parametrize(
-    ("lotus_model", "runs_lotus_on"),
+    ("suite_model", "runs_on"),
     [(None, "openai/gpt-6-luna"), ("openai/gpt-4.1", "openai/gpt-4.1")],
 )
 def test_each_suite_option_reaches_the_suite_it_configures(
-    lotus_model: str | None,
-    runs_lotus_on: str,
+    suite_model: str | None,
+    runs_on: str,
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    """A suite is built from the options naming it, and a lotus_model left unset runs the LOTUS
-    suite on the model every other component uses."""
+    """A suite is built from the options naming it, and a suite model left unset runs the suite
+    on the model every other component uses."""
     captured = a_captured_build_data_planner(monkeypatch)
 
     build_data_planner_from_settings(
         a_settings(
             registry_path=a_readable_registry(tmp_path),
             model="openai/gpt-6-luna",
-            lotus_model=lotus_model,
+            operator_suites=("builtin", "lotus", "blue"),
+            lotus_model=suite_model,
             lotus_reasoning_effort="high",
             lotus_max_rows=10,
+            blue_model=suite_model,
+            blue_reasoning_effort="medium",
         )
     )
 
     assert captured["suites"] == [
         BuiltinSuite(),
-        LotusSuite(model=runs_lotus_on, max_rows=10, reasoning_effort="high"),
+        LotusSuite(model=runs_on, max_rows=10, reasoning_effort="high"),
+        BlueSuite(model=runs_on, reasoning_effort="medium"),
     ]

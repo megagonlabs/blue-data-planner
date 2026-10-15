@@ -1124,8 +1124,9 @@ class OperatorSuite(Protocol):
 def operator_suite(name: str) -> OperatorSuite: ...
 ```
 
-`LotusSuite` and `BlueSuite` each carry their own options — the model and row cap LOTUS runs
-under, the registry the Blue operations resolve against — so the options one suite takes are
+`LotusSuite` and `BlueSuite` each carry their own options — the model, reasoning effort, and row
+cap LOTUS runs under; the registry the Blue operations resolve against, and the model and reasoning
+effort they run on — so the options one suite takes are
 declared beside that suite and nothing that builds a planner names them. `BuiltinSuite` takes
 none. A name no suite registers raises `UnknownOperatorSuiteError`, which is
 what keeps a typo in a suite list from running with fewer operators than it asked for. A suite
@@ -1509,10 +1510,10 @@ the conversations the run state holds, with no component reporting it separately
 class, since a total is a `sum()` over the list.
 
 `RunResult.conversations` therefore covers calls through this module and nothing else. A model call
-an operator makes internally, as a LOTUS operator does, is invisible here: it runs under the suite's
-own model configuration rather than through `llm/`, so the call is billed as part of the one
-operator call that contains it
-([05-software-stack.md](05-software-stack.md#two-model-configurations-one-budget)).
+an operator makes internally, as a LOTUS or Blue operator does, is invisible here: it runs under
+the suite's own model configuration rather than through `llm/`, so the call is billed as part of
+the one operator call that contains it
+([05-software-stack.md](05-software-stack.md#three-model-configurations-one-budget)).
 
 `LLMClient`'s general provider call, `execute_api_call`, has an async twin, `aexecute_api_call`, for
 parallel provider calls — the library's one departure from being synchronous
