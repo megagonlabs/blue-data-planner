@@ -29,6 +29,7 @@ from blue_data_planner.types import (
     OutputColumn,
     ParameterAttempt,
     PhysicalOperator,
+    PhysicalPlan,
     PhysicalPlanFragment,
     PipelineNode,
     RunStatus,
@@ -1313,6 +1314,94 @@ def test_a_carried_over_cover_of_a_new_plan_version_names_no_parent() -> None:
     assert again.plan is not None
     assert again.plan.fragments == first.plan.fragments
     assert again.plan.parent_id is None
+
+
+def a_continuation_reading_n1(kind: LogicalOperator | ControlOperator) -> LogicalPlan:
+    """a_scan_and_return's next version, adding n4 of this kind, which reads the scan n1."""
+    plan = a_scan_and_return()
+    reader = (
+        PipelineNode(
+            id="n4",
+            kind=kind,
+            input_node_ids=["n1"],
+            attributes={"instruction": "find the moons"},
+            required_output_columns=[OutputColumn(name="moon", dtype="str")],
+        )
+        if isinstance(kind, LogicalOperator)
+        else PipelineNode(
+            id="n4", kind=kind, input_node_ids=["n1"], attributes={"instruction": "find moons"}
+        )
+    )
+    return dataclasses.replace(
+        plan, id=f"{plan.id}-next", parent_id=plan.id, nodes=[*plan.nodes, reader]
+    )
+
+
+def a_cover_grouping_n1_into_n2(planner: PhysicalPlanner) -> PhysicalPlanFragment:
+    """Cover a_scan_and_return with one fragment holding n1 and n2, rooted at n2."""
+    first = planner.cover(REQUEST, a_scan_and_return(), Conversation(), None, a_discovery())
+    assert first.plan is not None
+    return first.plan.fragments[0]
+
+
+def test_a_fragment_whose_grouped_node_a_new_node_reads_is_not_offered_for_reuse() -> None:
+    """n1 produced no table of its own, so a new reader of it needs n1 cut out as a root, and
+    the old fragment no longer fits the plan (design/04, "What reading a grouped node costs")."""
+    client = ScriptedLLMClient(
+        [
+            a_binding("n2:op.one:[n1,n2]"),
+            a_binding("n4:op.one:[n4]", inputs=("n1",)),
+            a_binding("n2:op.one:[n2]", inputs=("n1",)),
+            a_binding("n1:op.one:[n1]"),
+        ]
+    )
+    planner = a_planner(
+        client,
+        a_router(an_operator("op.one", frozenset({LogicalOperator.SCAN, LogicalOperator.PROJECT}))),
+    )
+    fragment = a_cover_grouping_n1_into_n2(planner)
+    previous = PhysicalPlan(id="c1", parent_id=None, logical_plan_id="p2", fragments=[fragment])
+    conversation = Conversation()
+
+    again = planner.cover(
+        REQUEST,
+        a_continuation_reading_n1(LogicalOperator.PROJECT),
+        conversation,
+        previous,
+        a_discovery_holding_n2(),
+    )
+
+    assert again.plan is not None
+    assert not [turn for turn in conversation.turns if ":reuse:" in turn.content]
+
+
+def test_a_cover_whose_grouped_node_a_new_discovery_reads_is_cut_again() -> None:
+    """Every operator node already ran, but a DISCOVER node reading n1 needs n1's rows, so the
+    cover cannot be carried over as it stands."""
+    client = ScriptedLLMClient(
+        [
+            a_binding("n2:op.one:[n1,n2]"),
+            a_binding("n2:op.one:[n2]", inputs=("n1",)),
+            a_binding("n1:op.one:[n1]"),
+        ]
+    )
+    planner = a_planner(
+        client,
+        a_router(an_operator("op.one", frozenset({LogicalOperator.SCAN, LogicalOperator.PROJECT}))),
+    )
+    fragment = a_cover_grouping_n1_into_n2(planner)
+    previous = PhysicalPlan(id="c1", parent_id=None, logical_plan_id="p2", fragments=[fragment])
+
+    again = planner.cover(
+        REQUEST,
+        a_continuation_reading_n1(ControlOperator.DISCOVER),
+        Conversation(),
+        previous,
+        a_discovery_holding_n2(),
+    )
+
+    assert again.plan is not None
+    assert again.plan.fragment_for_root("n1") is not None
 
 
 def test_a_node_with_no_result_is_offered_no_way_to_reuse_its_fragment() -> None:

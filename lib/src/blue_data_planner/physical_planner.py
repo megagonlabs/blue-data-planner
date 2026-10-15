@@ -18,6 +18,7 @@ from blue_data_planner.plan import (
     fragment_frontier,
     validate_physical_plan,
 )
+from blue_data_planner.plan.fragments import is_single_exit
 from blue_data_planner.prompts import prompt_text
 from blue_data_planner.prompts.rendering import render_attribute_views, render_sample_rows
 from blue_data_planner.types import (
@@ -82,7 +83,7 @@ class PhysicalPlanner:
             conversation.turns.append(
                 Turn(role="system", content=prompt_text("physical_planner.md"))
             )
-        # The run's state rides on every call's first candidate turn, since a repair follows
+        # Every call sends the run's state with its first candidate turn, since a repair follows
         # fragments that ran after the conversation opened.
         preamble = {**_EMPTY_PREAMBLE, "node_results": _render_results(results)}
         if opening:
@@ -105,13 +106,7 @@ class PhysicalPlanner:
                     plan=None,
                     failure_reason=self._no_candidate_reason(plan, node, entity_source_kinds),
                 )
-            # A node id reaches results only because a fragment rooted there already produced
-            # something, so no signature knowledge is needed here to offer it back.
-            reusable = (
-                previous.fragment_for_root(node.id)
-                if previous is not None and node.id in results
-                else None
-            )
+            reusable = _reusable_fragment(plan, previous, results, node.id)
             bound = self._bind(
                 plan,
                 node,
@@ -122,7 +117,7 @@ class PhysicalPlanner:
                 preamble,
                 bound_so_far,
             )
-            # The preamble rides on the first candidate turn of this call only.
+            # Only the first candidate turn of this call carries the preamble.
             preamble = dict(_EMPTY_PREAMBLE)
             if isinstance(bound, str):
                 # A binding turning down every candidate (ADR-040) ends the cover the same way
@@ -251,8 +246,8 @@ class PhysicalPlanner:
         bound_inputs = _bound_inputs(plan, root_alone)
         if not bound_inputs:
             raise BlueDataPlannerError(
-                f"node {node.id!r} has operators for its kind and was offered none of them, "
-                "though it reads its source and takes no bound input"
+                f"node {node.id!r} reads a source its operators read and takes no bound input, "
+                "yet none of its operators was offered as a candidate"
             )
         return (
             f"node {node.id!r} of kind {node.kind.value} lists {bound_inputs} as reference "
@@ -357,8 +352,8 @@ def _repeated(attempt: ParameterAttempt, earlier: list[ParameterAttempt]) -> int
         if one.result is not None and one.parameters == attempt.parameters:
             return number
     raise BlueDataPlannerError(
-        "an attempt that never ran repeats no earlier attempt's parameters; the fragment "
-        "runner skips a call only for a repeat"
+        "an attempt that never ran has parameters no earlier attempt ran with; the fragment "
+        "runner skips a call only when its parameters repeat an earlier one's"
     )
 
 
@@ -378,14 +373,37 @@ def _carried_cover(
     covered = frozenset(node_id for fragment in finished for node_id in fragment.logical_node_ids)
     if covered != _coverable(plan):
         return None
-    # Nothing is validated again: these fragments passed on the cover that ran them, and a
-    # continuation may not rewrite a node it carried over, so what they cover is unchanged.
+    # A continuation cannot rewrite a node it carried over, so each fragment stays connected.
+    # It can add a reader of a grouped node, a DISCOVER node included, and the cut then has to
+    # be made again.
+    if not all(_still_single_exit(plan, fragment) for fragment in finished):
+        return None
     return PhysicalPlan(
         id=str(uuid.uuid4()),
         parent_id=_parent_id(plan, previous),
         logical_plan_id=plan.id,
         fragments=finished,
     )
+
+
+def _reusable_fragment(
+    plan: LogicalPlan,
+    previous: PhysicalPlan | None,
+    results: dict[str, NodeResult],
+    node_id: str,
+) -> PhysicalPlanFragment | None:
+    # A node id reaches results only because a fragment rooted there already produced
+    # something, so no signature knowledge is needed here to offer it back.
+    if previous is None or node_id not in results:
+        return None
+    fragment = previous.fragment_for_root(node_id)
+    if fragment is None or not _still_single_exit(plan, fragment):
+        return None
+    return fragment
+
+
+def _still_single_exit(plan: LogicalPlan, fragment: PhysicalPlanFragment) -> bool:
+    return is_single_exit(plan, frozenset(fragment.logical_node_ids), fragment.root_logical_node_id)
 
 
 def _parent_id(plan: LogicalPlan, previous: PhysicalPlan | None) -> str | None:
@@ -558,8 +576,8 @@ def _render_readers(
         fragment = bound_so_far.get(reader.id)
         if fragment is None:
             raise BlueDataPlannerError(
-                f"node {reader.id!r} reads uncovered root {node.id!r}, but no fragment covers "
-                f"{reader.id!r} yet; binding runs readers first, so every one is already bound"
+                f"node {reader.id!r} reads uncovered root {node.id!r}, and no fragment covers "
+                f"{reader.id!r} yet; a cover binds every reader of a root before the root"
             )
         fragments[fragment.id] = fragment
     fragment_entries = [

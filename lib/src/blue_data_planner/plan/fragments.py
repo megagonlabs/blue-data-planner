@@ -48,6 +48,18 @@ def fragment_frontier(plan: LogicalPlan, node_ids: frozenset[str]) -> list[str]:
     return frontier
 
 
+def is_single_exit(plan: LogicalPlan, node_ids: frozenset[str], root_node_id: str) -> bool:
+    """Return whether every node of the set but its root is read only by nodes inside it."""
+    # Control nodes count as readers: a DISCOVER reading a grouped node needs that node's rows
+    # as much as an operator node does.
+    return all(
+        consumer.id in node_ids
+        for node_id in node_ids
+        if node_id != root_node_id
+        for consumer in plan.consumers(node_id)
+    )
+
+
 def _admissible(
     plan: LogicalPlan,
     node_id: str,

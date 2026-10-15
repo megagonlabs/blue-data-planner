@@ -705,15 +705,19 @@ reads each node against what the whole plan is for; the plan stays what the cove
 It returns a whole new `PhysicalPlan`, because a cover is written whole and never patched into an
 older one ([04](04-detailed-architecture.md#a-cover-is-written-whole)).
 
-`previous` is the cover the run is replacing, and `None` before a request has one. It is what lets a
-node whose fragment already produced a result be offered a candidate that reuses it, and choosing
+`previous` is the cover the run is replacing, and `None` before a request has one. A node whose
+fragment already produced a result is offered a candidate that reuses the fragment, and choosing
 that candidate carries the fragment into the new cover unchanged. Reusing finished work is therefore
 a decision the model takes against the same alternatives as everything else
-([04, choosing among candidates](04-detailed-architecture.md#choosing-among-candidates)).
+([04, choosing among candidates](04-detailed-architecture.md#choosing-among-candidates)). The
+candidate is offered only while the fragment still fits the plan. When a node outside the fragment
+reads a node the fragment grouped, that node has to become a root, so the fragment is cut again
+([04, what reading a grouped node costs](04-detailed-architecture.md#what-reading-a-grouped-node-costs)).
 
 A plan whose operator nodes all have results asks for no binding at all, and its cover is the
 previous cover's fragments under the new plan's id, written without a model call. Every candidate
-the model would weigh there is work the run already holds rows for (ADR-035).
+the model would weigh there is work the run already holds rows for (ADR-035). The same rule holds
+there: when a node outside a fragment reads a node the fragment grouped, the cover is written again.
 
 `results` answers two questions. A `DISCOVER` entry records the source kind of each entity a `SCAN`
 may name, which decides the operators a fragment holding that scan can be bound to. And an operator
