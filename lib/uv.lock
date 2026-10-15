@@ -305,6 +305,7 @@ dependencies = [
     { name = "jsonpath-ng" },
     { name = "litellm" },
     { name = "pydantic" },
+    { name = "regex" },
     { name = "tenacity" },
 ]
 
@@ -337,6 +338,7 @@ requires-dist = [
     { name = "pydantic", specifier = ">=2" },
     { name = "pyright", marker = "extra == 'dev'" },
     { name = "pytest", marker = "extra == 'dev'" },
+    { name = "regex" },
     { name = "ruff", marker = "extra == 'dev'" },
     { name = "tenacity" },
     { name = "twine", marker = "extra == 'dev'" },

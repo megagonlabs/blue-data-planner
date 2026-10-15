@@ -22,6 +22,7 @@ dependencies = [
     "tenacity",
     "litellm",
     "jinja2",
+    "regex",
 ]
 
 [tool.uv.sources]

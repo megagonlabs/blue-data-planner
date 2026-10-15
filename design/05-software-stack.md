@@ -258,6 +258,7 @@ writes each one.
 | `litellm` | `lib/` | Required | Provider-agnostic model calls |
 | `tenacity` | `lib/` | Required | Retry with backoff around model calls |
 | `jinja2` | `lib/` | Required | Prompt templating |
+| `regex` | `lib/` | Required | Pattern search with a time limit in `builtin.filter` (ADR-062) |
 | `lotus-ai` | `lib/` | `lotus` extra | The first outside operator suite |
 | `mcp` | `platform/planner-mcp/` | Required | MCP server |
 | `click` | `platform/planner-cli/` | Required | CLI command routing |

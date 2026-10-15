@@ -363,13 +363,16 @@ def test_a_transformation_refuses_a_table_that_lacks_the_column_it_names(
     [
         ([{"name": None}], "(unclosed", "does not compile"),
         ([{"name": 1234}], r"^Adam\b", "name"),
+        # Alternation under repetition backtracks exponentially on a run of a's ending in a miss.
+        ([{"name": "a" * 40 + "!"}], r"(a|aa)+$", "time limit"),
     ],
+    ids=["does_not_compile", "non_string_column", "past_the_time_limit"],
 )
 def test_a_pattern_comparison_that_cannot_run_refuses_the_table(
     table: Data, predicate_value: str, match: str
 ) -> None:
-    """A pattern that does not compile is refused even when no row would reach it, and a pattern
-    run against a non-string column is refused, so the parameter repair can rewrite either."""
+    """A pattern that does not compile, one run against a non-string column, and one whose search
+    runs past the time limit are each refused, so the parameter repair can rewrite the pattern."""
     with pytest.raises(RecoverableOperatorError, match=match):
         filter_rows(
             table,

@@ -1260,7 +1260,8 @@ failure, as is one whose operand shares no type with the other side or with its 
 The types are string, number, and bool, and a decimal number counts as a number. A bool is its own
 type and counts as a number only against a list of literals. A substring or pattern search over an
 operand holding no strings, and a pattern that does not compile, are refused the same way, since the
-parameters are wrong for the table. Afterwards, each row is evaluated as SQL evaluates it, and a
+parameters are wrong for the table. A pattern search that runs past one second on one value is
+refused the same way while rows are being filtered (ADR-062). Afterwards, each row is evaluated as SQL evaluates it, and a
 comparison is true, false, or unknown. It is unknown when a value it reads is missing, when the
 row's two values differ in type, when an ordering comparison reads a NaN, and when a substring or
 pattern search reads a value that is not a string. The missing-value test is always true or false. A

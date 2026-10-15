@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
-import re
 from collections.abc import Callable
 from decimal import Decimal
 from operator import eq, ge, gt, le, lt, ne
 from typing import Any, cast
+
+import regex
 
 from blue_data_planner.operators.builtin.schemas import (
     Aggregation,
@@ -38,6 +39,10 @@ _BINARY_OPERATORS: dict[str, Callable[[Any, Any], bool]] = {
     "gte": ge,
 }
 _ORDERING_OPERATORS: frozenset[str] = frozenset({"lt", "lte", "gt", "gte"})
+
+# Seconds one pattern search over one value may take. Not measured: long enough for any pattern
+# that does not backtrack catastrophically, short enough to stop one that does (ADR-062).
+PATTERN_TIMEOUT_SECONDS: float = 1.0
 
 
 def filter_rows(table: Data, predicate: Predicate) -> Data:
@@ -195,7 +200,7 @@ def _compares(row: Record, comparison: Comparison) -> bool | None:
     if isinstance(comparison, PatternComparison):
         if not isinstance(left, str):
             return None
-        return re.search(comparison.pattern, left) is not None
+        return _search(comparison.pattern, left)
     right = _operand_value(row, comparison.right)
     # A stray cell of another category makes the comparison unknown; a comparison the whole
     # table contradicts was already refused before filtering (_require_comparable_predicate).
@@ -354,9 +359,21 @@ def _lacks_strings(values: list[Any]) -> bool:
 
 def _require_valid_pattern(pattern: str) -> None:
     try:
-        re.compile(pattern)
-    except re.error as error:
+        regex.compile(pattern)
+    except regex.error as error:
         raise RecoverableOperatorError(f"pattern {pattern!r} does not compile: {error}") from None
+
+
+def _search(pattern: str, value: str) -> bool:
+    # The `regex` module rather than `re`, because only it can stop a search: a model-written
+    # pattern with nested repetition can take exponential time on one value (ADR-062).
+    try:
+        return regex.search(pattern, value, timeout=PATTERN_TIMEOUT_SECONDS) is not None
+    except TimeoutError:
+        raise RecoverableOperatorError(
+            f"searching one value with pattern {pattern!r} took longer than the time limit "
+            f"({PATTERN_TIMEOUT_SECONDS:g} s); write a pattern that backtracks less"
+        ) from None
 
 
 def _require_shared_category(

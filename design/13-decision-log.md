@@ -2042,6 +2042,33 @@ between them. A model slow enough to need more than 120 seconds per answer needs
 or every call it makes fails. A model call an operator makes through its own suite, as LOTUS does,
 is outside `LLMClient` and keeps that suite's own timeout.
 
+## ADR-062 — A Model-Written Pattern Is Searched Under a Time Limit
+
+**Date:** 2026-10-15
+**Status:** Accepted
+
+**Decision:** `builtin.filter` searches a regular expression the fragment runner wrote with the
+`regex` package, under a limit of one second per value. A search that reaches the limit is refused
+as a recoverable failure naming the pattern, so the parameter repair writes the pattern again.
+`regex` becomes a runtime dependency of `lib/`.
+
+**Rationale:** A pattern with nested repetition can take time exponential in the length of the
+value it searches, and the model writing the pattern does not see that cost. Python's `re` offers
+no way to stop a search once it starts, and the search runs on the thread running the request, so
+one pattern over one long value could hold a run with nothing in the run loop or the operator able
+to end it. `regex` accepts every pattern `re` accepts and takes a timeout per search. Refusing patterns by
+their shape before running them would turn down useful patterns and still miss slow ones, since
+which patterns backtrack badly depends on the values too.
+
+One second per value is not measured. A pattern that does not backtrack badly searches a cell in
+microseconds, so the limit only fires on a pattern that is already failing.
+
+**Consequences:** Question 59 is answered. A pattern reaching the limit costs one operator call
+before the repair, as any recoverable failure does. A filter over many rows can still take up to the
+limit once per row on a pattern that is slow on every value but never quite reaches it, which the
+limit does not bound. The `lib/` install gains one compiled dependency, which litellm's own
+dependencies already install.
+
 ---
 
 ## Open Questions
@@ -2069,7 +2096,6 @@ Design questions first, then defects in the code.
 | 54 | Should the library be able to phrase an answer, and the CLI then offer `--format nl`? The family offers a natural-language format where a source answers in prose, and ADR-029 leaves it out because a planner answers in rows. A benchmark whose expected answers are single values, and an agent that wants a sentence rather than a table, both suggest the phrasing has to happen somewhere; doing it in an interface is behavior in an adapter (ADR-002), so the question is whether a library operation should return prose alongside the rows, and what it costs in model calls per request. | Whether `--format nl` and the MCP response ever carry a sentence, and which component writes it |
 | 55 | Should a run be kept on disk so a plan can be read back? The CLI's home directory holds profiles and nothing else, so a plan printed by `data query --explain` is gone when the terminal scrolls, and `data query` keeps no record a later command could inspect. The family's storage convention has a place for one (`~/.<cli>/<profile>/<component>/`), and `from_dict` already reads a recorded plan back ([06-library.md](06-library.md#two-operations)). What is unsettled is whether a CLI should accumulate state at all for a planner that holds none between requests, and what would remove an old run. | Whether the CLI grows an action that reads a plan it wrote earlier |
 | 56 | Should the CLI be able to write a run's whole record to a file? A fragment's result reaches a person as a summary, and the JSON on standard output carries the answer and how the run ended, so every intermediate table and every model turn is reachable only by a caller who embeds the library (ADR-032). Diagnosing a wrong answer is the case that wants them: a summary says a fragment returned 140 rows over three columns and not which 140, and a review that rejected a fragment is readable only in the conversation. A file is where they would go, since what makes them unwelcome on standard output is size rather than secrecy, and the family's storage convention already has a place for per-profile state. Against adding one: a record holds whatever the sources held, so writing one puts source data on disk, and whether a CLI over a planner that keeps nothing between requests should accumulate state at all is question 55. | Whether a wrong answer can be diagnosed from the CLI alone |
-| 59 | Does a model-written pattern need a time bound? `builtin.filter` runs the regular expression the fragment runner writes (ADR-041) with no bound on how long one search takes, so a catastrophically backtracking pattern over a large column could stall one filter call, and nothing in the run loop or the operator stops it. What is open is whether a pattern gets a bound of its own and which component enforces it. | Whether a model-written pattern can stall a filter call |
 | 60 | Should a value that does not fit the type the cover declared for a column go straight to the cover repair? The physical planner writes each fragment's required output columns and their types, and the fragment runner cannot change them, so no parameter attempt can fix the mismatch: the runner spends its remaining attempts on parameters that cannot help, and each one that reaches the operator is an operator call. Every attempt reaches the cover repair (ADR-047), so the mismatch is visible to the component that can fix it, and what is at stake is the attempts spent first. Against sending it straight on: it needs a third error kind beside recoverable and unrecoverable, or a check in the run loop for one error in particular, and a model that knows which column it filled might still fix the value, as when an operator returns a unit the declaration did not expect. | How many operator calls a wrong type declaration costs before the cover repair sees it |
 | 61 | How does a component find a spelling the values it is shown leave out? A view lists an attribute's most frequent values and the fragment runner sees the first rows of each input (ADR-049), so a spelling that is rare within a column of many distinct values reaches no component. In `codebase_community`, `users.Location` holds `Vienna, Austria` in 42 rows and `Vienna` in 4, and a filter written for `Vienna` returns the 4 rows and reports no error. Three routes. The fragment runner writes a condition that tolerates spelling, such as a pattern for `builtin.filter` (ADR-041), which needs nothing new but relies on the model guessing that the spelling varies. The catalog is searched for stored values matching a term, which `blue-data`'s registry search ranks by, and the matches are shown with the view, which puts a search per condition into prompt writing. Or a lookup is a data operation of its own, which is question 47's shape. | Whether a condition on a text attribute with many distinct values is written against a spelling any component saw |
 | 62 | Should `blue.join` name a joined table's columns by ADR-050's rule? `builtin.join` and `lotus.sem_join` keep a key named alike once and suffix any other shared column `_left` and `_right`, so a declaration written for one reads the other's output. `blue.join` takes its suffixes as a parameter, which the adapter's parameter schema does not expose, so they are left at `blue-data-ops`'s default, `_ds` and the table's position. The adapter could fix them to `_left` and `_right`, or expose them to the fragment runner, which then has to know the rule to write a declaration that matches. Neither makes `blue.join` drop a key's second copy. | Whether a plan's declared columns mean the same thing whichever suite runs its join |
