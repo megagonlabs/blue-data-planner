@@ -536,7 +536,7 @@ one off the `RunCounters` it is handed per call.
 | Class | Module | Constructor | Operation |
 | --- | --- | --- | --- |
 | `LogicalPlanner` | `logical_planner` | `(llm_client, catalog)` | `generate(request, conversation, counters, parent=None, carried_node_ids=frozenset(), results=None, replan_reason=None) -> LogicalPlanResult` |
-| `PhysicalPlanner` | `physical_planner` | `(llm_client, router, catalog)` | `cover(request, plan, conversation, previous, results, failed_fragment=None) -> PhysicalPlanResult` |
+| `PhysicalPlanner` | `physical_planner` | `(llm_client, router)` | `cover(request, plan, conversation, previous, results, failed_fragment=None) -> PhysicalPlanResult` |
 | `FragmentRunner` | `fragment_runner` | `(llm_client, catalog, router)` | `run(fragment, conversation, inputs, counters) -> FragmentResult` |
 | `CatalogSearcher` | `catalog_searcher` | `(llm_client, catalog, max_search_terms=8)` | `search(node, conversation, inputs) -> DiscoveryResult` |
 
