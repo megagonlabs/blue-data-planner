@@ -4,9 +4,17 @@ from __future__ import annotations
 
 from typing import Any
 
+import pytest
 from blue_data_ops.operators.registry import versioned_registry
+from pydantic import ValidationError
 
 from blue_data_planner.operators.adapters.blue.operators import OPERATIONS
+from blue_data_planner.operators.adapters.blue.schemas import (
+    BlueParameters,
+    ProjectParameters,
+    SemanticFilterParameters,
+    SemanticTransformParameters,
+)
 
 # One call per operation, filling what its model requires and nothing else, so a model whose
 # own default shape the operation refuses is caught here rather than on a benchmark run.
@@ -22,14 +30,14 @@ A_CALL_THE_MODEL_ACCEPTS: dict[str, dict[str, Any]] = {
     "blue.max": {"max_key": "population"},
     "blue.argmax": {"argmax_key": "population"},
     "blue.argmin": {"argmin_key": "population"},
-    "blue.semantic_filter": {"filter_conditions": {"city": "is in Texas"}},
+    "blue.semantic_filter": {"filter_conditions": [{"name": "city", "condition": "is in Texas"}]},
     "blue.semantic_project": {"projection_instructions": "keep the city column"},
     # No extract_on_fields: reading every field is the entity's default shape.
     "blue.semantic_extract": {"entities": [{"name": "state"}]},
     "blue.semantic_transform": {
-        "output_desc": {
-            "state": {"source_fields": ["city"], "description": "the state of the city"}
-        }
+        "output_desc": [
+            {"name": "state", "source_fields": ["city"], "description": "the state of the city"}
+        ]
     },
     "blue.semantic_join": {"left_fields": ["city"], "right_fields": ["city"]},
     "blue.nl2llm": {"query": "how many states are there"},
@@ -57,7 +65,7 @@ def test_a_call_every_model_accepts_is_one_its_operation_accepts_too() -> None:
         parameters = operation.parameters.model_validate(
             A_CALL_THE_MODEL_ACCEPTS[operation.operator_id]
         )
-        attributes = parameters.model_dump(exclude_none=True)
+        attributes = parameters.operation_attributes()
         if not registry.resolve(operation.registry_operator_id).validate(_ROWS, attributes):
             refused.append(f"{operation.operator_id} refused {attributes}")
 
@@ -103,13 +111,104 @@ def test_every_model_field_says_what_it_holds() -> None:
     assert not undescribed, undescribed
 
 
-def test_every_model_refuses_a_key_it_does_not_name() -> None:
-    """A model accepting extra keys would let a runner reach a tuning parameter it was not
-    offered."""
-    permissive = [
-        operation.operator_id
-        for operation in OPERATIONS
-        if operation.parameters.model_config.get("extra") != "forbid"
-    ]
+def objects_in(schema: dict[str, Any]) -> list[dict[str, Any]]:
+    """Every object a JSON schema describes: the top level and each definition it refers to."""
+    definitions: dict[str, Any] = schema.get("$defs", {})
+    return [schema, *definitions.values()]
+
+
+def test_every_object_in_a_parameter_schema_refuses_keys_it_does_not_name() -> None:
+    """A provider enforcing the schema strictly refuses an object whose keys the schema does not
+    fix, and a model left free to add keys could reach a tuning parameter it was not offered."""
+    permissive: list[str] = []
+    for operation in OPERATIONS:
+        for described in objects_in(operation.parameters.model_json_schema()):
+            if described.get("additionalProperties") is not False:
+                permissive.append(f"{operation.operator_id}: {described.get('title')}")
 
     assert not permissive, permissive
+
+
+# Each schema holding a map, an entry list a model writes for it, and the map the operation gets.
+_LISTS_AND_THE_MAPS_THEY_SPELL: list[
+    tuple[type[BlueParameters], dict[str, Any], dict[str, Any]]
+] = [
+    (
+        ProjectParameters,
+        {"kept_keys": ["city"], "key_mapping": [{"old_key": "city", "new_key": "town"}]},
+        {"kept_keys": ["city"], "key_mapping": {"city": "town"}},
+    ),
+    (
+        SemanticFilterParameters,
+        {"filter_conditions": [{"name": "city", "condition": "is in Texas"}]},
+        {"filter_conditions": {"city": "is in Texas"}, "context": ""},
+    ),
+    (
+        SemanticTransformParameters,
+        {
+            "output_desc": [{"name": "state", "description": "its state", "source_fields": []}],
+            "input_meta": [{"name": "city", "description": "a US city"}],
+        },
+        {
+            "output_desc": {
+                "state": {
+                    "description": "its state",
+                    "source_fields": [],
+                    "transformation_type": "field_mapping_with_value_change",
+                }
+            },
+            "input_meta": {"city": {"description": "a US city"}},
+        },
+    ),
+]
+
+
+@pytest.mark.parametrize(("schema", "written", "attributes"), _LISTS_AND_THE_MAPS_THEY_SPELL)
+def test_a_list_the_model_writes_reaches_the_operation_as_the_map_it_takes(
+    schema: type[BlueParameters], written: dict[str, Any], attributes: dict[str, Any]
+) -> None:
+    """A schema can fix no map's keys, so the model writes named entries and the operation is
+    handed the map they spell."""
+    assert schema.model_validate(written).operation_attributes() == attributes
+
+
+# Each schema holding a map, and an entry list a model writes for it that names one key twice.
+_LISTS_NAMING_ONE_KEY_TWICE: list[tuple[type[BlueParameters], dict[str, Any]]] = [
+    (
+        ProjectParameters,
+        {
+            "kept_keys": ["city"],
+            "key_mapping": [
+                {"old_key": "city", "new_key": "town"},
+                {"old_key": "city", "new_key": "place"},
+            ],
+        },
+    ),
+    (
+        SemanticFilterParameters,
+        {
+            "filter_conditions": [
+                {"name": "city", "condition": "is in Texas"},
+                {"name": "city", "condition": "is a capital"},
+            ]
+        },
+    ),
+    (
+        SemanticTransformParameters,
+        {
+            "output_desc": [
+                {"name": "state", "description": "its state", "source_fields": []},
+                {"name": "state", "description": "its region", "source_fields": []},
+            ]
+        },
+    ),
+]
+
+
+@pytest.mark.parametrize(("schema", "written"), _LISTS_NAMING_ONE_KEY_TWICE)
+def test_a_name_written_twice_is_refused_rather_than_one_entry_dropped(
+    schema: type[BlueParameters], written: dict[str, Any]
+) -> None:
+    """The map an operation takes holds one entry per name, so a second one would be lost."""
+    with pytest.raises(ValidationError, match="may appear once"):
+        schema.model_validate(written)

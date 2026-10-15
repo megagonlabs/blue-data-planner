@@ -9,7 +9,6 @@ from typing import Any, ClassVar
 from blue_data_ops.operators.operator import Operator
 from blue_data_ops.operators.registry import OperatorRegistry, ResolveError, active_registry
 from blue_data_ops.operators.types import Properties
-from pydantic import BaseModel
 
 from blue_data_planner.data import DataRegistry
 from blue_data_planner.llm import LLMClient
@@ -18,6 +17,7 @@ from blue_data_planner.operators.adapters.blue.schemas import (
     ArgmaxParameters,
     ArgminParameters,
     AvgParameters,
+    BlueParameters,
     JoinParameters,
     MatchOptionParameters,
     MaxParameters,
@@ -49,7 +49,7 @@ from blue_data_planner.types import (
 def _build_call(
     operator_id: str,
     operator: Operator,
-    parameters: type[BaseModel],
+    parameters: type[BlueParameters],
     properties: Properties | None,
     table_count: int | None,
 ) -> Callable[[DataBundle, dict[str, Any], list[OutputColumn]], OperatorOutput]:
@@ -76,12 +76,8 @@ def _build_call(
         # A fragment and operator.run speak the same bundle, so nothing is converted here.
         # The list is copied because an operator may write into the bundle it is handed
         # and the caller reuses one bundle across retries.
-        #
-        # exclude_none because the operators branch on a key's presence: semantic_extract
-        # reads entity.get("description", <generated>) and semantic_transform tests
-        # "type" in meta_info. A field dumped as None is present to both.
         output, reported, meta = operator.run(
-            list(inputs), validated.model_dump(exclude_none=True), properties
+            list(inputs), validated.operation_attributes(), properties
         )
         error_mapping.raise_for_errors(meta, operator_id, reported or None)
         # ExecMeta.traces stays out: the base class attaches timings and shapes to every call,
@@ -101,7 +97,7 @@ class Operation:
     # The version is where an operation's validator and its result shape are fixed, so each row
     # names one rather than the suite naming one for all eighteen.
     registry_operator_id: str
-    parameters: type[BaseModel]
+    parameters: type[BlueParameters]
     needs_data_registry: bool = False
     source_kinds: frozenset[str] | None = None
     accepts_bound_inputs: bool = False
