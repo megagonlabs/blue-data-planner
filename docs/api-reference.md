@@ -402,13 +402,15 @@ def cover_choice_schema(
 def candidate_label(root_node_id: str, operator_id: str, node_ids: frozenset[str]) -> str: ...
 
 REUSE = "reuse"
+NONE = "none"
 ```
 
 Both validators raise `PlanValidationError` rather than returning a value. `signatures` returns
 one per node that produces a result, and a change anywhere above a node changes that node's
 signature, which is what lets a new cover reuse what an old one produced. `OutputColumnModel` is
 the shape one required output column is written in, and `REUSE` stands in for an operator id in
-the label of the candidate that reuses an earlier fragment.
+the label of the candidate that reuses an earlier fragment. `NONE` is the label a cover choice
+writes when it takes none of the candidates.
 
 ### `blue_data_planner.execution`
 
@@ -490,13 +492,14 @@ class DataCatalog:
     def preview(self, request: str, limit: int) -> CatalogPreview: ...
     def search_records(self, term: str) -> list[EntityMatch]: ...
     def attribute_views(self, entity_path: str) -> list[AttributeView]: ...
+    def entity_row_count(self, entity_path: str) -> int | None: ...
 ```
 
 `open_registry` raises `RegistryUnreadableError` on a missing or unreadable file rather than
-handing back an empty registry, and `DataRegistry` is re-exported from `blue-data`. The three
+handing back an empty registry, and `DataRegistry` is re-exported from `blue-data`. The four
 `DataCatalog` readings are all the planning components see of the catalog: `preview` for the
-logical planner, `search_records` for the catalog searcher, `attribute_views` for the fragment
-runner.
+logical planner, `search_records` for the catalog searcher, `attribute_views` and
+`entity_row_count` for the fragment runner.
 
 ### `blue_data_planner.llm`
 
