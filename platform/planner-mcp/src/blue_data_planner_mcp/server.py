@@ -40,6 +40,7 @@ from mcp.server.stdio import stdio_server
 from pydantic import Field
 
 import blue_data_planner_mcp.config as config
+from blue_data_planner_mcp import __version__
 
 # LiteLLM logs two INFO records per model call, and a request makes dozens of calls. They reach
 # the client's stderr, which an agent framework prints to its user's terminal.
@@ -72,6 +73,9 @@ mcp = IsolatedStdoutFastMCP(
         "registered data sources, runs the plan, repairs what fails, and returns the rows."
     ),
 )
+# FastMCP takes no version argument, and the server it builds reports the MCP SDK's own version
+# when it has none of its own, so a client would read the SDK's version as this server's.
+mcp._mcp_server.version = __version__  # pyright: ignore[reportPrivateUsage]
 
 
 @mcp.tool()

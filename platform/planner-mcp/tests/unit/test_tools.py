@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import importlib.metadata
 import json
 import threading
 
@@ -73,6 +74,12 @@ async def test_the_schema_a_client_reads_describes_every_parameter():
     properties = tool.inputSchema["properties"]
     assert set(properties) == {"request", "explain", "include_plan"}
     assert all(one.get("description") for one in properties.values())
+
+
+def test_the_server_reports_the_installed_package_version_to_a_client():
+    """A client reads serverInfo.version from the initialization options, not the SDK version."""
+    options = mcp._mcp_server.create_initialization_options()  # pyright: ignore[reportPrivateUsage]
+    assert options.server_version == importlib.metadata.version("blue-data-planner-mcp")
 
 
 @pytest.mark.parametrize(
