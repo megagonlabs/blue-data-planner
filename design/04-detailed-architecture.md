@@ -837,15 +837,16 @@ candidates that can carry the work is caught at review one operator call later (
 
 ## Budgets and limits
 
-Six limits bound a request. Each is fixed when the planner is built and counted at the scope its
+Seven limits bound a request. Each is fixed when the planner is built and counted at the scope its
 row below gives. ADR-060 covers which of them is budgeted and why, and
 [06-library.md](06-library.md#budgets-and-limits) says which component enforces each.
 
 What each one counts, where it starts again, and what happens when it is reached are in
 [12-deployment-ops.md](12-deployment-ops.md#5-request-limits).
-`RunResult.counters` reports the three that are counted across a whole request, each beside the
-bound it was counted against. The other three reset inside one, so no single number describes what
-a run spent against them.
+`RunResult.counters` reports three of the four that span a whole request, each beside the bound it
+was counted against. The fourth is the time limit, which the run loop checks before each step,
+along with a cancellation the caller may signal (ADR-063). The other three reset inside a request,
+so no single number describes what a run spent against them.
 
 Calls through `llm/` have no cap of their own. A plan correction spends one and no operator call,
 since the rejected plan never runs, and so does every physical planning decision. The parameter
@@ -884,6 +885,8 @@ planner did not detect, and it propagates to the caller
 | `operator_failed` | An unrecoverable operator failure ended the run |
 | `llm_failed` | The model provider failed after the client's retries |
 | `planner_failed` | A planner defect ended the run. `failure_reason` carries what broke |
+| `deadline_exceeded` | The request reached its time limit before its next step |
+| `cancelled` | The caller cancelled the request, which stopped before its next step |
 
 The result always carries every state the plan passed through, logical and physical, together with
 every exchange that produced them, which is where a rejected plan and a rejected set of parameters

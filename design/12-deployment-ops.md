@@ -120,7 +120,7 @@ precedence over the exported environment.
 | `BLUE_DATA_PLANNER_LOTUS_REASONING_EFFORT` | `none` | The reasoning effort LOTUS's own model spends per call, passed to `lotus_operators`, and independent of `BLUE_DATA_PLANNER_REASONING_EFFORT` |
 | `BLUE_DATA_PLANNER_LOTUS_MAX_ROWS` | `5000` | The rows a LOTUS operation accepts before refusing the call, passed to `lotus_operators` |
 | `BLUE_DATA_PLANNER_PROVIDER_TIMEOUT_SECONDS` | `120` | The seconds one provider call through `llm/` may take before it fails and is retried (ADR-061) |
-| `BLUE_DATA_PLANNER_MAX_*` | The `RunLimits` defaults | One per bound a run reports back, listed in [section 5](#5-request-limits) |
+| `BLUE_DATA_PLANNER_MAX_*` | The `RunLimits` defaults | One per bound spanning a whole request: the three a run reports back and `wall_clock_seconds`, listed in [section 5](#5-request-limits) |
 | `BLUE_DATA_PROFILE` | The profile `profile select` chose | The profile the CLI reads, when no `--profile` is given. A name with no profile behind it is refused as `PROFILE_NOT_FOUND` |
 | `BLUE_DATA_CLI_FORMAT` | `table` | The CLI's default output format |
 | `BLUE_DATA_CLI_LOG_LIMIT` | `80` | The characters each line of the log is cut to |
@@ -161,19 +161,22 @@ directory it names.
 `RunLimits` holds every bound the run loop obeys, and it is set once, when the planner is built
 (ADR-060). Nothing overrides one per request. Whether a bound an operator enforces inside its own
 call belongs here is open question 45 in [13-decision-log.md](13-decision-log.md#open-questions).
-The values in force are the defaults on `RunLimits`. A deployment raises or lowers one of the three
-a run reports back by setting `BLUE_DATA_PLANNER_MAX_` plus the field's name ([section
+The values in force are the defaults on `RunLimits`. A deployment raises or lowers one of the four
+that span a whole request by setting `BLUE_DATA_PLANNER_MAX_` plus the field's name ([section
 4](#4-configuration)); the other three reach a run from a caller that builds the planner itself.
 
 Where a bound is counted decides whether a result can report it. Three are counted across a whole
-request and are the fields of `RunCounters`. The other three are spent inside a loop and start again
-when that loop does, so no one number says what a request spent against them.
+request and are the fields of `RunCounters`. `wall_clock_seconds` also spans the whole request, and
+is read off the clock before each step rather than counted (ADR-063). The other three are spent
+inside a loop and start again when that loop does, so no one number says what a request spent
+against them.
 
 | Bound | Counted over | Starts again | Reaching it |
 | --- | --- | --- | --- |
 | `operator_calls` | The whole request | Never | `budget_exhausted` |
 | `failure_replans` | The whole request | Never | `replan_exhausted` |
 | `control_replans` | The whole request | Never | `replan_exhausted` |
+| `wall_clock_seconds` | The whole request, checked before each step | Never | `deadline_exceeded` |
 | `cover_repairs` | One logical plan | At every new logical plan | The run moves on to the replan |
 | `parameter_repairs` | One fragment run | At every fragment run | The run moves on to the cover repair |
 | `plan_corrections` | One plan being written | At every call to the logical planner | `invalid_plan` |
@@ -189,7 +192,7 @@ nothing about how a request proceeds: the extra terms are dropped and the search
 one component does rather than bounding a run, which puts it with the size of the catalog preview,
 as a number `CatalogSearcher` holds ([06-library.md](06-library.md#catalogsearcher)).
 
-### How the six compose
+### How the seven compose
 
 The three recovery bounds decide *which* repair a rejected fragment gets, not how much a request may
 spend in total
@@ -222,9 +225,15 @@ Model calls have no cap of their own. One request makes at most the product of t
 With the defaults, the product is about a thousand calls. The count is finite, but it is not a cost
 ceiling: no setting caps what one request spends on model calls.
 
+`wall_clock_seconds` bounds what none of the counts do: the time a request takes. The run loop
+checks it before each step, so a request ends at most one step past the limit. Within a step, the
+provider timeout (ADR-061) and the pattern time limit in `builtin.filter` (ADR-062) bound the two
+waits the library starts itself; an operator's own model calls and a source read keep the timeouts
+of the package that makes them.
+
 ### Where the values come from
 
-None of the six is measured. The recovery bounds are deliberately conservative, on the reasoning
+None of the seven is measured. The recovery bounds are deliberately conservative, on the reasoning
 that a second cover that also fails is better answered by a new plan than by a third cover, and the
 rest are set low enough to stop a run that is not converging without stopping one that is.
 

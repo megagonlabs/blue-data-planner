@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import threading
+
 from blue_data_planner import RunResult, RunStatus
 from blue_data_planner.types import (
     DataPipeline,
@@ -56,16 +58,31 @@ class FakePlanner:
         self.operations: list[str] = []
         self.thread_ids: list[int] = []
 
-    def run(self, request: str) -> RunResult:
+    def run(self, request: str, *, cancel: threading.Event | None = None) -> RunResult:
         return self._record("run", request)
 
-    def plan(self, request: str) -> RunResult:
+    def plan(self, request: str, *, cancel: threading.Event | None = None) -> RunResult:
         return self._record("plan", request)
 
     def _record(self, operation: str, request: str) -> RunResult:
-        import threading
-
         self.operations.append(operation)
         self.requests.append(request)
         self.thread_ids.append(threading.get_ident())
+        return self.result
+
+
+class PlannerWaitingForCancel:
+    """Runs until the cancel event it was handed is set, as a run stopping at its next step."""
+
+    def __init__(self, result: RunResult) -> None:
+        self.result = result
+        self.started = threading.Event()
+        self.saw_cancel = threading.Event()
+
+    def run(self, request: str, *, cancel: threading.Event | None = None) -> RunResult:
+        if cancel is None:
+            raise AssertionError("the server ran a request without a cancel event")
+        self.started.set()
+        if cancel.wait(timeout=5):
+            self.saw_cancel.set()
         return self.result

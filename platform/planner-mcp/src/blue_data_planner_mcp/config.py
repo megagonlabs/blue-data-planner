@@ -36,6 +36,7 @@ _LIMIT_FIELDS: dict[str, str] = {
     "BLUE_DATA_PLANNER_MAX_OPERATOR_CALLS": "operator_calls",
     "BLUE_DATA_PLANNER_MAX_FAILURE_REPLANS": "failure_replans",
     "BLUE_DATA_PLANNER_MAX_CONTROL_REPLANS": "control_replans",
+    "BLUE_DATA_PLANNER_MAX_WALL_CLOCK_SECONDS": "wall_clock_seconds",
 }
 
 _planner: DataPlanner | None = None

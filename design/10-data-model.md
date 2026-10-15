@@ -903,7 +903,7 @@ The bounds themselves are in [12-deployment-ops.md](12-deployment-ops.md).
 | --- | --- |
 | `LogicalOperator` | `SCAN`, `FILTER`, `PROJECT`, `EXPAND`, `AGGREGATE`, `DISTINCT`, `SORT_SUPERLATIVE`, `JOIN`, `UNION`, `RETURN` |
 | `ControlOperator` | `REPLAN`, `DISCOVER` |
-| `RunStatus` | `ok`, `needs_repair`, `needs_replan`, `planned`, `invalid_plan`, `replan_exhausted`, `budget_exhausted`, `operator_failed`, `llm_failed`, `planner_failed` |
+| `RunStatus` | `ok`, `needs_repair`, `needs_replan`, `planned`, `invalid_plan`, `replan_exhausted`, `budget_exhausted`, `operator_failed`, `llm_failed`, `planner_failed`, `deadline_exceeded`, `cancelled` |
 | `ExecutionStatus` | `ok`, `failed` |
 | `ErrorKind` | `recoverable`, `unrecoverable` |
 | `FragmentReviewDecision` | `accept`, `reject`, `replan` |

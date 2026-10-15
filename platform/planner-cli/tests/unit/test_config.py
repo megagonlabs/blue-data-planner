@@ -40,6 +40,7 @@ def test_the_profile_spec_declares_the_library_defaults() -> None:
         "BLUE_DATA_PLANNER_MAX_OPERATOR_CALLS": defaults.limits.operator_calls,
         "BLUE_DATA_PLANNER_MAX_FAILURE_REPLANS": defaults.limits.failure_replans,
         "BLUE_DATA_PLANNER_MAX_CONTROL_REPLANS": defaults.limits.control_replans,
+        "BLUE_DATA_PLANNER_MAX_WALL_CLOCK_SECONDS": defaults.limits.wall_clock_seconds,
     }
     assert {name: spec[name]["default"] for name in declared} == declared
 
@@ -67,8 +68,9 @@ def test_every_bound_a_profile_carries_defaults_to_the_one_the_library_holds() -
         if one.name.startswith("BLUE_DATA_PLANNER_MAX_")
     }
 
-    # Three bounds a run reports back, so an empty reading would pass for the wrong reason.
-    assert len(declared) == 3
+    # The three bounds a run reports back and its time limit, so an empty reading would pass for
+    # the wrong reason.
+    assert len(declared) == 4
     assert declared == {field: getattr(limits, field) for field in declared}
 
 

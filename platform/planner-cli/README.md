@@ -56,6 +56,7 @@ blue-planner profile config OPENAI_API_KEY
 | `BLUE_DATA_PLANNER_MAX_OPERATOR_CALLS` | int | `30` | No |
 | `BLUE_DATA_PLANNER_MAX_FAILURE_REPLANS` | int | `2` | No |
 | `BLUE_DATA_PLANNER_MAX_CONTROL_REPLANS` | int | `5` | No |
+| `BLUE_DATA_PLANNER_MAX_WALL_CLOCK_SECONDS` | int | `600` | No |
 | `BLUE_DATA_CLI_FORMAT` | str | `table` | No |
 | `BLUE_DATA_CLI_LOG_LIMIT` | int | `80` | No |
 
@@ -70,7 +71,7 @@ provider, disabling reasoning rather than omitting the parameter.
 `BLUE_DATA_PLANNER_LOTUS_REASONING_EFFORT` does not inherit from
 `BLUE_DATA_PLANNER_REASONING_EFFORT`: it defaults to `none` on its own, since a LOTUS operation
 spends many calls per row and gains little from added reasoning. A `MAX_` name is a bound on one
-run, and the three that carry one are the three a run reports back in its counters; the bounds that
+run: the three a run reports back in its counters, and its time limit in seconds. The bounds that
 reset inside a request reach a run from a caller that builds the planner itself. `--registry-path`
 and `--model` are the two settings an operator changes between one invocation and the next, so each
 has its own command option in addition to its profile parameter.
@@ -241,7 +242,7 @@ The MCP server reports its errors in the same shape.
 | `REGISTRY_UNREADABLE` | A registry path that does not exist or does not parse |
 | `PROFILE_NOT_FOUND` | A named profile that does not exist |
 | `ABORTED` | A confirmation prompt, such as `profile remove` without `--confirm`, declined |
-| `INVALID_PLAN`, `REPLAN_EXHAUSTED`, `BUDGET_EXHAUSTED`, `OPERATOR_FAILED`, `LLM_FAILED`, `PLANNER_FAILED` | A run that ended with that status, carrying its failure reason |
+| `INVALID_PLAN`, `REPLAN_EXHAUSTED`, `BUDGET_EXHAUSTED`, `OPERATOR_FAILED`, `LLM_FAILED`, `PLANNER_FAILED`, `DEADLINE_EXCEEDED` | A run that ended with that status, carrying its failure reason |
 | `INTERNAL_ERROR` | Any exception no code above covers, with its type and message. `data query --log` also prints its traceback |
 
 A missing or rejected API key is reported by the provider on the first model call, so the run

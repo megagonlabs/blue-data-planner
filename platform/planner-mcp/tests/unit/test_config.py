@@ -64,6 +64,7 @@ def test_every_setting_the_environment_names_reaches_the_planner():
             "BLUE_DATA_PLANNER_MAX_OPERATOR_CALLS": "7",
             "BLUE_DATA_PLANNER_MAX_FAILURE_REPLANS": "1",
             "BLUE_DATA_PLANNER_MAX_CONTROL_REPLANS": "3",
+            "BLUE_DATA_PLANNER_MAX_WALL_CLOCK_SECONDS": "90",
         }
     )
     assert settings == PlannerSettings(
@@ -75,7 +76,9 @@ def test_every_setting_the_environment_names_reaches_the_planner():
         lotus_reasoning_effort="minimal",
         lotus_max_rows=120,
         provider_timeout_seconds=45,
-        limits=RunLimits(operator_calls=7, failure_replans=1, control_replans=3),
+        limits=RunLimits(
+            operator_calls=7, failure_replans=1, control_replans=3, wall_clock_seconds=90
+        ),
     )
 
 

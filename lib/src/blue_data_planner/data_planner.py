@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import threading
+import time
 from collections.abc import Sequence
 from dataclasses import dataclass
 from enum import StrEnum
@@ -61,6 +63,25 @@ class _Ending:
     failed_fragment: FailedFragment | None = None
 
 
+@dataclass(frozen=True)
+class _Stop:
+    # Read between steps rather than during one: a thread cannot be stopped from outside, and a
+    # model call or an operator call in progress has no point at which to give up (ADR-063).
+    deadline: float
+    wall_clock_seconds: int
+    cancel: threading.Event | None
+
+    def ending(self) -> _Ending | None:
+        if self.cancel is not None and self.cancel.is_set():
+            return _Ending(status=RunStatus.CANCELLED, reason="the caller cancelled the request")
+        if time.monotonic() >= self.deadline:
+            return _Ending(
+                status=RunStatus.DEADLINE_EXCEEDED,
+                reason=f"the request ran past its time limit ({self.wall_clock_seconds} s)",
+            )
+        return None
+
+
 class DataPlanner:
     """Plans a request, runs it, repairs what fails, and assembles the result."""
 
@@ -78,18 +99,25 @@ class DataPlanner:
         self._catalog_searcher = catalog_searcher
         self._limits = limits
 
-    def run(self, request: str) -> RunResult:
-        """Plan, cover, execute, and repair until the request ends."""
-        return self._run_request(request, execute=True)
+    def run(self, request: str, *, cancel: threading.Event | None = None) -> RunResult:
+        """Plan, cover, execute, and repair until the request ends or `cancel` is set."""
+        return self._run_request(request, execute=True, cancel=cancel)
 
-    def plan(self, request: str) -> RunResult:
+    def plan(self, request: str, *, cancel: threading.Event | None = None) -> RunResult:
         """Plan, search the catalog, and cover as run would, stopping before any operator call."""
-        return self._run_request(request, execute=False)
+        return self._run_request(request, execute=False, cancel=cancel)
 
-    def _run_request(self, request: str, *, execute: bool) -> RunResult:
+    def _run_request(
+        self, request: str, *, execute: bool, cancel: threading.Event | None
+    ) -> RunResult:
         state = RunState(request=request, counters=RunCounters(self._limits))
+        stop = _Stop(
+            deadline=time.monotonic() + self._limits.wall_clock_seconds,
+            wall_clock_seconds=self._limits.wall_clock_seconds,
+            cancel=cancel,
+        )
         try:
-            status, failure_reason, answer = self._run_plans(state, execute)
+            status, failure_reason, answer = self._run_plans(state, execute, stop)
         except LLMError as error:
             # The one try in the library, so no component handles a provider failure. It precedes
             # the clause below, which would otherwise end a provider outage as planner_failed.
@@ -102,11 +130,14 @@ class DataPlanner:
         return state.to_result(status, failure_reason, answer)
 
     def _run_plans(
-        self, state: RunState, execute: bool
+        self, state: RunState, execute: bool, stop: _Stop
     ) -> tuple[RunStatus, str | None, DataBundle | None]:
         replan_reason: str | None = None
         shown_discovery_node_ids: frozenset[str] = frozenset()
         while True:
+            stopped = stop.ending()
+            if stopped is not None and stopped.status is not None:
+                return stopped.status, stopped.reason, None
             has_cover = state.pipeline.current_physical_plan_id is not None
             # Read before the new version is installed: the signatures the results sit under
             # belong to the plan and the cover that are still current.
@@ -130,7 +161,7 @@ class DataPlanner:
             # Every version written is kept, including one no cover is ever installed for; the
             # pointer moves only with a cover, so the current pair always matches.
             state.record_logical_plan(written.plan)
-            ending = self._run_covers(state, written.plan, held, execute)
+            ending = self._run_covers(state, written.plan, held, execute, stop)
             if ending.status is not None:
                 return ending.status, ending.reason, ending.answer
             replan_reason = ending.reason
@@ -143,10 +174,18 @@ class DataPlanner:
                 return RunStatus.REPLAN_EXHAUSTED, replan_reason, None
 
     def _run_covers(
-        self, state: RunState, plan: LogicalPlan, held: dict[str, NodeResult], execute: bool
+        self,
+        state: RunState,
+        plan: LogicalPlan,
+        held: dict[str, NodeResult],
+        execute: bool,
+        stop: _Stop,
     ) -> _Ending:
         failed_fragment: FailedFragment | None = None
         for _repair in range(self._limits.cover_repairs + 1):
+            stopped = stop.ending()
+            if stopped is not None:
+                return stopped
             written = self._write_cover(state, plan, held, failed_fragment)
             if written.plan is None:
                 # A plan no operator can cover goes back to the logical planner, with no operator
@@ -156,7 +195,7 @@ class DataPlanner:
             # matching pair and every signature describes the plan and cover that are current.
             state.install_logical_plan(plan)
             state.install_cover(written.plan)
-            ending = self._run_passes(state, execute)
+            ending = self._run_passes(state, execute, stop)
             if ending.next_step is not _Next.COVER_REPAIR:
                 return ending
             failed_fragment = ending.failed_fragment
@@ -168,7 +207,7 @@ class DataPlanner:
             )
         return _Ending(reason=failed_fragment.result.failure_reason, next_step=_Next.FAILURE_REPLAN)
 
-    def _run_passes(self, state: RunState, execute: bool) -> _Ending:
+    def _run_passes(self, state: RunState, execute: bool, stop: _Stop) -> _Ending:
         while True:
             ready = state.next_ready()
             if not execute and (ready is None or isinstance(ready, PhysicalPlanFragment)):
@@ -177,6 +216,11 @@ class DataPlanner:
                 return _Ending(status=RunStatus.PLANNED)
             if ready is None:
                 return self._answer(state)
+            # Checked only before a step that has work left, so rows already finished still
+            # become an answer.
+            stopped = stop.ending()
+            if stopped is not None:
+                return stopped
             if not isinstance(ready, PhysicalPlanFragment):
                 return self._resolve_control_nodes(state)
             ending = self._run_fragment(state, ready)

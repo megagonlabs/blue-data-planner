@@ -65,5 +65,11 @@
     "prompt": "Times a control node may trigger a replan",
     "required": false,
     "cast": "int"
+  },
+  "BLUE_DATA_PLANNER_MAX_WALL_CLOCK_SECONDS": {
+    "default": 600,
+    "prompt": "Seconds one request may run before it stops at its next step",
+    "required": false,
+    "cast": "int"
   }
 }

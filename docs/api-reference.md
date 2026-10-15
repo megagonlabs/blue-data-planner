@@ -39,16 +39,17 @@ from blue_data_planner import DataPlanner
 ```
 
 ```python
-def run(self, request: str) -> RunResult: ...
-def plan(self, request: str) -> RunResult: ...
+def run(self, request: str, *, cancel: threading.Event | None = None) -> RunResult: ...
+def plan(self, request: str, *, cancel: threading.Event | None = None) -> RunResult: ...
 ```
 
 | Operation | Does | Status it can return | Spends operator calls |
 | --- | --- | --- | --- |
 | `run` | Plans, covers, executes, and repairs until the request ends | Any member of `RunStatus` other than `planned`, `needs_repair`, and `needs_replan` | Yes |
-| `plan` | Plans, searches the catalog, and covers as `run` does, then stops before the first operator call | `planned`, `invalid_plan`, `replan_exhausted`, `llm_failed`, `planner_failed` | No |
+| `plan` | Plans, searches the catalog, and covers as `run` does, then stops before the first operator call | `planned`, `invalid_plan`, `replan_exhausted`, `llm_failed`, `planner_failed`, `deadline_exceeded`, `cancelled` | No |
 
-Both take a request in plain language and nothing else. A plan is what a request produced, so
+Both take a request in plain language. Setting the optional `cancel` event from another thread
+stops the request before its next step, and it ends `cancelled`. A plan is what a request produced, so
 neither operation accepts one: `LogicalPlan.from_dict` reads a recorded plan back for inspection.
 Limits are fixed when the planner is built, so neither takes an override. `plan` returns the plan
 and the cover `run` would start executing: a `DISCOVER` node with nothing to wait for has been
@@ -190,6 +191,8 @@ A `StrEnum`, so `print(result.status)` prints `ok`.
 | `OPERATOR_FAILED` | `operator_failed` | An operator failed for a reason no other operator would avoid |
 | `LLM_FAILED` | `llm_failed` | The provider failed after the client's retries |
 | `PLANNER_FAILED` | `planner_failed` | A defect in the planner ended the run, with the message in `failure_reason` |
+| `DEADLINE_EXCEEDED` | `deadline_exceeded` | The request reached `wall_clock_seconds`, checked before its next step |
+| `CANCELLED` | `cancelled` | The caller set the `cancel` event, checked before the next step |
 
 ### `RunLimits`
 
@@ -203,6 +206,7 @@ Frozen. Every bound a run obeys, set once when the planner is built.
 | `cover_repairs` | `2` | Covers after the first, per logical plan | The replan |
 | `failure_replans` | `2` | Replans a failure forced | `replan_exhausted` |
 | `control_replans` | `5` | Replans a control node asked for | `replan_exhausted` |
+| `wall_clock_seconds` | `600` | Seconds the request has run, checked before each step | `deadline_exceeded` |
 
 Model calls have no limit of their own. Their number is bounded through the size of a plan: a plan
 holding more operator and `DISCOVER` nodes than `operator_calls` is turned down and written again,

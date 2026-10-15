@@ -149,17 +149,18 @@ result = planner.run("Which three countries do the most customers come from?")
 
 ```python
 class DataPlanner:
-    def run(self, request: str) -> RunResult: ...
-    def plan(self, request: str) -> RunResult: ...
+    def run(self, request: str, *, cancel: threading.Event | None = None) -> RunResult: ...
+    def plan(self, request: str, *, cancel: threading.Event | None = None) -> RunResult: ...
 ```
 
 | Operation | Does | Can end as | Spends operator calls |
 | --- | --- | --- | --- |
 | `run` | Plans, covers, executes, and repairs until the request ends | Any request ending in [Results](#results) except `planned` | Yes |
-| `plan` | Plans, resolves the discovery it can, and covers, stopping before the first operator call | `planned`, `invalid_plan`, `replan_exhausted`, `llm_failed`, `planner_failed` | No |
+| `plan` | Plans, resolves the discovery it can, and covers, stopping before the first operator call | `planned`, `invalid_plan`, `replan_exhausted`, `llm_failed`, `planner_failed`, `deadline_exceeded`, `cancelled` | No |
 
-Both take a request in plain language and nothing else. No operation accepts a plan, and neither
-takes a limit, since limits are fixed when the planner is built. `plan` returns the plan and the
+Both take a request in plain language, and optionally an event the caller sets from another thread
+to cancel it. No operation accepts a plan, and neither takes a limit, since limits are fixed when the
+planner is built. `plan` returns the plan and the
 cover `run` would start executing: the catalog searches, continuations, and replans that need no
 operator call have already run. A `DISCOVER` node waiting on a fragment's rows stays unresolved.
 
@@ -193,6 +194,8 @@ status cannot mistake a failed run for an empty answer (ADR-015).
 | `operator_failed` | An operator failed for a reason no other operator would avoid |
 | `llm_failed` | The model provider failed after retries, or answered in a shape the client cannot read |
 | `planner_failed` | A defect in the planner, with its message as the failure reason |
+| `deadline_exceeded` | `wall_clock_seconds` passed, checked before the next step |
+| `cancelled` | The caller set the `cancel` event, checked before the next step |
 
 `RunStatus` has two more members, `needs_repair` and `needs_replan`, which a fragment returns inside
 a run. A `RunResult` never carries either.
@@ -208,6 +211,7 @@ class RunLimits:
     cover_repairs: int = 2
     failure_replans: int = 2
     control_replans: int = 5
+    wall_clock_seconds: int = 600
 ```
 
 | Bound | Counted | Reaching it |
@@ -218,6 +222,7 @@ class RunLimits:
 | `cover_repairs` | Per logical plan | The replan |
 | `failure_replans` | Per request | `replan_exhausted` |
 | `control_replans` | Per request | `replan_exhausted` |
+| `wall_clock_seconds` | Per request, checked before each step | `deadline_exceeded` |
 
 The three counted per request are the fields of `RunCounters`. The other three reset inside a
 request. What each bound limits is in [06-library.md](06-library.md#budgets-and-limits), and how a
@@ -349,7 +354,7 @@ A usage error prints the usage message alone, whatever `--format` says.
 | `REGISTRY_UNREADABLE` | A registry path that does not exist or does not parse |
 | `PROFILE_NOT_FOUND` | A named profile that does not exist |
 | `ABORTED` | A declined confirmation prompt |
-| `INVALID_PLAN`, `REPLAN_EXHAUSTED`, `BUDGET_EXHAUSTED`, `OPERATOR_FAILED`, `LLM_FAILED`, `PLANNER_FAILED` | A run that ended with that status, carrying its failure reason |
+| `INVALID_PLAN`, `REPLAN_EXHAUSTED`, `BUDGET_EXHAUSTED`, `OPERATOR_FAILED`, `LLM_FAILED`, `PLANNER_FAILED`, `DEADLINE_EXCEEDED`, `CANCELLED` | A run that ended with that status, carrying its failure reason |
 | `INTERNAL_ERROR` | Any exception no code above covers, reported with its type and message. Under `--log`, its traceback follows (ADR-043) |
 
 A missing or rejected API key is reported by the provider on the first model call, so the run ends

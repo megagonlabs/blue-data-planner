@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import threading
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any, ClassVar
@@ -22,6 +23,7 @@ from blue_data_planner.types import (
     ExecutionStatus,
     FailedFragment,
     FragmentResult,
+    InputData,
     LogicalOperator,
     LogicalPlan,
     LogicalPlanResult,
@@ -465,6 +467,74 @@ def a_scan_and_a_filter(plan_id: str) -> LogicalPlan:
             ),
         ],
     )
+
+
+def a_scan_then_a_filter_cover(cover_id: str, logical_plan_id: str) -> PhysicalPlan:
+    """f1 runs n1 and f2 runs n2 over f1's rows, so f2 waits for f1."""
+
+    def fragment(fragment_id: str, node_id: str, inputs: list[InputData]) -> PhysicalPlanFragment:
+        return PhysicalPlanFragment(
+            id=fragment_id,
+            logical_node_ids=[node_id],
+            root_logical_node_id=node_id,
+            operator_id="builtin.scan",
+            scan_sources={},
+            instruction="do it",
+            input_data=inputs,
+            required_output_columns=[OutputColumn(name="title", dtype="str")],
+        )
+
+    return PhysicalPlan(
+        id=cover_id,
+        parent_id=None,
+        logical_plan_id=logical_plan_id,
+        fragments=[
+            fragment("f1", "n1", []),
+            fragment("f2", "n2", [InputData("n1", name="postings", description="the postings")]),
+        ],
+    )
+
+
+class CancellingFragmentRunner(FakeFragmentRunner):
+    """Sets the cancel event while it runs its first fragment, as a caller giving up would."""
+
+    def __init__(self, results: list[FragmentResult], cancel: threading.Event) -> None:
+        super().__init__(results)
+        self.cancel = cancel
+
+    def run(self, *args: Any, **kwargs: Any) -> FragmentResult:
+        self.cancel.set()
+        return super().run(*args, **kwargs)
+
+
+def test_a_request_cancelled_while_a_step_runs_ends_cancelled_before_the_next_step() -> None:
+    """The step in progress finishes; the next one never starts."""
+    cancel = threading.Event()
+    runner = CancellingFragmentRunner([an_accepted_fragment(), an_accepted_fragment()], cancel)
+
+    result = a_planner(
+        FakeLogicalPlanner([ok(a_scan_and_a_filter("p1"))]),
+        FakePhysicalPlanner([covered(a_scan_then_a_filter_cover("c1", "p1"))]),
+        runner,
+        FakeCatalogSearcher(),
+    ).run("list the Python jobs", cancel=cancel)
+
+    assert result.status is RunStatus.CANCELLED
+    assert runner.ran == ["f1"]
+
+
+def test_a_request_past_its_time_limit_ends_deadline_exceeded_without_another_step() -> None:
+    """A limit of zero seconds is spent before the first plan, so no component is called."""
+    result = a_planner(
+        FakeLogicalPlanner([]),
+        FakePhysicalPlanner([]),
+        FakeFragmentRunner([]),
+        FakeCatalogSearcher(),
+        RunLimits(wall_clock_seconds=0),
+    ).run("list the job titles")
+
+    assert result.status is RunStatus.DEADLINE_EXCEEDED
+    assert result.answer is None
 
 
 class _NoParameters(BaseModel):

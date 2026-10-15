@@ -89,6 +89,7 @@ alone. A library caller passes the same values to `PlannerSettings` and reads no
 | `BLUE_DATA_PLANNER_MAX_OPERATOR_CALLS` | `30` | CLI, MCP | The operator calls one request may spend |
 | `BLUE_DATA_PLANNER_MAX_FAILURE_REPLANS` | `2` | CLI, MCP | The replans a failure may force |
 | `BLUE_DATA_PLANNER_MAX_CONTROL_REPLANS` | `5` | CLI, MCP | The replans a control node may ask for |
+| `BLUE_DATA_PLANNER_MAX_WALL_CLOCK_SECONDS` | `600` | CLI, MCP | The seconds a request may run, checked before each step |
 | `BLUE_DATA_LLM_MODEL` | `gpt-4o`, which the planner never falls back to | CLI, MCP | The family-wide model. A value set here is used where `BLUE_DATA_PLANNER_MODEL` is unset |
 | `BLUE_DATA_CLI_FORMAT` | `table` | CLI | The default output format, `table` or `json` |
 | `BLUE_DATA_CLI_LOG_LIMIT` | `80` | CLI | The characters each line of `--log` is cut to |

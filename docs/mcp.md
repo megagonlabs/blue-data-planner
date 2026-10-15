@@ -39,11 +39,11 @@ requested, because it grows with the retries a request took rather than with its
 | --- | --- |
 | `query_data(request)` | Left out |
 | `query_data(request, include_plan=True)` | Present |
-| `query_data(request, explain=True)` | Present. `status` is `planned`, or `invalid_plan`, `replan_exhausted`, `llm_failed`, or `planner_failed` when no plan could be written; `answer` is `null`, and the plan is all that comes back |
+| `query_data(request, explain=True)` | Present. `status` is `planned`, or `invalid_plan`, `replan_exhausted`, `llm_failed`, `planner_failed`, or `deadline_exceeded` when no plan could be written; `answer` is `null`, and the plan is all that comes back |
 
 A run that did not finish still returns the normal payload, with `status` and `failure_reason`
 saying why: `budget_exhausted`, `replan_exhausted`, `operator_failed`, `llm_failed`,
-`invalid_plan`, or `planner_failed`. `answer` is `null` in that case, never an empty list.
+`invalid_plan`, `planner_failed`, or `deadline_exceeded`. `answer` is `null` in that case, never an empty list.
 
 ## Errors
 
@@ -112,7 +112,9 @@ parent environment on in `env`, since the server reads the provider key from it.
 
 The agent runs the conversation and decides when it needs data; the planner takes one
 self-contained request and answers it. A request that takes minutes returns one tool result, so
-give the agent a timeout that allows for it.
+give the agent a timeout that allows for it. The server ends a request as `deadline_exceeded` after
+`BLUE_DATA_PLANNER_MAX_WALL_CLOCK_SECONDS` (600 by default), and a client that cancels the call stops
+the run before its next step rather than leaving it running beside a retry.
 [`examples/framework-demos/langgraph_mcp_demo.py`](../examples/framework-demos/langgraph_mcp_demo.py)
 is a runnable agent that asks several questions and writes a report from the rows.
 

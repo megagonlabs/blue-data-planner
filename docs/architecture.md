@@ -176,6 +176,7 @@ the model changed.
 | `cover_repairs` | 2 | Covers after the first, per logical plan |
 | `failure_replans` | 2 | Replans a failure forced |
 | `control_replans` | 5 | Replans a control node asked for |
+| `wall_clock_seconds` | 600 | Seconds the request has run, checked before each step |
 
 Model calls have no limit of their own. A plan holding more operator and `DISCOVER` nodes than
 `operator_calls` is turned down. This bounds the model calls made while planning: one catalog search
@@ -196,6 +197,8 @@ statuses rather than exceptions, and `answer` is `None` unless the status is `ok
 | `operator_failed` | An unrecoverable operator failure ended the run |
 | `llm_failed` | The provider failed after the client's retries |
 | `planner_failed` | A defect in the planner ended the run, with the message in `failure_reason` |
+| `deadline_exceeded` | The request reached its time limit before its next step |
+| `cancelled` | The caller cancelled the request, which stopped before its next step |
 
 ---
 

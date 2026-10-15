@@ -101,7 +101,9 @@ fragment at a time, and inside a component each call is written against what the
 
 **MCP handlers.** The MCP server's handlers are async because the SDK's are. They call the
 synchronous library directly for fast work, and through `asyncio.to_thread` for anything that runs a
-plan, so a long request does not block the event loop and stall the transport for the session.
+plan, so a long request does not block the event loop and stall the transport for the session. A
+thread cannot be stopped from outside, so the handler passes the run a `threading.Event` and sets it
+when the client cancels the call; the run stops before its next step (ADR-063).
 
 ---
 

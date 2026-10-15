@@ -159,6 +159,7 @@ the same thing to both.
 | `BLUE_DATA_PLANNER_MAX_OPERATOR_CALLS` | `limits.operator_calls` | `30` |
 | `BLUE_DATA_PLANNER_MAX_FAILURE_REPLANS` | `limits.failure_replans` | `2` |
 | `BLUE_DATA_PLANNER_MAX_CONTROL_REPLANS` | `limits.control_replans` | `5` |
+| `BLUE_DATA_PLANNER_MAX_WALL_CLOCK_SECONDS` | `limits.wall_clock_seconds` | `600` |
 
 `OPENAI_API_KEY` fills no settings field: litellm reads it straight from the process environment.
 A model from another provider takes that provider's own key variable instead.

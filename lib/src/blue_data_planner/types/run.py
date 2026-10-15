@@ -49,6 +49,8 @@ class RunStatus(StrEnum):
     OPERATOR_FAILED = "operator_failed"
     LLM_FAILED = "llm_failed"
     PLANNER_FAILED = "planner_failed"
+    DEADLINE_EXCEEDED = "deadline_exceeded"
+    CANCELLED = "cancelled"
 
 
 class FragmentReviewDecision(StrEnum):
@@ -309,6 +311,9 @@ class RunLimits:
     failure_replans: int = 2
     # How many times a control node may trigger a replan before the run gives up.
     control_replans: int = 5
+    # How many seconds a request may run. Checked between steps, so a step already running
+    # finishes first (ADR-063).
+    wall_clock_seconds: int = 600
 
 
 @dataclass

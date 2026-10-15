@@ -133,7 +133,8 @@ planner = build_data_planner(
 ```
 
 `operator_calls` is the one budget on a request's total work; the rest bound how often a stage may
-try again. Three of the six are counted across a whole request and reported back:
+try again. `wall_clock_seconds` limits how long a request runs, checked before each step. Three
+bounds are counted across a whole request and reported back:
 
 ```python
 counters = result.counters

@@ -26,7 +26,7 @@ class StdoutAtEmitHandler(logging.StreamHandler):
 
 
 class NoisyPlanner(FakePlanner):
-    def run(self, request):
+    def run(self, request, *, cancel=None):
         print("print noise")
         logger = logging.getLogger("noise")
         logger.addHandler(StdoutAtEmitHandler())

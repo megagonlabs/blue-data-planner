@@ -123,10 +123,11 @@ The loop schedules, dispatches on what came up, installs a cover, and assembles 
 those calls a model or invokes an operator directly.
 
 ```python
-def run(self, request: str) -> RunResult:
+def run(self, request: str, *, cancel: threading.Event | None = None) -> RunResult:
     state = RunState(request=request, counters=RunCounters(self._limits))
+    stop = _Stop(deadline=time.monotonic() + self._limits.wall_clock_seconds, cancel=cancel)
     try:
-        status, failure_reason, answer = self._run_plans(state)
+        status, failure_reason, answer = self._run_plans(state, stop)
     except LLMError as error:
         status, failure_reason, answer = RunStatus.LLM_FAILED, str(error), None
     except BlueDataPlannerError as error:
@@ -148,6 +149,11 @@ once. A plan with nothing left ends the request as `ok`, and `project_answer` ta
 node's columns off the result of the node it reads; rows that cannot answer what the ending names
 send the run to the replan instead. The fragment's own status then says whether the
 pass continues, ends the request with that status, replans, or goes to a repair.
+
+Before each step that has work left, the loop reads `stop`: a set cancellation event ends the
+request as `cancelled`, and a passed deadline as `deadline_exceeded` (ADR-063). The steps are
+writing a plan, writing a cover, running a fragment, and resolving control nodes, and a step already
+running finishes before the next check.
 
 `plan` enters the same loop under the same `try` and differs in one place: a pass that `next_ready`
 hands a fragment, or nothing, ends the request as `planned` instead of running the fragment or
@@ -400,9 +406,10 @@ stops the run by raising, because it is billed where no caller is positioned to 
 | `cover_repairs` | The run loop's cover loop |
 | `plan_corrections` | `LogicalPlanner`, rewriting a plan validation turned down |
 | `parameter_repairs` | `FragmentRunner`, writing parameters again after a rejected review |
+| `wall_clock_seconds` | The run loop, before each step |
 
-Three of the six last a whole request and are the fields of `RunCounters`. The other three reset
-inside one: `plan_corrections` and `parameter_repairs` bound a loop inside a component, and
+Four of the seven last a whole request. Three are the fields of `RunCounters`; the time limit is
+checked against the clock and counts nothing. The other three reset inside a request: `plan_corrections` and `parameter_repairs` bound a loop inside a component, and
 `cover_repairs` is a loop variable of the run loop. A bound that resets has no single number to
 report, so the result carries what lasted. Every one of them is read off the
 `RunCounters` a call was handed, whether or not that call spends anything against it.
@@ -431,10 +438,10 @@ everything else whole.
 
 `RunStatus` has one member per way a request can end and one per way a fragment can end short of
 an answer, and [09-api-interface-spec.md](09-api-interface-spec.md#results) lists the request
-endings against what each means to a caller. Each producer writes its own subset. `planned` is
-what `plan` returns, `llm_failed` is what a provider that fails after retries returns, and
-`planner_failed` is what a planner defect comes back as; none of the three is reachable from a
-component.
+endings against what each means to a caller. Each producer writes its own subset. The run loop
+alone writes five of them: `planned` when `plan` stops, `llm_failed` for a provider that fails after
+retries, `planner_failed` for a planner defect, and `deadline_exceeded` and `cancelled` from its
+checks between steps. No component returns any of the five.
 `needs_repair` and `needs_replan` run the other way: `FragmentRunner` is the only writer, the run
 loop the only reader, and a `RunResult` never carries either, because both name work the loop still
 has left to do.

@@ -2069,6 +2069,41 @@ limit once per row on a pattern that is slow on every value but never quite reac
 limit does not bound. The `lib/` install gains one compiled dependency, which litellm's own
 dependencies already install.
 
+## ADR-063 — A Request Has a Time Limit and Can Be Cancelled, Both Checked Between Steps
+
+**Date:** 2026-10-15
+**Status:** Accepted
+
+**Decision:** `RunLimits.wall_clock_seconds`, 600 by default, bounds how long one request runs.
+`DataPlanner.run` and `plan` also take an optional `threading.Event`, and setting it cancels the
+request. The run loop checks both before each step: before writing a plan, before writing a cover,
+and before running a fragment or resolving control nodes. A request past its time limit ends
+`deadline_exceeded`, and a cancelled one ends `cancelled`, each with the `RunResult` built so far.
+A step already running finishes first. The MCP server sets the event when the client cancels a
+`query_data` call. `BLUE_DATA_PLANNER_MAX_WALL_CLOCK_SECONDS` sets the limit for the CLI and the
+MCP server.
+
+**Rationale:** The library is synchronous, so the MCP server runs each request on a thread, and a
+thread cannot be stopped from outside. A client that times out and retries otherwise leaves the
+first run spending beside the second. Only an event the run reads between steps can stop it, and a
+time limit read at the same points covers a caller that never cancels. Checking between steps rather
+than inside one keeps every component unaware of either: a model call, an operator call, and a
+source read each end on their own terms, and the provider timeout (ADR-061) and the pattern time
+limit (ADR-062) bound the two waits a step could otherwise prolong without end.
+
+Two statuses rather than reusing `budget_exhausted` let a caller tell a request that ran out of
+time from one that ran out of operator calls, and from one it stopped itself.
+
+600 seconds is not measured. A TAG-Bench question finishes in a few minutes, and a limit several
+times that stops a run that is not converging without stopping one that is.
+
+**Consequences:** A request can run past its limit by as long as its last step takes: the
+operator calls of one fragment with its parameter repairs, or the bindings of one cover. The answer
+of a run whose steps all finished is returned even past the limit, since no step is left to check
+before. `RunCounters` does not report elapsed time, so unlike the other three bounds spanning a
+whole request, the time limit has no count in the result. A caller of the library that wants cancellation creates the
+event and sets it from another thread.
+
 ---
 
 ## Open Questions

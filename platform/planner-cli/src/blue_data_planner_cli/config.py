@@ -119,13 +119,15 @@ def resolve_settings(
             provider_timeout_seconds=int(
                 _get(resolver, "BLUE_DATA_PLANNER_PROVIDER_TIMEOUT_SECONDS")
             ),
-            # The three bounds a run reports back are the three a profile sets. The rest reset
-            # inside a request, so nothing reports what one spent against them, and they keep
-            # the RunLimits defaults unless a library caller sets them.
+            # A profile sets the bounds that span a whole request: the three a run reports back,
+            # and its time limit. The rest reset inside a request, so nothing reports what one
+            # spent against them, and they keep the RunLimits defaults unless a library caller
+            # sets them.
             limits=RunLimits(
                 operator_calls=int(_get(resolver, "BLUE_DATA_PLANNER_MAX_OPERATOR_CALLS")),
                 failure_replans=int(_get(resolver, "BLUE_DATA_PLANNER_MAX_FAILURE_REPLANS")),
                 control_replans=int(_get(resolver, "BLUE_DATA_PLANNER_MAX_CONTROL_REPLANS")),
+                wall_clock_seconds=int(_get(resolver, "BLUE_DATA_PLANNER_MAX_WALL_CLOCK_SECONDS")),
             ),
         )
     except InvalidSettingError as error:

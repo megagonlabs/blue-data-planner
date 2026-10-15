@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import threading
 
@@ -10,7 +11,12 @@ from blue_data_planner.types import RegistryUnreadableError, UnknownOperatorSuit
 
 import blue_data_planner_mcp.config as config
 from blue_data_planner_mcp.server import mcp, query_data
-from tests.doubles.planner import FakePlanner, a_run_that_answered, a_run_that_ran_out_of_budget
+from tests.doubles.planner import (
+    FakePlanner,
+    PlannerWaitingForCancel,
+    a_run_that_answered,
+    a_run_that_ran_out_of_budget,
+)
 
 
 @pytest.fixture
@@ -103,3 +109,17 @@ async def test_the_planner_runs_off_the_event_loop_thread(planner: FakePlanner):
     """A run takes minutes, and a blocked stdio loop stops answering pings and cancellations."""
     await query_data("which postings")
     assert planner.thread_ids != [threading.get_ident()]
+
+
+async def test_cancelling_a_call_tells_its_run_to_stop(monkeypatch: pytest.MonkeyPatch):
+    """The thread cannot be stopped from outside, so the run is handed an event it checks."""
+    planner = PlannerWaitingForCancel(a_run_that_answered())
+    monkeypatch.setattr(config, "get_planner", lambda: planner)
+
+    call = asyncio.create_task(query_data("which postings"))
+    assert await asyncio.to_thread(planner.started.wait, 5)
+    call.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await call
+
+    assert await asyncio.to_thread(planner.saw_cancel.wait, 5)

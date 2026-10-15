@@ -24,6 +24,7 @@ import json
 import logging
 import os
 import sys
+import threading
 from io import TextIOWrapper
 from typing import Annotated, Any
 
@@ -105,7 +106,14 @@ async def query_data(
         operation = planner.plan if explain else planner.run
         # A request takes minutes. A stdio server that blocks its event loop stops answering
         # pings and cancellations, so the planner runs on a thread of its own.
-        result = await asyncio.to_thread(operation, request)
+        cancel = threading.Event()
+        try:
+            result = await asyncio.to_thread(operation, request, cancel=cancel)
+        except asyncio.CancelledError:
+            # Cancelling this task cannot stop the thread, so the run is told to stop at its
+            # next step instead of spending on beside the retry a client may send (ADR-063).
+            cancel.set()
+            raise
         return _ok(_payload(result, with_plans=explain or include_plan))
     except Exception as error:
         # The one broad catch in this package. A failure is a payload rather than a tool error,
