@@ -273,9 +273,10 @@ expensive question over a large source.
 blue-planner data query "Which Bay Area data scientist postings are at healthcare companies?" --explain
 ```
 
-For this question, `--explain` shows the first plan with its two `DISCOVER` nodes, then the
-continuation written against what the two searches found, and the cover over it. The searches read
-the catalog and call no operator, so they run; the fragments of the cover do not. What the analyst
+For this question, `--explain` shows the continuation written against what the two `DISCOVER`
+searches found, and the cover over it. The searches read the catalog and call no operator, so they
+run; the fragments of the cover do not. Adding `--log` also shows the first plan, the one holding
+the two searches, and what each search matched. What the analyst
 reads is the plan and the pushdown boundary the run would start executing, before anything is spent
 on it. A question whose discovery needs rows from an earlier fragment is shown up to that
 fragment.

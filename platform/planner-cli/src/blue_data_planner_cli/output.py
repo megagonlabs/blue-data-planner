@@ -59,31 +59,6 @@ def print_answer(
         console.print(_as_table(table_rows))
 
 
-def print_plan(
-    result: RunResult, output_format: str, console: Console, *, log: bool = False
-) -> None:
-    """Print the logical plan and the cover a planning run produced."""
-    if output_format == "json":
-        print_json(run_json(result, explain=True, log=log), console)
-        return
-    for plan in result.pipeline.logical_plans.values():
-        nodes = Table("Node", "Kind", "Instruction")
-        for node in plan.nodes:
-            # Every cell goes through Text like the ones in _as_table: the instruction is
-            # model-authored, and a plain string with square brackets would read as markup.
-            nodes.add_row(Text(node.id), Text(str(node.kind)), Text(node.instruction))
-        console.print(nodes)
-    for cover in result.pipeline.physical_plans.values():
-        fragments = Table("Fragment", "Nodes", "Operator")
-        for fragment in cover.fragments:
-            fragments.add_row(
-                Text(fragment.id),
-                Text(",".join(fragment.logical_node_ids)),
-                Text(fragment.operator_id),
-            )
-        console.print(fragments)
-
-
 def run_json(result: RunResult, *, explain: bool, log: bool) -> dict[str, Any]:
     """Return the JSON document standard output carries."""
     payload = result.to_dict()

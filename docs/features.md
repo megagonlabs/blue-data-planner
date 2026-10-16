@@ -197,8 +197,9 @@ blue-planner data query "..." --explain            # the plan, no operator call 
 blue-planner data query "..." --log --format json  # the answer, plus what the run did
 ```
 
-`--log` reports the run cover by cover: each fragment's operator, the nodes it covered, the source
-each scan read, and how it ended. [cli.md](cli.md) is the reference for commands, profiles, output,
+`--log` reports the run cover by cover: each fragment's operator, the nodes it covered, what each
+node reads, the source each scan read, and how it ended. `--explain` draws the cover a run would
+start executing the same way. [cli.md](cli.md) is the reference for commands, profiles, output,
 and exit codes.
 
 ---

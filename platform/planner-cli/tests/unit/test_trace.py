@@ -18,14 +18,18 @@ from blue_data_planner.types import (
 )
 
 from blue_data_planner_cli.trace import (
+    NOT_REACHED,
+    TracedRead,
     discovery_ending,
     fragment_ending,
     print_log,
+    print_plan,
     spend_lines,
     traced_covers,
 )
 from tests.doubles.components import (
     a_discovery_of_one_match,
+    a_planning_run_that_searched_then_planned_again,
     a_rerun_whose_second_cover_keeps_the_scan,
     a_run_over_one_cover_of_two_fragments,
     a_run_result,
@@ -97,11 +101,36 @@ def test_a_fragment_logs_its_operator_its_steps_and_a_summary_of_what_it_returne
     assert scan.rows.columns == ["county", "title"]
 
 
-def test_a_fragment_names_the_fragments_whose_output_it_reads() -> None:
-    """A reader follows a wrong answer upstream, and needs to know which way upstream is."""
-    covers = traced_covers(a_run_over_one_cover_of_two_fragments())
+def a_run_whose_one_fragment_groups_the_scan_and_the_filter() -> RunResult:
+    """A run whose cover hands both nodes to one fragment, as a compound operator takes them."""
+    result = a_run_over_one_cover_of_two_fragments()
+    cover = result.pipeline.physical_plans["pp1"]
+    sem_filter = next(one for one in cover.fragments if one.root_logical_node_id == "n2")
+    grouped = dataclasses.replace(sem_filter, logical_node_ids=["n1", "n2"], input_data=[])
+    return dataclasses.replace(
+        result,
+        pipeline=dataclasses.replace(
+            result.pipeline,
+            physical_plans={"pp1": dataclasses.replace(cover, fragments=[grouped])},
+        ),
+        results={},
+    )
 
-    assert covers[0].fragments[1].input_fragment_ids == ["f1"]
+
+@pytest.mark.parametrize(
+    ("result", "expected"),
+    [
+        (a_run_over_one_cover_of_two_fragments(), [TracedRead("n1", "f1")]),
+        (a_run_whose_one_fragment_groups_the_scan_and_the_filter(), [TracedRead("n1", None)]),
+    ],
+)
+def test_a_node_names_what_it_reads_and_the_fragment_producing_it_where_that_is_another(
+    result: RunResult, expected: list[TracedRead]
+) -> None:
+    """A reader follows a wrong answer upstream, across fragments and inside one alike."""
+    filter_node = traced_covers(result)[0].fragments[-1].nodes[-1]
+
+    assert filter_node.reads == expected
 
 
 def test_a_cover_lists_its_fragments_in_the_order_a_run_reaches_them() -> None:
@@ -204,10 +233,11 @@ def test_the_printed_log_puts_one_cover_in_one_table() -> None:
 
 
 def test_a_scanned_source_is_printed_under_the_table_rather_than_inside_a_column() -> None:
-    """A catalog path is longer than any column, and a reader needs the whole of it."""
-    printed = a_printed_log(a_run_over_one_cover_of_two_fragments(), width=60)
+    """A catalog path is longer than any column, and a reader needs the whole of it on one line,
+    even on a console narrower than the line."""
+    printed = a_printed_log(a_run_over_one_cover_of_two_fragments(), width=20)
 
-    assert "      reads  n1  jobs/postings" in printed
+    assert "      source  n1  jobs/postings" in printed
 
 
 def test_a_printed_instruction_holding_square_brackets_reaches_the_table_whole() -> None:
@@ -239,3 +269,31 @@ def test_a_cover_naming_a_node_its_plan_does_not_hold_is_raised_rather_than_draw
     """Drawing a placeholder step would put malformed state in front of a reader as a fact."""
     with pytest.raises(UnknownNodeError):
         traced_covers(a_cover_naming_a_node_the_plan_lacks())
+
+
+def a_printed_plan(result: RunResult) -> str:
+    """Return what --explain writes to a console wide enough that nothing wraps."""
+    console, buffer = a_console()
+    print_plan(result, "table", console)
+    return buffer.getvalue()
+
+
+def test_explaining_prints_only_the_cover_a_run_would_start_executing() -> None:
+    """The covers written on the way there are the log's to show, so --explain shows the last."""
+    printed = a_printed_plan(a_planning_run_that_searched_then_planned_again())
+
+    assert "physical plan   logical plan lp2" in printed
+    assert "lp1" not in printed
+
+
+def test_an_explained_cover_leaves_out_the_results_nothing_has_produced_yet() -> None:
+    """Every fragment of a plan is unreached, so a results column would say nothing."""
+    printed = a_printed_plan(a_planning_run_that_searched_then_planned_again())
+
+    assert "Result" not in printed
+    assert NOT_REACHED not in printed
+
+
+def test_explaining_a_pass_that_installed_no_plan_prints_nothing() -> None:
+    """The closing summary names how such a pass ended, and there is no plan to show."""
+    assert a_printed_plan(a_run_result(status=RunStatus.PLANNER_FAILED)) == ""

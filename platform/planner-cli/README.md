@@ -90,11 +90,43 @@ blue-planner data query "Which three countries do the most customers come from?"
 ```
 
 `--explain` plans the request as a run would, searching the catalog and writing the plan again
-against what it found, and prints every plan and cover up to the first operator call. It spends no
-operator call.
+against what it found, and prints the last plan and its cover: what a run would start executing. It
+spends no operator call. With `--log` as well, the plans and covers written before it are reported
+on standard error, one physical plan at a time.
 
 ```bash
 blue-planner data query "Which three countries do the most customers come from?" --explain
+```
+
+Standard output then carries the physical plan, drawn as `--log` draws one, without the results
+column:
+
+```text
+physical plan   logical plan 859d57ee-20f3-4e92-a91a-92f342910e07
+┏━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━┓
+┃ Fragment               ┃ Node                   ┃ Reads                  ┃ Instruction           ┃
+┡━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━┩
+│ find_customer_country… │ find_customer_country… │                        │ Discover the data     │
+│                        │ DISCOVER               │                        │ recording each        │
+│                        │                        │                        │ customer and the      │
+│                        │                        │                        │ country they come     │
+│                        │                        │                        │ from.                 │
+├────────────────────────┼────────────────────────┼────────────────────────┼───────────────────────┤
+│ f7a10bfec              │ scan_customers         │                        │ Read the customers    │
+│ builtin.scan           │ SCAN                   │                        │ entity.               │
+├────────────────────────┼────────────────────────┼────────────────────────┼───────────────────────┤
+│ f5279832f              │ count_customers_by_co… │ scan_customers         │ Count customers for   │
+│ builtin.aggregate      │ AGGREGATE              │ (f7a10bfec)            │ each country,         │
+│                        │                        │                        │ producing             │
+│                        │                        │                        │ customer_count.       │
+├────────────────────────┼────────────────────────┼────────────────────────┼───────────────────────┤
+│ f667a8c58              │ rank_countries         │ count_customers_by_co… │ Order countries by    │
+│ builtin.sort_superlat… │ SORT_SUPERLATIVE       │ (f5279832f)            │ customer_count from   │
+│                        │                        │                        │ highest to lowest and │
+│                        │                        │                        │ keep the top three.   │
+└────────────────────────┴────────────────────────┴────────────────────────┴───────────────────────┘
+  f7a10bfec
+      source  scan_customers  /source/northwind/database/northwind/collection/public/entity/customers
 ```
 
 The command takes `--registry-path PATH`, `--model NAME`, `--format table|json`, `--explain`,
@@ -137,10 +169,10 @@ answer.
 `--log` reports what the run did, one physical plan at a time. Its fragments come in the order the
 logical plan's dependencies put them, which is the order a run could have reached them, and each
 names the operator that ran it, the logical nodes it covered with the instruction each carried, the
-source each scan read, the fragments whose output it read, and how it ended. A fragment that ran
-carries its ending — a row count where the review kept the result, and the ending's name with the
-objection where it did not — and one the pass never got to reads as "not reached under this physical
-plan". A `DISCOVER` node leads the physical plan, with what its search matched. Work a later
+source each scan read, the nodes each one reads with the fragment producing any it reads from
+another, and how it ended. A fragment that ran carries its ending — a row count where the review
+kept the result, and the ending's name with the objection where it did not — and one the pass never
+got to reads as "not reached under this physical plan". A `DISCOVER` node leads the physical plan, with what its search matched. Work a later
 physical plan asks for again is named rather than reported twice, since an accepted result was not
 run again. A run that failed closes the log with one more line naming why.
 
@@ -159,58 +191,64 @@ The log of `blue-planner data query "Which three countries do the most customers
 over the demo registry, as standard error carries it:
 
 ```text
-physical plan 1   logical plan 5998143e-d764-4796-816e-48d92d882579
-┏━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━┳━━━━━━━━━━━━━━━┓
-┃ Fragment               ┃ Node                   ┃ Instruction            ┃ Input ┃ Result        ┃
-┡━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━╇━━━━━━━━━━━━━━━┩
-│ find_customer_country… │ find_customer_country… │ Discover the data      │       │ ok  1 matches │
-│                        │ DISCOVER               │ recording customers    │       │               │
-│                        │                        │ and the countries they │       │               │
-│                        │                        │ come from.             │       │               │
-└────────────────────────┴────────────────────────┴────────────────────────┴───────┴───────────────┘
+physical plan 1   logical plan 467fc796-96e3-40f7-adc4-e4d92526dcef
+┏━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━┓
+┃ Fragment               ┃ Node                   ┃ Reads ┃ Instruction            ┃ Result        ┃
+┡━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━┩
+│ find_customer_country… │ find_customer_country… │       │ Discover the data      │ ok  3 matches │
+│                        │ DISCOVER               │       │ recording customers    │               │
+│                        │                        │       │ and the country each   │               │
+│                        │                        │       │ customer comes from.   │               │
+└────────────────────────┴────────────────────────┴───────┴────────────────────────┴───────────────┘
   find_customer_country_data
       matched  /source/northwind/database/northwind/collection/public/entity/customers
+      matched  /source/northwind/database/northwind/collection/public/entity/orders
+      matched  /source/northwind/database/northwind/collection/public/entity/suppliers
 
-physical plan 2   logical plan 2d0c5d89-189f-4698-ac36-e5bfd0cd1d3f
-┏━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━┓
-┃ Fragment           ┃ Node              ┃ Instruction        ┃ Input          ┃ Result            ┃
-┡━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━┩
-│ find_customer_cou… │ find_customer_co… │ Discover the data  │                │ ok  1 matches     │
-│                    │ DISCOVER          │ recording          │                │ (reused from      │
-│                    │                   │ customers and the  │                │ physical plan 1)  │
-│                    │                   │ countries they     │                │                   │
-│                    │                   │ come from.         │                │                   │
-├────────────────────┼───────────────────┼────────────────────┼────────────────┼───────────────────┤
-│ fbc12ae51          │ scan_customers    │ Read the customer  │                │ ok  15 rows       │
-│ builtin.scan       │ SCAN              │ entity.            │                │                   │
-├────────────────────┼───────────────────┼────────────────────┼────────────────┼───────────────────┤
-│ ff5883b61          │ count_customers_… │ Group customers by │ from fbc12ae51 │ ok  10 rows       │
-│ builtin.aggregate  │ AGGREGATE         │ country and count  │                │                   │
-│                    │                   │ them as            │                │                   │
-│                    │                   │ customer_count.    │                │                   │
-├────────────────────┼───────────────────┼────────────────────┼────────────────┼───────────────────┤
-│ f5ece2b57          │ top_three_countr… │ Order countries by │ from ff5883b61 │ ok  3 rows        │
-│ builtin.sort_supe… │ SORT_SUPERLATIVE  │ customer_count     │                │                   │
-│                    │                   │ from highest to    │                │                   │
-│                    │                   │ lowest and keep    │                │                   │
-│                    │                   │ the top three.     │                │                   │
-└────────────────────┴───────────────────┴────────────────────┴────────────────┴───────────────────┘
-  fbc12ae51
-      reads  scan_customers  /source/northwind/database/northwind/collection/public/entity/customers
+physical plan 2   logical plan 5a935183-f2ea-4340-933f-7e53311f0470
+┏━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━┓
+┃ Fragment          ┃ Node              ┃ Reads             ┃ Instruction      ┃ Result            ┃
+┡━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━┩
+│ find_customer_co… │ find_customer_co… │                   │ Discover the     │ ok  3 matches     │
+│                   │ DISCOVER          │                   │ data recording   │ (reused from      │
+│                   │                   │                   │ customers and    │ physical plan 1)  │
+│                   │                   │                   │ the country each │                   │
+│                   │                   │                   │ customer comes   │                   │
+│                   │                   │                   │ from.            │                   │
+├───────────────────┼───────────────────┼───────────────────┼──────────────────┼───────────────────┤
+│ f575f3e3f         │ scan_customers    │                   │ Read the         │ ok  15 rows       │
+│ builtin.scan      │ SCAN              │                   │ customer entity. │                   │
+├───────────────────┼───────────────────┼───────────────────┼──────────────────┼───────────────────┤
+│ f59d8df72         │ count_customers_… │ scan_customers    │ Group customers  │ ok  10 rows       │
+│ builtin.aggregate │ AGGREGATE         │ (f575f3e3f)       │ by country and   │                   │
+│                   │                   │                   │ count the        │                   │
+│                   │                   │                   │ customers in     │                   │
+│                   │                   │                   │ each country as  │                   │
+│                   │                   │                   │ customer_count.  │                   │
+├───────────────────┼───────────────────┼───────────────────┼──────────────────┼───────────────────┤
+│ fbbd57b57         │ top_three_countr… │ count_customers_… │ Order countries  │ ok  3 rows        │
+│ builtin.sort_sup… │ SORT_SUPERLATIVE  │ (f59d8df72)       │ by               │                   │
+│                   │                   │                   │ customer_count   │                   │
+│                   │                   │                   │ from highest to  │                   │
+│                   │                   │                   │ lowest and keep  │                   │
+│                   │                   │                   │ the top three.   │                   │
+└───────────────────┴───────────────────┴───────────────────┴──────────────────┴───────────────────┘
+  f575f3e3f
+      source  scan_customers  /source/northwind/database/northwind/collection/public/entity/customers
       columns  city, company_name, contact_name, country, customer_id
       {'customer_id': 'ALFKI', 'company_name': 'Alfreds Futterkiste', 'contact_…
       {'customer_id': 'ANATR', 'company_name': 'Ana Trujillo Emparedados y hela…
       {'customer_id': 'ANTON', 'company_name': 'Antonio Moreno Taqueria', 'cont…
       {'customer_id': 'AROUT', 'company_name': 'Around the Horn', 'contact_name…
       {'customer_id': 'BERGS', 'company_name': 'Berglunds snabbkop', 'contact_n…
-  ff5883b61
+  f59d8df72
       columns  country, customer_count
       {'country': 'Germany', 'customer_count': 2}
       {'country': 'Mexico', 'customer_count': 3}
       {'country': 'UK', 'customer_count': 2}
       {'country': 'Sweden', 'customer_count': 1}
       {'country': 'France', 'customer_count': 2}
-  f5ece2b57
+  fbbd57b57
       columns  country, customer_count
       {'country': 'Mexico', 'customer_count': 3}
       {'country': 'Germany', 'customer_count': 2}

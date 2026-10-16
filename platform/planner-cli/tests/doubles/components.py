@@ -235,6 +235,46 @@ def a_rerun_whose_second_cover_keeps_the_scan() -> RunResult:
     )
 
 
+def a_planning_run_that_searched_then_planned_again() -> RunResult:
+    """Return what --explain produces for a request that had to find its data: a plan of one
+    DISCOVER node over an empty cover, then a continuation scanning what the search found."""
+    search = PipelineNode(
+        id="find_schools",
+        kind=ControlOperator.DISCOVER,
+        attributes={"instruction": "find a source holding schools"},
+    )
+    first = LogicalPlan(id="lp1", parent_id=None, nodes=[search], output_node_id=None)
+    scan_node = PipelineNode(
+        id="scan_schools",
+        kind=LogicalOperator.SCAN,
+        attributes={"instruction": "read every school", "source": "california_schools/schools"},
+    )
+    second = LogicalPlan(
+        id="lp2", parent_id="lp1", nodes=[search, scan_node], output_node_id="scan_schools"
+    )
+    scan = PhysicalPlanFragment(
+        id="f1",
+        logical_node_ids=["scan_schools"],
+        root_logical_node_id="scan_schools",
+        operator_id="builtin.scan",
+        scan_sources={"scan_schools": "california_schools/schools"},
+        instruction="read every school",
+        input_data=[],
+        required_output_columns=[],
+    )
+    empty = PhysicalPlan(id="pp1", parent_id=None, logical_plan_id=first.id, fragments=[])
+    cover = PhysicalPlan(id="pp2", parent_id=None, logical_plan_id=second.id, fragments=[scan])
+    return a_run_result(
+        status=RunStatus.PLANNED,
+        pipeline=DataPipeline(
+            logical_plans={first.id: first, second.id: second},
+            physical_plans={empty.id: empty, cover.id: cover},
+            current_logical_plan_id=second.id,
+            current_physical_plan_id=cover.id,
+        ),
+    )
+
+
 def a_planning_run() -> RunResult:
     """Return what --explain produces: a plan and its cover, with no operator call spent."""
     return dataclasses.replace(

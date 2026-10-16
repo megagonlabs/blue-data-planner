@@ -26,13 +26,12 @@ from blue_data_planner_cli.output import (
     format_option,
     print_answer,
     print_error,
-    print_plan,
     record_output_format,
     report_error,
     summary_line,
 )
 from blue_data_planner_cli.profile import profile_group
-from blue_data_planner_cli.trace import print_log
+from blue_data_planner_cli.trace import print_log, print_plan
 
 
 @click.group()

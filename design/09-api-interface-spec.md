@@ -280,8 +280,10 @@ blue-planner data query REQUEST [--registry-path PATH] [--model NAME] [--format 
                                 [--explain] [--log] [--log-limit N]
 ```
 
-`data query` runs `run` and prints the answer. With `--explain` it runs `plan` instead, prints every
-plan version and every cover the planning produced, and spends no operator call. The request is a
+`data query` runs `run` and prints the answer. With `--explain` it runs `plan` instead, prints the
+last plan version and its cover, which is what a run would start executing, and spends no operator
+call. With `--log` as well, the plan versions and covers written before it are reported cover by
+cover, as for a run. The request is a
 positional parameter in plain language; no command accepts a plan.
 
 | Option | Effect |
