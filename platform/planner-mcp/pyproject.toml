@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "blue-data-planner-mcp"
-version = "0.1.0"
+version = "1.0.0"
 description = "blue-data-planner-mcp — the MCP server over blue-data-planner"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -15,7 +15,7 @@ maintainers = [
     {name = "Naoki Otani"},
 ]
 dependencies = [
-    "blue-data-planner==0.1.0",
+    "blue-data-planner==1.0.0",
     # mcp 2.0 removed FastMCP for mcp.server.mcpserver.MCPServer. Every Blue Data server is on
     # v1, and moving is one decision for the family rather than for this package.
     "mcp[cli]>=1.28.1,<2",

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "blue-data-planner"
-version = "0.1.0"
+version = "1.0.0"
 description = "Blue Data Planner — operator-agnostic planning over the Blue Data Intelligence Layer"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -15,8 +15,8 @@ maintainers = [
     {name = "Naoki Otani"},
 ]
 dependencies = [
-    "blue-data-ops>=3.1.0,<4",
-    "blue-data>=0.1.0",
+    "blue-data-ops>=1.0.0,<2",
+    "blue-data>=1.0.0",
     "pydantic>=2",
     "jsonpath-ng",
     "tenacity",

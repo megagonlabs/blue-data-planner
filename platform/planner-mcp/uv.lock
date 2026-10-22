@@ -1,5 +1,5 @@
 version = 1
-revision = 2
+revision = 3
 requires-python = ">=3.11"
 resolution-markers = [
     "python_full_version >= '3.14' and sys_platform == 'win32'",
@@ -201,7 +201,7 @@ wheels = [
 
 [[package]]
 name = "blue-data"
-version = "0.1.0"
+version = "1.0.0"
 source = { editable = "../../../blue-data/lib" }
 dependencies = [
     { name = "jsonpath-ng" },
@@ -216,6 +216,7 @@ requires-dist = [
     { name = "anthropic", marker = "extra == 'llm'" },
     { name = "chromadb", marker = "extra == 'all'" },
     { name = "chromadb", marker = "extra == 'chromadb'" },
+    { name = "fastapi", marker = "extra == 'server'" },
     { name = "jsonpath-ng" },
     { name = "mysql-connector-python", marker = "extra == 'all'" },
     { name = "mysql-connector-python", marker = "extra == 'mysql'" },
@@ -235,14 +236,14 @@ requires-dist = [
     { name = "pymongo", marker = "extra == 'mongodb'" },
     { name = "pytest", marker = "extra == 'dev'" },
     { name = "pytest-cov", marker = "extra == 'dev'" },
-    { name = "redis", marker = "extra == 'all'" },
-    { name = "redis", marker = "extra == 'redis'" },
+    { name = "redis", marker = "extra == 'all'", specifier = ">=5,<7" },
+    { name = "redis", marker = "extra == 'redis'", specifier = ">=5,<7" },
 ]
-provides-extras = ["postgres", "mysql", "mongodb", "neo4j", "redis", "chromadb", "bn", "parquet", "llm", "dev", "all"]
+provides-extras = ["postgres", "mysql", "mongodb", "neo4j", "redis", "chromadb", "bn", "parquet", "llm", "server", "dev", "all"]
 
 [[package]]
 name = "blue-data-ops"
-version = "3.1.0"
+version = "1.0.0"
 source = { editable = "../../../blue-data-ops/lib" }
 dependencies = [
     { name = "blue-data" },
@@ -254,7 +255,7 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
-    { name = "blue-data", specifier = ">=0.1.0" },
+    { name = "blue-data", specifier = ">=1.0.0" },
     { name = "build", marker = "extra == 'dev'" },
     { name = "diskcache", marker = "extra == 'dev'" },
     { name = "diskcache", marker = "extra == 'llm'" },
@@ -287,7 +288,7 @@ provides-extras = ["ml", "vector", "llm", "openai", "dev"]
 
 [[package]]
 name = "blue-data-planner"
-version = "0.1.0"
+version = "1.0.0"
 source = { editable = "../../lib" }
 dependencies = [
     { name = "blue-data" },
@@ -326,7 +327,7 @@ no-lotus = []
 
 [[package]]
 name = "blue-data-planner-mcp"
-version = "0.1.0"
+version = "1.0.0"
 source = { editable = "." }
 dependencies = [
     { name = "anyio" },

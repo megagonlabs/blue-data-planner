@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from importlib.metadata import version
 from pathlib import Path
 
 from click.testing import CliRunner
@@ -78,7 +79,7 @@ def test_the_version_is_the_package_version(tmp_path: Path) -> None:
     result = runner.invoke(cli, ["--version"], env=env)
 
     assert result.exit_code == 0
-    assert "0.1.0" in result.output
+    assert result.output.strip() == version("blue-data-planner-cli")
 
 
 def test_selecting_a_profile_that_does_not_exist_reports_it_as_not_found(tmp_path: Path) -> None:

@@ -6,7 +6,7 @@ from blue_data_planner.data_planner import DataPlanner, build_data_planner
 from blue_data_planner.settings import PlannerSettings, build_data_planner_from_settings
 from blue_data_planner.types import BlueDataPlannerError, RunLimits, RunResult, RunStatus
 
-__version__: str = "0.1.0"
+__version__: str = "1.0.0"
 
 __all__ = [
     "BlueDataPlannerError",
