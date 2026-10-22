@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from typing import Any, ClassVar
 
 from blue_data_ops.operators.operator import Operator
-from blue_data_ops.operators.registry import OperatorRegistry, default_registry
+from blue_data_ops.operators.registry import OperatorRegistry, versioned_registry
 from blue_data_ops.operators.types import Properties
 from pydantic import BaseModel
 
@@ -307,11 +307,14 @@ class BlueSuite:
     """The Blue operator library's operations, over the registry that resolves them."""
 
     name: ClassVar[str] = "blue"
-    # None resolves each operation against the registry blue-data-ops builds by default.
+    # None resolves the operation table's exact pins from blue-data-ops' retained versions.
     operator_registry: OperatorRegistry | None = None
 
     def operators(
         self, *, data_registry: DataRegistry, llm_client: LLMClient, model: str
     ) -> list[PhysicalOperator]:
         """Return one physical operator per Blue operation a fragment can be bound to."""
-        return blue_operators(self.operator_registry or default_registry(), data_registry)
+        registry = self.operator_registry
+        if registry is None:
+            registry = versioned_registry()
+        return blue_operators(registry, data_registry)

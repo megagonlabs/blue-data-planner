@@ -474,6 +474,11 @@ OPERATOR_SUITE_NAMES: tuple[str, ...] = ("builtin", "lotus", "blue")
 
 `LotusSuite.model` defaults to the model every other component uses. `LotusSuite.operators`
 returns an empty list when LOTUS is not installed.
+
+With no `operator_registry`, `BlueSuite` resolves its pinned operation versions against
+`blue_data_ops.operators.registry.versioned_registry()`, which retains those versions even when
+the active versions advance. A supplied registry is used directly.
+
 [architecture.md](architecture.md#operator-suites) describes what each suite offers, and
 [extending.md](extending.md) how to add one.
 

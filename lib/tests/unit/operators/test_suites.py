@@ -13,7 +13,11 @@ from blue_data_planner.operators import OPERATOR_SUITE_NAMES, operator_suite
 from blue_data_planner.operators.adapters.blue import BlueSuite
 from blue_data_planner.operators.adapters.lotus import LotusSuite, settings
 from blue_data_planner.types import UnknownOperatorSuiteError
-from tests.doubles.blue_operations import a_registry_answering_every_operation
+from tests.doubles.blue_operations import (
+    OPERATION_NAMES,
+    a_registry_answering_every_operation,
+    scripted_operation,
+)
 
 PLANNER_MODEL = "openai/gpt-6-luna"
 
@@ -79,8 +83,33 @@ def test_a_lotus_suite_runs_on_its_own_model_or_on_the_planners(
     assert lotus_stub.settings.lm.model == runs_on
 
 
+@pytest.mark.parametrize(
+    "suite", [BlueSuite(), operator_suite("blue")], ids=["direct", "configured"]
+)
+def test_a_blue_suite_without_a_registry_builds_and_runs_its_pinned_operations(suite: Any) -> None:
+    """Both public defaults must resolve the real pinned operations before a request starts."""
+    operators = {one.operator_id: one for one in built(suite)}
+
+    assert set(operators) == {f"blue.{name}" for name in OPERATION_NAMES}
+    result = operators["blue.select"].call(
+        [[{"city": "Reno", "population": 2}, {"city": "Dallas", "population": 9}]],
+        {"operand_key": "population", "operand": ">", "operand_val": 5},
+        [],
+    )
+
+    assert result.data == [[{"city": "Dallas", "population": 9}]]
+
+
 def test_a_blue_suite_resolves_its_operations_against_the_registry_it_was_given() -> None:
     """A caller holding its own operator registry hands that one in rather than the default."""
-    operators = built(BlueSuite(operator_registry=a_registry_answering_every_operation()))
+    select = scripted_operation("select", output=[[{"city": "from the custom registry"}]])
+    operators = built(BlueSuite(operator_registry=a_registry_answering_every_operation(select)))
+    operator = next(one for one in operators if one.operator_id == "blue.select")
 
-    assert [one.operator_id for one in operators if one.operator_id == "blue.select"]
+    result = operator.call(
+        [[{"city": "Reno"}]],
+        {"operand_key": "city", "operand": "=", "operand_val": "Reno"},
+        [],
+    )
+
+    assert result.data == [[{"city": "from the custom registry"}]]

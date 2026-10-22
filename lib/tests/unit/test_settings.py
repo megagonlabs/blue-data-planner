@@ -119,6 +119,13 @@ def test_an_unknown_operator_suite_name_is_refused_when_the_planner_is_built(
         )
 
 
+def test_the_blue_suite_builds_from_the_settings_cli_and_mcp_use(tmp_path: Path) -> None:
+    """Configured Blue operators must resolve without a caller supplying their registry."""
+    build_data_planner_from_settings(
+        a_settings(registry_path=a_readable_registry(tmp_path), operator_suites=("builtin", "blue"))
+    )
+
+
 @pytest.mark.parametrize(("configured", "expected"), [("off", None), ("low", "low")])
 def test_off_leaves_the_reasoning_effort_parameter_out_of_the_model_call(
     configured: str, expected: str | None, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
