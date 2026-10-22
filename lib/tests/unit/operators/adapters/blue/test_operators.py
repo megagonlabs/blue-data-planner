@@ -163,7 +163,13 @@ def test_the_compound_operation_is_handed_the_data_registry_it_reads_a_source_th
     one.call([], A_CALL_THE_MODEL_ACCEPTS["blue.nl2sql"], [])
 
     assert scripted.seen_properties is not None
-    assert scripted.seen_properties["data_registry"] is data_registry
+    handed_registry: Any = scripted.seen_properties["data_registry"]
+    original_registry: Any = data_registry
+    assert handed_registry.get_record("tag_bench", "source", "/") == original_registry.get_record(
+        "tag_bench", "source", "/"
+    )
+    assert scripted.seen_properties["execute_query"] is True
+    assert scripted.seen_properties["validate_query_prefixes"] == ["SELECT"]
 
 
 def a_bundle_for(operation: Operation) -> DataBundle:

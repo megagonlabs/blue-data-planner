@@ -15,6 +15,7 @@ from blue_data_planner.data.catalog import source_kind
 from blue_data_planner.llm import LLMClient
 from blue_data_planner.llm.model_names import model_without_provider
 from blue_data_planner.operators.adapters.blue import error_mapping
+from blue_data_planner.operators.adapters.blue.read_only_sql import ReadOnlySQLRegistry
 from blue_data_planner.operators.adapters.blue.schemas import (
     ArgmaxParameters,
     ArgminParameters,
@@ -340,7 +341,16 @@ def blue_operators(
             ) from error
         properties: Properties = {}
         if operation.uses_data_registry:
-            properties["data_registry"] = data_registry
+            # nl2sql needs rows, but its SQL is model output. Explicitly opt into execution
+            # and SELECT validation; the registry enforces single-statement, non-commit SQL
+            # even though ops currently exposes no read-only execution switch (#62).
+            properties.update(
+                {
+                    "data_registry": ReadOnlySQLRegistry(data_registry),
+                    "execute_query": True,
+                    "validate_query_prefixes": ["SELECT"],
+                }
+            )
         if operation.uses_llm:
             properties.update(_model_properties(model, reasoning_effort))
         operators.append(

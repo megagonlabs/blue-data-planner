@@ -1138,6 +1138,11 @@ what keeps a typo in a suite list from running with fewer operators than it aske
 naming no model of its own runs on the planner's, and `BlueSuite` naming no registry resolves
 its pinned operation versions against `blue-data-ops`'s `versioned_registry()`.
 
+`blue.nl2sql` explicitly opts into execution and SELECT validation. The registry it receives
+requires one SQL statement and forces `commit=False` at the `blue-data` boundary, which enables
+read-only mode on the database connection. Neither request parameters nor model output may
+override that policy.
+
 Nothing else changes when a suite is added. The physical planner builds its candidates from the
 router while it covers a plan, so a newly registered operator competes for every fragment its
 declaration allows without a code or prompt edit.

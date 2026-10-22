@@ -496,6 +496,12 @@ names, `openai` by default.
 Blue model calls use the provider's default temperature, overriding the operations' fixed
 temperature of zero so reasoning models can accept the calls.
 
+`blue.nl2sql` explicitly enables query execution and SELECT validation. Its registry adapter
+requires a single statement and always passes `commit=False` to `blue-data`, which enables
+the SQL connection's read-only mode. Request parameters and model output cannot change this
+policy. Multi-statement SQL is refused before it reaches the registry; a single statement that
+attempts a write is refused by the database connection.
+
 [architecture.md](architecture.md#operator-suites) describes what each suite offers, and
 [extending.md](extending.md) how to add one.
 
