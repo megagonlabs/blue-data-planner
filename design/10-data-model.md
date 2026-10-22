@@ -816,9 +816,9 @@ priced differently and a total of them answers nothing.
 
 The conversations fix the scope. These are the calls the three planning components and the catalog
 searcher made through `llm/`, and nothing else. A model call an operator makes internally, as a LOTUS
-operator does, is billed as part of the one operator call that contains it and never appears here,
+or Blue operator does, is billed as part of the one operator call that contains it and never appears here,
 because such an operator reports no per-call token count
-([05-software-stack.md](05-software-stack.md#two-model-configurations-one-budget)). What a run spent
+([05-software-stack.md](05-software-stack.md#three-model-configurations-one-budget)). What a run spent
 on planning is exact; what it spent inside operators is the call count in `counters`.
 
 ### Conversations

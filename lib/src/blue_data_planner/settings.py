@@ -35,11 +35,14 @@ class PlannerSettings:
     lotus_model: str | None = None
     lotus_reasoning_effort: str = "none"
     lotus_max_rows: int = 5000
+    # None runs the Blue suite on `model`.
+    blue_model: str | None = None
+    blue_reasoning_effort: str = "none"
     provider_timeout_seconds: int = 120
     limits: RunLimits = RunLimits()
 
     def __post_init__(self) -> None:
-        for field in ("reasoning_effort", "lotus_reasoning_effort"):
+        for field in ("reasoning_effort", "lotus_reasoning_effort", "blue_reasoning_effort"):
             value: str = getattr(self, field)
             if value not in REASONING_EFFORTS:
                 raise InvalidSettingError(
@@ -81,6 +84,13 @@ def _suite(name: str, settings: PlannerSettings) -> OperatorSuite:
             model=settings.lotus_model or settings.model,
             max_rows=settings.lotus_max_rows,
             reasoning_effort=_effort(settings.lotus_reasoning_effort),
+        )
+    if name == "blue":
+        from blue_data_planner.operators.adapters.blue import BlueSuite
+
+        return BlueSuite(
+            model=settings.blue_model or settings.model,
+            reasoning_effort=_effort(settings.blue_reasoning_effort),
         )
     return operator_suite(name)
 

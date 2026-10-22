@@ -27,6 +27,8 @@ _TEXT_FIELDS: dict[str, str] = {
     "BLUE_DATA_PLANNER_REASONING_EFFORT": "reasoning_effort",
     "BLUE_DATA_PLANNER_LOTUS_MODEL": "lotus_model",
     "BLUE_DATA_PLANNER_LOTUS_REASONING_EFFORT": "lotus_reasoning_effort",
+    "BLUE_DATA_PLANNER_BLUE_MODEL": "blue_model",
+    "BLUE_DATA_PLANNER_BLUE_REASONING_EFFORT": "blue_reasoning_effort",
 }
 _WHOLE_NUMBER_FIELDS: dict[str, str] = {
     "BLUE_DATA_PLANNER_LOTUS_MAX_ROWS": "lotus_max_rows",

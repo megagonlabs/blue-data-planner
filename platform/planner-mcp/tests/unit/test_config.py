@@ -60,6 +60,8 @@ def test_every_setting_the_environment_names_reaches_the_planner():
             "BLUE_DATA_PLANNER_LOTUS_MODEL": "openai/gpt-4.1",
             "BLUE_DATA_PLANNER_LOTUS_REASONING_EFFORT": "minimal",
             "BLUE_DATA_PLANNER_LOTUS_MAX_ROWS": "120",
+            "BLUE_DATA_PLANNER_BLUE_MODEL": "openai/gpt-4.1",
+            "BLUE_DATA_PLANNER_BLUE_REASONING_EFFORT": "low",
             "BLUE_DATA_PLANNER_PROVIDER_TIMEOUT_SECONDS": "45",
             "BLUE_DATA_PLANNER_MAX_OPERATOR_CALLS": "7",
             "BLUE_DATA_PLANNER_MAX_FAILURE_REPLANS": "1",
@@ -75,6 +77,8 @@ def test_every_setting_the_environment_names_reaches_the_planner():
         lotus_model="openai/gpt-4.1",
         lotus_reasoning_effort="minimal",
         lotus_max_rows=120,
+        blue_model="openai/gpt-4.1",
+        blue_reasoning_effort="low",
         provider_timeout_seconds=45,
         limits=RunLimits(
             operator_calls=7, failure_replans=1, control_replans=3, wall_clock_seconds=90

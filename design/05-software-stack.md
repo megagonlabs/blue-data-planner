@@ -53,9 +53,8 @@ Every model call the library makes goes through `lib/src/blue_data_planner/llm/`
 | API key | `OPENAI_API_KEY` in the environment, read by litellm |
 
 Litellm is chosen over an SDK for one provider because the rest of the stack speaks it: the
-`blue-data-ops` operators call models through the same client, and LOTUS configures its own model
-the same way. One installed provider library then serves all three, and swapping providers is a
-model string rather than a code change.
+`blue-data-ops` operators and LOTUS each reach a provider through litellm under a model
+configuration of their own. One installed provider library then serves all three.
 
 `litellm`, `tenacity`, and `jinja2` are required dependencies of `lib/` rather than an extra, since
 the planner cannot run without a model.
@@ -88,16 +87,28 @@ built here stays inside the subset a strict provider accepts, so one schema serv
 
 `pydantic` is a required dependency of `lib/`, so nothing new is installed for this.
 
-### Two model configurations, one budget
+### Three model configurations, one budget
 
-LOTUS holds its own model configuration and is not routed through `llm/`. Both reach a provider
-through litellm, so one API key serves both, but the settings are made independently, and a change
-to one does not affect the other.
+The Blue suite and LOTUS each hold their own model configuration and are not routed through `llm/`.
+All three reach a provider through litellm, so one API key serves them, but each is set
+independently, and a change to one does not affect the others.
 
-Only one budget exists: operator calls. A model call LOTUS makes happens inside an operator call, so
-it bills against that budget like the rest of the call; a call through `llm/` bills against nothing
-(ADR-060). The client records tokens, cost, and latency per call regardless, and a result carries
-one such record per call, which is what a caller reads to convert a call count into money.
+| Configuration | Model | Provider |
+| --- | --- | --- |
+| `llm/` | The planner's model | The route in the model string |
+| LOTUS | `LotusSuite.model`, else the planner's model | The route in the model string |
+| Blue suite | `BlueSuite.model`, else the planner's model, passed without its provider route | `BLUE_DATA_LLM_PROVIDER`, read by `blue-data-ops`, defaulting to `openai` |
+
+`blue-data-ops` refuses a model string that names a provider, so the Blue suite passes the model
+name alone. A deployment whose Blue model is served by a provider other than OpenAI sets
+`BLUE_DATA_LLM_PROVIDER` to that provider. Nothing checks the two against each other, and a
+mismatch fails every model call a Blue operation makes.
+
+Only one budget exists: operator calls. A model call LOTUS or a Blue operation makes happens inside
+an operator call, so it bills against that budget like the rest of the call; a call through `llm/`
+bills against nothing (ADR-060). The client records tokens, cost, and latency per call regardless,
+and a result carries one such record per call, which is what a caller reads to convert a call count
+into money.
 
 ---
 

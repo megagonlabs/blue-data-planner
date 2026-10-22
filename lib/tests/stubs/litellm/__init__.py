@@ -4,6 +4,9 @@ from __future__ import annotations
 
 from typing import Any, cast
 
+# A few of the provider names litellm reads as the route at the front of a model string.
+provider_list: list[str] = ["openai", "anthropic", "azure", "fireworks_ai"]
+
 calls: list[dict[str, Any]] = []
 fail_next: list[Exception] = []  # tests push exceptions to simulate provider failures
 replies: list[str] = []  # tests push exact assistant contents, consumed in order

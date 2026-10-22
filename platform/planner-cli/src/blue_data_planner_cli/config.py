@@ -41,6 +41,7 @@ _LLM_CLIENT_NAME: str = "blue_planner"
 _PROFILE_PARAMETERS_BY_FIELD: dict[str, str] = {
     "reasoning_effort": "BLUE_DATA_PLANNER_REASONING_EFFORT",
     "lotus_reasoning_effort": "BLUE_DATA_PLANNER_LOTUS_REASONING_EFFORT",
+    "blue_reasoning_effort": "BLUE_DATA_PLANNER_BLUE_REASONING_EFFORT",
 }
 
 OUTPUT_FORMATS: tuple[str, ...] = ("table", "json")
@@ -116,6 +117,11 @@ def resolve_settings(
                 _require(resolver, "BLUE_DATA_PLANNER_LOTUS_REASONING_EFFORT")
             ),
             lotus_max_rows=int(_get(resolver, "BLUE_DATA_PLANNER_LOTUS_MAX_ROWS")),
+            # Unset, the Blue suite follows --model the same way LOTUS does.
+            blue_model=_optional_text(resolver, "BLUE_DATA_PLANNER_BLUE_MODEL"),
+            blue_reasoning_effort=str(
+                _require(resolver, "BLUE_DATA_PLANNER_BLUE_REASONING_EFFORT")
+            ),
             provider_timeout_seconds=int(
                 _get(resolver, "BLUE_DATA_PLANNER_PROVIDER_TIMEOUT_SECONDS")
             ),

@@ -111,7 +111,7 @@ precedence over the exported environment.
 
 | Variable | Default | For |
 | --- | --- | --- |
-| `OPENAI_API_KEY` | None, required | Every component that calls a model, and LOTUS operations |
+| `OPENAI_API_KEY` | None, required | Every component that calls a model, LOTUS operations, and Blue operations |
 | `BLUE_DATA_REGISTRY_PATH` | None, required | The serialized registry an interface opens and plans against |
 | `BLUE_DATA_PLANNER_MODEL` | `BLUE_DATA_LLM_MODEL`, then `openai/gpt-6-luna` | The litellm model string every component uses |
 | `BLUE_DATA_PLANNER_REASONING_EFFORT` | `low` | The reasoning effort each component's model call spends: `minimal`, `low`, `medium`, `high`, or `none`, which is sent to the provider and disables reasoning. `off` omits the parameter, for a model that does not accept it. Anything else is refused where it is read |
@@ -119,6 +119,9 @@ precedence over the exported environment.
 | `BLUE_DATA_PLANNER_LOTUS_MODEL` | The planner's model, wherever it came from | The litellm model string an interface passes to `lotus_operators`, which LOTUS then configures for itself, and which a deployment can set away from the planner's model (ADR-005). A value set here is never overridden by the CLI's `--model` |
 | `BLUE_DATA_PLANNER_LOTUS_REASONING_EFFORT` | `none` | The reasoning effort LOTUS's own model spends per call, passed to `lotus_operators`, and independent of `BLUE_DATA_PLANNER_REASONING_EFFORT` |
 | `BLUE_DATA_PLANNER_LOTUS_MAX_ROWS` | `5000` | The rows a LOTUS operation accepts before refusing the call, passed to `lotus_operators` |
+| `BLUE_DATA_PLANNER_BLUE_MODEL` | The planner's model, wherever it came from | The litellm model string the Blue operations call, passed to `blue_operators` without its provider route. A value set here is never overridden by the CLI's `--model` |
+| `BLUE_DATA_PLANNER_BLUE_REASONING_EFFORT` | `none` | The reasoning effort the Blue operations' model spends per call, passed to `blue_operators`, and independent of `BLUE_DATA_PLANNER_REASONING_EFFORT` |
+| `BLUE_DATA_LLM_PROVIDER` | `openai` | The provider `blue-data-ops` sends every Blue operation's model call to. It has to be the provider serving the Blue suite's model |
 | `BLUE_DATA_PLANNER_PROVIDER_TIMEOUT_SECONDS` | `120` | The seconds one provider call through `llm/` may take before it fails and is retried (ADR-061) |
 | `BLUE_DATA_PLANNER_MAX_*` | The `RunLimits` defaults | One per bound spanning a whole request: the three a run reports back and `wall_clock_seconds`, listed in [section 5](#5-request-limits) |
 | `BLUE_DATA_PROFILE` | The profile `profile select` chose | The profile the CLI reads, when no `--profile` is given. A name with no profile behind it is refused as `PROFILE_NOT_FOUND` |
@@ -128,7 +131,8 @@ precedence over the exported environment.
 Three of these — `OPENAI_API_KEY`, `BLUE_DATA_CLI_FORMAT`, and `BLUE_DATA_CLI_LOG_LIMIT` — are
 declared once for every Blue CLI. The family also declares `BLUE_DATA_LLM_MODEL`, which
 `BLUE_DATA_PLANNER_MODEL` falls back to, `ANTHROPIC_API_KEY`, and `BLUE_DATA_LLM_PROVIDER`, and
-`profile inspect` shows all of them.
+`profile inspect` shows all of them. The planner reads `BLUE_DATA_LLM_PROVIDER` nowhere; the CLI
+exports it with the rest of a profile, and `blue-data-ops` reads it from the environment.
 
 One model string serves every component. `DataPlanner`'s constructor takes a client per component,
 so a deployment that wants a stronger model for logical planning than for writing parameters builds

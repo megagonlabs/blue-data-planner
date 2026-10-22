@@ -85,6 +85,9 @@ alone. A library caller passes the same values to `PlannerSettings` and reads no
 | `BLUE_DATA_PLANNER_LOTUS_MODEL` | The planner's model | CLI, MCP | The model LOTUS runs on |
 | `BLUE_DATA_PLANNER_LOTUS_REASONING_EFFORT` | `none` | CLI, MCP | The reasoning effort LOTUS's own model spends |
 | `BLUE_DATA_PLANNER_LOTUS_MAX_ROWS` | `5000` | CLI, MCP | The rows a LOTUS operation accepts before refusing the call |
+| `BLUE_DATA_PLANNER_BLUE_MODEL` | The planner's model | CLI, MCP | The model the Blue operations run on |
+| `BLUE_DATA_PLANNER_BLUE_REASONING_EFFORT` | `none` | CLI, MCP | The reasoning effort the Blue operations' model spends |
+| `BLUE_DATA_LLM_PROVIDER` | `openai` | `blue-data-ops` | The provider every Blue operation's model call is sent to. It has to be the provider serving the Blue model |
 | `BLUE_DATA_PLANNER_PROVIDER_TIMEOUT_SECONDS` | `120` | CLI, MCP | The seconds one provider call may take before it fails and is retried |
 | `BLUE_DATA_PLANNER_MAX_OPERATOR_CALLS` | `30` | CLI, MCP | The operator calls one request may spend |
 | `BLUE_DATA_PLANNER_MAX_FAILURE_REPLANS` | `2` | CLI, MCP | The replans a failure may force |

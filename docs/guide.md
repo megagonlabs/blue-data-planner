@@ -240,7 +240,7 @@ request as `llm_failed`, and catches any other `BlueDataPlannerError` and ends i
 | --- | --- | --- |
 | `open_registry` | `RegistryUnreadableError` | The path names no file, or the file cannot be read |
 | `operator_suite` | `UnknownOperatorSuiteError` | A configured name registers no suite |
-| `build_data_planner` | `OperatorRoutingError` | Two suites register the same operator id |
+| `build_data_planner` | `OperatorRoutingError` | Two suites register the same operator id, or the operator registry a `BlueSuite` was given does not carry an operation the suite is bound to |
 | A component called directly | `PlanValidationError`, `RecoverableOperatorError`, `BudgetExhaustedError`, and the rest | Each is caught by the stage that expects it during a run |
 
 ```python

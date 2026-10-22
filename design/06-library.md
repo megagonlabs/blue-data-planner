@@ -1097,7 +1097,8 @@ needed is open question 43 in [13-decision-log.md](13-decision-log.md#open-quest
 
 ```python
 def blue_operators(
-    registry: OperatorRegistry, data_registry: DataRegistry
+    registry: OperatorRegistry, data_registry: DataRegistry,
+    *, model: str, reasoning_effort: str | None = None,
 ) -> list[PhysicalOperator]: ...
 
 
@@ -1128,8 +1129,9 @@ class OperatorSuite(Protocol):
 def operator_suite(name: str) -> OperatorSuite: ...
 ```
 
-`LotusSuite` and `BlueSuite` each carry their own options — the model and row cap LOTUS runs
-under, the registry the Blue operations resolve against — so the options one suite takes are
+`LotusSuite` and `BlueSuite` each carry their own options — the model, reasoning effort, and row
+cap LOTUS runs under; the registry the Blue operations resolve against, and the model and reasoning
+effort they run on — so the options one suite takes are
 declared beside that suite and nothing that builds a planner names them. `BuiltinSuite` takes
 none. A name no suite registers raises `UnknownOperatorSuiteError`, which is
 what keeps a typo in a suite list from running with fewer operators than it asked for. A suite
@@ -1187,6 +1189,12 @@ call. Two limitations narrow it. It cannot express a semantic predicate, so a fi
 reading text stays outside the group. And one query reads one database, so a fragment whose scans
 name two sources is not its to take, a constraint that lives in `limitations` because the
 declaration has no vocabulary for it (open question 44).
+
+`blue.nl2sql` takes its scan target as the catalog path of one scan the fragment names, the form
+`builtin.scan` takes, and the adapter reads the source, database, and collection out of it. The
+protocol is the source's, read off its registry record at call time, so no parameter names it. A
+path that names no entity is refused as a parameter error. A source the registry does not hold, or
+one of a kind the operation cannot query, is refused as a recoverable failure naming the source.
 
 Each operation names the registry version it binds, rather than the suite naming one version for all
 eighteen. A version is where an operation's validator and its result shape are fixed, so an upstream
@@ -1513,10 +1521,10 @@ the conversations the run state holds, with no component reporting it separately
 class, since a total is a `sum()` over the list.
 
 `RunResult.conversations` therefore covers calls through this module and nothing else. A model call
-an operator makes internally, as a LOTUS operator does, is invisible here: it runs under the suite's
-own model configuration rather than through `llm/`, so the call is billed as part of the one
-operator call that contains it
-([05-software-stack.md](05-software-stack.md#two-model-configurations-one-budget)).
+an operator makes internally, as a LOTUS or Blue operator does, is invisible here: it runs under
+the suite's own model configuration rather than through `llm/`, so the call is billed as part of
+the one operator call that contains it
+([05-software-stack.md](05-software-stack.md#three-model-configurations-one-budget)).
 
 `LLMClient`'s general provider call, `execute_api_call`, has an async twin, `aexecute_api_call`, for
 parallel provider calls — the library's one departure from being synchronous

@@ -483,7 +483,7 @@ from blue_data_planner.types import LogicalOperator
 
 router = OperatorRouter()
 # operator_registry is a blue-data-ops OperatorRegistry, built the way that package documents
-for operator in blue_operators(operator_registry, data_registry):
+for operator in blue_operators(operator_registry, data_registry, model="openai/gpt-6-luna"):
     router.register(operator)
 for operator in lotus_operators("openai/gpt-6-luna"):  # empty when LOTUS is not installed
     router.register(operator)

@@ -116,6 +116,8 @@ Frozen. Every value a planner is built from, with the default each one takes.
 | `lotus_model` | `str \| None` | `None` | The model LOTUS operations run on. `None` runs them on `model` |
 | `lotus_reasoning_effort` | `str` | `"none"` | The reasoning effort a LOTUS call spends, from the same six values |
 | `lotus_max_rows` | `int` | `5000` | The most rows a LOTUS operation accepts. A call with more is refused |
+| `blue_model` | `str \| None` | `None` | The model the Blue operations run on. `None` runs them on `model` |
+| `blue_reasoning_effort` | `str` | `"none"` | The reasoning effort a Blue operation's model call spends, from the same six values |
 | `provider_timeout_seconds` | `int` | `120` | How many seconds one provider call may take before it fails and is retried |
 | `limits` | `RunLimits` | `RunLimits()` | The bounds every run obeys |
 
@@ -339,24 +341,33 @@ Every exception the library defines is in `blue_data_planner.types` and inherits
 `BlueDataPlannerError`. Running out of a limit, an operator failure, and a provider failure end a
 request with a status, not an exception, so a caller of `DataPlanner` rarely sees one.
 
-| Exception | Raised by | Reaches a caller |
-| --- | --- | --- |
-| `BlueDataPlannerError` | The base class. Also raised directly on a defect, such as `DataPipeline.cover` when the pipeline has no current physical plan | The run loop catches it and ends the request as `planner_failed` |
-| `PlanFormatError` | `LogicalPlan.from_dict`, `PhysicalPlan.from_dict`, `DataPipeline.from_dict`, when a payload is missing a key or carries a value its node kind does not take | Always |
-| `PlanValidationError` | `validate_logical_plan`, `validate_physical_plan` | Only from a direct call. `LogicalPlanner` catches it and writes the plan again |
-| `UnknownNodeError` | `LogicalPlan.node`, `LogicalPlan.consumers`, when no node has the id | Always |
-| `UnknownFragmentError` | `PhysicalPlan.fragment`, `PhysicalPlan.fragment_for_node`, when no fragment has the id or covers the node | Always |
-| `ReturnAnswerError` | `project_answer`, when the finished rows do not carry a column the answer names | The run loop answers it with a replan |
-| `OperatorRoutingError` | `OperatorRouter.register`, when an operator id repeats; `OperatorRouter.resolve`, when the id is unknown | Always, including from `build_data_planner` |
-| `UnknownOperatorSuiteError` | `operator_suite`, when no suite has the name | Always |
-| `InvalidSettingError` | `PlannerSettings`, when a value is invalid; `LLMClient`, when its properties name no model, carry an unknown `llm.*` key, or ask for a cache without `diskcache` installed | Always, including from `build_data_planner` |
-| `BudgetExhaustedError` | `RunCounters.spend_operator_call`, when the cap is reached | `FragmentRunner` catches it and returns `budget_exhausted` |
-| `RecoverableOperatorError` | An operator, when it refuses input another operator might accept | `execute_physical_operator` turns it into a failed `ExecutionResult` with `ErrorKind.RECOVERABLE` |
-| `UnrecoverableOperatorError` | An operator, when it fails for a reason no other operator would avoid | `execute_physical_operator` turns it into a failed `ExecutionResult` with `ErrorKind.UNRECOVERABLE` |
-| `RegistryUnreadableError` | `open_registry`, when the path names no file or the file cannot be read | Always |
-| `SourceQueryError` | `execute_query`, `execute_write`, when the source refuses the query or statement | Always |
-| `SourceUnreachableError` | `connect_source`, when the registry holds no connectable source under the name | Always |
-| `LLMError` | `LLMClient`, when the provider fails after its retries or answers in a shape the client cannot read | The run loop catches it and ends the request as `llm_failed` |
+Each row is one cause. "Raised by" names the calls that raise the exception to a caller who makes
+them directly. "Inside a run" says what a request does when the exception is raised during it.
+
+| Exception | Raised by | Raised when | Inside a run |
+| --- | --- | --- | --- |
+| `UnknownOperatorSuiteError` | `operator_suite`, `build_data_planner_from_settings` | No suite has the name | Not raised |
+| `RegistryUnreadableError` | `open_registry`, `build_data_planner_from_settings` | The path names no file, or the file cannot be read | Not raised |
+| `InvalidSettingError` | The `PlannerSettings` constructor | A field carries a value the planner cannot be built with | Not raised |
+| `InvalidSettingError` | The `LLMClient` constructor, `build_data_planner` | The properties name no model, carry an unknown `llm.*` key, or ask for a cache without `diskcache` installed | Not raised |
+| `InvalidSettingError` | `LotusSuite.operators`, `build_data_planner` | A second LOTUS suite asks for a model or reasoning effort other than the one LOTUS is configured with in this process | Not raised |
+| `InvalidSettingError` | `LLMClient.execute_api_call`, `LLMClient.aexecute_api_call` | The properties one call carries hold a value the client cannot send | Ends the request as `planner_failed` |
+| `OperatorRoutingError` | `OperatorRouter.register`, `build_data_planner` | Two suites register the same operator id | Not raised |
+| `OperatorRoutingError` | `BlueSuite.operators`, `build_data_planner` | The operator registry does not carry an operation the suite is bound to | Not raised |
+| `OperatorRoutingError` | `OperatorRouter.resolve` | No registered operator has the operator id | Ends the request as `planner_failed` |
+| `PlanFormatError` | `LogicalPlan.from_dict`, `PhysicalPlan.from_dict`, `DataPipeline.from_dict` | A payload is missing a key or carries a value its node kind does not take | Not raised |
+| `UnknownNodeError` | `LogicalPlan.node`, `LogicalPlan.consumers` | No node of the plan has the id | Ends the request as `planner_failed` |
+| `UnknownFragmentError` | `PhysicalPlan.fragment`, `PhysicalPlan.fragment_for_node` | No fragment of the cover has the id or covers the node | Ends the request as `planner_failed` |
+| `PlanValidationError` | `validate_logical_plan` | A logical plan fails a structural check | `LogicalPlanner` catches it and writes the plan again |
+| `PlanValidationError` | `validate_physical_plan` | A cover fails a structural check | Ends the request as `planner_failed` |
+| `ReturnAnswerError` | `project_answer` | The finished rows do not carry a column the answer names | The run loop catches it and replans |
+| `BudgetExhaustedError` | `RunCounters.spend_operator_call`, `execute_physical_operator` | The operator call budget reaches its cap | `FragmentRunner` catches it and returns `budget_exhausted` |
+| `RecoverableOperatorError` | An operator's callable | The operator refuses input another operator might accept | `execute_physical_operator` catches it and returns a failed `ExecutionResult` with `ErrorKind.RECOVERABLE` |
+| `UnrecoverableOperatorError` | An operator's callable | The operator fails for a reason no other operator would avoid | `execute_physical_operator` catches it and returns a failed `ExecutionResult` with `ErrorKind.UNRECOVERABLE` |
+| `SourceQueryError` | `execute_query`, `execute_write` | The source refuses the query or statement | The operator reading the source catches it and raises `RecoverableOperatorError` |
+| `SourceUnreachableError` | `connect_source`, `execute_query`, `execute_write` | The registry holds no connectable source under the name | The operator reading the source catches it and raises `UnrecoverableOperatorError` |
+| `LLMError` | `LLMClient.complete_structured`, `LLMClient.execute_api_call`, `LLMClient.aexecute_api_call` | The provider fails after the client's retries, or answers in a shape the client cannot read | Ends the request as `llm_failed` |
+| `BlueDataPlannerError` | Any component, such as `DataPipeline.cover` | The planner reaches a state it treats as a defect, such as a pipeline with no current physical plan | Ends the request as `planner_failed` |
 
 Both operator errors carry a `report: dict[str, Any] | None`, which reaches the caller as
 `ExecutionResult.report`.
@@ -470,7 +481,7 @@ OPERATOR_SUITE_NAMES: tuple[str, ...] = ("builtin", "lotus", "blue")
 | --- | --- | --- | --- |
 | `BuiltinSuite` | `blue_data_planner.operators.builtin` | None | `builtin_operators` |
 | `LotusSuite` | `blue_data_planner.operators.adapters.lotus` | `model: str \| None = None`, `max_rows: int = 5000`, `reasoning_effort: str \| None = None` | `lotus_operators`, `lotus_is_installed` |
-| `BlueSuite` | `blue_data_planner.operators.adapters.blue` | `operator_registry: OperatorRegistry \| None = None` | `blue_operators` |
+| `BlueSuite` | `blue_data_planner.operators.adapters.blue` | `operator_registry: OperatorRegistry \| None = None`, `model: str \| None = None`, `reasoning_effort: str \| None = None` | `blue_operators` |
 
 `LotusSuite.model` defaults to the model every other component uses. `LotusSuite.operators`
 returns an empty list when LOTUS is not installed.
@@ -478,6 +489,12 @@ returns an empty list when LOTUS is not installed.
 With no `operator_registry`, `BlueSuite` resolves its pinned operation versions against
 `blue_data_ops.operators.registry.versioned_registry()`, which retains those versions even when
 the active versions advance. A supplied registry is used directly.
+
+`BlueSuite.model` defaults to the model every other component uses, and reaches `blue-data-ops`
+without its provider route. `blue-data-ops` sends the call to the provider `BLUE_DATA_LLM_PROVIDER`
+names, `openai` by default.
+Blue model calls use the provider's default temperature, overriding the operations' fixed
+temperature of zero so reasoning models can accept the calls.
 
 [architecture.md](architecture.md#operator-suites) describes what each suite offers, and
 [extending.md](extending.md) how to add one.
