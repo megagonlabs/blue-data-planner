@@ -502,6 +502,14 @@ the SQL connection's read-only mode. Request parameters and model output cannot 
 policy. Multi-statement SQL is refused before it reaches the registry; a single statement that
 attempts a write is refused by the database connection.
 
+Its `scan_source` parameter is one catalog entity path; the adapter derives the source,
+database, and collection from it and reads the protocol from the source record. Schema lookup,
+SQL generation, and query execution failures carry the catalog target and a sanitized cause
+into the fragment's parameter-repair conversation. Common SQLite errors retain missing table
+or column names; other drivers retain structured error codes when available. Arbitrary driver
+and provider messages are omitted because they can contain connection credentials or request
+bodies. Each call owns its diagnostics, including when the same operator is retried.
+
 [architecture.md](architecture.md#operator-suites) describes what each suite offers, and
 [extending.md](extending.md) how to add one.
 

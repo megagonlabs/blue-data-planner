@@ -3,13 +3,32 @@
 from __future__ import annotations
 
 import re
+from contextlib import nullcontext
 from typing import Any
 
 from blue_data_ops.data import RegistrySeam
 
+from blue_data_planner.data import DataRegistry
+from blue_data_planner.operators.adapters.blue.sql_diagnostics import SQLDiagnostics
+
 
 class ReadOnlySQLRegistry(RegistrySeam):
     """Keep schema access, but execute generated SQL only on blue-data's non-commit path."""
+
+    def __init__(self, registry: DataRegistry, diagnostics: SQLDiagnostics | None = None) -> None:
+        super().__init__(registry)
+        self._diagnostics = diagnostics
+
+    def get_data_source_schema(
+        self,
+        source: str,
+        database: str,
+        collection: str,
+        protocol: str | None = None,
+        format: str = "dict",
+    ) -> Any:
+        with self._diagnostics.capture("schema lookup") if self._diagnostics else nullcontext():
+            return super().get_data_source_schema(source, database, collection, protocol, format)
 
     def execute_query(
         self,
@@ -19,22 +38,23 @@ class ReadOnlySQLRegistry(RegistrySeam):
         collection: str | None = None,
         optional_properties: dict[str, Any] | None = None,
     ) -> Any:
-        # Ops currently has no read-only property. Enforce the policy at its registry
-        # boundary instead of passing a property it would silently ignore.
-        if not isinstance(query, str) or re.match(r"\s*SELECT\b", query, re.IGNORECASE) is None:
-            raise ValueError("blue.nl2sql requires a SELECT statement")
-        # Match blue-data's conservative delimiter check: one optional trailing semicolon,
-        # and none inside. The connection's read-only mode remains the write guard, including
-        # for a single SELECT INTO; a prefix or statement-count check alone is insufficient.
-        if ";" in query.strip().removesuffix(";"):
-            raise ValueError("blue.nl2sql requires a single SQL statement")
-        # Ignore execution options from the operation. commit=False makes blue-data enable
-        # the database connection's read-only mode before executing the statement.
-        del optional_properties
-        return super().execute_query(
-            query,
-            source,
-            database,
-            collection,
-            optional_properties={"commit": False},
-        )
+        with self._diagnostics.capture("SQL execution") if self._diagnostics else nullcontext():
+            # Ops currently has no read-only property. Enforce the policy at its registry
+            # boundary instead of passing a property it would silently ignore.
+            if not isinstance(query, str) or re.match(r"\s*SELECT\b", query, re.IGNORECASE) is None:
+                raise ValueError("blue.nl2sql requires a SELECT statement")
+            # Match blue-data's conservative delimiter check: one optional trailing semicolon,
+            # and none inside. The connection's read-only mode remains the write guard, including
+            # for a single SELECT INTO; a prefix or statement-count check alone is insufficient.
+            if ";" in query.strip().removesuffix(";"):
+                raise ValueError("blue.nl2sql requires a single SQL statement")
+            # Ignore execution options from the operation. commit=False makes blue-data enable
+            # the database connection's read-only mode before executing the statement.
+            del optional_properties
+            return super().execute_query(
+                query,
+                source,
+                database,
+                collection,
+                optional_properties={"commit": False},
+            )

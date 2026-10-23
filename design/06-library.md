@@ -1143,6 +1143,12 @@ requires one SQL statement and forces `commit=False` at the `blue-data` boundary
 read-only mode on the database connection. Neither request parameters nor model output may
 override that policy.
 
+The SQL registry and model client are created per invocation. They observe schema, generation,
+and execution failures before `blue-data-ops` contains their exceptions, and the adapter adds
+their sanitized cause and catalog target to an execution failure's repair message. Upstream
+error classification, suggestions, and reports are retained; diagnostic state is never reused
+by another call.
+
 Nothing else changes when a suite is added. The physical planner builds its candidates from the
 router while it covers a plan, so a newly registered operator competes for every fragment its
 declaration allows without a code or prompt edit.

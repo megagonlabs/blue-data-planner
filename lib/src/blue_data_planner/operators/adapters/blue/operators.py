@@ -36,6 +36,10 @@ from blue_data_planner.operators.adapters.blue.schemas import (
     SemanticTransformParameters,
     SumParameters,
 )
+from blue_data_planner.operators.adapters.blue.sql_diagnostics import (
+    DiagnosticSQLClient,
+    SQLDiagnostics,
+)
 from blue_data_planner.operators.validation import check_table_count, validated_parameters
 from blue_data_planner.types import (
     INPUT_ARITY,
@@ -102,14 +106,29 @@ def _build_call(
         # The list is copied because an operator may write into the bundle it is handed
         # and the caller reuses one bundle across retries.
         attributes_sent = validated.operation_attributes()
+        call_properties = properties
+        diagnostics: SQLDiagnostics | None = None
         if isinstance(validated, NL2SQLParameters):
             # The protocol is the source's, so it is read off the registry rather than written
             # by the model.
             attributes_sent["protocol"] = _nl2sql_protocol(
                 data_registry, attributes_sent["source"], operator_id
             )
-        output, reported, meta = operator.run(list(inputs), attributes_sent, properties)
-        error_mapping.raise_for_errors(meta, operator_id, reported or None)
+            # Ops contains its exceptions before returning ExecMeta. Observe the registry and
+            # model boundaries before that detail is lost, using fresh objects for every call.
+            diagnostics = SQLDiagnostics(validated.scan_source)
+            call_properties = {
+                **(properties or {}),
+                "data_registry": ReadOnlySQLRegistry(data_registry, diagnostics),
+                "llm_client": DiagnosticSQLClient(diagnostics),
+            }
+        output, reported, meta = operator.run(list(inputs), attributes_sent, call_properties)
+        error_mapping.raise_for_errors(
+            meta,
+            operator_id,
+            reported or None,
+            execution_detail=diagnostics.detail if diagnostics else None,
+        )
         # ExecMeta.traces stays out: the base class attaches timings and shapes to every call,
         # which is instrumentation rather than something the operation chose to say, and open
         # question 42 is where instrumentation is decided.
@@ -346,7 +365,6 @@ def blue_operators(
             # even though ops currently exposes no read-only execution switch (#62).
             properties.update(
                 {
-                    "data_registry": ReadOnlySQLRegistry(data_registry),
                     "execute_query": True,
                     "validate_query_prefixes": ["SELECT"],
                 }

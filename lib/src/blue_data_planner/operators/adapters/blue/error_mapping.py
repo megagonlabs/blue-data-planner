@@ -20,13 +20,19 @@ _UNRECOVERABLE_ERROR_CODES = frozenset({ErrorCode.OPERATOR_TIMEOUT})
 
 
 def raise_for_errors(
-    meta: ExecMeta, operator_id: str, report: dict[str, Any] | None = None
+    meta: ExecMeta,
+    operator_id: str,
+    report: dict[str, Any] | None = None,
+    *,
+    execution_detail: str | None = None,
 ) -> None:
     """Raise the failure a call's first reported error names, or return when it reported none."""
     if not meta.errors:
         return
     error = meta.errors[0]
     detail = error.message if error.suggestion is None else f"{error.message}: {error.suggestion}"
+    if error.code is ErrorCode.EXECUTION_FAILED and execution_detail:
+        detail = f"{detail}; {execution_detail}"
     message = f"{operator_id} failed at {error.stage.value}: {detail}"
     if error.code in _RECOVERABLE_ERROR_CODES:
         raise RecoverableOperatorError(message, report=report)

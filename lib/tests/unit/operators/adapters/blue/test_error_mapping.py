@@ -116,3 +116,30 @@ def test_what_a_failed_call_reported_travels_with_the_failure(
         raise_for_errors(a_call_that_failed(code), "blue.select", {"rows_read": 3})
 
     assert caught.value.report == {"rows_read": 3}
+
+
+def test_sql_execution_detail_preserves_the_upstream_suggestion_and_report() -> None:
+    """The observed cause supplements the outcome, without replacing its classification."""
+    with pytest.raises(RecoverableOperatorError) as caught:
+        raise_for_errors(
+            a_call_that_failed(ErrorCode.EXECUTION_FAILED, "check the source"),
+            "blue.nl2sql",
+            {"rows_read": 3},
+            execution_detail="SQL execution: no such column: absent_column",
+        )
+
+    assert "check the source" in str(caught.value)
+    assert "no such column: absent_column" in str(caught.value)
+    assert caught.value.report == {"rows_read": 3}
+
+
+def test_execution_detail_is_not_attached_to_a_timeout() -> None:
+    """A late worker diagnostic must not override the timeout the operator reported."""
+    with pytest.raises(UnrecoverableOperatorError) as caught:
+        raise_for_errors(
+            a_call_that_failed(ErrorCode.OPERATOR_TIMEOUT),
+            "blue.nl2sql",
+            execution_detail="a late SQL failure",
+        )
+
+    assert "late SQL failure" not in str(caught.value)
