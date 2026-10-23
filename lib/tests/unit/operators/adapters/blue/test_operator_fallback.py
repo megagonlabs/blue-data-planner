@@ -6,6 +6,7 @@ import json
 from typing import Any
 
 import pytest
+from blue_data_ops.llm.errors import LLMError
 from blue_data_ops.operators.types import AttributeSpec, ErrorCode, FunctionResult
 
 from blue_data_planner.data import DataCatalog, DataRegistry
@@ -37,6 +38,7 @@ FAILURES = (
     ErrorCode.VALIDATION_FAILED,
     ErrorCode.VALIDATION_RESULT_INVALID,
     ErrorCode.EXECUTION_RESULT_INVALID,
+    ErrorCode.EXECUTION_FAILED,
 )
 
 
@@ -48,7 +50,10 @@ class CannotCopy:
 
 
 def run_with_a_broken_blue_operator(
-    failure: ErrorCode, monkeypatch: pytest.MonkeyPatch, limits: RunLimits
+    failure: ErrorCode,
+    monkeypatch: pytest.MonkeyPatch,
+    limits: RunLimits,
+    execution_failure: Exception | None = None,
 ) -> tuple[RunResult, RecordingOperator, list[ErrorCode], ScriptedLLMClient]:
     """Drive real covering, Blue execution, fragment repair, and builtin fallback offline."""
     broken = scripted_operation("select")
@@ -64,6 +69,9 @@ def run_with_a_broken_blue_operator(
         invalid_rows: Any = [["not a record"]]
         return FunctionResult(invalid_rows, {})
 
+    def refuse_execution(*args: Any) -> Any:
+        raise execution_failure or RuntimeError("the operation's execution is broken")
+
     if failure is ErrorCode.DEFAULTS_FAILED:
         monkeypatch.setattr(
             broken,
@@ -74,6 +82,8 @@ def run_with_a_broken_blue_operator(
         monkeypatch.setattr(broken, "_validate_input", refuse_validation)
     elif failure is ErrorCode.VALIDATION_RESULT_INVALID:
         monkeypatch.setattr(broken, "_validate_input", invalid_validation)
+    elif failure is ErrorCode.EXECUTION_FAILED:
+        monkeypatch.setattr(broken, "_execute", refuse_execution)
     else:
         monkeypatch.setattr(broken, "_execute", invalid_execution)
     run = broken.run
@@ -217,3 +227,22 @@ def test_operator_fallback_still_obeys_the_run_budgets(
     assert result.answer is None
     assert failures == [ErrorCode.VALIDATION_FAILED]
     assert result.counters.operator_calls == 2
+
+
+def test_a_rejected_model_setting_moves_to_another_operator_without_parameter_retries(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Changing FILTER parameters cannot fix a model's unsupported generation setting."""
+    result, scan, failures, client = run_with_a_broken_blue_operator(
+        ErrorCode.EXECUTION_FAILED,
+        monkeypatch,
+        RunLimits(operator_calls=3, parameter_repairs=4, cover_repairs=1, failure_replans=0),
+        execution_failure=LLMError("unsupported generation setting", code="unsupported_parameter"),
+    )
+
+    assert result.status is RunStatus.OK
+    assert result.answer == [[{"title": "SWE"}]]
+    assert failures == [ErrorCode.EXECUTION_FAILED]
+    assert result.counters.operator_calls == 3
+    assert len(scan.calls) == 1
+    assert client.answers == []

@@ -374,9 +374,13 @@ All three operator errors carry a `report: dict[str, Any] | None`, which reaches
 `ExecutionResult.report`.
 
 The Blue adapter uses `OperatorUnavailableError` for defaults, validator, and refinement failures,
-and invalid validation, execution, or refinement results. The failed attempt keeps its diagnostic
-message and report while cover repair can choose another implementation. Existing operator-call,
-cover-repair, and replan limits still apply.
+invalid validation, execution, or refinement results, and non-retryable `FAILED` execution errors.
+For `EXECUTION_FAILED`, a recoverable category or a true retryability flag retains parameter
+repair. Invalid input also remains repairable, even when retrying the unchanged call would fail.
+For SQL, observed malformed generated queries and known SQLite syntax or name errors retain
+parameter repair; a diagnostic alone does not make a provider or connection failure repairable.
+The failed attempt keeps its diagnostic message and report while cover repair can choose another
+implementation. Existing operator-call, cover-repair, and replan limits still apply.
 
 `LLMError` carries `code` (`provider_error` or `bad_response`) and `provider_error`, the
 exception the provider raised when there was one. `blue_data_planner.llm` re-exports it.

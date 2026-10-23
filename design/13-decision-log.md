@@ -2161,6 +2161,33 @@ one serialized error-kind value without adding a run status.
 
 ---
 
+## ADR-066 — Execution Failures Use Recovery Metadata Before Spending Parameter Repairs
+
+**Date:** 2026-10-23
+**Status:** Accepted
+
+**Decision:** The Blue adapter no longer treats every `EXECUTION_FAILED` as recoverable. A
+recoverable category or a true `retryable` flag allows parameter repair. A non-retryable `FAILED`
+execution instead raises `OperatorUnavailableError`, using ADR-065's immediate cover repair.
+`INVALID_INPUT` remains repairable even when its unchanged call is non-retryable.
+
+**Rationale:** A broken execution implementation or an unsupported model setting cannot be
+fixed by changing fragment parameters. Treating its failure as recoverable spends every
+parameter attempt before another operator is considered (#55). Metadata distinguishes that
+case without turning one operation's failure into a whole-run failure.
+
+For `blue.nl2sql`, ops also reports correctable query mistakes as generic execution failures.
+The existing invocation-local diagnostics therefore mark malformed generated queries, SQL policy
+refusals, and known SQLite syntax/name errors as parameter-repairable. This preserves #37's
+repair path. Unknown exceptions, provider failures, connection failures, and database locks do
+not gain parameter retries merely because a diagnostic was recorded.
+
+**Consequences:** Diagnostics, suggestions, reports, successful upstream work, and existing
+repair budgets are retained. Timeouts and unexpected planner exceptions keep their existing
+handling. This extends ADR-065 to #55 without changing run statuses or upstream operations.
+
+---
+
 ## Open Questions
 
 Design questions first, then defects in the code.

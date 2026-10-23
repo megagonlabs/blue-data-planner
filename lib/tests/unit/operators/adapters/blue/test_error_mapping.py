@@ -19,15 +19,21 @@ from blue_data_planner.types import (
 )
 
 
-def a_call_that_failed(code: ErrorCode, suggestion: str | None = None) -> ExecMeta:
+def a_call_that_failed(
+    code: ErrorCode,
+    suggestion: str | None = None,
+    *,
+    category: ErrorCategory = ErrorCategory.FAILED,
+    retryable: bool = False,
+) -> ExecMeta:
     """Return the metadata of one failed call, carrying one error with this code."""
     record = ErrorRecord(
-        category=ErrorCategory.FAILED,
+        category=category,
         code=code,
         operator_id="select@2.0.0",
-        stage=ErrorStage.VALIDATE,
+        stage=ErrorStage.EXECUTE if code is ErrorCode.EXECUTION_FAILED else ErrorStage.VALIDATE,
         message="something went wrong",
-        retryable=False,
+        retryable=retryable,
         suggestion=suggestion,
     )
     return ExecMeta(is_empty=False, errors=[record], logs=[], traces={})
@@ -38,11 +44,45 @@ def test_a_call_that_reported_no_error_raises_nothing() -> None:
     raise_for_errors(ExecMeta(is_empty=False, errors=[], logs=[], traces={}), "blue.select")
 
 
-@pytest.mark.parametrize("code", [ErrorCode.INVALID_INPUT, ErrorCode.EXECUTION_FAILED])
-def test_a_failure_another_operation_might_avoid_is_recoverable(code: ErrorCode) -> None:
-    """Refused parameters and input it could not handle both leave another operator to try."""
+def test_invalid_input_can_be_repaired_even_when_retrying_the_same_call_cannot_help() -> None:
+    """Ops marks invalid input non-retryable, but changing the parameters can fix it."""
     with pytest.raises(RecoverableOperatorError):
-        raise_for_errors(a_call_that_failed(code), "blue.select")
+        raise_for_errors(
+            a_call_that_failed(ErrorCode.INVALID_INPUT, category=ErrorCategory.RECOVERABLE),
+            "blue.select",
+        )
+
+
+@pytest.mark.parametrize(
+    ("category", "retryable", "expected"),
+    [
+        (ErrorCategory.FAILED, False, OperatorUnavailableError),
+        (ErrorCategory.FAILED, True, RecoverableOperatorError),
+        (ErrorCategory.RECOVERABLE, False, RecoverableOperatorError),
+        (ErrorCategory.RECOVERABLE, True, RecoverableOperatorError),
+    ],
+)
+def test_execution_failures_respect_the_operations_recovery_metadata(
+    category: ErrorCategory,
+    retryable: bool,
+    expected: type[OperatorUnavailableError] | type[RecoverableOperatorError],
+) -> None:
+    """A non-retryable FAILED execution needs another operator, not new parameters (#55)."""
+    with pytest.raises(expected) as caught:
+        raise_for_errors(
+            a_call_that_failed(
+                ErrorCode.EXECUTION_FAILED,
+                "check the operation's configuration",
+                category=category,
+                retryable=retryable,
+            ),
+            "blue.select",
+            {"rows_read": 3},
+        )
+
+    assert "blue.select" in str(caught.value)
+    assert "check the operation's configuration" in str(caught.value)
+    assert caught.value.report == {"rows_read": 3}
 
 
 def test_a_timed_out_call_is_unrecoverable() -> None:
@@ -65,7 +105,9 @@ def test_a_timed_out_call_is_unrecoverable() -> None:
 def test_a_broken_operation_requests_another_operator(code: ErrorCode) -> None:
     """The implementation failed; another operator may work, but new parameters cannot fix it."""
     with pytest.raises(OperatorUnavailableError) as caught:
-        raise_for_errors(a_call_that_failed(code), "blue.select", {"rows_read": 3})
+        raise_for_errors(
+            a_call_that_failed(code), "blue.select", {"rows_read": 3}, parameter_repairable=True
+        )
 
     assert "blue.select" in str(caught.value)
     assert caught.value.report == {"rows_read": 3}
@@ -122,18 +164,18 @@ def test_what_a_failed_call_reported_travels_with_the_failure(
     assert caught.value.report == {"rows_read": 3}
 
 
-def test_sql_execution_detail_preserves_the_upstream_suggestion_and_report() -> None:
-    """The observed cause supplements the outcome, without replacing its classification."""
-    with pytest.raises(RecoverableOperatorError) as caught:
+def test_sql_execution_detail_preserves_a_non_retryable_failure_and_its_report() -> None:
+    """A diagnostic alone must not send a broken model or source back to parameter repair."""
+    with pytest.raises(OperatorUnavailableError) as caught:
         raise_for_errors(
             a_call_that_failed(ErrorCode.EXECUTION_FAILED, "check the source"),
             "blue.nl2sql",
             {"rows_read": 3},
-            execution_detail="SQL execution: no such column: absent_column",
+            execution_detail="SQL generation: LLMError (unsupported_parameter)",
         )
 
     assert "check the source" in str(caught.value)
-    assert "no such column: absent_column" in str(caught.value)
+    assert "unsupported_parameter" in str(caught.value)
     assert caught.value.report == {"rows_read": 3}
 
 
@@ -144,6 +186,7 @@ def test_execution_detail_is_not_attached_to_a_timeout() -> None:
             a_call_that_failed(ErrorCode.OPERATOR_TIMEOUT),
             "blue.nl2sql",
             execution_detail="a late SQL failure",
+            parameter_repairable=True,
         )
 
     assert "late SQL failure" not in str(caught.value)

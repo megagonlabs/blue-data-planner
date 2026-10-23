@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import sqlite3
 from typing import Any, cast
 
 import pytest
@@ -14,7 +15,9 @@ from blue_data_planner.fragment_runner import FragmentRunner
 from blue_data_planner.operators import OperatorRouter
 from blue_data_planner.types import (
     Conversation,
+    ErrorKind,
     ExecutionStatus,
+    OperatorUnavailableError,
     OutputColumn,
     PhysicalPlanFragment,
     RecoverableOperatorError,
@@ -65,6 +68,7 @@ def sql_replies(monkeypatch: pytest.MonkeyPatch) -> list[Any]:
     [
         ("SELECT absent_column FROM stores", "no such column: absent_column"),
         ("SELECT * FROM absent_table", "no such table: absent_table"),
+        ("SELECT FROM stores", "check SQL syntax"),
         ("SELECT 1; CREATE TABLE injected (id INTEGER)", "single SQL statement"),
     ],
 )
@@ -109,7 +113,7 @@ def test_a_schema_lookup_failure_names_the_target_without_exposing_connection_de
 
     monkeypatch.setattr(registry, "get_data_source_schema", refuse_schema)
 
-    with pytest.raises(RecoverableOperatorError) as caught:
+    with pytest.raises(OperatorUnavailableError) as caught:
         nl2sql(sqlite_registry).call([], PARAMETERS, [])
 
     message = str(caught.value)
@@ -161,7 +165,7 @@ def test_diagnostics_are_cleared_between_calls_to_the_same_physical_operator(
 
     with monkeypatch.context() as patch:
         patch.setattr(OpsLLMClient, "execute_api_call", refuse_model)
-        with pytest.raises(RecoverableOperatorError) as caught:
+        with pytest.raises(OperatorUnavailableError) as caught:
             operator.call([], PARAMETERS, [])
 
     message = str(caught.value)
@@ -219,3 +223,67 @@ def test_the_fragment_repair_receives_the_database_cause_and_can_finish(
     last = result.attempts[-1].result
     assert last is not None and last.output == [[{"n": 2}]]
     assert counters.operator_calls == 2
+
+
+@pytest.mark.parametrize(
+    ("boundary", "failure"),
+    [
+        ("model", LLMError("private provider detail", code="unsupported_parameter")),
+        ("model", LLMError("private provider detail", code="provider_error")),
+        ("schema", ConnectionError("private connection detail")),
+        ("query", sqlite3.OperationalError("database is locked")),
+        ("query", RuntimeError("private runtime detail")),
+    ],
+    ids=["model-setting", "provider", "connection", "locked-database", "unexpected-query-error"],
+)
+def test_non_repairable_sql_failures_skip_parameter_retries(
+    sqlite_registry: DataRegistry,
+    sql_replies: list[Any],
+    monkeypatch: pytest.MonkeyPatch,
+    boundary: str,
+    failure: Exception,
+) -> None:
+    """Having a SQL diagnostic must not hide a non-retryable provider or source failure."""
+
+    def refuse(*args: Any, **kwargs: Any) -> Any:
+        raise failure
+
+    registry: Any = sqlite_registry
+    if boundary == "model":
+        monkeypatch.setattr(OpsLLMClient, "execute_api_call", refuse)
+    elif boundary == "schema":
+        monkeypatch.setattr(registry, "get_data_source_schema", refuse)
+    else:
+        sql_replies.append({"query": "SELECT COUNT(*) AS n FROM stores"})
+        monkeypatch.setattr(registry, "execute_query", refuse)
+    client = ScriptedLLMClient([PARAMETERS])
+    router = OperatorRouter()
+    router.register(nl2sql(sqlite_registry))
+    runner = FragmentRunner(
+        client,  # pyright: ignore[reportArgumentType]
+        DataCatalog(sqlite_registry),
+        router,
+    )
+    fragment = PhysicalPlanFragment(
+        id="count-stores",
+        logical_node_ids=["scan"],
+        root_logical_node_id="scan",
+        operator_id="blue.nl2sql",
+        scan_sources={"scan": SCAN_SOURCE},
+        instruction="Count the stores.",
+        input_data=[],
+        required_output_columns=[OutputColumn(name="n", dtype="int")],
+    )
+    counters = RunCounters(RunLimits(parameter_repairs=4, operator_calls=5))
+
+    result = runner.run(fragment, Conversation(), [], counters)
+
+    assert result.status is RunStatus.NEEDS_REPAIR
+    assert len(result.attempts) == counters.operator_calls == 1
+    error = result.attempts[0].result
+    assert error is not None and error.error is not None
+    assert error.error.kind is ErrorKind.OPERATOR_UNAVAILABLE
+    assert SCAN_SOURCE in error.error.message
+    assert "private" not in error.error.message
+    assert client.answers == []
+    assert sql_replies == []

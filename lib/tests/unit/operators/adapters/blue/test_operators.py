@@ -17,6 +17,7 @@ from blue_data_planner.types import (
     DataBundle,
     LogicalOperator,
     OperatorRoutingError,
+    OperatorUnavailableError,
     PhysicalOperator,
     RecoverableOperatorError,
 )
@@ -147,7 +148,7 @@ def test_a_call_the_operation_reported_a_failure_for_leaves_another_operator_to_
     scripted = scripted_operation("select", failure="population is not a key of these rows")
     one = a_suite(scripted)["blue.select"]
 
-    with pytest.raises(RecoverableOperatorError, match="blue.select failed at EXECUTE"):
+    with pytest.raises(OperatorUnavailableError, match="blue.select failed at EXECUTE"):
         one.call([[{"city": "Austin"}]], A_CALL_THE_MODEL_ACCEPTS["blue.select"], [])
 
 

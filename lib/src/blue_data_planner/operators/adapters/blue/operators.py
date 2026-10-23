@@ -129,6 +129,7 @@ def _build_call(
             operator_id,
             reported or None,
             execution_detail=diagnostics.detail if diagnostics else None,
+            parameter_repairable=diagnostics.parameter_repairable if diagnostics else False,
         )
         # ExecMeta.traces stays out: the base class attaches timings and shapes to every call,
         # which is instrumentation rather than something the operation chose to say, and open

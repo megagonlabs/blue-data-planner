@@ -1150,8 +1150,12 @@ override that policy.
 The SQL registry and model client are created per invocation. They observe schema, generation,
 and execution failures before `blue-data-ops` contains their exceptions, and the adapter adds
 their sanitized cause and catalog target to an execution failure's repair message. Upstream
-error classification, suggestions, and reports are retained; diagnostic state is never reused
-by another call.
+recovery metadata distinguishes retryable or recoverable execution errors from non-retryable
+failures that need another operator. An observed malformed generated query or known SQLite
+syntax/name error can still go to parameter repair, since ops reports those as generic failures
+too. A provider, connection, or unknown runtime failure keeps the fallback path even with a
+diagnostic. Suggestions and reports are retained, and diagnostic state is never reused by another
+call (ADR-066).
 
 Nothing else changes when a suite is added. The physical planner builds its candidates from the
 router while it covers a plan, so a newly registered operator competes for every fragment its
@@ -1573,7 +1577,8 @@ anything else reaches the interface boundary as the bug it is (ADR-015).
 cover repair, and `UnrecoverableOperatorError` ends the run. The Blue adapter uses the unavailable
 case for failures of defaults, validation, or refinement and for malformed operation results,
 preserving their diagnostic messages and reports rather than treating them as planner defects
-(ADR-065).
+(ADR-065). Non-retryable `FAILED` execution errors use that same path; execution errors marked
+recoverable or retryable retain parameter repair, as do observed correctable SQL errors (ADR-066).
 
 `LLMError` is the one failure caught at the top of the run loop rather than by the component that
 provoked it. A provider outage is neither a programming error nor malformed state, so 04's rule

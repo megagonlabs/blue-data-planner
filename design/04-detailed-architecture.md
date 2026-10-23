@@ -820,7 +820,7 @@ decides whether these repairs apply at all.
 | Kind | Means | Response |
 | --- | --- | --- |
 | Recoverable | Bad parameters, a missing or uncoercible required column, an operator raising on input it cannot handle | Start with the parameter repair |
-| Operator unavailable | The chosen implementation has broken defaults, a failing validator, or an invalid result | Keep the failed attempt and start with cover repair, skipping parameter retries (ADR-065) |
+| Operator unavailable | The chosen implementation has broken defaults, a failing validator, an invalid result, or a non-retryable execution failure | Keep the failed attempt and start with cover repair, skipping parameter retries (ADR-065, ADR-066) |
 | Unrecoverable | The failure has nothing to do with any of the three repairs: a source is unreachable, credentials are rejected, the process is out of memory | End the request. Retrying would fail the same way |
 
 A separate case ends a request without any of this, because nothing ran. Physical planning writes no

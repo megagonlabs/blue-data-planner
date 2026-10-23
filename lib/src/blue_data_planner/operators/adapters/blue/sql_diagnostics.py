@@ -14,6 +14,31 @@ from blue_data_ops.llm import LLMClient
 from blue_data_ops.llm.errors import LLMError
 
 
+def _parameter_repairable(phase: str, error: Exception) -> bool:
+    # Ops collapses query mistakes and broken providers/sources into EXECUTION_FAILED.
+    # Preserve #37's repair path only where the observed exception identifies a bad query.
+    if phase == "SQL generation":
+        return isinstance(error, json.JSONDecodeError)
+    if phase != "SQL execution":
+        return False
+    if isinstance(error, sqlite3.OperationalError):
+        # SQLITE_ERROR also covers unrelated runtime faults. Only known syntax/name errors
+        # are evidence for parameter repair; locks, I/O, and unknown failures need fallback.
+        message = str(error)
+        return getattr(error, "sqlite_errorcode", None) == sqlite3.SQLITE_ERROR and (
+            re.fullmatch(
+                r"(?:no such table|no such column|ambiguous column name): [\w. -]+", message
+            )
+            is not None
+            or re.fullmatch(r'near ".+": syntax error', message) is not None
+            or message == "incomplete input"
+        )
+    return isinstance(error, ValueError) and str(error) in {
+        "blue.nl2sql requires a SELECT statement",
+        "blue.nl2sql requires a single SQL statement",
+    }
+
+
 def _safe_cause(error: Exception) -> str:
     # Driver/provider exceptions can include credentials, connection URLs, request bodies,
     # or SQL literals. Only known repair information is copied into the model conversation.
@@ -57,23 +82,27 @@ class SQLDiagnostics:
 
     scan_source: str
     detail: str | None = None
+    parameter_repairable: bool = False
 
-    def record(self, phase: str, cause: str) -> None:
+    def record(self, phase: str, cause: str, *, parameter_repairable: bool = False) -> None:
         """Name the catalog target the model can correct, alongside a safe cause."""
         self.detail = f"{phase} for {self.scan_source}: {cause}"
+        self.parameter_repairable = parameter_repairable
 
     @contextmanager
     def capture(self, phase: str) -> Generator[None, None, None]:
-        """Observe an exception without changing how ops classifies or contains it."""
+        """Observe the cause and repairability before ops contains the exception."""
         try:
             yield
         except Exception as error:
             try:
                 cause = _safe_cause(error)
+                repairable = _parameter_repairable(phase, error)
             except Exception:
                 # A driver's unusual exception implementation must not break diagnostics.
                 cause = type(error).__name__
-            self.record(phase, cause)
+                repairable = False
+            self.record(phase, cause, parameter_repairable=repairable)
             raise
 
 
@@ -101,12 +130,18 @@ class DiagnosticSQLClient(LLMClient):
             )
             if not isinstance(query, str):
                 self._diagnostics.record(
-                    "SQL generation", "the model must return a JSON object with a query string"
+                    "SQL generation",
+                    "the model must return a JSON object with a query string",
+                    parameter_repairable=True,
                 )
             elif not query:
-                self._diagnostics.record("SQL generation", "the generated query is empty")
+                self._diagnostics.record(
+                    "SQL generation", "the generated query is empty", parameter_repairable=True
+                )
             elif not query.upper().startswith("SELECT"):
                 self._diagnostics.record(
-                    "SQL generation", "the generated query must begin with SELECT"
+                    "SQL generation",
+                    "the generated query must begin with SELECT",
+                    parameter_repairable=True,
                 )
             return result
