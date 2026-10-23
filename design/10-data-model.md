@@ -905,7 +905,7 @@ The bounds themselves are in [12-deployment-ops.md](12-deployment-ops.md).
 | `ControlOperator` | `REPLAN`, `DISCOVER` |
 | `RunStatus` | `ok`, `needs_repair`, `needs_replan`, `planned`, `invalid_plan`, `replan_exhausted`, `budget_exhausted`, `operator_failed`, `llm_failed`, `planner_failed`, `deadline_exceeded`, `cancelled` |
 | `ExecutionStatus` | `ok`, `failed` |
-| `ErrorKind` | `recoverable`, `unrecoverable` |
+| `ErrorKind` | `recoverable`, `operator_unavailable`, `unrecoverable` |
 | `FragmentReviewDecision` | `accept`, `reject`, `replan` |
 
 `SORT_SUPERLATIVE` is one logical operator covering both ordering and cutting, since a superlative

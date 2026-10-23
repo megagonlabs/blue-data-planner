@@ -362,15 +362,21 @@ them directly. "Inside a run" says what a request does when the exception is rai
 | `PlanValidationError` | `validate_physical_plan` | A cover fails a structural check | Ends the request as `planner_failed` |
 | `ReturnAnswerError` | `project_answer` | The finished rows do not carry a column the answer names | The run loop catches it and replans |
 | `BudgetExhaustedError` | `RunCounters.spend_operator_call`, `execute_physical_operator` | The operator call budget reaches its cap | `FragmentRunner` catches it and returns `budget_exhausted` |
-| `RecoverableOperatorError` | An operator's callable | The operator refuses input another operator might accept | `execute_physical_operator` catches it and returns a failed `ExecutionResult` with `ErrorKind.RECOVERABLE` |
+| `RecoverableOperatorError` | An operator's callable | Different parameters may fix the failure | `execute_physical_operator` returns `ErrorKind.RECOVERABLE`; the fragment runner starts with parameter repair |
+| `OperatorUnavailableError` | An operator's callable | This implementation cannot serve the fragment, but another operator may work | `execute_physical_operator` returns `ErrorKind.OPERATOR_UNAVAILABLE`; the fragment runner requests cover repair immediately |
 | `UnrecoverableOperatorError` | An operator's callable | The operator fails for a reason no other operator would avoid | `execute_physical_operator` catches it and returns a failed `ExecutionResult` with `ErrorKind.UNRECOVERABLE` |
 | `SourceQueryError` | `execute_query`, `execute_write` | The source refuses the query or statement | The operator reading the source catches it and raises `RecoverableOperatorError` |
 | `SourceUnreachableError` | `connect_source`, `execute_query`, `execute_write` | The registry holds no connectable source under the name | The operator reading the source catches it and raises `UnrecoverableOperatorError` |
 | `LLMError` | `LLMClient.complete_structured`, `LLMClient.execute_api_call`, `LLMClient.aexecute_api_call` | The provider fails after the client's retries, or answers in a shape the client cannot read | Ends the request as `llm_failed` |
 | `BlueDataPlannerError` | Any component, such as `DataPipeline.cover` | The planner reaches a state it treats as a defect, such as a pipeline with no current physical plan | Ends the request as `planner_failed` |
 
-Both operator errors carry a `report: dict[str, Any] | None`, which reaches the caller as
+All three operator errors carry a `report: dict[str, Any] | None`, which reaches the caller as
 `ExecutionResult.report`.
+
+The Blue adapter uses `OperatorUnavailableError` for defaults, validator, and refinement failures,
+and invalid validation, execution, or refinement results. The failed attempt keeps its diagnostic
+message and report while cover repair can choose another implementation. Existing operator-call,
+cover-repair, and replan limits still apply.
 
 `LLMError` carries `code` (`provider_error` or `bad_response`) and `provider_error`, the
 exception the provider raised when there was one. `blue_data_planner.llm` re-exports it.

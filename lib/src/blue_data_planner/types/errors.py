@@ -67,6 +67,16 @@ class RecoverableOperatorError(BlueDataPlannerError):
         self.report = report
 
 
+class OperatorUnavailableError(BlueDataPlannerError):
+    """This implementation cannot serve the fragment; another operator may work."""
+
+    report: dict[str, Any] | None
+
+    def __init__(self, message: str, report: dict[str, Any] | None = None) -> None:
+        super().__init__(message)
+        self.report = report
+
+
 class UnrecoverableOperatorError(BlueDataPlannerError):
     """An operator failed for a reason no other operator would avoid."""
 

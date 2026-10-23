@@ -259,13 +259,14 @@ them directly. "Inside a run" says what a request does when the exception is rai
 | `ReturnAnswerError` | `project_answer` | The finished rows do not carry a column the ending names | The run loop catches it and replans |
 | `BudgetExhaustedError` | `RunCounters.spend_operator_call`, `execute_physical_operator` | The operator call budget reaches its cap | `FragmentRunner` catches it and returns `budget_exhausted` |
 | `DeclaredTypeMismatchError` | The coercion in `execution/output_columns.py` | A value does not spell the type declared for its column | `check_output_columns` catches it and returns a recoverable failed result |
-| `RecoverableOperatorError` | An operator's callable | The operator refuses its input | `execute_physical_operator` catches it and returns a recoverable failed `ExecutionResult` |
+| `RecoverableOperatorError` | An operator's callable | Different parameters may fix the failure | `execute_physical_operator` returns a recoverable failed result; the fragment runner starts with parameter repair |
+| `OperatorUnavailableError` | An operator's callable | This implementation cannot serve the fragment, but another operator may work | `execute_physical_operator` returns an `operator_unavailable` failed result; the fragment runner requests cover repair immediately |
 | `UnrecoverableOperatorError` | An operator's callable | The operator fails for a reason no other operator would avoid | `execute_physical_operator` catches it and returns an unrecoverable failed `ExecutionResult` |
 | `SourceQueryError` | `execute_query`, `execute_write` | A source refuses a query | The operator reading the source catches it and raises `RecoverableOperatorError` |
 | `SourceUnreachableError` | `connect_source`, `execute_query`, `execute_write` | The registry holds no connectable source under a name | The operator reading the source catches it and raises `UnrecoverableOperatorError` |
 | `LLMError` | `LLMClient.complete_structured`, `LLMClient.execute_api_call`, `LLMClient.aexecute_api_call` | The provider fails after retries, or answers in a shape the client cannot read | Ends the request as `llm_failed` |
 | Any other `BlueDataPlannerError` | The component that raised it | The planner reaches a state it treats as a defect | Ends the request as `planner_failed` |
-| `ValueError`, `TypeError`, and an operator suite's own exceptions | Any call | The code meets malformed state or a missing required value, or an operator raises an exception other than the two operator errors | Propagates out of `run` and `plan` |
+| `ValueError`, `TypeError`, and an operator suite's own exceptions | Any call | The code meets malformed state or a missing required value, or an operator raises an exception other than the three operator errors | Propagates out of `run` and `plan` |
 
 While a request runs, `run` and `plan` return a `RunResult` unless an exception in the last row
 propagates.

@@ -14,6 +14,7 @@ from blue_data_planner.types import (
     ErrorKind,
     ExecutionResult,
     ExecutionStatus,
+    OperatorUnavailableError,
     OutputColumn,
     PhysicalOperator,
     RecoverableOperatorError,
@@ -45,6 +46,10 @@ def execute_physical_operator(
         output = operator.call(inputs, parameters, required_output_columns)
     except RecoverableOperatorError as error:
         return _failed(ErrorKind.RECOVERABLE, str(error), operator.operator_id, error.report)
+    except OperatorUnavailableError as error:
+        return _failed(
+            ErrorKind.OPERATOR_UNAVAILABLE, str(error), operator.operator_id, error.report
+        )
     except UnrecoverableOperatorError as error:
         return _failed(ErrorKind.UNRECOVERABLE, str(error), operator.operator_id, error.report)
     result = ExecutionResult(

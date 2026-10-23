@@ -325,6 +325,7 @@ FragmentRunner.run(fragment, conversation, inputs, counters)
       │    3. call the operator
       │    4. check the result against the declared columns, coercing each type
       │    → unrecoverable failure: status operator_failed, the run ends
+      │    → operator unavailable:  status needs_repair, choose another cover
       │    → recoverable failure:   write the parameters again
       │
       └─ review turn over the rows

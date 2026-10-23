@@ -7,7 +7,7 @@ from typing import Any
 from blue_data_ops.operators.types import ErrorCode, ExecMeta
 
 from blue_data_planner.types import (
-    BlueDataPlannerError,
+    OperatorUnavailableError,
     RecoverableOperatorError,
     UnrecoverableOperatorError,
 )
@@ -38,8 +38,7 @@ def raise_for_errors(
         raise RecoverableOperatorError(message, report=report)
     if error.code in _UNRECOVERABLE_ERROR_CODES:
         raise UnrecoverableOperatorError(message, report=report)
-    # The remaining codes all mean the operation's own implementation is broken, not that a
-    # different set of parameters could have avoided the failure. A bare BlueDataPlannerError,
-    # which nothing here catches, reaches the interface boundary with its traceback instead of
-    # being recorded as an ordinary fragment failure.
-    raise BlueDataPlannerError(message)
+    # Defaults, validator failures, and malformed results belong to this implementation.
+    # Another operator can still serve the node, so repair the cover without spending more
+    # parameter attempts or reporting the operation's defect as a planner defect (#54).
+    raise OperatorUnavailableError(message, report=report)

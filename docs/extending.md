@@ -55,8 +55,10 @@ For an operation declaring `source_kinds`, `accepts_bound_inputs=False` excludes
 with an input table, including a cut containing no scan. Operations that transform input tables
 without reading a registered source declare `source_kinds=None` and keep their normal inputs.
 
-A `call` raises `RecoverableOperatorError` where a different operator might accept the same input
-and `UnrecoverableOperatorError` otherwise; what each becomes is in
+A `call` raises `RecoverableOperatorError` when different parameters may fix the failure,
+`OperatorUnavailableError` when another implementation is needed, and `UnrecoverableOperatorError`
+when the failure should end the run. The unavailable case skips parameter retries and requests
+cover repair immediately; what each becomes is in
 [api-reference.md](api-reference.md#exceptions).
 
 ### How the router picks an operator

@@ -12,6 +12,7 @@ from blue_data_planner.types import (
     ExecutionStatus,
     LogicalOperator,
     OperatorOutput,
+    OperatorUnavailableError,
     OutputColumn,
     RecoverableOperatorError,
     RunCounters,
@@ -45,8 +46,9 @@ def test_a_call_comes_back_as_the_rows_it_produced_with_the_row_count_across_eve
     [
         (RecoverableOperatorError("bad key"), ErrorKind.RECOVERABLE),
         (UnrecoverableOperatorError("timed out"), ErrorKind.UNRECOVERABLE),
+        (OperatorUnavailableError("broken validator"), ErrorKind.OPERATOR_UNAVAILABLE),
     ],
-    ids=["recoverable", "unrecoverable"],
+    ids=["recoverable", "unrecoverable", "operator_unavailable"],
 )
 def test_an_operator_that_refuses_its_input_comes_back_as_a_failure_of_its_kind(
     raised: Exception, expected_kind: ErrorKind
@@ -64,7 +66,7 @@ def test_an_operator_that_refuses_its_input_comes_back_as_a_failure_of_its_kind(
 
 
 def test_any_other_exception_reaches_the_caller_as_the_bug_it_is() -> None:
-    """Only the two operator errors are converted; everything else propagates."""
+    """Only the three declared operator errors are converted; everything else propagates."""
     operator, _ = recording_operator(
         "blue.select", frozenset({LogicalOperator.FILTER}), [ValueError("boom")]
     )
@@ -131,9 +133,16 @@ def test_a_successful_call_carries_the_operator_report_to_the_result() -> None:
     assert result.report == {"query": "SELECT 1"}
 
 
-def test_a_failed_call_carries_the_report_the_operator_raised_with() -> None:
+@pytest.mark.parametrize(
+    "error_type", [RecoverableOperatorError, OperatorUnavailableError, UnrecoverableOperatorError]
+)
+def test_a_failed_call_carries_the_report_the_operator_raised_with(
+    error_type: type[RecoverableOperatorError]
+    | type[OperatorUnavailableError]
+    | type[UnrecoverableOperatorError],
+) -> None:
     """An operator that failed partway through still reports what it managed to do."""
-    raised = RecoverableOperatorError("no column 'city'", report={"steps_run": 2})
+    raised = error_type("failed partway through", report={"steps_run": 2})
     operator, _ = recording_operator("blue.select", frozenset({LogicalOperator.FILTER}), [raised])
 
     result = execute_physical_operator(

@@ -30,9 +30,10 @@ class ExecutionStatus(StrEnum):
 
 
 class ErrorKind(StrEnum):
-    """What a failure means for the run: try another operator, or end the run."""
+    """What a failure needs: parameter repair, another operator, or an end to the run."""
 
     RECOVERABLE = "recoverable"
+    OPERATOR_UNAVAILABLE = "operator_unavailable"
     UNRECOVERABLE = "unrecoverable"
 
 

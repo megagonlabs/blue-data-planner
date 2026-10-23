@@ -809,7 +809,10 @@ names the fragment's logical nodes and the instruction they were executed as, th
 assessment where there is one: the replan's, or the most recent one when attempts ran out. An
 unrecoverable operator failure returns `status=operator_failed` and no review turn at all, since no
 other operator would avoid the same failure. Every ending carries every attempt it made alongside
-its status, so what the review turned down is readable rather than discarded.
+its status, so what the review turned down is readable rather than discarded. An
+`operator_unavailable` failure also skips review and returns `needs_repair` immediately: the
+operation's implementation failed, so the cover repair can choose another operator without
+spending parameter attempts on that implementation (ADR-065).
 
 Writing the parameters and reviewing the result are turns in one conversation, so the review sees
 what was written and why, and a rejected review is answered on top of what it rejected. One fragment
@@ -1562,9 +1565,15 @@ reading a source turns `SourceQueryError` into a recoverable operator error and
 Every exception this library defines inherits `BlueDataPlannerError`, defined in `types/errors.py`.
 It does not inherit `blue-data-ops`'s base, so one `except` never silently covers both a planner bug
 and an operator one. An adapter raises one of
-the two operator errors and `execute_physical_operator` converts each into a failed
+the three operator errors and `execute_physical_operator` converts each into a failed
 `ExecutionResult` carrying the matching `ErrorKind`. Nothing else is caught, so an operator raising
 anything else reaches the interface boundary as the bug it is (ADR-015).
+
+`RecoverableOperatorError` starts parameter repair, `OperatorUnavailableError` goes directly to
+cover repair, and `UnrecoverableOperatorError` ends the run. The Blue adapter uses the unavailable
+case for failures of defaults, validation, or refinement and for malformed operation results,
+preserving their diagnostic messages and reports rather than treating them as planner defects
+(ADR-065).
 
 `LLMError` is the one failure caught at the top of the run loop rather than by the component that
 provoked it. A provider outage is neither a programming error nor malformed state, so 04's rule

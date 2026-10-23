@@ -13,7 +13,7 @@ from blue_data_ops.operators.types import (
 
 from blue_data_planner.operators.adapters.blue.error_mapping import raise_for_errors
 from blue_data_planner.types import (
-    BlueDataPlannerError,
+    OperatorUnavailableError,
     RecoverableOperatorError,
     UnrecoverableOperatorError,
 )
@@ -58,16 +58,17 @@ def test_a_timed_out_call_is_unrecoverable() -> None:
         ErrorCode.VALIDATION_FAILED,
         ErrorCode.VALIDATION_RESULT_INVALID,
         ErrorCode.EXECUTION_RESULT_INVALID,
+        ErrorCode.REFINEMENT_FAILED,
+        ErrorCode.REFINEMENT_RESULT_INVALID,
     ],
 )
-def test_a_broken_operation_raises_past_the_run_loop(code: ErrorCode) -> None:
-    """These four name a broken operation, which no other parameters would have avoided."""
-    with pytest.raises(BlueDataPlannerError) as caught:
-        raise_for_errors(a_call_that_failed(code), "blue.select")
+def test_a_broken_operation_requests_another_operator(code: ErrorCode) -> None:
+    """The implementation failed; another operator may work, but new parameters cannot fix it."""
+    with pytest.raises(OperatorUnavailableError) as caught:
+        raise_for_errors(a_call_that_failed(code), "blue.select", {"rows_read": 3})
 
-    # execute_physical_operator catches the two operator error types and nothing else, so
-    # raising either of them here would record a bug as an ordinary fragment failure.
-    assert not isinstance(caught.value, (RecoverableOperatorError, UnrecoverableOperatorError))
+    assert "blue.select" in str(caught.value)
+    assert caught.value.report == {"rows_read": 3}
 
 
 def test_the_message_names_the_operator_the_stage_and_what_to_try() -> None:
@@ -105,11 +106,14 @@ def test_the_first_error_decides_when_a_call_reported_several() -> None:
     [
         (ErrorCode.INVALID_INPUT, RecoverableOperatorError),
         (ErrorCode.OPERATOR_TIMEOUT, UnrecoverableOperatorError),
+        (ErrorCode.DEFAULTS_FAILED, OperatorUnavailableError),
     ],
 )
 def test_what_a_failed_call_reported_travels_with_the_failure(
     code: ErrorCode,
-    expected: type[RecoverableOperatorError] | type[UnrecoverableOperatorError],
+    expected: type[RecoverableOperatorError]
+    | type[UnrecoverableOperatorError]
+    | type[OperatorUnavailableError],
 ) -> None:
     """An operation that failed partway through is the one with the most to say about its run."""
     with pytest.raises(expected) as caught:
