@@ -450,7 +450,7 @@ PhysicalOperator(
     parameter_schema=NL2SQLParameters,
     call=_nl2sql,
     source_kinds=frozenset({"sql/sqlite", "sql/mysql", "sql/postgres"}),
-    accepts_bound_inputs=True,
+    accepts_bound_inputs=False,
     limitations="express a semantic predicate, or read more than one database in one query",
 )
 ```
@@ -462,7 +462,7 @@ The two sit at opposite ends of what a declaration can say.
 | Logical operators | One | Seven |
 | Largest group it can cover | One `FILTER` node | Any connected group of those seven kinds |
 | Sources | None. It reads the rows it is handed | SQLite, MySQL, and Postgres, and every `SCAN` in a group has to be one of those |
-| Tables from other fragments | Its input is one table | Accepted. It makes each table it is handed addressable and writes a query referring to it, beside the source its scans read |
+| Tables from other fragments | Its input is one table | Not accepted. Its fragment must contain the source work it needs and receive no external tables |
 | Stated limitations | None | Cannot express a semantic predicate, the limit that kept `keep_data_scientists` out of the SQL fragment in Scenario 1, and one query reads one database, so a group whose scans name two sources is not its to take |
 
 An operator declaring one logical operator can only ever cover one node. Declaring several is what

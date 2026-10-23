@@ -496,6 +496,11 @@ names, `openai` by default.
 Blue model calls use the provider's default temperature, overriding the operations' fixed
 temperature of zero so reasoning models can accept the calls.
 
+`blue.nl2sql` declares `accepts_bound_inputs=False`: it writes a query from the source schema
+and cannot incorporate tables from another fragment. The physical planner excludes candidates
+that would pass it any input tables, including cuts containing no scan. Complete SQL regions
+with no external inputs remain eligible. Direct calls carrying input tables are refused.
+
 `blue.nl2sql` explicitly enables query execution and SELECT validation. Its registry adapter
 requires a single statement and always passes `commit=False` to `blue-data`, which enables
 the SQL connection's read-only mode. Request parameters and model output cannot change this

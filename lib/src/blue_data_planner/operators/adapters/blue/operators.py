@@ -94,7 +94,8 @@ def _build_call(
             # blue.nl2sql is the only operation this branch reaches. It writes its query from
             # a source's schema, with no way to bind another fragment's rows into that query,
             # so a non-empty bundle would be answered from the source alone and the bundle's
-            # rows would be silently left out. See design/13-decision-log.md, open question 51.
+            # rows would be silently left out. Planning excludes such fragments (ADR-064);
+            # keep this check for direct calls and covers written before that restriction.
             if inputs:
                 raise RecoverableOperatorError(
                     f"{operator_id} writes its query from the schema of the source it reads, so "
@@ -304,7 +305,7 @@ OPERATIONS: tuple[Operation, ...] = (
         "nl2sql@3.0.0",
         NL2SQLParameters,
         source_kinds=frozenset(_NL2SQL_PROTOCOLS),
-        accepts_bound_inputs=True,
+        accepts_bound_inputs=False,
         # A declaration has no vocabulary for "every scan reads one database", so the
         # constraint lives here, where the physical planner reads it (open question 44).
         limitations=(

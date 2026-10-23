@@ -51,6 +51,10 @@ that overstates what the operation does produces a candidate the operator cannot
 | `accepts_bound_inputs` | `bool` | Whether the operation can take tables from other fragments alongside the source it reads, such as a reference input whose values narrow a scan. Only an operation that sets `source_kinds` can set it; setting it without `source_kinds` raises `ValueError` |
 | `limitations` | `str \| None` | What the operation cannot do, which keeps it from being bound to work it would fail. Write it as a phrase that completes "Cannot: …", such as `judge what text means`, and put what it can do in `description` |
 
+For an operation declaring `source_kinds`, `accepts_bound_inputs=False` excludes every fragment
+with an input table, including a cut containing no scan. Operations that transform input tables
+without reading a registered source declare `source_kinds=None` and keep their normal inputs.
+
 A `call` raises `RecoverableOperatorError` where a different operator might accept the same input
 and `UnrecoverableOperatorError` otherwise; what each becomes is in
 [api-reference.md](api-reference.md#exceptions).

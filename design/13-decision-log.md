@@ -1965,8 +1965,9 @@ fragment is offered only to operators accepting bound inputs, or inside a fragme
 the node producing the reference input. Where no registered operator qualifies, the node has no
 operator and the reason names the reference input, so the logical planner can write a plan reaching
 the value another way, such as through a `REPLAN` that reads it first. An operator declaring bound
-inputs and refusing a frontier it was offered is still possible, which is question 51. A bundle of
-the wrong length for any other reason is still refused inside each adapter, which is question 15.
+inputs and refusing a frontier it was offered was question 51, resolved for `blue.nl2sql` by
+ADR-064. A bundle of the wrong length for any other reason is still refused inside each adapter,
+which is question 15.
 
 ## ADR-060 — The Operator-Call Budget Also Bounds the Size of a Plan
 
@@ -2106,6 +2107,33 @@ event and sets it from another thread.
 
 ---
 
+## ADR-064 — Source-Reading Operators Declare Their Current Input Capability
+
+**Date:** 2026-10-23
+**Status:** Accepted
+
+**Decision:** `blue.nl2sql` declares `accepts_bound_inputs=False`, matching the operation it
+wraps: it writes SQL from a source schema and cannot incorporate external tables. For every
+source-reading operator with this flag false, the physical planner requires an empty fragment
+frontier, including a cut containing no `SCAN`. Operators that transform tables and declare no
+source kinds retain their ordinary inputs. A source-reading operator that implements bound
+inputs, such as `builtin.scan`, can still receive them.
+
+**Rationale:** A capability declaration describes the current implementation. Advertising a
+future capability offers work the operation always refuses and spends parameter repairs on a
+failure no parameter can fix. Checking only reference inputs is insufficient: a table-only
+`FILTER` or `AGGREGATE` cut has ordinary transformed inputs and no scan, but is equally unusable
+by `blue.nl2sql`.
+
+**Consequences:** Open question 51 is resolved. Unsupported SQL fragments are excluded before
+binding or operator execution. Complete SQL regions remain eligible, and a direct call with an
+input bundle is still refused defensively. If a future version of the operation incorporates
+external tables, the adapter can widen its declaration after testing that behavior. This
+clarifies ADR-059 for source-reading operators; the single-database limitation remains open
+question 44.
+
+---
+
 ## Open Questions
 
 Design questions first, then defects in the code.
@@ -2127,7 +2155,6 @@ Design questions first, then defects in the code.
 | 45 | Is a bound an operator enforces inside its own call a bound of ADR-060's kind? `RunLimits` holds every bound the run loop obeys, and two numbers sit below it instead: the distinct values a bind join carries, and the rows a LOTUS operation accepts before refusing the call. Both are shaped like `RunLimits` fields, and they do not agree with each other about who sets them: the LOTUS cap is an argument to `lotus_operators`, so a deployment chooses it where it builds the suite, while the bind-join cap is fixed in the operator that enforces it. `builtin.scan` reads only `sql/sqlite`, a source with a predicate language, and implements two of the three realizations in [06](06-library.md#data): values embedded in the query text, capped at 100 distinct values, and a temporary table, capped by nothing. Past the embedded-values cap it escalates to the temporary table rather than refusing the input, so `builtin.scan` never refuses a bind join for carrying too many values; 100 is where it switches realization, not a limit it enforces. The one-call-per-value realization, and the tighter cap that would bound it, belong to an operator reading a source with no predicate language, a case nothing in the built-in suite covers. Every number here is a placeholder set low enough not to break a run rather than measured against real volumes or real failure rates. A `RunLimits` field would let a deployment raise a cap past a default nobody has tested; leaving each number inside its operator keeps the choice with whichever component already sees what decides it. | Whether a bound below the run loop is configurable per deployment, and what real volumes and failure rates call for |
 | 47 | Should the operator vocabulary gain a node that looks the catalog up once per input row? ADR-049 keeps a `DISCOVER` node to a bounded set of entities however many rows it was handed, so a request such as "find the press release document for each of these 500 companies" has nowhere to go: that lookup is per row, what it returns is data rather than context, and it should be billed against the operator budget and reviewed like any other data operation. An operator node would give it all three. Against adding one: none of the ten logical operators reads the catalog, so this would be the first, and what it returns — paths rather than values — is a kind of row nothing else in a plan produces. How often a request needs one is unmeasured. | Whether a per-row catalog lookup is expressible at all, and whether the logical vocabulary stays as it is |
 | 48 | Which component reads a `relation` record when a plan scans a knowledge-base source? `blue-data` records relations alongside entities and attributes, each with a name, a source, and a target, and nothing in this design reads one. A `JOIN` is the obvious consumer, since a relation says which attributes join two entities, and it could arrive as part of the run's catalog context or as part of the fragment runner's deeper reading. What stops the question being answered for tables alone is that relations are the structure a knowledge-base source carries, and how this planner reads a knowledge base is itself unsettled, so an answer shaped for two SQL tables would likely be the wrong shape for a graph. | Whether a `JOIN` is written against a declared relation or against column names a model matched up, and what a knowledge-base source contributes to a plan |
-| 51 | What does a compound operation do with a fragment whose frontier carries rows, before it can read one? `blue.nl2sql` declares bound inputs, so the physical planner offers it groups whose inputs arrive from an earlier fragment. A query written from a source's schema alone would answer from that source and leave those rows out, which is a wrong answer rather than a failure, and refusing the bundle as a recoverable failure is what keeps it from being returned. That refusal costs an operator call on a candidate that could not have worked. Narrowing the declaration instead would stop the candidate being enumerated at all, and would have to be widened again by hand once the operation reads its bundle, so the declaration states the target state and is not narrowed. What is unsettled is whether the refusal should cost a call, and whether a candidate an operator is known to refuse should be enumerated at all. That is question 44's shape: a constraint the declaration has no vocabulary for is stated in `limitations`, and the candidate is offered anyway. | Whether a fragment with a non-empty frontier reaches the compound Blue operation, and what a run spends finding out that it cannot serve one |
 | 54 | Should the library be able to phrase an answer, and the CLI then offer `--format nl`? The family offers a natural-language format where a source answers in prose, and ADR-029 leaves it out because a planner answers in rows. A benchmark whose expected answers are single values, and an agent that wants a sentence rather than a table, both suggest the phrasing has to happen somewhere; doing it in an interface is behavior in an adapter (ADR-002), so the question is whether a library operation should return prose alongside the rows, and what it costs in model calls per request. | Whether `--format nl` and the MCP response ever carry a sentence, and which component writes it |
 | 55 | Should a run be kept on disk so a plan can be read back? The CLI's home directory holds profiles and nothing else, so a plan printed by `data query --explain` is gone when the terminal scrolls, and `data query` keeps no record a later command could inspect. The family's storage convention has a place for one (`~/.<cli>/<profile>/<component>/`), and `from_dict` already reads a recorded plan back ([06-library.md](06-library.md#two-operations)). What is unsettled is whether a CLI should accumulate state at all for a planner that holds none between requests, and what would remove an old run. | Whether the CLI grows an action that reads a plan it wrote earlier |
 | 56 | Should the CLI be able to write a run's whole record to a file? A fragment's result reaches a person as a summary, and the JSON on standard output carries the answer and how the run ended, so every intermediate table and every model turn is reachable only by a caller who embeds the library (ADR-032). Diagnosing a wrong answer is the case that wants them: a summary says a fragment returned 140 rows over three columns and not which 140, and a review that rejected a fragment is readable only in the conversation. A file is where they would go, since what makes them unwelcome on standard output is size rather than secrecy, and the family's storage convention already has a place for per-profile state. Against adding one: a record holds whatever the sources held, so writing one puts source data on disk, and whether a CLI over a planner that keeps nothing between requests should accumulate state at all is question 55. | Whether a wrong answer can be diagnosed from the CLI alone |

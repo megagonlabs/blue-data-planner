@@ -1070,7 +1070,8 @@ comparable.
 
 `accepts_bound_inputs` constrains only an operation that reads a registered source. One with no
 source of its own receives everything it works on from the fragment's frontier, so there is nothing
-for the field to allow or forbid, and it reads n/a.
+for the field to allow or forbid, and it reads n/a. A source-reading operation declaring `False`
+is offered only fragments with an empty frontier, even when a cut contains no scan (ADR-064).
 
 A declaration has to describe what the operation does, because planning binds against the
 declaration and never looks inside the operation. One that overstates a capability turns into a
@@ -1194,10 +1195,11 @@ calls, so what these operations spend is billed as part of the operator call tha
 `blue.nl2llm` declares `SCAN` and reads no registered source. It answers from the model's own world
 knowledge, which is why its rows cannot be held to a source and why it declares no source kind.
 
-`blue.nl2sql` is the suite's compound operation. It declares seven kinds, the three SQL source
-kinds, and bound inputs, so a connected group of nodes over a SQL source is a candidate for a single
-call. Two limitations narrow it. It cannot express a semantic predicate, so a filter that needs
-reading text stays outside the group. And one query reads one database, so a fragment whose scans
+`blue.nl2sql` is the suite's compound operation. It declares seven kinds and the three SQL source
+kinds, and declines bound inputs. A connected group over a SQL source is a candidate for one call
+only when it receives no tables from other fragments. Two limitations narrow it further. It cannot
+express a semantic predicate, so a filter that needs reading text stays outside the group. And one
+query reads one database, so a fragment whose scans
 name two sources is not its to take, a constraint that lives in `limitations` because the
 declaration has no vocabulary for it (open question 44).
 
@@ -1214,8 +1216,8 @@ operations whose versions move at different times do not have to move together.
 
 An operation declaring one logical operator is handed the tables that kind's arity names, and a
 bundle of any other length is refused before the operation runs, as a recoverable failure naming
-both counts. `blue.nl2sql` is held to no count, since the group it covers decides how many tables
-arrive.
+both counts. `blue.nl2sql` requires an empty bundle: planning excludes every non-empty frontier,
+and a direct call carrying tables is refused before the operation runs.
 
 What an operation reports about its own run reaches the fragment's result, whether the call
 succeeded or failed (ADR-058). An operation that reports nothing leaves it unset.

@@ -245,6 +245,16 @@ class PhysicalPlanner:
             return _no_source_reason(node, operators, entity_source_kinds)
         bound_inputs = _bound_inputs(plan, root_alone)
         if not bound_inputs:
+            frontier = fragment_frontier(plan, root_alone)
+            if frontier and all(
+                operator.source_kinds is not None and not operator.accepts_bound_inputs
+                for operator in operators
+            ):
+                return (
+                    f"node {node.id!r} of kind {node.kind.value} receives {frontier} from other "
+                    "fragments, but its registered source-reading operators cannot take input "
+                    "tables. Group it with its source scan or use an operator that reads tables."
+                )
             raise BlueDataPlannerError(
                 f"node {node.id!r} reads a source its operators read and takes no bound input, "
                 "yet none of its operators was offered as a candidate"
@@ -456,6 +466,11 @@ def _bindable(
 ) -> bool:
     if not _reads_its_scans(plan, node_ids, operator, entity_source_kinds):
         return False
+    # A source-reading operator that declines input tables cannot handle a frontier even
+    # when this cut contains no SCAN and those rows are ordinary transformed inputs. Checking
+    # only _bound_inputs would still offer blue.nl2sql table-only FILTER/AGGREGATE cuts (#52).
+    if operator.source_kinds is not None and not operator.accepts_bound_inputs:
+        return not fragment_frontier(plan, node_ids)
     return operator.accepts_bound_inputs or not _bound_inputs(plan, node_ids)
 
 
