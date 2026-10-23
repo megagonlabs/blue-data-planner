@@ -91,7 +91,7 @@ from blue_data_planner.operators import OperatorRouter
 from blue_data_planner.operators.builtin import builtin_operators
 
 router = OperatorRouter()
-for operator in builtin_operators(data_registry, llm_client):
+for operator in builtin_operators(data_registry):
     router.register(operator)
 router.register(my_operator)
 ```

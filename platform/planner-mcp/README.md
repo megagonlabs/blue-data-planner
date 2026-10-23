@@ -35,6 +35,9 @@ connecting to it as a running service. stdout carries the protocol and nothing e
 the process writes there goes to stderr. LiteLLM's logging is held at WARNING, so its per-call INFO
 records do not reach a client's terminal.
 
+During MCP initialization, the server reports `blue_data_planner_mcp.__version__` in
+`serverInfo.version`, so clients can identify the version of `blue-data-planner-mcp` they launched.
+
 ## Launching it from an agent framework
 
 An agent framework's MCP client starts the server as a subprocess and sets its environment. With

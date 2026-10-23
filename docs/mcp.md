@@ -7,6 +7,9 @@ agent that speaks MCP. Installation, running, launching it from an agent framewo
 configuration reference are in [`platform/planner-mcp/README.md`](../platform/planner-mcp/README.md); this page
 covers the tool itself.
 
+During MCP initialization, clients receive the server package's version in `serverInfo.version`.
+The value comes from `blue_data_planner_mcp.__version__`.
+
 ## Tool reference
 
 ### `query_data(request, explain=False, include_plan=False) -> str`

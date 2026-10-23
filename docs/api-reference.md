@@ -362,6 +362,7 @@ them directly. "Inside a run" says what a request does when the exception is rai
 | `PlanValidationError` | `validate_physical_plan` | A cover fails a structural check | Ends the request as `planner_failed` |
 | `ReturnAnswerError` | `project_answer` | The finished rows do not carry a column the answer names | The run loop catches it and replans |
 | `BudgetExhaustedError` | `RunCounters.spend_operator_call`, `execute_physical_operator` | The operator call budget reaches its cap | `FragmentRunner` catches it and returns `budget_exhausted` |
+| `DeclaredTypeMismatchError` | `coerce_value`, `coerce_column` in `execution/output_columns.py` | A value cannot be converted to its declared column type | `check_output_columns` catches it and returns a failed `ExecutionResult` with `ErrorKind.RECOVERABLE` for parameter repair |
 | `RecoverableOperatorError` | An operator's callable | Different parameters may fix the failure | `execute_physical_operator` returns `ErrorKind.RECOVERABLE`; the fragment runner starts with parameter repair |
 | `OperatorUnavailableError` | An operator's callable | This implementation cannot serve the fragment, but another operator may work | `execute_physical_operator` returns `ErrorKind.OPERATOR_UNAVAILABLE`; the fragment runner requests cover repair immediately |
 | `UnrecoverableOperatorError` | An operator's callable | The operator fails for a reason no other operator would avoid | `execute_physical_operator` catches it and returns a failed `ExecutionResult` with `ErrorKind.UNRECOVERABLE` |
@@ -410,9 +411,15 @@ convert a plan to a plain dict and back for storing or sending it outside the pr
 
 ### `blue_data_planner.plan`
 
-Functions over a plan that need no model, no source, and no operator call.
+Functions and response schemas over a plan that need no model call, source access, or operator
+execution.
 
 ```python
+class OutputColumnModel(BaseModel):
+    name: str
+    dtype: ColumnDataType
+
+
 def validate_logical_plan(plan: LogicalPlan, entity_paths: frozenset[str], carried_node_ids: frozenset[str] = frozenset(), *, max_nodes: int) -> None: ...
 def validate_physical_plan(plan: LogicalPlan, physical_plan: PhysicalPlan) -> None: ...
 def candidate_fragments(plan: LogicalPlan, root_node_id: str, logical_operators: frozenset[LogicalOperator]) -> list[frozenset[str]]: ...
