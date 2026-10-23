@@ -305,6 +305,37 @@ def test_a_missing_required_parameter_names_what_to_set(tmp_path: Path) -> None:
     assert "BLUE_DATA_REGISTRY_PATH" in raised.value.description
 
 
+@pytest.mark.parametrize("backend", ["file", "redis"])
+def test_shared_registry_profile_values_are_exported_for_blue_datas_store(
+    tmp_path: Path, backend: str
+) -> None:
+    home = a_cli_home(tmp_path)
+    a_profile_holding(
+        home,
+        BLUE_DATA_REGISTRY_STORE=backend,
+        BLUE_DATA_REGISTRY_FILE=str(tmp_path / "shared.json"),
+        BLUE_DATA_REGISTRY_REDIS_URL="redis://example.test:6380/2",
+        BLUE_DATA_REGISTRY_REDIS_NAMESPACE="shared",
+        BLUE_DATA_REGISTRY_PATH=str(tmp_path / "old.json"),
+    )
+    resolver = build_resolver(None, {"BLUE_DATA_PLANNER_HOME": home})
+    settings = resolve_settings(resolver)
+    assert settings.planner.registry_path is None
+    exported = resolved_environment(resolver)
+    assert exported["BLUE_DATA_REGISTRY_STORE"] == backend
+    assert exported["BLUE_DATA_REGISTRY_FILE"] == str(tmp_path / "shared.json")
+    assert exported["BLUE_DATA_REGISTRY_REDIS_URL"] == "redis://example.test:6380/2"
+    assert exported["BLUE_DATA_REGISTRY_REDIS_NAMESPACE"] == "shared"
+    override = tmp_path / "override.json"
+    assert resolve_settings(resolver, registry=str(override)).planner.registry_path == override
+
+
+def test_invalid_shared_backend_is_a_configuration_error(tmp_path: Path) -> None:
+    resolver = a_resolver_over(tmp_path, BLUE_DATA_REGISTRY_STORE="typo")
+    with pytest.raises(CliError, match="BLUE_DATA_REGISTRY_STORE"):
+        resolve_settings(resolver)
+
+
 def test_a_stored_value_that_fails_its_cast_is_a_configuration_error_when_the_profile_is_applied(
     tmp_path: Path,
 ) -> None:

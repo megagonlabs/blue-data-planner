@@ -42,10 +42,26 @@ blue-planner profile config OPENAI_API_KEY
 
 ## Parameters
 
+Use the same registry settings as blue-data's other tools. For a file store:
+
+```bash
+blue-planner profile config BLUE_DATA_REGISTRY_STORE file
+blue-planner profile config BLUE_DATA_REGISTRY_FILE "$PWD/data/demo/registry.json"
+```
+
+For Redis, select `redis` and configure its URL and namespace below; install blue-data's
+optional Redis dependency and use a RedisJSON server. An explicit `--registry-path` overrides
+the shared store and opens either a dictionary file store or a legacy list snapshot.
+`BLUE_DATA_REGISTRY_PATH` remains a fallback only when no shared backend is configured.
+
 | Parameter | Cast | Default | Asked by `profile config` |
 | --- | --- | --- | --- |
 | `OPENAI_API_KEY` | secret | None, required | Yes |
-| `BLUE_DATA_REGISTRY_PATH` | file | None, required | Yes |
+| `BLUE_DATA_REGISTRY_STORE` | str | Unset; select `file` or `redis` | No |
+| `BLUE_DATA_REGISTRY_FILE` | file | `blue_data_store.json` | No |
+| `BLUE_DATA_REGISTRY_REDIS_URL` | str | `redis://localhost:6379/0` | No |
+| `BLUE_DATA_REGISTRY_REDIS_NAMESPACE` | str | `blue_data` | No |
+| `BLUE_DATA_REGISTRY_PATH` | file | Unset; legacy fallback | No |
 | `BLUE_DATA_PLANNER_MODEL` | str | `BLUE_DATA_LLM_MODEL`, then `openai/gpt-6-luna` | Yes |
 | `BLUE_DATA_PLANNER_REASONING_EFFORT` | str | `low` | No |
 | `BLUE_DATA_PLANNER_OPERATORS` | str | `builtin,lotus` | Yes |
@@ -236,7 +252,7 @@ An error reaches standard error as `ERROR: <CODE> <description>`. Under `--forma
 reaches standard output as one document:
 
 ```json
-{"error": "BLUE_DATA_REGISTRY_PATH is not configured. ...", "code": "CONFIG_INVALID"}
+{"error": "No registry configured. Set BLUE_DATA_REGISTRY_STORE ...", "code": "CONFIG_INVALID"}
 ```
 
 The MCP server reports its errors in the same shape.
@@ -287,7 +303,8 @@ bash platform/planner-cli/scripts/install.sh
 
 # 3. Configure a profile. The registry path is stored as given, so it is absolute; the API key is
 #    prompted, never passed as an argument.
-blue-planner profile config BLUE_DATA_REGISTRY_PATH "$PWD/data/tag_bench/registry.json"
+blue-planner profile config BLUE_DATA_REGISTRY_STORE file
+blue-planner profile config BLUE_DATA_REGISTRY_FILE "$PWD/data/tag_bench/registry.json"
 blue-planner profile config BLUE_DATA_PLANNER_OPERATORS builtin
 blue-planner profile config OPENAI_API_KEY
 blue-planner profile inspect

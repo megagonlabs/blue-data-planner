@@ -22,13 +22,16 @@ python lib/scripts/demo/register_northwind.py
 ```
 
 That writes `data/demo/registry.json`. `data/` is git-ignored, so nothing here is committed.
+For a registry built by an older checkout, rerun the registration script with `--force`
+to replace its legacy list snapshot with the shared dictionary store.
 [`lib/scripts/demo/README.md`](../lib/scripts/demo/README.md) says what the two scripts do.
 
 ## 3. Point the CLI at it
 
 ```bash
 export OPENAI_API_KEY=sk-...                      # a real key, not this placeholder
-export BLUE_DATA_REGISTRY_PATH=$PWD/data/demo/registry.json
+export BLUE_DATA_REGISTRY_STORE=file
+export BLUE_DATA_REGISTRY_FILE=$PWD/data/demo/registry.json
 export BLUE_DATA_PLANNER_MODEL=openai/gpt-6-luna
 export BLUE_DATA_PLANNER_OPERATORS=builtin        # builtin alone: the lotus extra is not installed
 ```

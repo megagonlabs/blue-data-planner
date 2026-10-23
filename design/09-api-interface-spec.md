@@ -71,7 +71,7 @@ def build_data_planner_from_settings(
 
 @dataclass(frozen=True)
 class PlannerSettings:
-    registry_path: Path
+    registry_path: Path | None = None
     model: str = DEFAULT_MODEL
     reasoning_effort: str = "low"
     operator_suites: tuple[str, ...] = DEFAULT_OPERATOR_SUITES
@@ -106,7 +106,7 @@ The three ways to build a planner differ in what the caller already holds.
 The suites a caller passes are objects, each carrying its own options.
 
 ```python
-def open_registry(registry_path: Path) -> DataRegistry: ...
+def open_registry(registry_path: Path | None = None) -> DataRegistry: ...
 def operator_suite(name: str) -> OperatorSuite: ...
 
 
@@ -130,7 +130,8 @@ class LotusSuite:
 ```
 
 A registry is populated by `blue-data` before it reaches this package (ADR-003). `open_registry`
-reads a serialized one; a caller holding a `DataRegistry` it assembled itself passes that one
+opens blue-data's configured file/Redis store, or an explicit file (including legacy list
+snapshots, ADR-068); a caller holding a `DataRegistry` it assembled itself passes that one
 instead. `operator_suite` maps a configured name (`builtin`, `blue`, or `lotus`) to a suite with its
 default options. A `LotusSuite` registers nothing where LOTUS is not installed.
 
@@ -243,7 +244,8 @@ them directly. "Inside a run" says what a request does when the exception is rai
 | Exception | Raised by | Raised when | Inside a run |
 | --- | --- | --- | --- |
 | `UnknownOperatorSuiteError` | `operator_suite`, `build_data_planner_from_settings` | A name registers no operator suite | Not raised |
-| `RegistryUnreadableError` | `open_registry`, `build_data_planner_from_settings` | The path a registry is opened from names no file, or the file cannot be read | Not raised |
+| `RegistryUnreadableError` | `open_registry`, `build_data_planner_from_settings` | The registry file is missing/unreadable, or the shared backend cannot be read | Not raised |
+| `InvalidSettingError` | `open_registry`, `build_data_planner_from_settings` | No registry is configured, or the selected backend is unsupported | Not raised |
 | `InvalidSettingError` | The `PlannerSettings` constructor | A field carries a value the planner cannot be built with | Not raised |
 | `InvalidSettingError` | The `LLMClient` constructor, `build_data_planner` | The properties the client is built with carry a value the client cannot be built with | Not raised |
 | `InvalidSettingError` | `LotusSuite.operators`, `build_data_planner` | A second LOTUS suite asks for a model or reasoning effort other than the one LOTUS is configured with in this process | Not raised |
@@ -303,7 +305,7 @@ positional parameter in plain language; no command accepts a plan.
 
 | Option | Effect |
 | --- | --- |
-| `--registry-path PATH` | The `blue-data` registry to plan over. Overrides `BLUE_DATA_REGISTRY_PATH` |
+| `--registry-path PATH` | A shared file store or legacy snapshot. Overrides shared store configuration and `BLUE_DATA_REGISTRY_PATH` |
 | `--model NAME` | The litellm model string the planner uses. Overrides `BLUE_DATA_PLANNER_MODEL`. Reaches LOTUS where `BLUE_DATA_PLANNER_LOTUS_MODEL` is unset, and the Blue suite where `BLUE_DATA_PLANNER_BLUE_MODEL` is unset |
 | `--format table\|json` | How the result is written. Defaults to `BLUE_DATA_CLI_FORMAT` |
 | `--explain` | Write the plan for the request and stop before the first operator call |
@@ -437,8 +439,10 @@ are specified when it is built.
 
 ## Configuration
 
-The library reads no environment variable: every value arrives through a constructor or a
-`PlannerSettings`. Each interface resolves its own values and hands them over.
+Planner options arrive through constructors or `PlannerSettings`. When `registry_path` is
+`None`, registry opening reads blue-data's shared store environment (ADR-068). The optional
+LLM cache also accepts deployment environment configuration (ADR-067). Each interface resolves
+its own planner options and hands them over.
 
 | Interface | Reads | Order |
 | --- | --- | --- |

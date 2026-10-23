@@ -1489,7 +1489,7 @@ their columns.
 ### Opening a registry
 
 ```python
-def open_registry(registry_path: Path) -> DataRegistry: ...
+def open_registry(registry_path: Path | None = None) -> DataRegistry: ...
 ```
 
 Reads a serialized `blue-data` registry into memory. A reopened registry reconnects to its own

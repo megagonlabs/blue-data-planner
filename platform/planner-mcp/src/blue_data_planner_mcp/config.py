@@ -57,12 +57,17 @@ def get_planner() -> DataPlanner:
 def planner_settings(environ: Mapping[str, str]) -> PlannerSettings:
     """Read what this environment names, leaving every other value to PlannerSettings."""
     registry_path = environ.get("BLUE_DATA_REGISTRY_PATH", "").strip()
-    if not registry_path:
+    store_type = environ.get("BLUE_DATA_REGISTRY_STORE", "").lower()
+    if store_type and store_type not in ("file", "redis"):
+        raise InvalidSettingError("BLUE_DATA_REGISTRY_STORE must be file or redis")
+    if not store_type and not registry_path:
         raise InvalidSettingError(
-            "BLUE_DATA_REGISTRY_PATH is not set. A client sets it in the env block it launches "
-            "this server with."
+            "Set BLUE_DATA_REGISTRY_STORE=file (with BLUE_DATA_REGISTRY_FILE) or redis "
+            "in the server's env block. BLUE_DATA_REGISTRY_PATH remains a legacy fallback."
         )
-    given: dict[str, Any] = {"registry_path": Path(registry_path).expanduser()}
+    given: dict[str, Any] = {
+        "registry_path": None if store_type else Path(registry_path).expanduser()
+    }
 
     model = environ.get("BLUE_DATA_PLANNER_MODEL") or environ.get("BLUE_DATA_LLM_MODEL")
     if model:

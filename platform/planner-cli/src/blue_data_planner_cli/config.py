@@ -102,7 +102,7 @@ def resolve_settings(
     planner_model = str(_require(resolver, "BLUE_DATA_PLANNER_MODEL", model))
     try:
         planner = PlannerSettings(
-            registry_path=Path(str(_require(resolver, "BLUE_DATA_REGISTRY_PATH", registry))),
+            registry_path=_registry_path(resolver, registry),
             model=planner_model,
             reasoning_effort=str(_require(resolver, "BLUE_DATA_PLANNER_REASONING_EFFORT")),
             operator_suites=tuple(
@@ -154,6 +154,27 @@ def resolve_output_format(resolver: ConfigResolver, override: str | None = None)
             f"BLUE_DATA_CLI_FORMAT names {chosen}; expected one of {', '.join(OUTPUT_FORMATS)}",
         )
     return chosen
+
+
+def _registry_path(resolver: ConfigResolver, override: str | None) -> Path | None:
+    if override is not None:
+        return Path(str(_get(resolver, "BLUE_DATA_REGISTRY_PATH", override)))
+    store_type = _optional_text(resolver, "BLUE_DATA_REGISTRY_STORE")
+    if store_type:
+        if store_type.lower() not in ("file", "redis"):
+            raise CliError("CONFIG_INVALID", "BLUE_DATA_REGISTRY_STORE must be file or redis")
+        # The query command exports the profile before building. blue-data's build_store
+        # reads those resolved values just as the provider SDK reads its credentials.
+        return None
+    legacy = _optional_text(resolver, "BLUE_DATA_REGISTRY_PATH")
+    if legacy:
+        return Path(legacy)
+    raise CliError(
+        "CONFIG_INVALID",
+        "No registry configured. Set BLUE_DATA_REGISTRY_STORE to file and "
+        "BLUE_DATA_REGISTRY_FILE to the shared registry file, or select redis, using "
+        "`profile config` or the environment. BLUE_DATA_REGISTRY_PATH is a legacy fallback.",
+    )
 
 
 def assemble_planner(settings: ResolvedSettings) -> DataPlanner:

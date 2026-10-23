@@ -27,7 +27,8 @@ _REASONING_EFFORT_OFF: str = "off"
 class PlannerSettings:
     """Every value a planner is built from, and the default each one takes."""
 
-    registry_path: Path
+    # None opens blue-data's shared store from the process environment.
+    registry_path: Path | None = None
     model: str = DEFAULT_MODEL
     reasoning_effort: str = "low"
     operator_suites: tuple[str, ...] = DEFAULT_OPERATOR_SUITES

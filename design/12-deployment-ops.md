@@ -99,8 +99,9 @@ as an error payload on that first call rather than stopping the server at startu
 
 ## 4. Configuration
 
-The library takes settings as injected values and reads no environment variable itself. Each
-interface loads what it needs and passes it into the constructors.
+Planner options arrive as injected settings. Registry opening with no explicit path delegates
+to blue-data's shared store environment (ADR-068); the optional LLM cache also accepts deployment
+environment configuration (ADR-067). Each interface resolves planner options for the constructors.
 
 The MCP server reads no configuration file. It reads the environment, which is how a client
 launching it as a subprocess configures it.
@@ -112,7 +113,11 @@ precedence over the exported environment.
 | Variable | Default | For |
 | --- | --- | --- |
 | `OPENAI_API_KEY` | None, required | Every component that calls a model, LOTUS operations, and Blue operations |
-| `BLUE_DATA_REGISTRY_PATH` | None, required | The serialized registry an interface opens and plans against |
+| `BLUE_DATA_REGISTRY_STORE` | Unset | Select blue-data's shared `file` or `redis` backend (ADR-068) |
+| `BLUE_DATA_REGISTRY_FILE` | `blue_data_store.json` | The shared dictionary file store |
+| `BLUE_DATA_REGISTRY_REDIS_URL` | `redis://localhost:6379/0` | Shared Redis connection |
+| `BLUE_DATA_REGISTRY_REDIS_NAMESPACE` | `blue_data` | Shared Redis namespace |
+| `BLUE_DATA_REGISTRY_PATH` | Unset | Legacy file/snapshot fallback when no shared backend is configured |
 | `BLUE_DATA_PLANNER_MODEL` | `BLUE_DATA_LLM_MODEL`, then `openai/gpt-6-luna` | The litellm model string every component uses |
 | `BLUE_DATA_PLANNER_REASONING_EFFORT` | `low` | The reasoning effort each component's model call spends: `minimal`, `low`, `medium`, `high`, or `none`, which is sent to the provider and disables reasoning. `off` omits the parameter, for a model that does not accept it. Anything else is refused where it is read |
 | `BLUE_DATA_PLANNER_OPERATORS` | `builtin,lotus` | Which operator suites are registered, as a comma-separated list over `builtin`, `lotus`, and `blue` |

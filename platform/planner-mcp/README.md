@@ -27,7 +27,7 @@ From the repository root, over the demo registry
 ([quickstart.md](../../docs/quickstart.md#2-build-the-demo-registry) builds it):
 
 ```bash
-BLUE_DATA_REGISTRY_PATH=$PWD/data/demo/registry.json blue-data-planner-mcp
+BLUE_DATA_REGISTRY_STORE=file BLUE_DATA_REGISTRY_FILE=$PWD/data/demo/registry.json blue-data-planner-mcp
 ```
 
 The server speaks the stdio transport, so a client launches it as a subprocess rather than
@@ -58,7 +58,7 @@ client = MultiServerMCPClient(
             "transport": "stdio",
             "command": "blue-data-planner-mcp",
             "args": [],
-            "env": {**os.environ, "BLUE_DATA_REGISTRY_PATH": REGISTRY},
+            "env": {**os.environ, "BLUE_DATA_REGISTRY_STORE": "file", "BLUE_DATA_REGISTRY_FILE": REGISTRY},
         }
     }
 )
@@ -148,9 +148,18 @@ CLI prints.
 The server reads the environment and nothing else. Every variable is the CLI's, so a value means
 the same thing to both.
 
+Registry configuration uses `blue_data.config.build_store`, matching blue-data's own tools.
+Select `file` for an existing dictionary file store, or `redis` for a RedisJSON server with
+blue-data's optional Redis client dependency installed. The legacy `BLUE_DATA_REGISTRY_PATH`
+is used only when no shared backend is configured; it also accepts older list snapshots.
+
 | Variable | Field it fills | Default |
 | --- | --- | --- |
-| `BLUE_DATA_REGISTRY_PATH` | `registry_path` | None, required |
+| `BLUE_DATA_REGISTRY_STORE` | Shared backend, `file` or `redis` | Unset |
+| `BLUE_DATA_REGISTRY_FILE` | File store | `blue_data_store.json` |
+| `BLUE_DATA_REGISTRY_REDIS_URL` | Redis connection | `redis://localhost:6379/0` |
+| `BLUE_DATA_REGISTRY_REDIS_NAMESPACE` | Redis namespace | `blue_data` |
+| `BLUE_DATA_REGISTRY_PATH` | `registry_path`, legacy fallback when no shared backend is selected | Unset |
 | `OPENAI_API_KEY` | — | None, required for the default model |
 | `BLUE_DATA_PLANNER_MODEL`, else `BLUE_DATA_LLM_MODEL` | `model` | `openai/gpt-6-luna` |
 | `BLUE_DATA_PLANNER_REASONING_EFFORT` | `reasoning_effort` | `low` |

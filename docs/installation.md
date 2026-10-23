@@ -73,12 +73,17 @@ too.
 
 The rest configure the `blue-planner` CLI, which resolves each setting as command option, then
 environment variable, then profile, then default, and the MCP server, which reads the environment
-alone. A library caller passes the same values to `PlannerSettings` and reads no variable.
+alone. A library caller can pass an explicit registry path to `PlannerSettings`, or leave it
+as `None` to use the same shared registry environment.
 
 | Variable | Default | Used by | Sets |
 | --- | --- | --- | --- |
 | `OPENAI_API_KEY` | None, required | Library, CLI, MCP | The provider key `litellm` reads on each call |
-| `BLUE_DATA_REGISTRY_PATH` | None, required | CLI, MCP | The serialized `blue-data` registry to plan against |
+| `BLUE_DATA_REGISTRY_STORE` | Unset | Library, CLI, MCP | Select `file` or `redis`, matching blue-data's tools |
+| `BLUE_DATA_REGISTRY_FILE` | `blue_data_store.json` | Library, CLI, MCP | Dictionary file store when the backend is `file` |
+| `BLUE_DATA_REGISTRY_REDIS_URL` | `redis://localhost:6379/0` | Library, CLI, MCP | Redis connection when the backend is `redis` |
+| `BLUE_DATA_REGISTRY_REDIS_NAMESPACE` | `blue_data` | Library, CLI, MCP | Shared Redis namespace |
+| `BLUE_DATA_REGISTRY_PATH` | Unset | Library, CLI, MCP | Legacy file/snapshot fallback when `BLUE_DATA_REGISTRY_STORE` is unset |
 | `BLUE_DATA_PLANNER_MODEL` | `BLUE_DATA_LLM_MODEL`, then `openai/gpt-6-luna` | CLI, MCP | The litellm model string every component uses |
 | `BLUE_DATA_PLANNER_REASONING_EFFORT` | `low` | CLI, MCP | `minimal`, `low`, `medium`, `high`, `none`, or `off` to leave the parameter out of the call |
 | `BLUE_DATA_PLANNER_OPERATORS` | `builtin,lotus` | CLI, MCP | Which suites are registered, over `builtin`, `lotus`, and `blue` |
@@ -97,6 +102,12 @@ alone. A library caller passes the same values to `PlannerSettings` and reads no
 | `BLUE_DATA_CLI_FORMAT` | `table` | CLI | The default output format, `table` or `json` |
 | `BLUE_DATA_CLI_LOG_LIMIT` | `80` | CLI | The characters each line of `--log` is cut to |
 | `BLUE_DATA_PLANNER_HOME` | `~/.blue-planner` | CLI | The directory holding the CLI's profiles |
+
+Registry settings match blue-data's own registry CLI, API, and MCP server. File stores must
+already exist; an explicit CLI `--registry-path` overrides the shared backend and accepts
+both dictionary stores and legacy list snapshots. Redis also requires blue-data's optional
+client dependency (`pip install 'blue-data[redis]>=1.0.0'`) and a RedisJSON server. The planner
+delegates Redis connection handling to blue-data, with the same URL support as its other tools.
 
 `blue-planner profile config` stores the same values in a profile and prompts for the key, so it
 never reaches the shell history. An MCP client sets them in the `env` block it launches the server

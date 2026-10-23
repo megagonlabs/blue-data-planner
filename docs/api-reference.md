@@ -109,7 +109,7 @@ Frozen. Every value a planner is built from, with the default each one takes.
 
 | Field | Type | Default | Holds |
 | --- | --- | --- | --- |
-| `registry_path` | `Path` | required | The serialized `blue-data` registry to plan over |
+| `registry_path` | `Path \| None` | `None` | An explicit shared file store or legacy snapshot; `None` opens the environment-configured store |
 | `model` | `str` | `"openai/gpt-6-luna"` | The litellm model string every planning component calls |
 | `reasoning_effort` | `str` | `"low"` | One of `minimal`, `low`, `medium`, `high`, `none`, `off`. `off` omits the parameter, for a model that refuses it |
 | `operator_suites` | `tuple[str, ...]` | `("builtin", "lotus")` | The suites to register, in order |
@@ -145,7 +145,8 @@ Opens the registry the settings name and builds a planner over the suites they l
 `RegistryUnreadableError` when the registry cannot be read, and `UnknownOperatorSuiteError` when a
 name in `operator_suites` matches no suite.
 
-The library reads no environment variable. Each interface resolves values its own way and hands one
+With `registry_path=None`, registry opening reads blue-data's shared store environment. Other
+planner options arrive through `PlannerSettings`. Each interface resolves values and hands one
 `PlannerSettings` over: `blue-planner` resolves a command option, then the environment, then the
 selected profile, then the default; the MCP server reads the environment alone. A library caller
 constructs one directly, or calls `build_data_planner` with values already resolved.
@@ -347,7 +348,8 @@ them directly. "Inside a run" says what a request does when the exception is rai
 | Exception | Raised by | Raised when | Inside a run |
 | --- | --- | --- | --- |
 | `UnknownOperatorSuiteError` | `operator_suite`, `build_data_planner_from_settings` | No suite has the name | Not raised |
-| `RegistryUnreadableError` | `open_registry`, `build_data_planner_from_settings` | The path names no file, or the file cannot be read | Not raised |
+| `RegistryUnreadableError` | `open_registry`, `build_data_planner_from_settings` | The file is missing/unreadable, or the configured backend cannot be read | Not raised |
+| `InvalidSettingError` | `open_registry`, `build_data_planner_from_settings` | No registry is configured, or the selected backend is unsupported | Not raised |
 | `InvalidSettingError` | The `PlannerSettings` constructor | A field carries a value the planner cannot be built with | Not raised |
 | `InvalidSettingError` | The `LLMClient` constructor, `build_data_planner` | The properties name no model, carry an unknown `llm.*` key, or request a cache whose directory is unsafe or unavailable | Not raised |
 | `InvalidSettingError` | `LotusSuite.operators`, `build_data_planner` | A second LOTUS suite asks for a model or reasoning effort other than the one LOTUS is configured with in this process | Not raised |
@@ -540,7 +542,7 @@ bodies. Each call owns its diagnostics, including when the same operator is retr
 The only module that imports `blue-data`.
 
 ```python
-def open_registry(registry_path: Path) -> DataRegistry: ...
+def open_registry(registry_path: Path | None = None) -> DataRegistry: ...
 def connect_source(registry: DataRegistry, source: str) -> Any: ...
 def execute_query(
     registry: DataRegistry, source: str, query: str, database: str, collection: str | None = None
@@ -559,7 +561,17 @@ class DataCatalog:
     def entity_row_count(self, entity_path: str) -> int | None: ...
 ```
 
-`open_registry` raises `RegistryUnreadableError` when the file is missing or unreadable.
+`open_registry()` uses `blue_data.config.build_store`: set `BLUE_DATA_REGISTRY_STORE=file`
+and `BLUE_DATA_REGISTRY_FILE` (default `blue_data_store.json`), or select `redis` with
+`BLUE_DATA_REGISTRY_REDIS_URL` (default `redis://localhost:6379/0`) and
+`BLUE_DATA_REGISTRY_REDIS_NAMESPACE` (default `blue_data`). Redis requires blue-data's optional
+`redis` dependencies and a RedisJSON server, as its other tools do.
+
+An explicit path opens a standard dictionary file store or a legacy list snapshot and overrides
+the environment. With no shared store selected, `BLUE_DATA_REGISTRY_PATH` remains a fallback
+for existing snapshots. A shared file store must use the dictionary format. A missing or
+unreadable file, or a failed backend read, raises `RegistryUnreadableError`; opening a missing
+file never creates it. Missing or unsupported backend settings raise `InvalidSettingError`.
 `DataRegistry` is re-exported from `blue-data`. The four `DataCatalog` readings are all the planning
 components see of the catalog: `preview` for the logical planner, `search_records` for the catalog
 searcher, `attribute_views` and `entity_row_count` for the fragment runner.

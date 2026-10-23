@@ -72,7 +72,8 @@ Examples:
     "--registry-path",
     "registry",
     default=None,
-    help="The blue-data registry to plan over. Overrides BLUE_DATA_REGISTRY_PATH.",
+    help="Open a blue-data file store or legacy snapshot. Overrides shared registry settings "
+    "and BLUE_DATA_REGISTRY_PATH.",
 )
 @click.option(
     "--model",

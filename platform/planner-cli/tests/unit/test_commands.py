@@ -14,6 +14,7 @@ from blue_data.utils.config import (  # pyright: ignore[reportMissingTypeStubs]
     encode,
 )
 from blue_data_planner import RunResult, RunStatus
+from blue_data_planner import settings as settings_module
 from click.testing import CliRunner
 
 from blue_data_planner_cli import commands
@@ -58,6 +59,41 @@ def test_the_question_reaches_the_planner_and_the_answer_reaches_standard_output
     assert planner.requests == ["which cities have stores"]
     assert planner.operations == ["run"]
     assert "Lowell" in result.stdout
+
+
+@pytest.mark.parametrize("profile", [False, True])
+def test_a_query_opens_the_shared_blue_data_store_from_environment_or_profile(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, profile: bool
+) -> None:
+    from blue_data.config import build_store  # pyright: ignore[reportMissingTypeStubs]
+    from blue_data.registry.data_registry import (  # pyright: ignore[reportMissingTypeStubs]
+        DataRegistry,
+    )
+
+    path = tmp_path / "shared.json"
+    monkeypatch.setenv("BLUE_DATA_REGISTRY_STORE", "file")
+    monkeypatch.setenv("BLUE_DATA_REGISTRY_FILE", str(path))
+    writer: Any = DataRegistry(store=build_store())
+    writer.register_record("shared", "source")
+    monkeypatch.delenv("BLUE_DATA_REGISTRY_STORE")
+    monkeypatch.delenv("BLUE_DATA_REGISTRY_FILE")
+    captured: list[str] = []
+
+    def build(registry: Any, **options: Any) -> FakeDataPlanner:
+        captured.extend(record["name"] for record in registry.list_records(record_type="source"))
+        return FakeDataPlanner(a_run_result(answer=[[{"source": "shared"}]]))
+
+    monkeypatch.setattr(settings_module, "build_data_planner", build)
+    home = str(tmp_path / "home")
+    shared = {"BLUE_DATA_REGISTRY_STORE": "file", "BLUE_DATA_REGISTRY_FILE": str(path)}
+    env = {"BLUE_DATA_PLANNER_HOME": home, "BLUE_DATA_PLANNER_OPERATORS": "builtin"}
+    if profile:
+        a_profile_holding(home, **shared)
+    else:
+        env.update(shared)
+    result = CliRunner().invoke(cli, ["data", "query", "q"], env=env)
+    assert result.exit_code == 0, result.output
+    assert captured == ["shared"]
 
 
 def test_json_output_holds_nothing_but_the_result(tmp_path: Path, planner: FakeDataPlanner) -> None:

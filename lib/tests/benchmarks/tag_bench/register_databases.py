@@ -14,6 +14,9 @@ from blue_data.registry.data_registry import (  # pyright: ignore[reportMissingT
 from blue_data.registry.enrichment.metadata import (  # pyright: ignore[reportMissingTypeStubs]
     MetaData,
 )
+from blue_data.source.json.file_json_source import (  # pyright: ignore[reportMissingTypeStubs]
+    FileJSONSource,
+)
 from blue_data.source.json.memory_json_source import (  # pyright: ignore[reportMissingTypeStubs]
     MemoryJSONSource,
 )
@@ -116,11 +119,12 @@ def check_every_database_registered(
 
 
 def write_registry(registry: Any, registry_path: Path) -> None:
-    """Serialize a registry to registry_path as one JSON document."""
+    """Write blue-data's standard dictionary store for the CLI/API/MCP and planner."""
     # Serialized once at the end: a file-backed store re-reads and rewrites the whole
     # document on every record write, which is thousands of rewrites during a sync.
     registry_path.parent.mkdir(parents=True, exist_ok=True)
-    registry.dump(str(registry_path))
+    store: Any = FileJSONSource(properties={"connection": {"path": str(registry_path)}})
+    store.set("$", registry.store.get("$"))
 
 
 def llm_client_properties(model: str, reasoning_effort: str | None) -> dict[str, Any]:

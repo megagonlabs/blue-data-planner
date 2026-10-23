@@ -2219,6 +2219,35 @@ uncached `complete_structured` calls are unchanged.
 
 ---
 
+## ADR-068: Open the registry through blue-data's shared store
+
+**Status:** Accepted (2026-10-23)
+
+**Decision:** With no explicit path, `open_registry()` delegates to
+`blue_data.config.build_store` for `BLUE_DATA_REGISTRY_STORE=file` or `redis`, using the same
+file, Redis URL, and namespace settings as blue-data's registry CLI/API/MCP and other clients.
+`PlannerSettings.registry_path` defaults to `None` to select this configuration. The CLI
+exports resolved profile values before building; MCP reads only its process environment.
+Both interfaces accept the shared settings without requiring `BLUE_DATA_REGISTRY_PATH`.
+
+An explicit path (including the CLI's `--registry-path`) takes precedence and accepts a
+standard dictionary file store or a legacy list snapshot. The old `BLUE_DATA_REGISTRY_PATH`
+is a fallback only when no shared backend is selected. Invalid backend configuration and
+unreadable stores fail before planning; a missing file is not created and does not trigger
+a fallback to another registry. New demo and benchmark registries use the dictionary store.
+
+**Reason:** The planner's list snapshots could not be opened by blue-data's file store, and
+the planner could not open the dictionary file store other components wrote (#61, blue-data#119).
+Sharing blue-data's store reader removes the incompatible registry path for normal deployments.
+
+**Consequences:** Existing explicit-file callers and snapshots remain usable. Deployments
+using snapshots can rebuild them with the demo/benchmark registration script and select the
+shared file backend. Redis support retains blue-data's optional dependency and RedisJSON
+requirements and delegates its connection behavior upstream. In-memory callers continue to
+construct a `DataRegistry` and pass it directly to `build_data_planner`.
+
+---
+
 ## Open Questions
 
 Design questions first, then defects in the code.

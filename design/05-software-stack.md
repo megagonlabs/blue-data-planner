@@ -222,7 +222,8 @@ profile, with the environment above it and below a command option (ADR-028).
 | --- | --- | --- |
 | `OPENAI_API_KEY` | litellm, through `llm/` | The model calls above, and LOTUS operators |
 | `BLUE_DATA_PLANNER_MODEL` | The interface, passed to `llm/` | The default litellm model string for every component that calls a model |
-| `BLUE_DATA_REGISTRY_PATH` | The interface, passed to `data/` | The serialized registry it opens and plans against |
+| `BLUE_DATA_REGISTRY_STORE`, `BLUE_DATA_REGISTRY_FILE`, `BLUE_DATA_REGISTRY_REDIS_URL`, `BLUE_DATA_REGISTRY_REDIS_NAMESPACE` | `blue_data.config.build_store`, through `data/` | The same file/Redis registry blue-data's other tools open (ADR-068) |
+| `BLUE_DATA_REGISTRY_PATH` | `data/`, or an explicit interface path | Legacy file/snapshot fallback |
 
 The full list of settings and their defaults belongs to
 [12-deployment-ops.md](12-deployment-ops.md), including the operator call budget, the bound on each

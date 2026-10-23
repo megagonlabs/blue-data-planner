@@ -238,7 +238,8 @@ request as `llm_failed`, and catches any other `BlueDataPlannerError` and ends i
 
 | Raised by | Exception | Cause |
 | --- | --- | --- |
-| `open_registry` | `RegistryUnreadableError` | The path names no file, or the file cannot be read |
+| `open_registry` | `RegistryUnreadableError` | The file is missing/unreadable, or the shared backend cannot be read |
+| `open_registry` | `InvalidSettingError` | No registry is configured, or the backend is unsupported |
 | `operator_suite` | `UnknownOperatorSuiteError` | A configured name registers no suite |
 | `build_data_planner` | `OperatorRoutingError` | Two suites register the same operator id, or the operator registry a `BlueSuite` was given does not carry an operation the suite is bound to |
 | A component called directly | `PlanValidationError`, `RecoverableOperatorError`, `BudgetExhaustedError`, and the rest | Each is caught by the stage that expects it during a run |

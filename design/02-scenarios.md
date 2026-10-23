@@ -301,7 +301,7 @@ client = MultiServerMCPClient(
             "transport": "stdio",
             "command": "blue-data-planner-mcp",
             "args": [],
-            "env": {**os.environ, "BLUE_DATA_REGISTRY_PATH": "/srv/blue-data/registry.json"},
+            "env": {**os.environ, "BLUE_DATA_REGISTRY_STORE": "file", "BLUE_DATA_REGISTRY_FILE": "/srv/blue-data/registry.json"},
         }
     }
 )

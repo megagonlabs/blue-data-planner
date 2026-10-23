@@ -1,9 +1,33 @@
 {
   "BLUE_DATA_REGISTRY_PATH": {
     "default": null,
-    "prompt": "Path to the blue-data registry to plan over",
-    "required": true,
+    "prompt": "Legacy registry file fallback when BLUE_DATA_REGISTRY_STORE is unset",
+    "required": false,
     "cast": "file"
+  },
+  "BLUE_DATA_REGISTRY_STORE": {
+    "default": null,
+    "prompt": "Shared blue-data registry backend (file or redis)",
+    "required": false,
+    "cast": "str"
+  },
+  "BLUE_DATA_REGISTRY_FILE": {
+    "default": "blue_data_store.json",
+    "prompt": "Shared blue-data dictionary store for the file backend",
+    "required": false,
+    "cast": "file"
+  },
+  "BLUE_DATA_REGISTRY_REDIS_URL": {
+    "default": "redis://localhost:6379/0",
+    "prompt": "Redis URL used by blue-data's shared registry store",
+    "required": false,
+    "cast": "str"
+  },
+  "BLUE_DATA_REGISTRY_REDIS_NAMESPACE": {
+    "default": "blue_data",
+    "prompt": "Namespace used by blue-data's shared Redis registry store",
+    "required": false,
+    "cast": "str"
   },
   "BLUE_DATA_PLANNER_MODEL": {
     "default": "openai/gpt-6-luna",

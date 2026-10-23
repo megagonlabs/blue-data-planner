@@ -14,6 +14,7 @@ from typing import Any
 
 import pytest
 from blue_data_planner import PlannerSettings
+from blue_data_planner import settings as settings_module
 from blue_data_planner.types import InvalidSettingError, RunLimits
 
 import blue_data_planner_mcp.config as config
@@ -86,7 +87,11 @@ def test_every_setting_the_environment_names_reaches_the_planner():
     )
 
 
-@pytest.mark.parametrize("name", sorted(_cli_profile_parameters()))
+@pytest.mark.parametrize(
+    "name",
+    sorted(name for name in _cli_profile_parameters() if not name.startswith("BLUE_DATA_REGISTRY_"))
+    + ["BLUE_DATA_REGISTRY_PATH"],
+)
 def test_every_parameter_the_cli_profile_names_configures_the_server(name: str):
     """The server promises the CLI's variable names, so a rename on either side fails here."""
     value = a_value_other_than_the_default(_cli_profile_parameters()[name])
@@ -120,6 +125,52 @@ def test_a_value_the_server_cannot_read_is_refused_by_name(name: str, value: str
 def test_an_unset_registry_path_is_refused():
     with pytest.raises(InvalidSettingError, match="BLUE_DATA_REGISTRY_PATH"):
         config.planner_settings({})
+
+
+@pytest.mark.parametrize("backend", ["file", "redis"])
+def test_shared_registry_settings_remove_the_need_for_a_legacy_path(backend: str):
+    settings = config.planner_settings(
+        {
+            "BLUE_DATA_REGISTRY_STORE": backend,
+            "BLUE_DATA_REGISTRY_FILE": "/srv/shared.json",
+            "BLUE_DATA_REGISTRY_PATH": "/srv/old-snapshot.json",
+        }
+    )
+    assert settings.registry_path is None
+
+
+def test_invalid_shared_registry_settings_do_not_fall_back_to_a_snapshot():
+    with pytest.raises(InvalidSettingError, match="BLUE_DATA_REGISTRY_STORE"):
+        config.planner_settings(
+            {"BLUE_DATA_REGISTRY_STORE": "typo", "BLUE_DATA_REGISTRY_PATH": "/srv/old.json"}
+        )
+
+
+def test_server_build_opens_the_shared_store_from_its_process_environment(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from blue_data.config import build_store  # pyright: ignore[reportMissingTypeStubs]
+    from blue_data.registry.data_registry import (  # pyright: ignore[reportMissingTypeStubs]
+        DataRegistry,
+    )
+
+    monkeypatch.setenv("BLUE_DATA_REGISTRY_STORE", "file")
+    monkeypatch.setenv("BLUE_DATA_REGISTRY_FILE", str(tmp_path / "shared.json"))
+    monkeypatch.setenv("BLUE_DATA_PLANNER_OPERATORS", "builtin")
+    monkeypatch.delenv("BLUE_DATA_REGISTRY_PATH", raising=False)
+    writer: Any = DataRegistry(store=build_store())
+    writer.register_record("shared", "source")
+    built = object()
+    captured: list[str] = []
+
+    def build(registry: Any, **options: Any) -> Any:
+        captured.extend(record["name"] for record in registry.list_records(record_type="source"))
+        return built
+
+    monkeypatch.setattr(settings_module, "build_data_planner", build)
+    monkeypatch.setattr(config, "_planner", None)
+    assert config.get_planner() is built
+    assert captured == ["shared"]
 
 
 def test_a_cli_profile_does_not_configure_the_server(tmp_path: Path):

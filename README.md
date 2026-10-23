@@ -74,7 +74,8 @@ python lib/scripts/demo/register_northwind.py
 
 # Point the planner at it
 export OPENAI_API_KEY=sk-...                      # a real key, not this placeholder
-export BLUE_DATA_REGISTRY_PATH=$PWD/data/demo/registry.json
+export BLUE_DATA_REGISTRY_STORE=file
+export BLUE_DATA_REGISTRY_FILE=$PWD/data/demo/registry.json
 export BLUE_DATA_PLANNER_MODEL=openai/gpt-6-luna
 export BLUE_DATA_PLANNER_OPERATORS=builtin        # the built-in operators only
 
