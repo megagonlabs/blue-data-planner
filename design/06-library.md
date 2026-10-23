@@ -542,9 +542,10 @@ def candidate_fragments(
 
 Every node set rooted at `root_node_id` that an operator declaring `logical_operators` could cover:
 built only from nodes whose kind is in that set, and satisfying the fragment rules
-([04, what a fragment may be](04-detailed-architecture.md#what-a-fragment-may-be)). The singleton is
-in the list whenever the root's own kind is in the set, so an operator covering one node and an
-operator covering six come out of the same call.
+([04, what a fragment may be](04-detailed-architecture.md#what-a-fragment-may-be)). A declaration
+with one kind returns only the root node, even when its inputs have the same kind. A declaration
+with several kinds can grow through repeated nodes of a kind as well as through different kinds;
+the root alone remains a candidate whenever its own kind is declared.
 
 Enumeration is graph work and pairing a node set with an operator is a planning decision, so this
 returns node sets and the physical planner does the pairing. It reads no operator and no catalog,
