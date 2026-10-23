@@ -157,18 +157,19 @@ def test_each_call_adds_one_ledger_record_with_its_model_and_cost() -> None:
 
 def test_a_repeated_prompt_is_served_from_the_cache(tmp_path: Any) -> None:
     """With the cache on, a second identical call returns the first answer with no provider call."""
-    props = {**OP_PROPS, "llm.cache": True, "llm.cache_dir": str(tmp_path / "c")}
-    client = LLMClient("test", props)
+    props = {**OP_PROPS, "llm.cache": True}
+    client = LLMClient("test", props, cache_dir=tmp_path / "c")
     first = client.execute_api_call("hi")
     second = client.execute_api_call("hi")
     assert first == second
     assert len(litellm.calls) == 1  # the second call was served from the cache
 
 
-def test_a_cache_requested_without_diskcache_is_refused_when_the_client_is_built(
+def test_json_caching_needs_no_diskcache_dependency(
     monkeypatch: pytest.MonkeyPatch,
+    tmp_path: pathlib.Path,
 ) -> None:
-    """The missing package is reported as a setting error before any call."""
+    """Safe JSON caching works even when the old pickle-backed dependency is unavailable."""
     import builtins
 
     real_import = builtins.__import__
@@ -179,8 +180,9 @@ def test_a_cache_requested_without_diskcache_is_refused_when_the_client_is_built
         return real_import(name, *args, **kwargs)
 
     monkeypatch.setattr(builtins, "__import__", no_diskcache)
-    with pytest.raises(InvalidSettingError, match="diskcache is not installed"):
-        LLMClient("test", {**OP_PROPS, "llm.cache": True})
+    client = LLMClient("test", {**OP_PROPS, "llm.cache": True}, cache_dir=tmp_path / "cache")
+    assert client.execute_api_call("hi") == client.execute_api_call("hi")
+    assert len(litellm.calls) == 1
 
 
 STRUCTURED_PROPS: dict[str, Any] = {
@@ -291,8 +293,8 @@ def test_async_calls_run_concurrently_when_max_parallel_is_unset() -> None:
 # --- ledger semantics (per API call, cache-aware, end-to-end latency) ---
 def test_a_cache_hit_is_recorded_as_a_free_zero_token_ledger_record(tmp_path: Any) -> None:
     """The second call is a separate ledger record marked as a cache hit with no cost or tokens."""
-    props = {**PROPS, "llm.cache": True, "llm.cache_dir": str(tmp_path / "c")}
-    client = LLMClient("test", props)
+    props = {**PROPS, "llm.cache": True}
+    client = LLMClient("test", props, cache_dir=tmp_path / "c")
     client.execute_api_call("hi")
     client.execute_api_call("hi")
     assert len(client.ledger.records) == 2
@@ -311,15 +313,15 @@ def test_a_retried_call_records_latency_including_the_backoff_waits() -> None:
     assert record.latency_seconds >= 0.1  # includes the two backoff waits
 
 
-# --- per-call cache_dir isolation ---
-def test_calls_naming_different_cache_dirs_do_not_share_cached_answers(tmp_path: Any) -> None:
-    """A second call with another cache_dir misses the first call's entry."""
-    client = LLMClient("test", {**PROPS, "llm.cache": True})
-    dir_a, dir_b = str(tmp_path / "a"), str(tmp_path / "b")
-    client.execute_api_call("hi", properties={**PROPS, "llm.cache": True, "llm.cache_dir": dir_a})
-    client.execute_api_call("hi", properties={**PROPS, "llm.cache": True, "llm.cache_dir": dir_b})
-    assert len(litellm.calls) == 2  # B did NOT read A's entry
-    assert pathlib.Path(dir_a).exists() and pathlib.Path(dir_b).exists()
+# --- cache directory is deployment configuration ---
+def test_separately_configured_cache_directories_do_not_share_answers(
+    tmp_path: pathlib.Path,
+) -> None:
+    """Deployments select directories when building clients, never in request properties."""
+    for directory in (tmp_path / "a", tmp_path / "b"):
+        client = LLMClient("test", {**PROPS, "llm.cache": True}, cache_dir=directory)
+        client.execute_api_call("hi")
+    assert len(litellm.calls) == 2
 
 
 # --- provider-response boundary (wrapped, chained) ---

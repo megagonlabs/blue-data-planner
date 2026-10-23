@@ -2188,6 +2188,37 @@ handling. This extends ADR-065 to #55 without changing run statuses or upstream 
 
 ---
 
+## ADR-067 — Optional Response Caching Uses Private, Deployment-Owned JSON Storage
+
+**Date:** 2026-10-23
+**Status:** Accepted
+
+**Decision:** The planner's general sync/async LLM calls retain opt-in caching through
+`llm.cache`, using standard-library JSON files instead of pickle-backed `diskcache`. The directory
+is fixed when a client is constructed: its `cache_dir` keyword overrides
+`BLUE_DATA_PLANNER_LLM_CACHE_DIR`, and the default is `~/.cache/blue-data-planner/llm-v1`.
+Configured paths must be absolute. `llm.cache_dir` is no longer an accepted property.
+
+The directory must belong to the current process user with mode `0700`, checked on every access.
+Files use mode `0600`. Directory-relative, no-follow file access and atomic replacement prevent
+linked entries and concurrent writes from redirecting or partially publishing cache data. Cache
+keys and JSON envelopes carry a planner-specific format namespace. Corrupt, foreign, linked, or
+legacy entries are misses; old pickle caches are never loaded or migrated.
+
+**Rationale:** The old shared `.llm_cache` default let unrelated clients read each other's
+responses, and a caller-selected directory made pickle deserialization an unsafe trust boundary
+(#60, cross-repo blue-data#122). JSON removes object deserialization; deployment configuration
+and private permissions make the storage boundary explicit.
+
+**Consequences:** This supersedes ADR-054's storage and dependency choices, retaining its opt-in
+policy. The planner no longer needs `diskcache`; other repositories' caches remain their own
+per-repo work. Existing deployments using `llm.cache_dir` must move the path to constructor or
+environment configuration, use an owner-only directory, and start with a cold JSON cache.
+Caching requires POSIX owner and permission checks. Cache-hit accounting, provider retries, and
+uncached `complete_structured` calls are unchanged.
+
+---
+
 ## Open Questions
 
 Design questions first, then defects in the code.

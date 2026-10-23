@@ -288,7 +288,7 @@ writes each one.
 | --- | --- |
 | FastAPI, Uvicorn | No REST API in the first release |
 | `gepa` and automatic prompt optimization | Prompts are written by hand and versioned in the repository (ADR-005). Tuning one automatically needs a score to tune against, which is open question 32 |
-| A model response cache by default | Every model call reaches the provider unless a caller turns the cache on. A cache keyed on the request rarely hits, since a planner's requests carry the catalog, an input sample, and the conversation so far, and what it does reliably is make a run's cost depend on invisible state from an earlier run. `LLMClient` opens one only for a call carrying `llm.cache`, which nothing in this repository sets, and a consumer that sets it installs `diskcache` itself (ADR-054) |
+| A model response cache by default | The general sync/async calls cache only when `llm.cache` is enabled; planning's `complete_structured` always reaches the provider. The opt-in cache uses private JSON files in a deployment-configured planner directory, with no extra dependency (ADR-054, ADR-067) |
 | LlamaIndex, DSPy, LangChain | The library needs a model client, not an application framework. Agent frameworks are consumers, reached through MCP |
 | A direct `openai` dependency | Provider libraries arrive through litellm |
 | `torch` as a declared dependency | It arrives with LOTUS, and nothing here imports it |

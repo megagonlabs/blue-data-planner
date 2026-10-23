@@ -74,7 +74,7 @@ A dependency shipping no types of its own is imported behind a targeted `pyright
 enters and delegates through `Any` from there. The import rules below keep those imports to a few
 places, so untyped values stop where they enter rather than spreading: `blue-data` at `data/`, at
 the CLI's configuration modules, and at the two scripts that build a registry; LOTUS at
-`operators/adapters/lotus/`; and the model response cache and JSON path queries inside `llm/`.
+`operators/adapters/lotus/`; and JSON path queries inside `llm/`.
 
 ---
 

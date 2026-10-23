@@ -1552,6 +1552,15 @@ parallel provider calls — the library's one departure from being synchronous
 ([08-coding-style.md](08-coding-style.md)). Prompts are written by hand and versioned in the
 repository (ADR-005).
 
+The general sync/async calls retain opt-in response caching through `llm.cache`. Responses are
+JSON files in a private planner directory, fixed at client construction by the `cache_dir`
+keyword or `BLUE_DATA_PLANNER_LLM_CACHE_DIR`, defaulting to
+`~/.cache/blue-data-planner/llm-v1`. Call properties cannot redirect storage. The directory is
+checked for current-user ownership and mode `0700` on every access; files use mode `0600` and
+atomic replacement. Legacy pickle caches are not read or migrated. The cache needs no optional
+dependency and requires POSIX permission checks. `complete_structured` remains uncached
+(ADR-054, ADR-067).
+
 ---
 
 ## Errors

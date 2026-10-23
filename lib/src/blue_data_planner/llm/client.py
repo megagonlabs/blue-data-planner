@@ -4,11 +4,13 @@ import asyncio
 import json
 import time
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, TypeVar, cast
 
 from pydantic import BaseModel, ValidationError
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
 
+from blue_data_planner.llm.cache import JSONResponseCache, cache_directory
 from blue_data_planner.llm.templating import api_properties, build_message, extract_output
 from blue_data_planner.types import Conversation, InvalidSettingError, LLMError, LLMUsage, Turn
 
@@ -25,11 +27,10 @@ _ACCEPTED_LLM_KEYS = {
     "max_tokens",
     "temperature",
     "cache",
-    "cache_dir",
     "max_parallel",
 }
 # Adapter-control keys: consumed by the client, never forwarded to the provider.
-_CONTROL_KEYS = {"cache", "cache_dir", "max_parallel"}
+_CONTROL_KEYS = {"cache", "max_parallel"}
 # Strip dispatch-only and transport-resolution fields after all merges so an
 # override cannot forward them to the provider.
 _RESERVED_FIELDS = {"api", "service_url"}
@@ -78,13 +79,18 @@ class LLMClient:
     and caching.
     """
 
-    def __init__(self, name: str, properties: dict[str, Any] | None = None) -> None:
+    def __init__(
+        self, name: str, properties: dict[str, Any] | None = None, *, cache_dir: Path | None = None
+    ) -> None:
         self.name = name
         self.properties: dict[str, Any] = dict(properties or {})
         _check_settings(self.properties, name.lower())
         self.ledger = UsageLedger()
         self.last_usage: UsageRecord | None = None
-        self._caches: dict[str, Any] = {}  # cache_dir -> diskcache.Cache
+        self._cache_directory = cache_directory(cache_dir)
+        self._response_cache: JSONResponseCache | None = None
+        if self.properties.get("llm.cache"):
+            self._response_cache = JSONResponseCache(self._cache_directory)
         self._semaphores: dict[int, asyncio.Semaphore] = {}
 
     # ------------------------------------------------------------------ sync --
@@ -101,14 +107,15 @@ class LLMClient:
         kwargs = self._build_call_kwargs(message, merged)
 
         cache, cache_key = self._cache_lookup(merged, kwargs)
-        if cache is not None and cache_key in cache:
-            payload = cache[cache_key]
+        cached = _cached_response(cache, cache_key)
+        if cached is not None:
+            payload = cached
             self._record(kwargs, payload, started, cache_hit=True)
             return extract_output(payload, merged)
 
         payload, cost = self._call_provider(kwargs)
         if cache is not None and cache_key is not None:
-            cache[cache_key] = payload
+            cache.set(cache_key, payload)
         self._record(kwargs, payload, started, cache_hit=False, cost=cost)
         return extract_output(payload, merged)
 
@@ -162,8 +169,9 @@ class LLMClient:
         kwargs = self._build_call_kwargs(message, merged)
 
         cache, cache_key = self._cache_lookup(merged, kwargs)
-        if cache is not None and cache_key in cache:
-            payload = cache[cache_key]
+        cached = _cached_response(cache, cache_key)
+        if cached is not None:
+            payload = cached
             self._record(kwargs, payload, started, cache_hit=True)
             return extract_output(payload, merged)
 
@@ -171,7 +179,7 @@ class LLMClient:
         async with semaphore:
             payload, cost = await self._acall_provider(kwargs)
         if cache is not None and cache_key is not None:
-            cache[cache_key] = payload
+            cache.set(cache_key, payload)
         self._record(kwargs, payload, started, cache_hit=False, cost=cost)
         return extract_output(payload, merged)
 
@@ -199,19 +207,12 @@ class LLMClient:
 
     def _cache_lookup(
         self, properties: dict[str, Any], kwargs: dict[str, Any]
-    ) -> tuple[Any | None, str | None]:
+    ) -> tuple[JSONResponseCache | None, str | None]:
         if not properties.get("llm.cache"):
             return None, None
-        # Caches are bound per directory so a per-call llm.cache_dir override selects
-        # its own isolated cache instead of silently reusing the first one opened.
-        cache_dir = str(properties.get("llm.cache_dir", ".llm_cache"))
-        cache = self._caches.get(cache_dir)
-        if cache is None:
-            import diskcache  # pyright: ignore[reportMissingTypeStubs]
-
-            cache = diskcache.Cache(cache_dir)
-            self._caches[cache_dir] = cache
-        return cache, json.dumps(kwargs, sort_keys=True, default=str)
+        if self._response_cache is None:
+            self._response_cache = JSONResponseCache(self._cache_directory)
+        return self._response_cache, json.dumps(kwargs, sort_keys=True, default=str)
 
     def _resolve_semaphore(self, properties: dict[str, Any]) -> asyncio.Semaphore:
         max_parallel = int(properties.get("llm.max_parallel", 8))
@@ -336,13 +337,19 @@ def _check_settings(properties: dict[str, Any], default_prefix: str) -> None:
             )
     if not (properties.get("llm.model") or api_properties(properties, default_prefix).get("model")):
         raise InvalidSettingError("no model configured (set <prefix>.model or llm.model)")
-    if properties.get("llm.cache"):
-        try:
-            import diskcache  # noqa: F401  # pyright: ignore[reportMissingTypeStubs, reportUnusedImport]
-        except ImportError as error:
-            raise InvalidSettingError(
-                "llm.cache requested but diskcache is not installed (pip install diskcache)"
-            ) from error
+
+
+def _cached_response(cache: JSONResponseCache | None, key: str | None) -> dict[str, Any] | None:
+    if cache is None or key is None:
+        return None
+    payload = cache.get(key)
+    if payload is None or not isinstance(payload.get("choices"), list):
+        return None
+    try:
+        _check_usage(payload.get("usage"))
+    except LLMError:
+        return None
+    return payload
 
 
 def _message_content(payload: dict[str, Any]) -> str:

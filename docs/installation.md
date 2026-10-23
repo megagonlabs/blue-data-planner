@@ -52,7 +52,7 @@ bash platform/planner-mcp/scripts/install.sh   # + the MCP server
 | --- | --- | --- |
 | none | — | The library, with the `builtin` and `blue` operator suites |
 | `lotus` | `lotus-ai>=1.2,<2` | The LOTUS suite: semantic filter, projection, extraction, aggregation, top-k, and join |
-| `dev` | `pytest`, `ruff`, `pyright`, `diskcache` | The quality gates |
+| `dev` | `pytest`, `ruff`, `pyright` | The quality gates |
 
 ```bash
 pip install -e './lib[lotus]'

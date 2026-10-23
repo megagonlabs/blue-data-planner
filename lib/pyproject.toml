@@ -32,8 +32,6 @@ blue-data = { path = "../../blue-data/lib", editable = true }
 
 [project.optional-dependencies]
 dev = [
-    # diskcache backs the optional llm.cache path; without it three cache tests fail.
-    "diskcache",
     # The LOTUS adapter's tests build frames, and the lotus extra is absent from the default run.
     "pandas",
     "pytest",

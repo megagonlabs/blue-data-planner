@@ -306,7 +306,6 @@ requires-dist = [
     { name = "blue-data", editable = "../../../blue-data/lib" },
     { name = "blue-data-ops", editable = "../../../blue-data-ops/lib" },
     { name = "build", marker = "extra == 'dev'" },
-    { name = "diskcache", marker = "extra == 'dev'" },
     { name = "jinja2" },
     { name = "jsonpath-ng" },
     { name = "litellm" },

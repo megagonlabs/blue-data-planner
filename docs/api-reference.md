@@ -349,7 +349,7 @@ them directly. "Inside a run" says what a request does when the exception is rai
 | `UnknownOperatorSuiteError` | `operator_suite`, `build_data_planner_from_settings` | No suite has the name | Not raised |
 | `RegistryUnreadableError` | `open_registry`, `build_data_planner_from_settings` | The path names no file, or the file cannot be read | Not raised |
 | `InvalidSettingError` | The `PlannerSettings` constructor | A field carries a value the planner cannot be built with | Not raised |
-| `InvalidSettingError` | The `LLMClient` constructor, `build_data_planner` | The properties name no model, carry an unknown `llm.*` key, or ask for a cache without `diskcache` installed | Not raised |
+| `InvalidSettingError` | The `LLMClient` constructor, `build_data_planner` | The properties name no model, carry an unknown `llm.*` key, or request a cache whose directory is unsafe or unavailable | Not raised |
 | `InvalidSettingError` | `LotusSuite.operators`, `build_data_planner` | A second LOTUS suite asks for a model or reasoning effort other than the one LOTUS is configured with in this process | Not raised |
 | `InvalidSettingError` | `LLMClient.execute_api_call`, `LLMClient.aexecute_api_call` | The properties one call carries hold a value the client cannot send | Ends the request as `planner_failed` |
 | `OperatorRoutingError` | `OperatorRouter.register`, `build_data_planner` | Two suites register the same operator id | Not raised |
@@ -570,7 +570,9 @@ The only module that calls a provider.
 
 ```python
 class LLMClient:
-    def __init__(self, name: str, properties: dict[str, Any] | None = None) -> None: ...
+    def __init__(
+        self, name: str, properties: dict[str, Any] | None = None, *, cache_dir: Path | None = None
+    ) -> None: ...
     def complete_structured(self, conversation: Conversation, response_model: type[M]) -> M: ...
     def execute_api_call(self, input: Any, properties: dict[str, Any] | None = None) -> Any: ...
     async def aexecute_api_call(
@@ -593,6 +595,21 @@ conversation. `aexecute_api_call` is the library's one async method.
 `CachingLLMClientProvider` reuses one client per configuration. `UsageLedger` holds a client's own
 per-call accounting, separate from the conversation's: one `UsageRecord` per call, carrying the
 model, the token counts, the cost, the latency, and whether the call was served from the cache.
+
+`execute_api_call` and `aexecute_api_call` cache responses only when `llm.cache` is enabled.
+They use JSON files without an extra dependency. `complete_structured` always calls the provider.
+The directory is fixed when the client is constructed: the `cache_dir` keyword takes precedence
+over `BLUE_DATA_PLANNER_LLM_CACHE_DIR`, with `~/.cache/blue-data-planner/llm-v1` as the default.
+Configured paths must be absolute. Call properties cannot select or redirect it; the old
+`llm.cache_dir` property now raises `InvalidSettingError`.
+
+Caching requires POSIX owner and file-permission checks. The directory must belong to the current
+user with mode `0700`; new directories use that mode, and existing shared or symlinked cache
+directories are refused. Files use mode `0600` and atomic replacement. Corrupt, foreign-format,
+and linked entries are cache misses. Old `.llm_cache` directories and pickle-backed databases
+are never opened or migrated. A cache hit records zero provider cost and tokens as before.
+The cache keeps up to 1 GiB of response files, retiring older entries as new ones are stored;
+larger individual responses are returned without being cached.
 
 ### The components
 
