@@ -19,7 +19,7 @@ own install and requirements; this page collects them.
 
 | Requirement | Notes |
 | --- | --- |
-| Python 3.11 or later | The `lotus` extra narrows this to 3.11 or 3.12 |
+| Python 3.12 or 3.13 | The `lotus` extra narrows this to 3.12 |
 | `blue-data` and `blue-data-ops` checked out beside this repository | The install scripts install both, editable, from `../blue-data/lib` and `../blue-data-ops/lib` |
 | A model API key | Every planning stage calls a model, a plan-only run included |
 

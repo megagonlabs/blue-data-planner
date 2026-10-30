@@ -46,7 +46,7 @@ blue-data-planner/
 
 ## Requirements
 
-- Python 3.11 or later
+- Python 3.12 or 3.13
 - [`blue-data`](../blue-data) and [`blue-data-ops`](../blue-data-ops) checked out beside this
   repository. The install scripts install both from there.
 - An OpenAI API key for the default model. Every planning stage calls a model.

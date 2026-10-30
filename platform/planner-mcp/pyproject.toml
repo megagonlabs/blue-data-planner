@@ -7,7 +7,7 @@ name = "blue-data-planner-mcp"
 version = "1.0.0"
 description = "blue-data-planner-mcp — the MCP server over blue-data-planner"
 readme = "README.md"
-requires-python = ">=3.11"
+requires-python = ">=3.12,<3.14"
 authors = [
     {name = "Naoki Otani"},
 ]
@@ -43,7 +43,7 @@ where = ["src"]
 
 [tool.ruff]
 line-length = 100
-target-version = "py311"
+target-version = "py312"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP"]

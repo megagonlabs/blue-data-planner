@@ -2,16 +2,14 @@
 
 from __future__ import annotations
 
-from typing import Any, TypeVar
+from typing import Any
 
 from pydantic import BaseModel, ValidationError
 
 from blue_data_planner.types import DataBundle, RecoverableOperatorError
 
-ParametersT = TypeVar("ParametersT", bound=BaseModel)
 
-
-def validated_parameters(
+def validated_parameters[ParametersT: BaseModel](
     schema: type[ParametersT], parameters: dict[str, Any], operator_id: str
 ) -> ParametersT:
     """Return the parameters read as an operator's schema, or raise for the parameter repair."""
