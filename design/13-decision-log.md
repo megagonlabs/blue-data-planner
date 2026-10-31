@@ -16,7 +16,7 @@ the open questions at the end, which are everything not yet decided.
 **Date:** 2026-09-25
 **Status:** Accepted
 
-**Decision:** Python 3.11 or newer. One `pyproject.toml` per package, `src/` layout, setuptools as
+**Decision:** Python 3.12 or newer (supported 3.12–3.13). One `pyproject.toml` per package, `src/` layout, setuptools as
 the build backend. Runtime dependencies in `dependencies`, development tooling in
 `optional-dependencies.dev`, and anything one adapter alone needs in that adapter's own package.
 

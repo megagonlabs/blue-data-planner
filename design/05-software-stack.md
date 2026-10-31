@@ -11,8 +11,8 @@ dependency belongs to which package.
 | Concern | Choice |
 | --- | --- |
 | Language | Python |
-| Minimum version | 3.11 |
-| Maximum version | None of its own. The `lotus` extra narrows the range, which is part of why it is an extra (ADR-004) |
+| Minimum version | 3.12 |
+| Maximum version | 3.13 (`requires-python = ">=3.12,<3.14"`). The `lotus` extra narrows the range further, which is part of why it is an extra (ADR-004) |
 | Source layout | `src/`, one `pyproject.toml` per package |
 | Build backend | setuptools |
 | Development runner | `uv run python ...` |

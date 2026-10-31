@@ -29,7 +29,7 @@ target-version = "py312"
 select = ["E", "F", "I", "UP"]   # pycodestyle, pyflakes, isort, pyupgrade
 
 [tool.pyright]
-pythonVersion = "3.11"
+pythonVersion = "3.12"
 typeCheckingMode = "strict"
 venvPath = "."
 venv = ".venv"
@@ -52,7 +52,7 @@ suggestions.
 Every module that holds code opens with `from __future__ import annotations`, which allows forward
 references and keeps type-only imports from causing circular imports.
 
-Use 3.11 syntax and built-in generics:
+Use 3.12 syntax and built-in generics:
 
 ```python
 # correct
