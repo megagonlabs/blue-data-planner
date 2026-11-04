@@ -2,59 +2,36 @@
 
 from __future__ import annotations
 
-import re
-from contextlib import nullcontext
-from typing import Any
+from blue_data_ops.llm.sql_execution import ReadOnlySQLExecutor
+from blue_data_ops.operators import NL2SQLOutcomeOperator, OperatorRegistry
+from blue_data_ops.operators.operator import Operator
 
-from blue_data_ops.data import RegistrySeam
-
-from blue_data_planner.data import DataRegistry
-from blue_data_planner.operators.adapters.blue.sql_diagnostics import SQLDiagnostics
+from blue_data_planner.data import DataRegistry, connect_source
 
 
-class ReadOnlySQLRegistry(RegistrySeam):
-    """Keep schema access, but execute generated SQL only on blue-data's non-commit path."""
+def lacks_read_only_executor(operator: Operator) -> bool:
+    """Say whether this is the stock operation, which refuses to run SQL until one is bound."""
+    # Anything else a supplied registry resolves runs as it is: replacing a host's own binding
+    # would widen the targets that host approved. Ops has no public read of the binding.
+    if type(operator) is not NL2SQLOutcomeOperator:
+        return False
+    return operator._read_only_executor is None  # pyright: ignore[reportPrivateUsage]
 
-    def __init__(self, registry: DataRegistry, diagnostics: SQLDiagnostics | None = None) -> None:
-        super().__init__(registry)
-        self._diagnostics = diagnostics
 
-    def get_data_source_schema(
-        self,
-        source: str,
-        database: str,
-        collection: str,
-        protocol: str | None = None,
-        format: str = "dict",
-    ) -> Any:
-        with self._diagnostics.capture("schema lookup") if self._diagnostics else nullcontext():
-            return super().get_data_source_schema(source, database, collection, protocol, format)
+def read_only_operation(
+    operator: Operator, registry: DataRegistry, target: tuple[str, str, str]
+) -> Operator:
+    """Return the same card bound to one (source, database, collection) target.
 
-    def execute_query(
-        self,
-        query: Any,
-        source: str,
-        database: str | None = None,
-        collection: str | None = None,
-        optional_properties: dict[str, Any] | None = None,
-    ) -> Any:
-        with self._diagnostics.capture("SQL execution") if self._diagnostics else nullcontext():
-            # Ops currently has no read-only property. Enforce the policy at its registry
-            # boundary instead of passing a property it would silently ignore.
-            if not isinstance(query, str) or re.match(r"\s*SELECT\b", query, re.IGNORECASE) is None:
-                raise ValueError("blue.nl2sql requires a SELECT statement")
-            # Match blue-data's conservative delimiter check: one optional trailing semicolon,
-            # and none inside. The connection's read-only mode remains the write guard, including
-            # for a single SELECT INTO; a prefix or statement-count check alone is insufficient.
-            if ";" in query.strip().removesuffix(";"):
-                raise ValueError("blue.nl2sql requires a single SQL statement")
-            # Ignore execution options from the operation. commit=False makes blue-data enable
-            # the database connection's read-only mode before executing the statement.
-            del optional_properties
-            return super().execute_query(
-                query,
-                source,
-                database,
-                collection,
-                optional_properties={"commit": False},
-            )
+    Ops' executor is what limits generated SQL to reads: its query guard runs before the driver,
+    and it executes on the connection's read-only path. Ops refuses wrapped registries and
+    executors, so that policy cannot be extended here, only bound.
+    """
+    # A reopened registry holds no live source until one is connected, and the executor binds
+    # only live sources.
+    connect_source(registry, target[0])
+    executor = ReadOnlySQLExecutor(registry, frozenset({target}))
+    host = OperatorRegistry()
+    version = operator.operator_id.partition("@")[2]
+    card = host.register(NL2SQLOutcomeOperator(read_only_executor=executor), version)
+    return host.resolve(card.operator_id)

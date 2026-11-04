@@ -1143,20 +1143,25 @@ what keeps a typo in a suite list from running with fewer operators than it aske
 naming no model of its own runs on the planner's, and `BlueSuite` naming no registry resolves
 its pinned operation versions against `blue-data-ops`'s `versioned_registry()`.
 
-`blue.nl2sql` explicitly opts into execution and SELECT validation. The registry it receives
-requires one SQL statement and forces `commit=False` at the `blue-data` boundary, which enables
-read-only mode on the database connection. Neither request parameters nor model output may
-override that policy.
+`blue.nl2sql` binds `nl2sql@4.0.0` to a `ReadOnlySQLExecutor` for the one target a call names and
+sends only `execute_query`. The executor is what limits generated SQL to reads: it admits one
+`SELECT` and runs it on the connection's read-only path, and `blue-data-ops` refuses a wrapped
+registry or a caller's registry alongside execution, so the adapter binds that policy and does not
+extend it. Neither request parameters nor model output may override it. A source must be connected
+before binding, since a reopened registry holds no live one. An operation a supplied registry has
+already bound, or that is not `blue-data-ops`' own, runs as it resolves, so a host's approved
+targets are not widened.
 
-The SQL registry and model client are created per invocation. They observe schema, generation,
-and execution failures before `blue-data-ops` contains their exceptions, and the adapter adds
-their sanitized cause and catalog target to an execution failure's repair message. Upstream
-recovery metadata distinguishes retryable or recoverable execution errors from non-retryable
-failures that need another operator. An observed malformed generated query or known SQLite
-syntax/name error can still go to parameter repair, since ops reports those as generic failures
-too. A provider, connection, or unknown runtime failure keeps the fallback path even with a
-diagnostic. Suggestions and reports are retained, and diagnostic state is never reused by another
-call (ADR-066).
+The executor and model client are created per invocation. The client observes generation failures
+before `blue-data-ops` contains their exceptions, and the adapter adds the catalog target, with a
+sanitized cause where it has one, to an execution failure's repair message. `blue-data-ops` reports
+schema, driver, and execution failures as fixed text, so no driver cause reaches the message.
+Upstream recovery metadata distinguishes retryable or recoverable execution errors, including a
+query that fails against the schema, from non-retryable failures that need another operator. A
+malformed generated query, or one the read-only guard will refuse, can still go to parameter repair
+because the client sees it first. A provider, connection, or unknown runtime failure keeps the
+fallback path even with a diagnostic. Suggestions and reports are retained, and diagnostic state is
+never reused by another call (ADR-066).
 
 Nothing else changes when a suite is added. The physical planner builds its candidates from the
 router while it covers a plan, so a newly registered operator competes for every fragment its

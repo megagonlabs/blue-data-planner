@@ -152,25 +152,20 @@ def test_a_call_the_operation_reported_a_failure_for_leaves_another_operator_to_
         one.call([[{"city": "Austin"}]], A_CALL_THE_MODEL_ACCEPTS["blue.select"], [])
 
 
-def test_the_compound_operation_is_handed_the_data_registry_it_reads_a_source_through() -> None:
-    """It writes its query from a source's schema, which it has no way to read without one."""
+def test_the_compound_operation_is_asked_for_rows_and_handed_no_execution_policy() -> None:
+    """Ops refuses a caller's registry with execution, and its executor owns the read policy."""
     scripted = scripted_operation("nl2sql")
-    data_registry = a_data_registry_holding()
     built = blue_operators(
-        a_registry_answering_every_operation(scripted), data_registry, model=MODEL
+        a_registry_answering_every_operation(scripted), a_data_registry_holding(), model=MODEL
     )
     one = {each.operator_id: each for each in built}["blue.nl2sql"]
 
     one.call([], A_CALL_THE_MODEL_ACCEPTS["blue.nl2sql"], [])
 
     assert scripted.seen_properties is not None
-    handed_registry: Any = scripted.seen_properties["data_registry"]
-    original_registry: Any = data_registry
-    assert handed_registry.get_record("tag_bench", "source", "/") == original_registry.get_record(
-        "tag_bench", "source", "/"
-    )
     assert scripted.seen_properties["execute_query"] is True
-    assert scripted.seen_properties["validate_query_prefixes"] == ["SELECT"]
+    assert "validate_query_prefixes" not in scripted.seen_properties
+    assert "data_registry" not in scripted.seen_properties
 
 
 def a_bundle_for(operation: Operation) -> DataBundle:

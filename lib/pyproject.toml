@@ -15,6 +15,8 @@ maintainers = [
     {name = "Naoki Otani"},
 ]
 dependencies = [
+    # blue.nl2sql binds nl2sql@4.0.0 through ops' host executor. Earlier builds labelled 1.0.0
+    # lack it and a version range cannot tell them apart, so they fail when the adapter imports.
     "blue-data-ops>=1.0.0,<2",
     "blue-data>=1.0.0",
     "pydantic>=2",

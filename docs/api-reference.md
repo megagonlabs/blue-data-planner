@@ -520,19 +520,22 @@ and cannot incorporate tables from another fragment. The physical planner exclud
 that would pass it any input tables, including cuts containing no scan. Complete SQL regions
 with no external inputs remain eligible. Direct calls carrying input tables are refused.
 
-`blue.nl2sql` explicitly enables query execution and SELECT validation. Its registry adapter
-requires a single statement and always passes `commit=False` to `blue-data`, which enables
-the SQL connection's read-only mode. Request parameters and model output cannot change this
-policy. Multi-statement SQL is refused before it reaches the registry; a single statement that
-attempts a write is refused by the database connection.
+`blue.nl2sql` binds `nl2sql@4.0.0` to a `blue-data-ops` `ReadOnlySQLExecutor` for the one
+source, database, and collection each call names, and sends only `execute_query`. The executor
+admits a single `SELECT` before the driver and runs it on the SQL connection's read-only path.
+Request parameters and model output cannot change this policy. The executor accepts only
+`blue-data`'s own SQLite, PostgreSQL, and MySQL source classes, so a subclassed or wrapped source
+leaves `blue.nl2sql` unavailable and another operator reads it. A supplied registry whose
+`nl2sql@4.0.0` is already bound, or is not `blue-data-ops`' own operation, runs as it resolves.
 
 Its `scan_source` parameter is one catalog entity path; the adapter derives the source,
-database, and collection from it and reads the protocol from the source record. Schema lookup,
-SQL generation, and query execution failures carry the catalog target and a sanitized cause
-into the fragment's parameter-repair conversation. Common SQLite errors retain missing table
-or column names; other drivers retain structured error codes when available. Arbitrary driver
-and provider messages are omitted because they can contain connection credentials or request
-bodies. Each call owns its diagnostics, including when the same operator is retried.
+database, and collection from it and reads the protocol from the source record. A query that
+fails against the schema, or one the read-only guard refuses, goes to the fragment's
+parameter-repair conversation with the catalog target. `blue-data-ops` reports schema, driver, and
+execution failures as fixed text, so that conversation does not carry the driver's own words, such
+as the missing column's name; the prompt the query was written from already lists the columns.
+Failures to connect a source keep a structured driver code when one is available. Each call owns
+its diagnostics, including when the same operator is retried.
 
 [architecture.md](architecture.md#operator-suites) describes what each suite offers, and
 [extending.md](extending.md) how to add one.

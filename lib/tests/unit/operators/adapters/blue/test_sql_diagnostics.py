@@ -1,4 +1,4 @@
-"""SQL failures must give the fragment repair enough information to try again."""
+"""SQL failures must give the fragment repair what ops still reports, and the catalog target."""
 
 from __future__ import annotations
 
@@ -7,6 +7,9 @@ import sqlite3
 from typing import Any, cast
 
 import pytest
+from blue_data.source.sql.sqlite.sqlite_sql_source import (  # pyright: ignore[reportMissingTypeStubs]
+    SQLiteDBSource,
+)
 from blue_data_ops.llm import LLMClient as OpsLLMClient
 from blue_data_ops.llm.errors import LLMError
 
@@ -63,19 +66,24 @@ def sql_replies(monkeypatch: pytest.MonkeyPatch) -> list[Any]:
     return replies
 
 
+SCHEMA_FAILURE = "generated SQL failed against the approved schema"
+
+
 @pytest.mark.parametrize(
     ("query", "reason"),
     [
-        ("SELECT absent_column FROM stores", "no such column: absent_column"),
-        ("SELECT * FROM absent_table", "no such table: absent_table"),
-        ("SELECT FROM stores", "check SQL syntax"),
-        ("SELECT 1; CREATE TABLE injected (id INTEGER)", "single SQL statement"),
+        ("SELECT absent_column FROM stores", SCHEMA_FAILURE),
+        ("SELECT * FROM absent_table", SCHEMA_FAILURE),
+        ("SELECT FROM stores", SCHEMA_FAILURE),
+        ("SELECT 1; CREATE TABLE injected (id INTEGER)", "single read-only SELECT"),
+        # Ops' guard admits this one, and blue-data's delimiter check refuses it.
+        ("SELECT ';' FROM stores", "single read-only SELECT"),
     ],
 )
-def test_sql_execution_failures_keep_the_reason_and_catalog_target(
+def test_sql_a_rewrite_can_fix_stays_repairable_and_names_the_catalog_target(
     sqlite_registry: DataRegistry, sql_replies: list[Any], query: str, reason: str
 ) -> None:
-    """The adapter must recover a useful cause before ops replaces it with a generic error."""
+    """Ops withholds the driver's words, so the repair gets its fixed reason and the target."""
     sql_replies.append({"query": query})
 
     with pytest.raises(RecoverableOperatorError) as caught:
@@ -85,6 +93,28 @@ def test_sql_execution_failures_keep_the_reason_and_catalog_target(
     assert "blue.nl2sql failed at EXECUTE" in message
     assert reason in message
     assert SCAN_SOURCE in message
+
+
+def test_a_schema_lookup_failure_names_the_target_without_exposing_connection_details(
+    sqlite_registry: DataRegistry, sql_replies: list[Any], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A driver exception can contain credentials; an arbitrary message must not be echoed."""
+    registry: Any = sqlite_registry
+
+    def refuse_schema(*args: Any, **kwargs: Any) -> Any:
+        raise ConnectionError("postgres://alice:private-password@example.invalid/database")
+
+    monkeypatch.setattr(registry, "get_data_source_schema", refuse_schema)
+
+    with pytest.raises(OperatorUnavailableError) as caught:
+        nl2sql(sqlite_registry).call([], PARAMETERS, [])
+
+    message = str(caught.value)
+    assert "read-only SQL execution failed" in message
+    assert SCAN_SOURCE in message
+    assert "private-password" not in message
+    assert "example.invalid" not in message
+    assert sql_replies == []
 
 
 @pytest.mark.parametrize(
@@ -98,30 +128,31 @@ def test_sql_execution_failures_keep_the_reason_and_catalog_target(
         (DriverError(errno=1049), "driver error 1049"),
     ],
 )
-def test_a_schema_lookup_failure_names_the_target_without_exposing_connection_details(
+def test_a_source_that_cannot_connect_names_the_target_without_exposing_connection_details(
     sqlite_registry: DataRegistry,
     sql_replies: list[Any],
     monkeypatch: pytest.MonkeyPatch,
     failure: Exception,
     expected: str,
 ) -> None:
-    """A driver exception can contain credentials; an arbitrary message must not be echoed."""
+    """Connecting happens before ops is called, so this cause is still the adapter's to report."""
     registry: Any = sqlite_registry
 
-    def refuse_schema(**kwargs: Any) -> Any:
+    def refuse_connection(*args: Any, **kwargs: Any) -> Any:
         raise failure
 
-    monkeypatch.setattr(registry, "get_data_source_schema", refuse_schema)
+    monkeypatch.setattr(registry, "connect_source", refuse_connection)
 
     with pytest.raises(OperatorUnavailableError) as caught:
         nl2sql(sqlite_registry).call([], PARAMETERS, [])
 
     message = str(caught.value)
-    assert "schema lookup" in message
+    assert "source binding" in message
     assert expected in message
     assert SCAN_SOURCE in message
     assert "private-password" not in message
     assert "example.invalid" not in message
+    assert caught.value.__cause__ is None
     assert sql_replies == []
 
 
@@ -157,7 +188,7 @@ def test_diagnostics_are_cleared_between_calls_to_the_same_physical_operator(
         ]
     )
 
-    with pytest.raises(RecoverableOperatorError, match="no such column: absent_column"):
+    with pytest.raises(RecoverableOperatorError, match=SCHEMA_FAILURE):
         operator.call([], PARAMETERS, [])
 
     def refuse_model(*args: Any, **kwargs: Any) -> Any:
@@ -171,12 +202,12 @@ def test_diagnostics_are_cleared_between_calls_to_the_same_physical_operator(
     message = str(caught.value)
     assert "SQL generation" in message
     assert "provider_error" in message
-    assert "absent_column" not in message
+    assert SCHEMA_FAILURE not in message
     assert "private-api-key" not in message
     assert operator.call([], PARAMETERS, []).data == [[{"n": 2}]]
 
 
-def test_the_fragment_repair_receives_the_database_cause_and_can_finish(
+def test_the_fragment_repair_receives_the_failure_and_can_finish(
     sqlite_registry: DataRegistry, sql_replies: list[Any]
 ) -> None:
     """The message must survive operator error mapping and reach the next parameter turn."""
@@ -218,8 +249,10 @@ def test_the_fragment_repair_receives_the_database_cause_and_can_finish(
     assert len(result.attempts) == 2
     first = result.attempts[0].result
     assert first is not None and first.status is ExecutionStatus.FAILED
-    assert first.error is not None and "no such column: absent_column" in first.error.message
-    assert any("no such column: absent_column" in text for _, text in client.conversations[1])
+    assert first.error is not None and SCHEMA_FAILURE in first.error.message
+    assert any(
+        SCHEMA_FAILURE in text and SCAN_SOURCE in text for _, text in client.conversations[1]
+    )
     last = result.attempts[-1].result
     assert last is not None and last.output == [[{"n": 2}]]
     assert counters.operator_calls == 2
@@ -255,7 +288,8 @@ def test_non_repairable_sql_failures_skip_parameter_retries(
         monkeypatch.setattr(registry, "get_data_source_schema", refuse)
     else:
         sql_replies.append({"query": "SELECT COUNT(*) AS n FROM stores"})
-        monkeypatch.setattr(registry, "execute_query", refuse)
+        # Ops refuses a source whose guarded methods are patched on the instance.
+        monkeypatch.setattr(SQLiteDBSource, "_db_connect", refuse)
     client = ScriptedLLMClient([PARAMETERS])
     router = OperatorRouter()
     router.register(nl2sql(sqlite_registry))

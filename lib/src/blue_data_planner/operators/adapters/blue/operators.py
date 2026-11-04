@@ -15,7 +15,10 @@ from blue_data_planner.data.catalog import source_kind
 from blue_data_planner.llm import LLMClient
 from blue_data_planner.llm.model_names import model_without_provider
 from blue_data_planner.operators.adapters.blue import error_mapping
-from blue_data_planner.operators.adapters.blue.read_only_sql import ReadOnlySQLRegistry
+from blue_data_planner.operators.adapters.blue.read_only_sql import (
+    lacks_read_only_executor,
+    read_only_operation,
+)
 from blue_data_planner.operators.adapters.blue.schemas import (
     ArgmaxParameters,
     ArgminParameters,
@@ -47,6 +50,7 @@ from blue_data_planner.types import (
     LogicalOperator,
     OperatorOutput,
     OperatorRoutingError,
+    OperatorUnavailableError,
     OutputColumn,
     PhysicalOperator,
     RecoverableOperatorError,
@@ -72,6 +76,23 @@ def _nl2sql_protocol(data_registry: DataRegistry, source: str, operator_id: str)
             f"is a {kind} source"
         )
     return _NL2SQL_PROTOCOLS[kind]
+
+
+def _bound_to_target(
+    operator_id: str,
+    operator: Operator,
+    data_registry: DataRegistry,
+    attributes_sent: dict[str, Any],
+    diagnostics: SQLDiagnostics,
+) -> Operator:
+    target = (attributes_sent["source"], attributes_sent["database"], attributes_sent["collection"])
+    try:
+        with diagnostics.capture("source binding"):
+            return read_only_operation(operator, data_registry, target)
+    except Exception:
+        # Another operator can still read this source. The raw exception can hold connection
+        # details, so only the diagnostic's safe cause leaves here.
+        raise OperatorUnavailableError(f"{operator_id} failed: {diagnostics.detail}") from None
 
 
 def _build_call(
@@ -109,21 +130,24 @@ def _build_call(
         attributes_sent = validated.operation_attributes()
         call_properties = properties
         diagnostics: SQLDiagnostics | None = None
+        bound_operator = operator
         if isinstance(validated, NL2SQLParameters):
             # The protocol is the source's, so it is read off the registry rather than written
             # by the model.
             attributes_sent["protocol"] = _nl2sql_protocol(
                 data_registry, attributes_sent["source"], operator_id
             )
-            # Ops contains its exceptions before returning ExecMeta. Observe the registry and
-            # model boundaries before that detail is lost, using fresh objects for every call.
+            # Ops contains its exceptions before returning ExecMeta. Observe the model boundary
+            # before that detail is lost, using fresh objects for every call.
             diagnostics = SQLDiagnostics(validated.scan_source)
-            call_properties = {
-                **(properties or {}),
-                "data_registry": ReadOnlySQLRegistry(data_registry, diagnostics),
-                "llm_client": DiagnosticSQLClient(diagnostics),
-            }
-        output, reported, meta = operator.run(list(inputs), attributes_sent, call_properties)
+            call_properties = {**(properties or {}), "llm_client": DiagnosticSQLClient(diagnostics)}
+            # Bound per call, so the query can reach only the target this call names, and a
+            # source registered after the suite was built is readable.
+            if lacks_read_only_executor(operator):
+                bound_operator = _bound_to_target(
+                    operator_id, operator, data_registry, attributes_sent, diagnostics
+                )
+        output, reported, meta = bound_operator.run(list(inputs), attributes_sent, call_properties)
         error_mapping.raise_for_errors(
             meta,
             operator_id,
@@ -152,9 +176,9 @@ class Operation:
     source_kinds: frozenset[str] | None = None
     accepts_bound_inputs: bool = False
     limitations: str | None = None
-    # What the adapter hands the operation as call properties: the data registry it reads a
-    # source through, and the model and reasoning effort its LLM calls run on.
-    uses_data_registry: bool = False
+    # What the adapter asks of the operation as call properties: that it run the SQL it writes,
+    # and the model and reasoning effort its LLM calls run on.
+    executes_sql: bool = False
     uses_llm: bool = False
 
 
@@ -303,7 +327,7 @@ OPERATIONS: tuple[Operation, ...] = (
                 LogicalOperator.SORT_SUPERLATIVE,
             }
         ),
-        "nl2sql@3.0.0",
+        "nl2sql@4.0.0",
         NL2SQLParameters,
         source_kinds=frozenset(_NL2SQL_PROTOCOLS),
         accepts_bound_inputs=False,
@@ -313,7 +337,7 @@ OPERATIONS: tuple[Operation, ...] = (
             "express a semantic predicate, or read more than one database in one query, so a "
             "fragment whose scans name two sources is not its to take"
         ),
-        uses_data_registry=True,
+        executes_sql=True,
         uses_llm=True,
     ),
 )
@@ -361,16 +385,11 @@ def blue_operators(
                 "the operator registry does not carry"
             ) from error
         properties: Properties = {}
-        if operation.uses_data_registry:
-            # nl2sql needs rows, but its SQL is model output. Explicitly opt into execution
-            # and SELECT validation; the registry enforces single-statement, non-commit SQL
-            # even though ops currently exposes no read-only execution switch (#62).
-            properties.update(
-                {
-                    "execute_query": True,
-                    "validate_query_prefixes": ["SELECT"],
-                }
-            )
+        if operation.executes_sql:
+            # nl2sql needs rows, but its SQL is model output. Ask for execution and nothing
+            # else: the read-only policy (#62) is the host-bound executor's, and ops refuses a
+            # caller's data registry alongside this request.
+            properties["execute_query"] = True
         if operation.uses_llm:
             properties.update(_model_properties(model, reasoning_effort))
         operators.append(
