@@ -430,18 +430,31 @@ def test_an_unprofiled_attribute_renders_with_its_type_and_nothing_else() -> Non
 
 
 @pytest.mark.parametrize(
-    "info",
-    [pytest.param({}, id="no_type_field"), pytest.param({"type": ""}, id="empty_type")],
+    ("properties", "expected_dtype"),
+    [
+        pytest.param({"info": {"type": "TEXT"}}, "TEXT", id="sql_mapping"),
+        pytest.param({"info": "str"}, "str", id="doc_user_string"),
+        pytest.param({"info": "str|None"}, "str|None", id="optional_type_string"),
+        pytest.param({}, None, id="mongo_missing_info"),
+        pytest.param({"info": None}, None, id="null_info"),
+        pytest.param({"info": ""}, None, id="empty_info"),
+        pytest.param({"info": {}}, None, id="no_type_field"),
+        pytest.param({"info": {"type": ""}}, None, id="empty_type"),
+        pytest.param({"info": {"type": None}}, None, id="null_type"),
+    ],
 )
-def test_an_attribute_whose_type_was_never_recorded_renders_with_no_type(
-    info: dict[str, Any],
+def test_an_attribute_type_is_read_from_its_source_metadata(
+    properties: dict[str, Any], expected_dtype: str | None
 ) -> None:
-    """A SQLite column can be genuinely untyped, which is absence rather than corruption."""
     record = an_attribute(CITY)
-    record["properties"]["info"] = info
-    catalog = DataCatalog(a_registry_holding(record))
+    record["properties"] = properties
+    catalog = DataCatalog(a_registry_holding(*records_for_a_store_table_recording(None), record))
 
-    assert catalog.attribute_views(STORES)[0].dtype is None
+    views = catalog.attribute_views(STORES)
+    assert views[0].dtype == expected_dtype
+    matches = catalog.search_records("stores")
+    assert [match.path for match in matches] == [STORES]
+    assert matches[0].attributes == views
 
 
 def test_an_entity_the_registry_holds_no_attributes_for_gets_no_views() -> None:
@@ -523,10 +536,16 @@ def a_store_table_with_a_non_int_row_count() -> list[dict[str, Any]]:
             id="description_not_a_string",
         ),
         pytest.param(
-            [an_attribute(CITY, dtype=None)],
+            [an_attribute(CITY) | {"properties": {"info": []}}],
             "attribute_views",
-            "properties.info missing or not a mapping",
-            id="info_missing_or_not_a_mapping",
+            "properties.info is list",
+            id="info_is_list",
+        ),
+        pytest.param(
+            [an_attribute(CITY) | {"properties": {"info": 123}}],
+            "attribute_views",
+            "properties.info is int",
+            id="info_is_number",
         ),
         pytest.param(
             [an_attribute(CITY, stats=cast("Any", "two rows"))],

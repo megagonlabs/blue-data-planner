@@ -127,8 +127,15 @@ def _row_count(properties: dict[str, Any], path: str) -> int | None:
 
 def _dtype(properties: dict[str, Any], path: str) -> str | None:
     info = properties.get("info")
+    if info is None:
+        return None
+    if isinstance(info, str):
+        return info or None
     if not isinstance(info, dict):
-        raise ValueError(f"Attribute record {path}: properties.info missing or not a mapping")
+        raise ValueError(
+            f"Attribute record {path}: properties.info is {type(info).__name__}, "
+            "expected a mapping, string, or None"
+        )
     declared = cast("dict[str, Any]", info).get("type")
     # A source with dynamic typing registers a column with no type at all, so an absent one
     # is absence rather than corruption, the way an absent description is.
