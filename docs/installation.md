@@ -46,6 +46,31 @@ bash platform/planner-cli/scripts/install.sh   # + the blue-planner command
 bash platform/planner-mcp/scripts/install.sh   # + the MCP server
 ```
 
+### SQL source permissions
+
+`blue.nl2sql` executes generated SQL on the connection selected by `scan_source`. The per-call
+source, database, and collection binding selects that connection; it does not enforce which
+tables, schemas, or functions the SQL can access. The database role's permissions govern that
+access. Leaving data out of the catalog does not prevent a query from reading it.
+
+Register each SQL source with a dedicated database role or account:
+
+- Grant `SELECT` only on the tables or views the planner may read, with only the schema and
+  database access needed to reach them. Include the tables needed for permitted joins.
+- Limit function execution and other privileges to those the planner requires. A single
+  `SELECT` on a read-only connection can still invoke functions the role is allowed to call.
+- Never use a superuser, MySQL `root`, or another administrative account for generated SQL.
+
+For example, a PostgreSQL call targeting `public.first_items` can still read
+`second.second_notes` if the role has access. On MySQL, the same applies to a table in another
+database that the account may read. A role restricted to `first_items` must be denied access
+to the second table, even though both queries are reads. Verify those permissions on the actual
+connection account before using it with the planner.
+
+Existing deployments with broader permissions must change the connection account or its grants.
+Changing the catalog or using the read-only execution path does not revoke database privileges.
+The [API reference](api-reference.md) describes the executor binding and query checks.
+
 ### Extras
 
 | Extra | Adds | For |

@@ -520,13 +520,20 @@ and cannot incorporate tables from another fragment. The physical planner exclud
 that would pass it any input tables, including cuts containing no scan. Complete SQL regions
 with no external inputs remain eligible. Direct calls carrying input tables are refused.
 
-`blue.nl2sql` binds `nl2sql@4.0.0` to a `blue-data-ops` `ReadOnlySQLExecutor` for the one
-source, database, and collection each call names, and sends only `execute_query`. The executor
-admits a single `SELECT` before the driver and runs it on the SQL connection's read-only path.
+`blue.nl2sql` binds `nl2sql@4.0.0` to a `blue-data-ops` `ReadOnlySQLExecutor` using the SQL
+connection selected by the source, database, and collection each call names, and sends only
+`execute_query`. The executor admits a single `SELECT` before the driver and runs it on the
+connection's read-only path.
 Request parameters and model output cannot change this policy. The executor accepts only
 `blue-data`'s own SQLite, PostgreSQL, and MySQL source classes, so a subclassed or wrapped source
 leaves `blue.nl2sql` unavailable and another operator reads it. A supplied registry whose
 `nl2sql@4.0.0` is already bound, or is not `blue-data-ops`' own operation, runs as it resolves.
+
+Target binding selects the connection; it does not restrict the relations or functions the SQL
+references. The database role's permissions govern that access, including tables absent from the
+catalog and functions invoked by a `SELECT`. Register SQL sources with a dedicated role restricted
+to the data and functions the planner may access, never a superuser or administrative role.
+See [SQL source permissions](installation.md#sql-source-permissions) for deployment guidance.
 
 Its `scan_source` parameter is one catalog entity path; the adapter derives the source,
 database, and collection from it and reads the protocol from the source record. A query that

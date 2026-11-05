@@ -21,11 +21,12 @@ def lacks_read_only_executor(operator: Operator) -> bool:
 def read_only_operation(
     operator: Operator, registry: DataRegistry, target: tuple[str, str, str]
 ) -> Operator:
-    """Return the same card bound to one (source, database, collection) target.
+    """Bind the card to the target's SQL connection and read-only execution policy.
 
-    Ops' executor is what limits generated SQL to reads: its query guard runs before the driver,
-    and it executes on the connection's read-only path. Ops refuses wrapped registries and
-    executors, so that policy cannot be extended here, only bound.
+    Ops checks for a single SELECT before the driver and uses the connection's read-only path.
+    The target selects the connection; database permissions govern which relations and functions
+    the SQL can access. Ops refuses wrapped registries and executors, so the adapter binds this
+    policy without extending it.
     """
     # A reopened registry holds no live source until one is connected, and the executor binds
     # only live sources.

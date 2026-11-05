@@ -141,8 +141,8 @@ def _build_call(
             # before that detail is lost, using fresh objects for every call.
             diagnostics = SQLDiagnostics(validated.scan_source)
             call_properties = {**(properties or {}), "llm_client": DiagnosticSQLClient(diagnostics)}
-            # Bound per call, so the query can reach only the target this call names, and a
-            # source registered after the suite was built is readable.
+            # Bind the connection per call so newly registered sources are readable.
+            # Database permissions govern which relations and functions the SQL can access.
             if lacks_read_only_executor(operator):
                 bound_operator = _bound_to_target(
                     operator_id, operator, data_registry, attributes_sent, diagnostics

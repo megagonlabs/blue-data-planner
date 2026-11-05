@@ -1143,14 +1143,19 @@ what keeps a typo in a suite list from running with fewer operators than it aske
 naming no model of its own runs on the planner's, and `BlueSuite` naming no registry resolves
 its pinned operation versions against `blue-data-ops`'s `versioned_registry()`.
 
-`blue.nl2sql` binds `nl2sql@4.0.0` to a `ReadOnlySQLExecutor` for the one target a call names and
-sends only `execute_query`. The executor is what limits generated SQL to reads: it admits one
-`SELECT` and runs it on the connection's read-only path, and `blue-data-ops` refuses a wrapped
-registry or a caller's registry alongside execution, so the adapter binds that policy and does not
-extend it. Neither request parameters nor model output may override it. A source must be connected
-before binding, since a reopened registry holds no live one. An operation a supplied registry has
-already bound, or that is not `blue-data-ops`' own, runs as it resolves, so a host's approved
-targets are not widened.
+`blue.nl2sql` binds `nl2sql@4.0.0` to a `ReadOnlySQLExecutor` using the SQL connection selected
+by the target a call names and sends only `execute_query`. The executor admits one `SELECT` and
+runs it on the connection's read-only path. `blue-data-ops` refuses a wrapped registry or a caller's
+registry alongside execution, so the adapter binds that policy and does not extend it. Neither
+request parameters nor model output may override it. A source must be connected before binding,
+since a reopened registry holds no live one. An operation a supplied registry has already bound,
+or that is not `blue-data-ops`' own, runs as it resolves, so a host's approved targets are not widened.
+
+The target selects the connection, not the relations or functions the generated SQL can access.
+The database role's permissions govern that access, including data absent from the catalog and
+functions invoked by a `SELECT`. Deployments must register SQL sources with dedicated roles
+restricted to the approved data and required functions, never superuser or administrative roles.
+[SQL source permissions](../docs/installation.md#sql-source-permissions) describes that setup.
 
 The executor and model client are created per invocation. The client observes generation failures
 before `blue-data-ops` contains their exceptions, and the adapter adds the catalog target, with a
