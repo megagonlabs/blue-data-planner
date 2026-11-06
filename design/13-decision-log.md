@@ -16,7 +16,7 @@ the open questions at the end, which are everything not yet decided.
 **Date:** 2026-09-25
 **Status:** Accepted
 
-**Decision:** Python 3.11 or newer. One `pyproject.toml` per package, `src/` layout, setuptools as
+**Decision:** Python 3.12 or newer (supported 3.12–3.13). One `pyproject.toml` per package, `src/` layout, setuptools as
 the build backend. Runtime dependencies in `dependencies`, development tooling in
 `optional-dependencies.dev`, and anything one adapter alone needs in that adapter's own package.
 
@@ -1965,8 +1965,9 @@ fragment is offered only to operators accepting bound inputs, or inside a fragme
 the node producing the reference input. Where no registered operator qualifies, the node has no
 operator and the reason names the reference input, so the logical planner can write a plan reaching
 the value another way, such as through a `REPLAN` that reads it first. An operator declaring bound
-inputs and refusing a frontier it was offered is still possible, which is question 51. A bundle of
-the wrong length for any other reason is still refused inside each adapter, which is question 15.
+inputs and refusing a frontier it was offered was question 51, resolved for `blue.nl2sql` by
+ADR-064. A bundle of the wrong length for any other reason is still refused inside each adapter,
+which is question 15.
 
 ## ADR-060 — The Operator-Call Budget Also Bounds the Size of a Plan
 
@@ -2106,6 +2107,147 @@ event and sets it from another thread.
 
 ---
 
+## ADR-064 — Source-Reading Operators Declare Their Current Input Capability
+
+**Date:** 2026-10-23
+**Status:** Accepted
+
+**Decision:** `blue.nl2sql` declares `accepts_bound_inputs=False`, matching the operation it
+wraps: it writes SQL from a source schema and cannot incorporate external tables. For every
+source-reading operator with this flag false, the physical planner requires an empty fragment
+frontier, including a cut containing no `SCAN`. Operators that transform tables and declare no
+source kinds retain their ordinary inputs. A source-reading operator that implements bound
+inputs, such as `builtin.scan`, can still receive them.
+
+**Rationale:** A capability declaration describes the current implementation. Advertising a
+future capability offers work the operation always refuses and spends parameter repairs on a
+failure no parameter can fix. Checking only reference inputs is insufficient: a table-only
+`FILTER` or `AGGREGATE` cut has ordinary transformed inputs and no scan, but is equally unusable
+by `blue.nl2sql`.
+
+**Consequences:** Open question 51 is resolved. Unsupported SQL fragments are excluded before
+binding or operator execution. Complete SQL regions remain eligible, and a direct call with an
+input bundle is still refused defensively. If a future version of the operation incorporates
+external tables, the adapter can widen its declaration after testing that behavior. This
+clarifies ADR-059 for source-reading operators; the single-database limitation remains open
+question 44.
+
+---
+
+## ADR-065 — A Broken Operator Implementation Goes Straight to Cover Repair
+
+**Date:** 2026-10-23
+**Status:** Accepted
+
+**Decision:** `OperatorUnavailableError` becomes a failed `ExecutionResult` with
+`ErrorKind.OPERATOR_UNAVAILABLE`. `FragmentRunner` retains that attempt and immediately returns
+`needs_repair`, so the existing cover-repair loop can select another operator. It spends no
+further parameter attempts on the unavailable implementation. The Blue adapter uses this path
+for `DEFAULTS_FAILED`, `VALIDATION_FAILED`, `REFINEMENT_FAILED`, and `*_RESULT_INVALID`, retaining
+the operation's diagnostic message, suggestion, and report.
+
+**Rationale:** Those structured Blue errors describe the chosen implementation failing, not the
+planner failing. Turning them into a bare `BlueDataPlannerError` ended the request as
+`planner_failed` even when another operator could serve the node (#54). Parameter retries cannot
+repair a broken validator or malformed result, while an unrecoverable error would still end the
+whole run. A separate kind lets the component that chooses implementations answer the failure.
+
+**Consequences:** Existing cover-repair, failure-replan, and operator-call budgets still bound
+recovery. The failed attempt and any reusable upstream results remain available to the cover
+repair. Existing `INVALID_INPUT`, `EXECUTION_FAILED`, and timeout classifications are unchanged;
+the treatment of non-retryable execution errors remains #55. Unexpected planner exceptions still
+follow the existing defect path. This extends ADR-015's operator failure classification and adds
+one serialized error-kind value without adding a run status.
+
+---
+
+## ADR-066 — Execution Failures Use Recovery Metadata Before Spending Parameter Repairs
+
+**Date:** 2026-10-23
+**Status:** Accepted
+
+**Decision:** The Blue adapter no longer treats every `EXECUTION_FAILED` as recoverable. A
+recoverable category or a true `retryable` flag allows parameter repair. A non-retryable `FAILED`
+execution instead raises `OperatorUnavailableError`, using ADR-065's immediate cover repair.
+`INVALID_INPUT` remains repairable even when its unchanged call is non-retryable.
+
+**Rationale:** A broken execution implementation or an unsupported model setting cannot be
+fixed by changing fragment parameters. Treating its failure as recoverable spends every
+parameter attempt before another operator is considered (#55). Metadata distinguishes that
+case without turning one operation's failure into a whole-run failure.
+
+For `blue.nl2sql`, ops also reports correctable query mistakes as generic execution failures.
+The existing invocation-local diagnostics therefore mark malformed generated queries, SQL policy
+refusals, and known SQLite syntax/name errors as parameter-repairable. This preserves #37's
+repair path. Unknown exceptions, provider failures, connection failures, and database locks do
+not gain parameter retries merely because a diagnostic was recorded.
+
+**Consequences:** Diagnostics, suggestions, reports, successful upstream work, and existing
+repair budgets are retained. Timeouts and unexpected planner exceptions keep their existing
+handling. This extends ADR-065 to #55 without changing run statuses or upstream operations.
+
+---
+
+## ADR-067 — Optional Response Caching Uses Private, Deployment-Owned JSON Storage
+
+**Date:** 2026-10-23
+**Status:** Accepted
+
+**Decision:** The planner's general sync/async LLM calls retain opt-in caching through
+`llm.cache`, using standard-library JSON files instead of pickle-backed `diskcache`. The directory
+is fixed when a client is constructed: its `cache_dir` keyword overrides
+`BLUE_DATA_PLANNER_LLM_CACHE_DIR`, and the default is `~/.cache/blue-data-planner/llm-v1`.
+Configured paths must be absolute. `llm.cache_dir` is no longer an accepted property.
+
+The directory must belong to the current process user with mode `0700`, checked on every access.
+Files use mode `0600`. Directory-relative, no-follow file access and atomic replacement prevent
+linked entries and concurrent writes from redirecting or partially publishing cache data. Cache
+keys and JSON envelopes carry a planner-specific format namespace. Corrupt, foreign, linked, or
+legacy entries are misses; old pickle caches are never loaded or migrated.
+
+**Rationale:** The old shared `.llm_cache` default let unrelated clients read each other's
+responses, and a caller-selected directory made pickle deserialization an unsafe trust boundary
+(#60, cross-repo blue-data#122). JSON removes object deserialization; deployment configuration
+and private permissions make the storage boundary explicit.
+
+**Consequences:** This supersedes ADR-054's storage and dependency choices, retaining its opt-in
+policy. The planner no longer needs `diskcache`; other repositories' caches remain their own
+per-repo work. Existing deployments using `llm.cache_dir` must move the path to constructor or
+environment configuration, use an owner-only directory, and start with a cold JSON cache.
+Caching requires POSIX owner and permission checks. Cache-hit accounting, provider retries, and
+uncached `complete_structured` calls are unchanged.
+
+---
+
+## ADR-068: Open the registry through blue-data's shared store
+
+**Status:** Accepted (2026-10-23)
+
+**Decision:** With no explicit path, `open_registry()` delegates to
+`blue_data.config.build_store` for `BLUE_DATA_REGISTRY_STORE=file` or `redis`, using the same
+file, Redis URL, and namespace settings as blue-data's registry CLI/API/MCP and other clients.
+`PlannerSettings.registry_path` defaults to `None` to select this configuration. The CLI
+exports resolved profile values before building; MCP reads only its process environment.
+Both interfaces accept the shared settings without requiring `BLUE_DATA_REGISTRY_PATH`.
+
+An explicit path (including the CLI's `--registry-path`) takes precedence and accepts a
+standard dictionary file store or a legacy list snapshot. The old `BLUE_DATA_REGISTRY_PATH`
+is a fallback only when no shared backend is selected. Invalid backend configuration and
+unreadable stores fail before planning; a missing file is not created and does not trigger
+a fallback to another registry. New demo and benchmark registries use the dictionary store.
+
+**Reason:** The planner's list snapshots could not be opened by blue-data's file store, and
+the planner could not open the dictionary file store other components wrote (#61, blue-data#119).
+Sharing blue-data's store reader removes the incompatible registry path for normal deployments.
+
+**Consequences:** Existing explicit-file callers and snapshots remain usable. Deployments
+using snapshots can rebuild them with the demo/benchmark registration script and select the
+shared file backend. Redis support retains blue-data's optional dependency and RedisJSON
+requirements and delegates its connection behavior upstream. In-memory callers continue to
+construct a `DataRegistry` and pass it directly to `build_data_planner`.
+
+---
+
 ## Open Questions
 
 Design questions first, then defects in the code.
@@ -2118,7 +2260,7 @@ Design questions first, then defects in the code.
 | 15 | Where does the check that an operator receives the number of tables its logical operator declares belong? `INPUT_ARITY` governs what the logical planner writes, and validation checks a node's input count against it, but the bundle an operator is handed is the concatenation of its upstream outputs (ADR-012), and nothing ties that length back to the arity. Each adapter refuses a bundle of the wrong length inside its own callable, which is one rule written once per suite and leaves the next suite free to forget it. `execute_physical_operator` is the single place every call goes through, and for any operator declaring one logical operator it could read the count off `INPUT_ARITY` itself, so a suite added later would get the rule without doing anything. Against moving it: an adapter needs the same guard anyway before it can take its tables apart, so the check would be written twice rather than once. | Whether a wrongly shaped bundle is refused by one rule or by one rule per suite |
 | 18 | Should the three planning components and the discovery step share one model by default? [12-deployment-ops.md](12-deployment-ops.md#4-configuration) sets `BLUE_DATA_PLANNER_MODEL` for all of them, and `DataPlanner`'s constructor takes a client per component, so the split is available and simply not the default ([09-api-interface-spec.md](09-api-interface-spec.md#assembly)). The components do different work. Logical planning writes a plan from a catalog preview and is the one call whose mistakes every later stage inherits, since a badly cut plan cannot be rescued by a good cover. Writing parameters and reviewing a result are narrower, run several times per request, and see concrete columns and values rather than a whole catalog. That shape favors a stronger model for the first and a cheaper one for the rest, which is also what the cost profile favors, and nothing has measured whether the quality holds. Against it: a split default doubles what a deployment configures before it can run anything, and two model strings is two things to get wrong. The TAG-Bench harness reports model calls per component, which says where the spend is but not whether a cheaper model would have answered the same. | What a deployment pays per request, and whether one badly chosen model string degrades every component at once |
 | 32 | Should a prompt ever be optimized automatically rather than written by hand? ADR-005 fixes hand-written prompts versioned in the repository, and the reason is that tuning needs a score to tune against. The TAG-Bench harness produces end-to-end accuracy, which scores a whole run rather than one component's prompt, so a tuner reading it would credit the logical planner for what the fragment runner repaired. Answering it means either a per-component score or accepting that a whole-run score is enough, and `gepa` is the candidate dependency ([05-software-stack.md](05-software-stack.md#what-is-deliberately-absent)). | Whether `prompts/` stays hand-written, and whether `lib/` gains a tuning dependency |
-| 37 | What may an adapter absorb, and what must it refuse? Every suite mismatches what a plan needs in its own way, and with no shared rule each mismatch is settled in whichever adapter hits it first. Five absorptions look like translation rather than behavior, and are the candidates for a permitted list: shaping a parameter schema an operation has none of, converting between the bundle and the suite's own shape, mapping the suite's failures onto the recoverable and unrecoverable kinds, supplying the registry or model client an operation needs to run at all, and offering fewer operations or narrower capability than the suite advertises. Four look like behavior and are the candidates for a forbidden list: declaring a capability the operation lacks, computing or patching part of a result, retrying or splitting or reordering work the run loop owns, and returning an empty result in place of a reported failure. What ADR-058 settles is the planning case alone: an operation may plan how to carry out its own fragment and may not take a decision the run loop owns, which permits one that writes a query and refuses one that decomposes the request. The rest of both lists is unsettled, and so is an operation whose declared capability contradicts its own metadata, where an adapter that binds it anyway fails partway through a run and never offering the candidate would have cost nothing. | Whether a capability gap is answered in the adapter or upstream, and which `blue-data-ops` operations an adapter offers at all |
+| 37 | What may an adapter absorb, and what must it refuse? Every suite mismatches what a plan needs in its own way, and with no shared rule each mismatch is settled in whichever adapter hits it first. Five absorptions look like translation rather than behavior, and are the candidates for a permitted list: shaping a parameter schema an operation has none of, converting between the bundle and the suite's own shape, mapping the suite's failures onto the planner's error kinds, supplying the registry or model client an operation needs to run at all, and offering fewer operations or narrower capability than the suite advertises. Four look like behavior and are the candidates for a forbidden list: declaring a capability the operation lacks, computing or patching part of a result, retrying or splitting or reordering work the run loop owns, and returning an empty result in place of a reported failure. What ADR-058 settles is the planning case alone: an operation may plan how to carry out its own fragment and may not take a decision the run loop owns, which permits one that writes a query and refuses one that decomposes the request. The rest of both lists is unsettled, and so is an operation whose declared capability contradicts its own metadata, where an adapter that binds it anyway fails partway through a run and never offering the candidate would have cost nothing. | Whether a capability gap is answered in the adapter or upstream, and which `blue-data-ops` operations an adapter offers at all |
 | 38 | Where does an operation's capability declaration come from? A `PhysicalOperator` carries `logical_operators`, `source_kinds`, `accepts_bound_inputs`, and `limitations`, and the adapter hand-writes all four. `blue-data-ops` states most of them itself, on an `OperatorCard`: closed `accepts-*`, `requires-*`, and `capability-*` tags plus a `when_to_invoke` line, written by whoever wrote the operation. Reading the card where it exists would have caught the `nl2sql` defect, since the card says `accepts-none`. Against reading it: the card is `blue-data-ops`'s own scheme and nothing else has one — LOTUS declares no capability metadata at all, and a suite this repository writes declares whatever it chooses — so deriving one suite's declarations and hand-writing every other suite's is two rules for one field. The tag vocabulary is also close to but not the same question: `capability-filter` and `LogicalOperator.FILTER` agree, while `accepts-data` says an operation reads a bundle and not whether it can read one alongside a source it scans. A third route is to keep hand-writing and have the conformance test compare against the card where a suite has one, so a disagreement fails a test rather than a run. | Whether a hand-written declaration is checked against anything, and whether the adapter conformance test reads more than `AttributeSpec` |
 | 41 | Is the bundle shape chosen to match one suite's operator signature? ADR-012 fixes a list of tables on both sides of an operator call, and no document says how much conversion the Blue adapter then needs ([06-library.md](06-library.md#what-an-adapter-reads)). Two things are unsettled. Whether the alignment with the Blue operations is deliberate or incidental: if it is deliberate, the shape follows one suite and every other adapter pays the conversion, and if it is not, the shape is chosen for what a plan passes and the Blue adapter converts like any other. And what a callable invokes on the suite's side, which no document names either: a dependency's method name is a fact that goes stale, and naming it in two places is how two documents came to disagree about it. | Whether ADR-012's shape rests on a dependency's signature, and whether the Blue adapter is a pass-through |
 | 42 | Does anything here emit traces or logs of its own, and if so which package? [12-deployment-ops.md](12-deployment-ops.md#7-logging) fixes the library at standard-library logging with no handler configured, so an embedding application decides the format and the destination, and nothing in [05-software-stack.md](05-software-stack.md) declares a tracing dependency. Three routes. The adapters own it: the MCP package declares an exporter, emits structured JSON logs, and opens one span per tool request, leaving the library uninstrumented. The library owns it: spans cover each planning component, each operator call, and each model call, which is the only route that can show where a run's time and money went, at the price of a tracing dependency in `lib/` and an import in code every consumer runs. Or nothing ships in the first release and the run record stays the instrument. What argues for instrumenting at all is the fragment span: it would carry the logical nodes a fragment covered and the operator that ran them, which is where the pushdown boundary was drawn, and a trace can show that where a counter cannot. Against it: `RunResult` already carries every plan, every attempt, the counters, and one usage record per model call, so a trace would restate what the caller is handed. | Whether a deployment can see inside a run without reading the returned result, and which package pays for it |
@@ -2127,10 +2269,9 @@ Design questions first, then defects in the code.
 | 45 | Is a bound an operator enforces inside its own call a bound of ADR-060's kind? `RunLimits` holds every bound the run loop obeys, and two numbers sit below it instead: the distinct values a bind join carries, and the rows a LOTUS operation accepts before refusing the call. Both are shaped like `RunLimits` fields, and they do not agree with each other about who sets them: the LOTUS cap is an argument to `lotus_operators`, so a deployment chooses it where it builds the suite, while the bind-join cap is fixed in the operator that enforces it. `builtin.scan` reads only `sql/sqlite`, a source with a predicate language, and implements two of the three realizations in [06](06-library.md#data): values embedded in the query text, capped at 100 distinct values, and a temporary table, capped by nothing. Past the embedded-values cap it escalates to the temporary table rather than refusing the input, so `builtin.scan` never refuses a bind join for carrying too many values; 100 is where it switches realization, not a limit it enforces. The one-call-per-value realization, and the tighter cap that would bound it, belong to an operator reading a source with no predicate language, a case nothing in the built-in suite covers. Every number here is a placeholder set low enough not to break a run rather than measured against real volumes or real failure rates. A `RunLimits` field would let a deployment raise a cap past a default nobody has tested; leaving each number inside its operator keeps the choice with whichever component already sees what decides it. | Whether a bound below the run loop is configurable per deployment, and what real volumes and failure rates call for |
 | 47 | Should the operator vocabulary gain a node that looks the catalog up once per input row? ADR-049 keeps a `DISCOVER` node to a bounded set of entities however many rows it was handed, so a request such as "find the press release document for each of these 500 companies" has nowhere to go: that lookup is per row, what it returns is data rather than context, and it should be billed against the operator budget and reviewed like any other data operation. An operator node would give it all three. Against adding one: none of the ten logical operators reads the catalog, so this would be the first, and what it returns — paths rather than values — is a kind of row nothing else in a plan produces. How often a request needs one is unmeasured. | Whether a per-row catalog lookup is expressible at all, and whether the logical vocabulary stays as it is |
 | 48 | Which component reads a `relation` record when a plan scans a knowledge-base source? `blue-data` records relations alongside entities and attributes, each with a name, a source, and a target, and nothing in this design reads one. A `JOIN` is the obvious consumer, since a relation says which attributes join two entities, and it could arrive as part of the run's catalog context or as part of the fragment runner's deeper reading. What stops the question being answered for tables alone is that relations are the structure a knowledge-base source carries, and how this planner reads a knowledge base is itself unsettled, so an answer shaped for two SQL tables would likely be the wrong shape for a graph. | Whether a `JOIN` is written against a declared relation or against column names a model matched up, and what a knowledge-base source contributes to a plan |
-| 51 | What does a compound operation do with a fragment whose frontier carries rows, before it can read one? `blue.nl2sql` declares bound inputs, so the physical planner offers it groups whose inputs arrive from an earlier fragment. A query written from a source's schema alone would answer from that source and leave those rows out, which is a wrong answer rather than a failure, and refusing the bundle as a recoverable failure is what keeps it from being returned. That refusal costs an operator call on a candidate that could not have worked. Narrowing the declaration instead would stop the candidate being enumerated at all, and would have to be widened again by hand once the operation reads its bundle, so the declaration states the target state and is not narrowed. What is unsettled is whether the refusal should cost a call, and whether a candidate an operator is known to refuse should be enumerated at all. That is question 44's shape: a constraint the declaration has no vocabulary for is stated in `limitations`, and the candidate is offered anyway. | Whether a fragment with a non-empty frontier reaches the compound Blue operation, and what a run spends finding out that it cannot serve one |
 | 54 | Should the library be able to phrase an answer, and the CLI then offer `--format nl`? The family offers a natural-language format where a source answers in prose, and ADR-029 leaves it out because a planner answers in rows. A benchmark whose expected answers are single values, and an agent that wants a sentence rather than a table, both suggest the phrasing has to happen somewhere; doing it in an interface is behavior in an adapter (ADR-002), so the question is whether a library operation should return prose alongside the rows, and what it costs in model calls per request. | Whether `--format nl` and the MCP response ever carry a sentence, and which component writes it |
 | 55 | Should a run be kept on disk so a plan can be read back? The CLI's home directory holds profiles and nothing else, so a plan printed by `data query --explain` is gone when the terminal scrolls, and `data query` keeps no record a later command could inspect. The family's storage convention has a place for one (`~/.<cli>/<profile>/<component>/`), and `from_dict` already reads a recorded plan back ([06-library.md](06-library.md#two-operations)). What is unsettled is whether a CLI should accumulate state at all for a planner that holds none between requests, and what would remove an old run. | Whether the CLI grows an action that reads a plan it wrote earlier |
 | 56 | Should the CLI be able to write a run's whole record to a file? A fragment's result reaches a person as a summary, and the JSON on standard output carries the answer and how the run ended, so every intermediate table and every model turn is reachable only by a caller who embeds the library (ADR-032). Diagnosing a wrong answer is the case that wants them: a summary says a fragment returned 140 rows over three columns and not which 140, and a review that rejected a fragment is readable only in the conversation. A file is where they would go, since what makes them unwelcome on standard output is size rather than secrecy, and the family's storage convention already has a place for per-profile state. Against adding one: a record holds whatever the sources held, so writing one puts source data on disk, and whether a CLI over a planner that keeps nothing between requests should accumulate state at all is question 55. | Whether a wrong answer can be diagnosed from the CLI alone |
-| 60 | Should a value that does not fit the type the cover declared for a column go straight to the cover repair? The physical planner writes each fragment's required output columns and their types, and the fragment runner cannot change them, so no parameter attempt can fix the mismatch: the runner spends its remaining attempts on parameters that cannot help, and each one that reaches the operator is an operator call. Every attempt reaches the cover repair (ADR-047), so the mismatch is visible to the component that can fix it, and what is at stake is the attempts spent first. Against sending it straight on: it needs a third error kind beside recoverable and unrecoverable, or a check in the run loop for one error in particular, and a model that knows which column it filled might still fix the value, as when an operator returns a unit the declaration did not expect. | How many operator calls a wrong type declaration costs before the cover repair sees it |
+| 60 | Should a value that does not fit the type the cover declared for a column go straight to the cover repair? The physical planner writes each fragment's required output columns and their types, and the fragment runner cannot change them, so no parameter attempt can fix the mismatch: the runner spends its remaining attempts on parameters that cannot help, and each one that reaches the operator is an operator call. Every attempt reaches the cover repair (ADR-047), so the mismatch is visible to the component that can fix it, and what is at stake is the attempts spent first. ADR-065 provides an `operator_unavailable` kind that could carry this case too. Against sending it straight on: a model that knows which column it filled might still fix the value, as when an operator returns a unit the declaration did not expect. Column mismatches remain recoverable pending that decision. | How many operator calls a wrong type declaration costs before the cover repair sees it |
 | 61 | How does a component find a spelling the values it is shown leave out? A view lists an attribute's most frequent values and the fragment runner sees the first rows of each input (ADR-049), so a spelling that is rare within a column of many distinct values reaches no component. In `codebase_community`, `users.Location` holds `Vienna, Austria` in 42 rows and `Vienna` in 4, and a filter written for `Vienna` returns the 4 rows and reports no error. Three routes. The fragment runner writes a condition that tolerates spelling, such as a pattern for `builtin.filter` (ADR-041), which needs nothing new but relies on the model guessing that the spelling varies. The catalog is searched for stored values matching a term, which `blue-data`'s registry search ranks by, and the matches are shown with the view, which puts a search per condition into prompt writing. Or a lookup is a data operation of its own, which is question 47's shape. | Whether a condition on a text attribute with many distinct values is written against a spelling any component saw |
 | 62 | Should `blue.join` name a joined table's columns by ADR-050's rule? `builtin.join` and `lotus.sem_join` keep a key named alike once and suffix any other shared column `_left` and `_right`, so a declaration written for one reads the other's output. `blue.join` takes its suffixes as a parameter, which the adapter's parameter schema does not expose, so they are left at `blue-data-ops`'s default, `_ds` and the table's position. The adapter could fix them to `_left` and `_right`, or expose them to the fragment runner, which then has to know the rule to write a declaration that matches. Neither makes `blue.join` drop a key's second copy. | Whether a plan's declared columns mean the same thing whichever suite runs its join |

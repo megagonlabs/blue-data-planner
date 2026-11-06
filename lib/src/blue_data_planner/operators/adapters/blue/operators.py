@@ -7,17 +7,23 @@ from dataclasses import dataclass
 from typing import Any, ClassVar
 
 from blue_data_ops.operators.operator import Operator
-from blue_data_ops.operators.registry import OperatorRegistry, default_registry
+from blue_data_ops.operators.registry import OperatorRegistry, ResolveError, versioned_registry
 from blue_data_ops.operators.types import Properties
-from pydantic import BaseModel
 
 from blue_data_planner.data import DataRegistry
+from blue_data_planner.data.catalog import source_kind
 from blue_data_planner.llm import LLMClient
+from blue_data_planner.llm.model_names import model_without_provider
 from blue_data_planner.operators.adapters.blue import error_mapping
+from blue_data_planner.operators.adapters.blue.read_only_sql import (
+    lacks_read_only_executor,
+    read_only_operation,
+)
 from blue_data_planner.operators.adapters.blue.schemas import (
     ArgmaxParameters,
     ArgminParameters,
     AvgParameters,
+    BlueParameters,
     JoinParameters,
     MatchOptionParameters,
     MaxParameters,
@@ -33,24 +39,69 @@ from blue_data_planner.operators.adapters.blue.schemas import (
     SemanticTransformParameters,
     SumParameters,
 )
+from blue_data_planner.operators.adapters.blue.sql_diagnostics import (
+    DiagnosticSQLClient,
+    SQLDiagnostics,
+)
 from blue_data_planner.operators.validation import check_table_count, validated_parameters
 from blue_data_planner.types import (
     INPUT_ARITY,
     DataBundle,
     LogicalOperator,
     OperatorOutput,
+    OperatorRoutingError,
+    OperatorUnavailableError,
     OutputColumn,
     PhysicalOperator,
     RecoverableOperatorError,
+    SourceUnreachableError,
 )
+
+# The source kinds blue.nl2sql reads, and the protocol name it takes for each.
+_NL2SQL_PROTOCOLS: dict[str, str] = {
+    "sql/sqlite": "sqlite",
+    "sql/mysql": "mysql",
+    "sql/postgres": "postgres",
+}
+
+
+def _nl2sql_protocol(data_registry: DataRegistry, source: str, operator_id: str) -> str:
+    try:
+        kind = source_kind(data_registry, source)
+    except SourceUnreachableError as error:
+        raise RecoverableOperatorError(f"{operator_id} cannot read {source!r}: {error}") from error
+    if kind not in _NL2SQL_PROTOCOLS:
+        raise RecoverableOperatorError(
+            f"{operator_id} reads only {', '.join(_NL2SQL_PROTOCOLS)} sources, and {source!r} "
+            f"is a {kind} source"
+        )
+    return _NL2SQL_PROTOCOLS[kind]
+
+
+def _bound_to_target(
+    operator_id: str,
+    operator: Operator,
+    data_registry: DataRegistry,
+    attributes_sent: dict[str, Any],
+    diagnostics: SQLDiagnostics,
+) -> Operator:
+    target = (attributes_sent["source"], attributes_sent["database"], attributes_sent["collection"])
+    try:
+        with diagnostics.capture("source binding"):
+            return read_only_operation(operator, data_registry, target)
+    except Exception:
+        # Another operator can still read this source. The raw exception can hold connection
+        # details, so only the diagnostic's safe cause leaves here.
+        raise OperatorUnavailableError(f"{operator_id} failed: {diagnostics.detail}") from None
 
 
 def _build_call(
     operator_id: str,
     operator: Operator,
-    parameters: type[BaseModel],
+    parameters: type[BlueParameters],
     properties: Properties | None,
     table_count: int | None,
+    data_registry: DataRegistry,
 ) -> Callable[[DataBundle, dict[str, Any], list[OutputColumn]], OperatorOutput]:
     def call(
         inputs: DataBundle,
@@ -64,7 +115,8 @@ def _build_call(
             # blue.nl2sql is the only operation this branch reaches. It writes its query from
             # a source's schema, with no way to bind another fragment's rows into that query,
             # so a non-empty bundle would be answered from the source alone and the bundle's
-            # rows would be silently left out. See design/13-decision-log.md, open question 51.
+            # rows would be silently left out. Planning excludes such fragments (ADR-064);
+            # keep this check for direct calls and covers written before that restriction.
             if inputs:
                 raise RecoverableOperatorError(
                     f"{operator_id} writes its query from the schema of the source it reads, so "
@@ -75,14 +127,34 @@ def _build_call(
         # A fragment and operator.run speak the same bundle, so nothing is converted here.
         # The list is copied because an operator may write into the bundle it is handed
         # and the caller reuses one bundle across retries.
-        #
-        # exclude_none because the operators branch on a key's presence: semantic_extract
-        # reads entity.get("description", <generated>) and semantic_transform tests
-        # "type" in meta_info. A field dumped as None is present to both.
-        output, reported, meta = operator.run(
-            list(inputs), validated.model_dump(exclude_none=True), properties
+        attributes_sent = validated.operation_attributes()
+        call_properties = properties
+        diagnostics: SQLDiagnostics | None = None
+        bound_operator = operator
+        if isinstance(validated, NL2SQLParameters):
+            # The protocol is the source's, so it is read off the registry rather than written
+            # by the model.
+            attributes_sent["protocol"] = _nl2sql_protocol(
+                data_registry, attributes_sent["source"], operator_id
+            )
+            # Ops contains its exceptions before returning ExecMeta. Observe the model boundary
+            # before that detail is lost, using fresh objects for every call.
+            diagnostics = SQLDiagnostics(validated.scan_source)
+            call_properties = {**(properties or {}), "llm_client": DiagnosticSQLClient(diagnostics)}
+            # Bind the connection per call so newly registered sources are readable.
+            # Database permissions govern which relations and functions the SQL can access.
+            if lacks_read_only_executor(operator):
+                bound_operator = _bound_to_target(
+                    operator_id, operator, data_registry, attributes_sent, diagnostics
+                )
+        output, reported, meta = bound_operator.run(list(inputs), attributes_sent, call_properties)
+        error_mapping.raise_for_errors(
+            meta,
+            operator_id,
+            reported or None,
+            execution_detail=diagnostics.detail if diagnostics else None,
+            parameter_repairable=diagnostics.parameter_repairable if diagnostics else False,
         )
-        error_mapping.raise_for_errors(meta, operator_id, reported or None)
         # ExecMeta.traces stays out: the base class attaches timings and shapes to every call,
         # which is instrumentation rather than something the operation chose to say, and open
         # question 42 is where instrumentation is decided.
@@ -100,11 +172,14 @@ class Operation:
     # The version is where an operation's validator and its result shape are fixed, so each row
     # names one rather than the suite naming one for all eighteen.
     registry_operator_id: str
-    parameters: type[BaseModel]
-    needs_data_registry: bool = False
+    parameters: type[BlueParameters]
     source_kinds: frozenset[str] | None = None
     accepts_bound_inputs: bool = False
     limitations: str | None = None
+    # What the adapter asks of the operation as call properties: that it run the SQL it writes,
+    # and the model and reasoning effort its LLM calls run on.
+    executes_sql: bool = False
+    uses_llm: bool = False
 
 
 # Four aggregates and two superlatives each carry one of these two sentences, because what
@@ -198,30 +273,35 @@ OPERATIONS: tuple[Operation, ...] = (
         frozenset({LogicalOperator.FILTER}),
         "semantic_filter@3.0.0",
         SemanticFilterParameters,
+        uses_llm=True,
     ),
     Operation(
         "blue.semantic_project",
         frozenset({LogicalOperator.PROJECT}),
         "semantic_project@3.0.0",
         SemanticProjectParameters,
+        uses_llm=True,
     ),
     Operation(
         "blue.semantic_extract",
         frozenset({LogicalOperator.PROJECT}),
         "semantic_extract@3.0.0",
         SemanticExtractParameters,
+        uses_llm=True,
     ),
     Operation(
         "blue.semantic_transform",
         frozenset({LogicalOperator.PROJECT}),
         "semantic_transform@3.0.0",
         SemanticTransformParameters,
+        uses_llm=True,
     ),
     Operation(
         "blue.semantic_join",
         frozenset({LogicalOperator.JOIN}),
         "semantic_join@3.0.0",
         SemanticJoinParameters,
+        uses_llm=True,
     ),
     Operation(
         "blue.nl2llm",
@@ -232,6 +312,7 @@ OPERATIONS: tuple[Operation, ...] = (
             "read a registered source, since it answers from the model's own world knowledge, so "
             "its rows cannot be checked against one"
         ),
+        uses_llm=True,
     ),
     Operation(
         "blue.nl2sql",
@@ -246,17 +327,18 @@ OPERATIONS: tuple[Operation, ...] = (
                 LogicalOperator.SORT_SUPERLATIVE,
             }
         ),
-        "nl2sql@3.0.0",
+        "nl2sql@4.0.0",
         NL2SQLParameters,
-        needs_data_registry=True,
-        source_kinds=frozenset({"sql/sqlite", "sql/mysql", "sql/postgres"}),
-        accepts_bound_inputs=True,
+        source_kinds=frozenset(_NL2SQL_PROTOCOLS),
+        accepts_bound_inputs=False,
         # A declaration has no vocabulary for "every scan reads one database", so the
         # constraint lives here, where the physical planner reads it (open question 44).
         limitations=(
             "express a semantic predicate, or read more than one database in one query, so a "
             "fragment whose scans name two sources is not its to take"
         ),
+        executes_sql=True,
+        uses_llm=True,
     ),
 )
 
@@ -269,18 +351,47 @@ def _table_count(operation: Operation) -> int | None:
     return INPUT_ARITY[next(iter(operation.logical_operators))]
 
 
+def _model_properties(model: str, reasoning_effort: str | None) -> Properties:
+    # blue-data-ops refuses a model string that names a provider: the provider every call is sent
+    # to is the one BLUE_DATA_LLM_PROVIDER names in the deployment's environment.
+    # The operations default temperature to 0, which reasoning models can reject. None leaves
+    # the temperature at the provider's default instead of inheriting that fixed value.
+    properties: Properties = {
+        "llm.model": model_without_provider(model),
+        "llm.temperature": None,
+    }
+    if reasoning_effort is not None:
+        properties["llm.reasoning_effort"] = reasoning_effort
+    return properties
+
+
 def blue_operators(
-    registry: OperatorRegistry, data_registry: DataRegistry
+    registry: OperatorRegistry,
+    data_registry: DataRegistry,
+    *,
+    model: str,
+    reasoning_effort: str | None = None,
 ) -> list[PhysicalOperator]:
     """Return one physical operator per Blue operation a fragment can be bound to."""
     # The operators are returned rather than registered so this module never imports
     # planner/, which would make operators/ depend on the component that routes them.
     operators: list[PhysicalOperator] = []
     for operation in OPERATIONS:
-        operator = registry.resolve(operation.registry_operator_id)
-        properties: Properties | None = (
-            {"data_registry": data_registry} if operation.needs_data_registry else None
-        )
+        try:
+            operator = registry.resolve(operation.registry_operator_id)
+        except ResolveError as error:
+            raise OperatorRoutingError(
+                f"{operation.operator_id} is bound to {operation.registry_operator_id}, which "
+                "the operator registry does not carry"
+            ) from error
+        properties: Properties = {}
+        if operation.executes_sql:
+            # nl2sql needs rows, but its SQL is model output. Ask for execution and nothing
+            # else: the read-only policy (#62) is the host-bound executor's, and ops refuses a
+            # caller's data registry alongside this request.
+            properties["execute_query"] = True
+        if operation.uses_llm:
+            properties.update(_model_properties(model, reasoning_effort))
         operators.append(
             PhysicalOperator(
                 operator_id=operation.operator_id,
@@ -291,8 +402,9 @@ def blue_operators(
                     operation.operator_id,
                     operator,
                     operation.parameters,
-                    properties,
+                    properties or None,
                     _table_count(operation),
+                    data_registry,
                 ),
                 source_kinds=operation.source_kinds,
                 accepts_bound_inputs=operation.accepts_bound_inputs,
@@ -304,14 +416,27 @@ def blue_operators(
 
 @dataclass(frozen=True)
 class BlueSuite:
-    """The Blue operator library's operations, over the registry that resolves them."""
+    """The Blue operator library's operations, the registry that resolves them, and the model
+    they run on."""
 
     name: ClassVar[str] = "blue"
-    # None resolves each operation against the registry blue-data-ops builds by default.
+    # None resolves the operation table's exact pins from blue-data-ops' retained versions.
     operator_registry: OperatorRegistry | None = None
+    # None runs the operations on the model every other component uses.
+    model: str | None = None
+    # None omits the parameter, for a model that does not accept one.
+    reasoning_effort: str | None = None
 
     def operators(
         self, *, data_registry: DataRegistry, llm_client: LLMClient, model: str
     ) -> list[PhysicalOperator]:
         """Return one physical operator per Blue operation a fragment can be bound to."""
-        return blue_operators(self.operator_registry or default_registry(), data_registry)
+        registry = self.operator_registry
+        if registry is None:
+            registry = versioned_registry()
+        return blue_operators(
+            registry,
+            data_registry,
+            model=self.model or model,
+            reasoning_effort=self.reasoning_effort,
+        )

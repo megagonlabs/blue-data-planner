@@ -139,6 +139,14 @@ class FragmentRunner:
                         attempts=attempts,
                         failure_reason=result.error.message,
                     )
+                if result.error.kind is ErrorKind.OPERATOR_UNAVAILABLE:
+                    # A broken implementation cannot be repaired by changing parameters.
+                    # Keep the failed attempt and let the cover choose another operator.
+                    return FragmentResult(
+                        status=RunStatus.NEEDS_REPAIR,
+                        attempts=attempts,
+                        failure_reason=_exhausted_reason(fragment, attempts),
+                    )
                 conversation.turns.append(
                     Turn(
                         role="user",

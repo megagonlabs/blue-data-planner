@@ -9,13 +9,8 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from blue_data.registry.data_registry import (  # pyright: ignore[reportMissingTypeStubs]
-    DataRegistry,  # blue-data ships no py.typed
-)
-from blue_data.source.json.memory_json_source import (  # pyright: ignore[reportMissingTypeStubs]
-    MemoryJSONSource,
-)
 
+from blue_data_planner.data import open_registry
 from tests.benchmarks.tag_bench.reasoning_effort import effective_reasoning_effort
 from tests.benchmarks.tag_bench.register_databases import (
     build_registry,
@@ -140,8 +135,7 @@ def test_a_written_registry_reopens_from_another_directory_and_queries_the_datab
     working_dir.mkdir()
     monkeypatch.chdir(working_dir)
 
-    reopened: Any = DataRegistry(store=MemoryJSONSource())
-    reopened.load(str(registry_path))
+    reopened: Any = open_registry(registry_path)
     rows = reopened.execute_query(
         "tag_bench", "SELECT city FROM stores ORDER BY city", database="retail"
     )

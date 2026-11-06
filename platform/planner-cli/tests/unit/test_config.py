@@ -36,6 +36,7 @@ def test_the_profile_spec_declares_the_library_defaults() -> None:
         "BLUE_DATA_PLANNER_OPERATORS": ",".join(defaults.operator_suites),
         "BLUE_DATA_PLANNER_LOTUS_REASONING_EFFORT": defaults.lotus_reasoning_effort,
         "BLUE_DATA_PLANNER_LOTUS_MAX_ROWS": defaults.lotus_max_rows,
+        "BLUE_DATA_PLANNER_BLUE_REASONING_EFFORT": defaults.blue_reasoning_effort,
         "BLUE_DATA_PLANNER_PROVIDER_TIMEOUT_SECONDS": defaults.provider_timeout_seconds,
         "BLUE_DATA_PLANNER_MAX_OPERATOR_CALLS": defaults.limits.operator_calls,
         "BLUE_DATA_PLANNER_MAX_FAILURE_REPLANS": defaults.limits.failure_replans,
@@ -127,7 +128,11 @@ def test_the_configured_reasoning_effort_reaches_planner_settings_unchanged(
 
 @pytest.mark.parametrize(
     "parameter",
-    ["BLUE_DATA_PLANNER_REASONING_EFFORT", "BLUE_DATA_PLANNER_LOTUS_REASONING_EFFORT"],
+    [
+        "BLUE_DATA_PLANNER_REASONING_EFFORT",
+        "BLUE_DATA_PLANNER_LOTUS_REASONING_EFFORT",
+        "BLUE_DATA_PLANNER_BLUE_REASONING_EFFORT",
+    ],
 )
 def test_a_reasoning_effort_outside_the_documented_values_names_the_parameter_that_set_it(
     parameter: str, tmp_path: Path
@@ -298,6 +303,37 @@ def test_a_missing_required_parameter_names_what_to_set(tmp_path: Path) -> None:
 
     assert raised.value.code == "CONFIG_INVALID"
     assert "BLUE_DATA_REGISTRY_PATH" in raised.value.description
+
+
+@pytest.mark.parametrize("backend", ["file", "redis"])
+def test_shared_registry_profile_values_are_exported_for_blue_datas_store(
+    tmp_path: Path, backend: str
+) -> None:
+    home = a_cli_home(tmp_path)
+    a_profile_holding(
+        home,
+        BLUE_DATA_REGISTRY_STORE=backend,
+        BLUE_DATA_REGISTRY_FILE=str(tmp_path / "shared.json"),
+        BLUE_DATA_REGISTRY_REDIS_URL="redis://example.test:6380/2",
+        BLUE_DATA_REGISTRY_REDIS_NAMESPACE="shared",
+        BLUE_DATA_REGISTRY_PATH=str(tmp_path / "old.json"),
+    )
+    resolver = build_resolver(None, {"BLUE_DATA_PLANNER_HOME": home})
+    settings = resolve_settings(resolver)
+    assert settings.planner.registry_path is None
+    exported = resolved_environment(resolver)
+    assert exported["BLUE_DATA_REGISTRY_STORE"] == backend
+    assert exported["BLUE_DATA_REGISTRY_FILE"] == str(tmp_path / "shared.json")
+    assert exported["BLUE_DATA_REGISTRY_REDIS_URL"] == "redis://example.test:6380/2"
+    assert exported["BLUE_DATA_REGISTRY_REDIS_NAMESPACE"] == "shared"
+    override = tmp_path / "override.json"
+    assert resolve_settings(resolver, registry=str(override)).planner.registry_path == override
+
+
+def test_invalid_shared_backend_is_a_configuration_error(tmp_path: Path) -> None:
+    resolver = a_resolver_over(tmp_path, BLUE_DATA_REGISTRY_STORE="typo")
+    with pytest.raises(CliError, match="BLUE_DATA_REGISTRY_STORE"):
+        resolve_settings(resolver)
 
 
 def test_a_stored_value_that_fails_its_cast_is_a_configuration_error_when_the_profile_is_applied(

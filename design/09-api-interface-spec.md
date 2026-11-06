@@ -71,13 +71,15 @@ def build_data_planner_from_settings(
 
 @dataclass(frozen=True)
 class PlannerSettings:
-    registry_path: Path
+    registry_path: Path | None = None
     model: str = DEFAULT_MODEL
     reasoning_effort: str = "low"
     operator_suites: tuple[str, ...] = DEFAULT_OPERATOR_SUITES
     lotus_model: str | None = None            # None: use model
     lotus_reasoning_effort: str = "none"
     lotus_max_rows: int = 5000
+    blue_model: str | None = None             # None: use model
+    blue_reasoning_effort: str = "none"
     provider_timeout_seconds: int = 120
     limits: RunLimits = RunLimits()
 
@@ -104,7 +106,7 @@ The three ways to build a planner differ in what the caller already holds.
 The suites a caller passes are objects, each carrying its own options.
 
 ```python
-def open_registry(registry_path: Path) -> DataRegistry: ...
+def open_registry(registry_path: Path | None = None) -> DataRegistry: ...
 def operator_suite(name: str) -> OperatorSuite: ...
 
 
@@ -116,6 +118,8 @@ class BuiltinSuite:
 @dataclass(frozen=True)
 class BlueSuite:
     operator_registry: OperatorRegistry | None = None
+    model: str | None = None
+    reasoning_effort: str | None = None
 
 
 @dataclass(frozen=True)
@@ -126,7 +130,8 @@ class LotusSuite:
 ```
 
 A registry is populated by `blue-data` before it reaches this package (ADR-003). `open_registry`
-reads a serialized one; a caller holding a `DataRegistry` it assembled itself passes that one
+opens blue-data's configured file/Redis store, or an explicit file (including legacy list
+snapshots, ADR-068); a caller holding a `DataRegistry` it assembled itself passes that one
 instead. `operator_suite` maps a configured name (`builtin`, `blue`, or `lotus`) to a suite with its
 default options. A `LotusSuite` registers nothing where LOTUS is not installed.
 
@@ -233,26 +238,40 @@ deployment sets one is in [12-deployment-ops.md](12-deployment-ops.md#5-request-
 Every exception this library defines is in `types/errors.py` and inherits `BlueDataPlannerError`.
 Exhaustion, operator failure, and provider failure are statuses, not exceptions (ADR-015).
 
-| Exception | Raised when | Reaches a caller |
-| --- | --- | --- |
-| `UnknownOperatorSuiteError` | A name registers no operator suite | Always, from `operator_suite` and `build_data_planner_from_settings` |
-| `InvalidSettingError` | A `PlannerSettings` field, or the properties an `LLMClient` is built with, carry a value the planner cannot be built with, or a second LOTUS suite asks for a model or reasoning effort other than the one LOTUS is configured with in this process | From constructing `PlannerSettings`, an `LLMClient`, or a suite's operators, `build_data_planner` included. Properties a single call carries are checked on that call, and inside a run that ends the request as `planner_failed` |
-| `RegistryUnreadableError` | The path a registry is opened from names no file, or the file cannot be read | Always, from `open_registry` and `build_data_planner_from_settings` |
-| `OperatorRoutingError` | Two suites register the same operator id, or an operator id is unknown | From `build_data_planner` and a direct `OperatorRouter` call. Inside a run, an unknown operator id ends the request as `planner_failed` |
-| `PlanFormatError` | A plan payload read by `from_dict` is missing a key or carries a value its node kind does not take | Always, from `from_dict` |
-| `UnknownNodeError`, `UnknownFragmentError` | A node or fragment id the plan does not hold | Always, from the plan method that looked it up |
-| `PlanValidationError` | A plan fails a structural check | Only from a direct `validate_logical_plan` or `validate_physical_plan` call. Inside a run, `LogicalPlanner` catches it and writes the plan again, and a cover failing validation ends the request as `planner_failed` |
-| `ReturnAnswerError` | The finished rows do not carry a column the ending names | Only from a direct `project_answer` call. The run loop answers it with a replan |
-| `BudgetExhaustedError` | The operator call budget reaches its cap | Only from a direct `execute_physical_operator` call. `FragmentRunner` catches it and returns `budget_exhausted` |
-| `DeclaredTypeMismatchError` | A value does not spell the type declared for its column | Only from a direct call to the coercion in `execution/output_columns.py`. `check_output_columns` turns it into a recoverable failed result |
-| `RecoverableOperatorError`, `UnrecoverableOperatorError` | An operator refuses its input, or fails for a reason no other operator would avoid | Never. `execute_physical_operator` turns each into a failed `ExecutionResult` |
-| `SourceQueryError`, `SourceUnreachableError` | A source refuses a query, or the registry holds no connectable source under a name | Only from a direct call into `data/`. An operator reading the source turns each into an operator error |
-| `LLMError` | The provider fails after retries, or answers in a shape the client cannot read | Only from a direct `LLMClient` call. `DataPlanner` ends the request as `llm_failed` |
-| Any other `BlueDataPlannerError` | A defect in the planner | Only from a direct call to the component that raised it. `DataPlanner` ends the request as `planner_failed` |
-| `ValueError`, `TypeError`, and an operator suite's own exceptions | Malformed state, a missing required value, or an operator raising something other than the two operator errors | Always. These are bugs, and they propagate out of `run` and `plan` |
+Each row is one cause. "Raised by" names the calls that raise the exception to a caller who makes
+them directly. "Inside a run" says what a request does when the exception is raised during it.
 
-A caller using `DataPlanner` meets the first four rows while building the planner. After that, a
-request returns a `RunResult` unless one of the bugs in the last row propagates.
+| Exception | Raised by | Raised when | Inside a run |
+| --- | --- | --- | --- |
+| `UnknownOperatorSuiteError` | `operator_suite`, `build_data_planner_from_settings` | A name registers no operator suite | Not raised |
+| `RegistryUnreadableError` | `open_registry`, `build_data_planner_from_settings` | The registry file is missing/unreadable, or the shared backend cannot be read | Not raised |
+| `InvalidSettingError` | `open_registry`, `build_data_planner_from_settings` | No registry is configured, or the selected backend is unsupported | Not raised |
+| `InvalidSettingError` | The `PlannerSettings` constructor | A field carries a value the planner cannot be built with | Not raised |
+| `InvalidSettingError` | The `LLMClient` constructor, `build_data_planner` | The properties the client is built with carry a value the client cannot be built with | Not raised |
+| `InvalidSettingError` | `LotusSuite.operators`, `build_data_planner` | A second LOTUS suite asks for a model or reasoning effort other than the one LOTUS is configured with in this process | Not raised |
+| `InvalidSettingError` | `LLMClient.execute_api_call`, `LLMClient.aexecute_api_call` | The properties one call carries hold a value the client cannot send | Ends the request as `planner_failed` |
+| `OperatorRoutingError` | `OperatorRouter.register`, `build_data_planner` | Two suites register the same operator id | Not raised |
+| `OperatorRoutingError` | `BlueSuite.operators`, `build_data_planner` | The operator registry a `BlueSuite` resolves against does not carry an operation the suite is bound to | Not raised |
+| `OperatorRoutingError` | `OperatorRouter.resolve` | No registered operator has the operator id | Ends the request as `planner_failed` |
+| `PlanFormatError` | `from_dict` | A plan payload is missing a key or carries a value its node kind does not take | Not raised |
+| `UnknownNodeError` | `LogicalPlan.node`, `LogicalPlan.consumers` | No node of the plan has the id | Ends the request as `planner_failed` |
+| `UnknownFragmentError` | `PhysicalPlan.fragment`, `PhysicalPlan.fragment_for_node` | No fragment of the cover has the id or covers the node | Ends the request as `planner_failed` |
+| `PlanValidationError` | `validate_logical_plan` | A logical plan fails a structural check | `LogicalPlanner` catches it and writes the plan again |
+| `PlanValidationError` | `validate_physical_plan` | A cover fails a structural check | Ends the request as `planner_failed` |
+| `ReturnAnswerError` | `project_answer` | The finished rows do not carry a column the ending names | The run loop catches it and replans |
+| `BudgetExhaustedError` | `RunCounters.spend_operator_call`, `execute_physical_operator` | The operator call budget reaches its cap | `FragmentRunner` catches it and returns `budget_exhausted` |
+| `DeclaredTypeMismatchError` | The coercion in `execution/output_columns.py` | A value does not spell the type declared for its column | `check_output_columns` catches it and returns a recoverable failed result |
+| `RecoverableOperatorError` | An operator's callable | Different parameters may fix the failure | `execute_physical_operator` returns a recoverable failed result; the fragment runner starts with parameter repair |
+| `OperatorUnavailableError` | An operator's callable | This implementation cannot serve the fragment, but another operator may work | `execute_physical_operator` returns an `operator_unavailable` failed result; the fragment runner requests cover repair immediately |
+| `UnrecoverableOperatorError` | An operator's callable | The operator fails for a reason no other operator would avoid | `execute_physical_operator` catches it and returns an unrecoverable failed `ExecutionResult` |
+| `SourceQueryError` | `execute_query`, `execute_write` | A source refuses a query | The operator reading the source catches it and raises `RecoverableOperatorError` |
+| `SourceUnreachableError` | `connect_source`, `execute_query`, `execute_write` | The registry holds no connectable source under a name | The operator reading the source catches it and raises `UnrecoverableOperatorError` |
+| `LLMError` | `LLMClient.complete_structured`, `LLMClient.execute_api_call`, `LLMClient.aexecute_api_call` | The provider fails after retries, or answers in a shape the client cannot read | Ends the request as `llm_failed` |
+| Any other `BlueDataPlannerError` | The component that raised it | The planner reaches a state it treats as a defect | Ends the request as `planner_failed` |
+| `ValueError`, `TypeError`, and an operator suite's own exceptions | Any call | The code meets malformed state or a missing required value, or an operator raises an exception other than the three operator errors | Propagates out of `run` and `plan` |
+
+While a request runs, `run` and `plan` return a `RunResult` unless an exception in the last row
+propagates.
 
 ---
 
@@ -288,8 +307,8 @@ positional parameter in plain language; no command accepts a plan.
 
 | Option | Effect |
 | --- | --- |
-| `--registry-path PATH` | The `blue-data` registry to plan over. Overrides `BLUE_DATA_REGISTRY_PATH` |
-| `--model NAME` | The litellm model string the planner uses. Overrides `BLUE_DATA_PLANNER_MODEL`, and reaches LOTUS only where `BLUE_DATA_PLANNER_LOTUS_MODEL` is unset |
+| `--registry-path PATH` | A shared file store or legacy snapshot. Overrides shared store configuration and `BLUE_DATA_REGISTRY_PATH` |
+| `--model NAME` | The litellm model string the planner uses. Overrides `BLUE_DATA_PLANNER_MODEL`. Reaches LOTUS where `BLUE_DATA_PLANNER_LOTUS_MODEL` is unset, and the Blue suite where `BLUE_DATA_PLANNER_BLUE_MODEL` is unset |
 | `--format table\|json` | How the result is written. Defaults to `BLUE_DATA_CLI_FORMAT` |
 | `--explain` | Write the plan for the request and stop before the first operator call |
 | `--log` | Report what the run did, fragment by fragment, after the run |
@@ -422,8 +441,10 @@ are specified when it is built.
 
 ## Configuration
 
-The library reads no environment variable: every value arrives through a constructor or a
-`PlannerSettings`. Each interface resolves its own values and hands them over.
+Planner options arrive through constructors or `PlannerSettings`. When `registry_path` is
+`None`, registry opening reads blue-data's shared store environment (ADR-068). The optional
+LLM cache also accepts deployment environment configuration (ADR-067). Each interface resolves
+its own planner options and hands them over.
 
 | Interface | Reads | Order |
 | --- | --- | --- |

@@ -14,7 +14,9 @@ Quick start
     bash scripts/install.sh
 
     # Run over stdio; an agent framework's MCP client launches it as a subprocess
-    BLUE_DATA_REGISTRY_PATH=/srv/blue-data/registry.json blue-data-planner-mcp
+    export BLUE_DATA_REGISTRY_STORE=file
+    export BLUE_DATA_REGISTRY_FILE=/srv/blue-data/registry.json
+    blue-data-planner-mcp
 """
 
 from __future__ import annotations

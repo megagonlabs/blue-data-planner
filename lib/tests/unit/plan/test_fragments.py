@@ -2,8 +2,19 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
+
+import pytest
+
 from blue_data_planner.plan import candidate_fragments, fragment_frontier
-from blue_data_planner.types import ControlOperator, LogicalOperator, LogicalPlan, PipelineNode
+from blue_data_planner.types import (
+    INPUT_ARITY,
+    ControlOperator,
+    LogicalOperator,
+    LogicalPlan,
+    OutputColumn,
+    PipelineNode,
+)
 
 ALL_OPERATOR_KINDS = frozenset(
     kind for kind in LogicalOperator if kind is not LogicalOperator.RETURN
@@ -65,6 +76,73 @@ def a_join_reading_its_inputs_out_of_order() -> LogicalPlan:
             a_node("n4", LogicalOperator.RETURN, ["n3"]),
         ],
     )
+
+
+def a_repeated_kind_plan(kind: LogicalOperator) -> LogicalPlan:
+    """Two unary or binary nodes of one kind, fed by enough independent scans."""
+    arity = INPUT_ARITY[kind]
+    sources = [f"s{index}" for index in range(1, 2 * arity)]
+    scans = [a_node(source, LogicalOperator.SCAN, []) for source in sources]
+    for scan in scans:
+        scan.attributes["source"] = None
+    inner = replace(
+        a_node("n1", kind, sources[:arity]),
+        required_output_columns=[OutputColumn(name="value", dtype="int")],
+    )
+    outer = replace(
+        a_node("n2", kind, ["n1", *sources[arity:]]),
+        required_output_columns=[OutputColumn(name="value", dtype="int")],
+    )
+    ending = a_node("end", LogicalOperator.RETURN, ["n2"])
+    ending.attributes["columns"] = ["value"]
+    return LogicalPlan(
+        id=f"repeated-{kind.value}",
+        parent_id=None,
+        output_node_id="end",
+        nodes=[*scans, inner, outer, ending],
+    )
+
+
+@pytest.mark.parametrize(
+    "kind",
+    [
+        kind
+        for kind in LogicalOperator
+        if kind not in {LogicalOperator.SCAN, LogicalOperator.RETURN}
+    ],
+)
+def test_a_single_kind_declaration_cannot_absorb_a_second_node_of_that_kind(
+    kind: LogicalOperator,
+) -> None:
+    """Atomic operators must not merge comparisons or turn binary operations into n-ary ones."""
+    plan = a_repeated_kind_plan(kind)
+
+    assert candidate_fragments(plan, "n2", frozenset({kind})) == [frozenset({"n2"})]
+    assert len(fragment_frontier(plan, frozenset({"n2"}))) == INPUT_ARITY[kind]
+
+
+def test_compound_operators_can_still_group_repeated_nodes_of_one_kind() -> None:
+    """A compound declaration allows repetition even when the selected cut uses only one kind."""
+    assert candidate_fragments(
+        a_repeated_kind_plan(LogicalOperator.FILTER),
+        "n2",
+        frozenset({LogicalOperator.FILTER, LogicalOperator.PROJECT}),
+    ) == [frozenset({"n1", "n2"}), frozenset({"n2"})]
+
+
+@pytest.mark.parametrize(
+    ("root", "kinds"),
+    [
+        ("n2", frozenset({LogicalOperator.JOIN})),
+        ("n2", frozenset[LogicalOperator]()),
+        ("end", frozenset({LogicalOperator.RETURN})),
+    ],
+)
+def test_a_root_that_cannot_be_covered_still_has_no_candidate(
+    root: str, kinds: frozenset[LogicalOperator]
+) -> None:
+    """The atomic shortcut must still refuse mismatched declarations and non-operator nodes."""
+    assert candidate_fragments(a_repeated_kind_plan(LogicalOperator.FILTER), root, kinds) == []
 
 
 def test_the_root_alone_is_a_candidate_when_an_operator_declares_its_kind() -> None:

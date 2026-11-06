@@ -7,7 +7,12 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from blue_data.config import build_store  # pyright: ignore[reportMissingTypeStubs]
+from blue_data.registry.data_registry import (  # pyright: ignore[reportMissingTypeStubs]
+    DataRegistry,
+)
 
+from blue_data_planner.data import open_registry
 from tests.unit.scripts.demo.script_loader import load_demo_script
 
 register_northwind = load_demo_script("register_northwind")
@@ -186,3 +191,17 @@ def test_deregister_internal_entities_drops_sqlite_bookkeeping_with_its_attribut
 
     assert dropped == ["sqlite_sequence"]
     assert registry.entities == {"products": ["product_name"]}
+
+
+def test_demo_writer_produces_a_store_readable_by_blue_data_and_the_planner(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, sqlite_registry: Any
+) -> None:
+    path = tmp_path / "registry.json"
+    register_northwind.write_registry(sqlite_registry, path)
+    assert isinstance(json.loads(path.read_text()), dict)
+    monkeypatch.setenv("BLUE_DATA_REGISTRY_STORE", "file")
+    monkeypatch.setenv("BLUE_DATA_REGISTRY_FILE", str(path))
+    standard_reader: Any = DataRegistry(store=build_store())
+    planner_reader: Any = open_registry()
+    assert standard_reader.list_records() == planner_reader.list_records()
+    assert planner_reader.get_record("tag_bench", "source") is not None

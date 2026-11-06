@@ -542,9 +542,10 @@ def candidate_fragments(
 
 Every node set rooted at `root_node_id` that an operator declaring `logical_operators` could cover:
 built only from nodes whose kind is in that set, and satisfying the fragment rules
-([04, what a fragment may be](04-detailed-architecture.md#what-a-fragment-may-be)). The singleton is
-in the list whenever the root's own kind is in the set, so an operator covering one node and an
-operator covering six come out of the same call.
+([04, what a fragment may be](04-detailed-architecture.md#what-a-fragment-may-be)). A declaration
+with one kind returns only the root node, even when its inputs have the same kind. A declaration
+with several kinds can grow through repeated nodes of a kind as well as through different kinds;
+the root alone remains a candidate whenever its own kind is declared.
 
 Enumeration is graph work and pairing a node set with an operator is a planning decision, so this
 returns node sets and the physical planner does the pairing. It reads no operator and no catalog,
@@ -809,7 +810,10 @@ names the fragment's logical nodes and the instruction they were executed as, th
 assessment where there is one: the replan's, or the most recent one when attempts ran out. An
 unrecoverable operator failure returns `status=operator_failed` and no review turn at all, since no
 other operator would avoid the same failure. Every ending carries every attempt it made alongside
-its status, so what the review turned down is readable rather than discarded.
+its status, so what the review turned down is readable rather than discarded. An
+`operator_unavailable` failure also skips review and returns `needs_repair` immediately: the
+operation's implementation failed, so the cover repair can choose another operator without
+spending parameter attempts on that implementation (ADR-065).
 
 Writing the parameters and reviewing the result are turns in one conversation, so the review sees
 what was written and why, and a rejected review is answered on top of what it rejected. One fragment
@@ -1070,7 +1074,8 @@ comparable.
 
 `accepts_bound_inputs` constrains only an operation that reads a registered source. One with no
 source of its own receives everything it works on from the fragment's frontier, so there is nothing
-for the field to allow or forbid, and it reads n/a.
+for the field to allow or forbid, and it reads n/a. A source-reading operation declaring `False`
+is offered only fragments with an empty frontier, even when a cut contains no scan (ADR-064).
 
 A declaration has to describe what the operation does, because planning binds against the
 declaration and never looks inside the operation. One that overstates a capability turns into a
@@ -1097,7 +1102,8 @@ needed is open question 43 in [13-decision-log.md](13-decision-log.md#open-quest
 
 ```python
 def blue_operators(
-    registry: OperatorRegistry, data_registry: DataRegistry
+    registry: OperatorRegistry, data_registry: DataRegistry,
+    *, model: str, reasoning_effort: str | None = None,
 ) -> list[PhysicalOperator]: ...
 
 
@@ -1128,13 +1134,39 @@ class OperatorSuite(Protocol):
 def operator_suite(name: str) -> OperatorSuite: ...
 ```
 
-`LotusSuite` and `BlueSuite` each carry their own options — the model and row cap LOTUS runs
-under, the registry the Blue operations resolve against — so the options one suite takes are
+`LotusSuite` and `BlueSuite` each carry their own options — the model, reasoning effort, and row
+cap LOTUS runs under; the registry the Blue operations resolve against, and the model and reasoning
+effort they run on — so the options one suite takes are
 declared beside that suite and nothing that builds a planner names them. `BuiltinSuite` takes
 none. A name no suite registers raises `UnknownOperatorSuiteError`, which is
 what keeps a typo in a suite list from running with fewer operators than it asked for. A suite
 naming no model of its own runs on the planner's, and `BlueSuite` naming no registry resolves
-against the default registry of `blue-data-ops`.
+its pinned operation versions against `blue-data-ops`'s `versioned_registry()`.
+
+`blue.nl2sql` binds `nl2sql@4.0.0` to a `ReadOnlySQLExecutor` using the SQL connection selected
+by the target a call names and sends only `execute_query`. The executor admits one `SELECT` and
+runs it on the connection's read-only path. `blue-data-ops` refuses a wrapped registry or a caller's
+registry alongside execution, so the adapter binds that policy and does not extend it. Neither
+request parameters nor model output may override it. A source must be connected before binding,
+since a reopened registry holds no live one. An operation a supplied registry has already bound,
+or that is not `blue-data-ops`' own, runs as it resolves, so a host's approved targets are not widened.
+
+The target selects the connection, not the relations or functions the generated SQL can access.
+The database role's permissions govern that access, including data absent from the catalog and
+functions invoked by a `SELECT`. Deployments must register SQL sources with dedicated roles
+restricted to the approved data and required functions, never superuser or administrative roles.
+[SQL source permissions](../docs/installation.md#sql-source-permissions) describes that setup.
+
+The executor and model client are created per invocation. The client observes generation failures
+before `blue-data-ops` contains their exceptions, and the adapter adds the catalog target, with a
+sanitized cause where it has one, to an execution failure's repair message. `blue-data-ops` reports
+schema, driver, and execution failures as fixed text, so no driver cause reaches the message.
+Upstream recovery metadata distinguishes retryable or recoverable execution errors, including a
+query that fails against the schema, from non-retryable failures that need another operator. A
+malformed generated query, or one the read-only guard will refuse, can still go to parameter repair
+because the client sees it first. A provider, connection, or unknown runtime failure keeps the
+fallback path even with a diagnostic. Suggestions and reports are retained, and diagnostic state is
+never reused by another call (ADR-066).
 
 Nothing else changes when a suite is added. The physical planner builds its candidates from the
 router while it covers a plan, so a newly registered operator competes for every fragment its
@@ -1181,12 +1213,19 @@ calls, so what these operations spend is billed as part of the operator call tha
 `blue.nl2llm` declares `SCAN` and reads no registered source. It answers from the model's own world
 knowledge, which is why its rows cannot be held to a source and why it declares no source kind.
 
-`blue.nl2sql` is the suite's compound operation. It declares seven kinds, the three SQL source
-kinds, and bound inputs, so a connected group of nodes over a SQL source is a candidate for a single
-call. Two limitations narrow it. It cannot express a semantic predicate, so a filter that needs
-reading text stays outside the group. And one query reads one database, so a fragment whose scans
+`blue.nl2sql` is the suite's compound operation. It declares seven kinds and the three SQL source
+kinds, and declines bound inputs. A connected group over a SQL source is a candidate for one call
+only when it receives no tables from other fragments. Two limitations narrow it further. It cannot
+express a semantic predicate, so a filter that needs reading text stays outside the group. And one
+query reads one database, so a fragment whose scans
 name two sources is not its to take, a constraint that lives in `limitations` because the
 declaration has no vocabulary for it (open question 44).
+
+`blue.nl2sql` takes its scan target as the catalog path of one scan the fragment names, the form
+`builtin.scan` takes, and the adapter reads the source, database, and collection out of it. The
+protocol is the source's, read off its registry record at call time, so no parameter names it. A
+path that names no entity is refused as a parameter error. A source the registry does not hold, or
+one of a kind the operation cannot query, is refused as a recoverable failure naming the source.
 
 Each operation names the registry version it binds, rather than the suite naming one version for all
 eighteen. A version is where an operation's validator and its result shape are fixed, so an upstream
@@ -1195,8 +1234,8 @@ operations whose versions move at different times do not have to move together.
 
 An operation declaring one logical operator is handed the tables that kind's arity names, and a
 bundle of any other length is refused before the operation runs, as a recoverable failure naming
-both counts. `blue.nl2sql` is held to no count, since the group it covers decides how many tables
-arrive.
+both counts. `blue.nl2sql` requires an empty bundle: planning excludes every non-empty frontier,
+and a direct call carrying tables is refused before the operation runs.
 
 What an operation reports about its own run reaches the fragment's result, whether the call
 succeeded or failed (ADR-058). An operation that reports nothing leaves it unset.
@@ -1460,7 +1499,7 @@ their columns.
 ### Opening a registry
 
 ```python
-def open_registry(registry_path: Path) -> DataRegistry: ...
+def open_registry(registry_path: Path | None = None) -> DataRegistry: ...
 ```
 
 Reads a serialized `blue-data` registry into memory. A reopened registry reconnects to its own
@@ -1513,15 +1552,24 @@ the conversations the run state holds, with no component reporting it separately
 class, since a total is a `sum()` over the list.
 
 `RunResult.conversations` therefore covers calls through this module and nothing else. A model call
-an operator makes internally, as a LOTUS operator does, is invisible here: it runs under the suite's
-own model configuration rather than through `llm/`, so the call is billed as part of the one
-operator call that contains it
-([05-software-stack.md](05-software-stack.md#two-model-configurations-one-budget)).
+an operator makes internally, as a LOTUS or Blue operator does, is invisible here: it runs under
+the suite's own model configuration rather than through `llm/`, so the call is billed as part of
+the one operator call that contains it
+([05-software-stack.md](05-software-stack.md#three-model-configurations-one-budget)).
 
 `LLMClient`'s general provider call, `execute_api_call`, has an async twin, `aexecute_api_call`, for
 parallel provider calls — the library's one departure from being synchronous
 ([08-coding-style.md](08-coding-style.md)). Prompts are written by hand and versioned in the
 repository (ADR-005).
+
+The general sync/async calls retain opt-in response caching through `llm.cache`. Responses are
+JSON files in a private planner directory, fixed at client construction by the `cache_dir`
+keyword or `BLUE_DATA_PLANNER_LLM_CACHE_DIR`, defaulting to
+`~/.cache/blue-data-planner/llm-v1`. Call properties cannot redirect storage. The directory is
+checked for current-user ownership and mode `0700` on every access; files use mode `0600` and
+atomic replacement. Legacy pickle caches are not read or migrated. The cache needs no optional
+dependency and requires POSIX permission checks. `complete_structured` remains uncached
+(ADR-054, ADR-067).
 
 ---
 
@@ -1541,9 +1589,16 @@ reading a source turns `SourceQueryError` into a recoverable operator error and
 Every exception this library defines inherits `BlueDataPlannerError`, defined in `types/errors.py`.
 It does not inherit `blue-data-ops`'s base, so one `except` never silently covers both a planner bug
 and an operator one. An adapter raises one of
-the two operator errors and `execute_physical_operator` converts each into a failed
+the three operator errors and `execute_physical_operator` converts each into a failed
 `ExecutionResult` carrying the matching `ErrorKind`. Nothing else is caught, so an operator raising
 anything else reaches the interface boundary as the bug it is (ADR-015).
+
+`RecoverableOperatorError` starts parameter repair, `OperatorUnavailableError` goes directly to
+cover repair, and `UnrecoverableOperatorError` ends the run. The Blue adapter uses the unavailable
+case for failures of defaults, validation, or refinement and for malformed operation results,
+preserving their diagnostic messages and reports rather than treating them as planner defects
+(ADR-065). Non-retryable `FAILED` execution errors use that same path; execution errors marked
+recoverable or retryable retain parameter repair, as do observed correctable SQL errors (ADR-066).
 
 `LLMError` is the one failure caught at the top of the run loop rather than by the component that
 provoked it. A provider outage is neither a programming error nor malformed state, so 04's rule

@@ -11,8 +11,8 @@ dependency belongs to which package.
 | Concern | Choice |
 | --- | --- |
 | Language | Python |
-| Minimum version | 3.11 |
-| Maximum version | None of its own. The `lotus` extra narrows the range, which is part of why it is an extra (ADR-004) |
+| Minimum version | 3.12 |
+| Maximum version | 3.13 (`requires-python = ">=3.12,<3.14"`). The `lotus` extra narrows the range further, which is part of why it is an extra (ADR-004) |
 | Source layout | `src/`, one `pyproject.toml` per package |
 | Build backend | setuptools |
 | Development runner | `uv run python ...` |
@@ -53,9 +53,8 @@ Every model call the library makes goes through `lib/src/blue_data_planner/llm/`
 | API key | `OPENAI_API_KEY` in the environment, read by litellm |
 
 Litellm is chosen over an SDK for one provider because the rest of the stack speaks it: the
-`blue-data-ops` operators call models through the same client, and LOTUS configures its own model
-the same way. One installed provider library then serves all three, and swapping providers is a
-model string rather than a code change.
+`blue-data-ops` operators and LOTUS each reach a provider through litellm under a model
+configuration of their own. One installed provider library then serves all three.
 
 `litellm`, `tenacity`, and `jinja2` are required dependencies of `lib/` rather than an extra, since
 the planner cannot run without a model.
@@ -88,16 +87,28 @@ built here stays inside the subset a strict provider accepts, so one schema serv
 
 `pydantic` is a required dependency of `lib/`, so nothing new is installed for this.
 
-### Two model configurations, one budget
+### Three model configurations, one budget
 
-LOTUS holds its own model configuration and is not routed through `llm/`. Both reach a provider
-through litellm, so one API key serves both, but the settings are made independently, and a change
-to one does not affect the other.
+The Blue suite and LOTUS each hold their own model configuration and are not routed through `llm/`.
+All three reach a provider through litellm, so one API key serves them, but each is set
+independently, and a change to one does not affect the others.
 
-Only one budget exists: operator calls. A model call LOTUS makes happens inside an operator call, so
-it bills against that budget like the rest of the call; a call through `llm/` bills against nothing
-(ADR-060). The client records tokens, cost, and latency per call regardless, and a result carries
-one such record per call, which is what a caller reads to convert a call count into money.
+| Configuration | Model | Provider |
+| --- | --- | --- |
+| `llm/` | The planner's model | The route in the model string |
+| LOTUS | `LotusSuite.model`, else the planner's model | The route in the model string |
+| Blue suite | `BlueSuite.model`, else the planner's model, passed without its provider route | `BLUE_DATA_LLM_PROVIDER`, read by `blue-data-ops`, defaulting to `openai` |
+
+`blue-data-ops` refuses a model string that names a provider, so the Blue suite passes the model
+name alone. A deployment whose Blue model is served by a provider other than OpenAI sets
+`BLUE_DATA_LLM_PROVIDER` to that provider. Nothing checks the two against each other, and a
+mismatch fails every model call a Blue operation makes.
+
+Only one budget exists: operator calls. A model call LOTUS or a Blue operation makes happens inside
+an operator call, so it bills against that budget like the rest of the call; a call through `llm/`
+bills against nothing (ADR-060). The client records tokens, cost, and latency per call regardless,
+and a result carries one such record per call, which is what a caller reads to convert a call count
+into money.
 
 ---
 
@@ -211,7 +222,8 @@ profile, with the environment above it and below a command option (ADR-028).
 | --- | --- | --- |
 | `OPENAI_API_KEY` | litellm, through `llm/` | The model calls above, and LOTUS operators |
 | `BLUE_DATA_PLANNER_MODEL` | The interface, passed to `llm/` | The default litellm model string for every component that calls a model |
-| `BLUE_DATA_REGISTRY_PATH` | The interface, passed to `data/` | The serialized registry it opens and plans against |
+| `BLUE_DATA_REGISTRY_STORE`, `BLUE_DATA_REGISTRY_FILE`, `BLUE_DATA_REGISTRY_REDIS_URL`, `BLUE_DATA_REGISTRY_REDIS_NAMESPACE` | `blue_data.config.build_store`, through `data/` | The same file/Redis registry blue-data's other tools open (ADR-068) |
+| `BLUE_DATA_REGISTRY_PATH` | `data/`, or an explicit interface path | Legacy file/snapshot fallback |
 
 The full list of settings and their defaults belongs to
 [12-deployment-ops.md](12-deployment-ops.md), including the operator call budget, the bound on each
@@ -277,7 +289,7 @@ writes each one.
 | --- | --- |
 | FastAPI, Uvicorn | No REST API in the first release |
 | `gepa` and automatic prompt optimization | Prompts are written by hand and versioned in the repository (ADR-005). Tuning one automatically needs a score to tune against, which is open question 32 |
-| A model response cache by default | Every model call reaches the provider unless a caller turns the cache on. A cache keyed on the request rarely hits, since a planner's requests carry the catalog, an input sample, and the conversation so far, and what it does reliably is make a run's cost depend on invisible state from an earlier run. `LLMClient` opens one only for a call carrying `llm.cache`, which nothing in this repository sets, and a consumer that sets it installs `diskcache` itself (ADR-054) |
+| A model response cache by default | The general sync/async calls cache only when `llm.cache` is enabled; planning's `complete_structured` always reaches the provider. The opt-in cache uses private JSON files in a deployment-configured planner directory, with no extra dependency (ADR-054, ADR-067) |
 | LlamaIndex, DSPy, LangChain | The library needs a model client, not an application framework. Agent frameworks are consumers, reached through MCP |
 | A direct `openai` dependency | Provider libraries arrive through litellm |
 | `torch` as a declared dependency | It arrives with LOTUS, and nothing here imports it |

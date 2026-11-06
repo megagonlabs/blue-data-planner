@@ -283,10 +283,11 @@ kinds decide whether it can: an operator declaring source kinds takes the fragme
 scan names a source of one of them, and an operator declaring none only when no scan names a
 source.
 
-The fragment's frontier is the other half. A frontier table is a bound input when the fragment
-contains a `SCAN` that reads a source, or when no node of the fragment transforms it: a reference
-input arriving from outside the fragment. A fragment receiving a bound input is offered only with
-an operator that accepts bound inputs, which only an operator reading a source can declare
+The fragment's frontier is the other half. An operator reading a registered source must declare
+`accepts_bound_inputs` to receive any frontier table, including in a cut containing no `SCAN`
+(ADR-064). For an operator that transforms tables rather than reading a source, a frontier table
+is a bound input when no node of the fragment transforms it: a reference input arriving from
+outside the fragment. Only an operator reading a source can declare that it accepts such inputs
 (ADR-059). A `FILTER` comparing its rows against an aggregate another fragment produced is
 therefore never offered to an operator that transforms one table.
 
@@ -819,9 +820,10 @@ decides whether these repairs apply at all.
 | Kind | Means | Response |
 | --- | --- | --- |
 | Recoverable | Bad parameters, a missing or uncoercible required column, an operator raising on input it cannot handle | Start with the parameter repair |
+| Operator unavailable | The chosen implementation has broken defaults, a failing validator, an invalid result, or a non-retryable execution failure | Keep the failed attempt and start with cover repair, skipping parameter retries (ADR-065, ADR-066) |
 | Unrecoverable | The failure has nothing to do with any of the three repairs: a source is unreachable, credentials are rejected, the process is out of memory | End the request. Retrying would fail the same way |
 
-A third case ends a request without any of this, because nothing ran. Physical planning writes no
+A separate case ends a request without any of this, because nothing ran. Physical planning writes no
 cover in two situations: no operator matches a node, alone or in any fragment containing it, and a
 binding turns down every candidate a node was offered (ADR-040). Either way the result carries no
 plan and a reason naming the node, and the run goes straight to the replan with no operator call

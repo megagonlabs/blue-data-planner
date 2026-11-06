@@ -13,6 +13,19 @@ python lib/scripts/demo/register_northwind.py  # data/demo/northwind.db, registr
 
 Each script skips its work when its output is already there. `--force` rebuilds.
 
+`registry.json` uses blue-data's standard dictionary file store, so the registry CLI, API,
+MCP server, and planner can open the same file:
+
+```bash
+export BLUE_DATA_REGISTRY_STORE=file
+export BLUE_DATA_REGISTRY_FILE="$PWD/data/demo/registry.json"
+```
+
+If the file was built by an older planner checkout, rerun `register_northwind.py --force`
+to replace its list snapshot with the shared store. Existing snapshots can still be opened
+by `open_registry(Path(...))`, `--registry-path`, or the legacy `BLUE_DATA_REGISTRY_PATH`
+fallback with `BLUE_DATA_REGISTRY_STORE` unset.
+
 | Script | Writes | Notes |
 | --- | --- | --- |
 | `fetch_northwind.py` | `northwind_sqlite.sql`, `northwind_descriptions.json` | Copies the two files out of `../blue-data/data`, the `blue-data` checkout the install scripts also install from. `--blue-data-data-dir` names another one |

@@ -109,13 +109,15 @@ Frozen. Every value a planner is built from, with the default each one takes.
 
 | Field | Type | Default | Holds |
 | --- | --- | --- | --- |
-| `registry_path` | `Path` | required | The serialized `blue-data` registry to plan over |
+| `registry_path` | `Path \| None` | `None` | An explicit shared file store or legacy snapshot; `None` opens the environment-configured store |
 | `model` | `str` | `"openai/gpt-6-luna"` | The litellm model string every planning component calls |
 | `reasoning_effort` | `str` | `"low"` | One of `minimal`, `low`, `medium`, `high`, `none`, `off`. `off` omits the parameter, for a model that refuses it |
 | `operator_suites` | `tuple[str, ...]` | `("builtin", "lotus")` | The suites to register, in order |
 | `lotus_model` | `str \| None` | `None` | The model LOTUS operations run on. `None` runs them on `model` |
 | `lotus_reasoning_effort` | `str` | `"none"` | The reasoning effort a LOTUS call spends, from the same six values |
 | `lotus_max_rows` | `int` | `5000` | The most rows a LOTUS operation accepts. A call with more is refused |
+| `blue_model` | `str \| None` | `None` | The model the Blue operations run on. `None` runs them on `model` |
+| `blue_reasoning_effort` | `str` | `"none"` | The reasoning effort a Blue operation's model call spends, from the same six values |
 | `provider_timeout_seconds` | `int` | `120` | How many seconds one provider call may take before it fails and is retried |
 | `limits` | `RunLimits` | `RunLimits()` | The bounds every run obeys |
 
@@ -143,7 +145,8 @@ Opens the registry the settings name and builds a planner over the suites they l
 `RegistryUnreadableError` when the registry cannot be read, and `UnknownOperatorSuiteError` when a
 name in `operator_suites` matches no suite.
 
-The library reads no environment variable. Each interface resolves values its own way and hands one
+With `registry_path=None`, registry opening reads blue-data's shared store environment. Other
+planner options arrive through `PlannerSettings`. Each interface resolves values and hands one
 `PlannerSettings` over: `blue-planner` resolves a command option, then the environment, then the
 selected profile, then the default; the MCP server reads the environment alone. A library caller
 constructs one directly, or calls `build_data_planner` with values already resolved.
@@ -339,27 +342,48 @@ Every exception the library defines is in `blue_data_planner.types` and inherits
 `BlueDataPlannerError`. Running out of a limit, an operator failure, and a provider failure end a
 request with a status, not an exception, so a caller of `DataPlanner` rarely sees one.
 
-| Exception | Raised by | Reaches a caller |
-| --- | --- | --- |
-| `BlueDataPlannerError` | The base class. Also raised directly on a defect, such as `DataPipeline.cover` when the pipeline has no current physical plan | The run loop catches it and ends the request as `planner_failed` |
-| `PlanFormatError` | `LogicalPlan.from_dict`, `PhysicalPlan.from_dict`, `DataPipeline.from_dict`, when a payload is missing a key or carries a value its node kind does not take | Always |
-| `PlanValidationError` | `validate_logical_plan`, `validate_physical_plan` | Only from a direct call. `LogicalPlanner` catches it and writes the plan again |
-| `UnknownNodeError` | `LogicalPlan.node`, `LogicalPlan.consumers`, when no node has the id | Always |
-| `UnknownFragmentError` | `PhysicalPlan.fragment`, `PhysicalPlan.fragment_for_node`, when no fragment has the id or covers the node | Always |
-| `ReturnAnswerError` | `project_answer`, when the finished rows do not carry a column the answer names | The run loop answers it with a replan |
-| `OperatorRoutingError` | `OperatorRouter.register`, when an operator id repeats; `OperatorRouter.resolve`, when the id is unknown | Always, including from `build_data_planner` |
-| `UnknownOperatorSuiteError` | `operator_suite`, when no suite has the name | Always |
-| `InvalidSettingError` | `PlannerSettings`, when a value is invalid; `LLMClient`, when its properties name no model, carry an unknown `llm.*` key, or ask for a cache without `diskcache` installed | Always, including from `build_data_planner` |
-| `BudgetExhaustedError` | `RunCounters.spend_operator_call`, when the cap is reached | `FragmentRunner` catches it and returns `budget_exhausted` |
-| `RecoverableOperatorError` | An operator, when it refuses input another operator might accept | `execute_physical_operator` turns it into a failed `ExecutionResult` with `ErrorKind.RECOVERABLE` |
-| `UnrecoverableOperatorError` | An operator, when it fails for a reason no other operator would avoid | `execute_physical_operator` turns it into a failed `ExecutionResult` with `ErrorKind.UNRECOVERABLE` |
-| `RegistryUnreadableError` | `open_registry`, when the path names no file or the file cannot be read | Always |
-| `SourceQueryError` | `execute_query`, `execute_write`, when the source refuses the query or statement | Always |
-| `SourceUnreachableError` | `connect_source`, when the registry holds no connectable source under the name | Always |
-| `LLMError` | `LLMClient`, when the provider fails after its retries or answers in a shape the client cannot read | The run loop catches it and ends the request as `llm_failed` |
+Each row is one cause. "Raised by" names the calls that raise the exception to a caller who makes
+them directly. "Inside a run" says what a request does when the exception is raised during it.
 
-Both operator errors carry a `report: dict[str, Any] | None`, which reaches the caller as
+| Exception | Raised by | Raised when | Inside a run |
+| --- | --- | --- | --- |
+| `UnknownOperatorSuiteError` | `operator_suite`, `build_data_planner_from_settings` | No suite has the name | Not raised |
+| `RegistryUnreadableError` | `open_registry`, `build_data_planner_from_settings` | The file is missing/unreadable, or the configured backend cannot be read | Not raised |
+| `InvalidSettingError` | `open_registry`, `build_data_planner_from_settings` | No registry is configured, or the selected backend is unsupported | Not raised |
+| `InvalidSettingError` | The `PlannerSettings` constructor | A field carries a value the planner cannot be built with | Not raised |
+| `InvalidSettingError` | The `LLMClient` constructor, `build_data_planner` | The properties name no model, carry an unknown `llm.*` key, or request a cache whose directory is unsafe or unavailable | Not raised |
+| `InvalidSettingError` | `LotusSuite.operators`, `build_data_planner` | A second LOTUS suite asks for a model or reasoning effort other than the one LOTUS is configured with in this process | Not raised |
+| `InvalidSettingError` | `LLMClient.execute_api_call`, `LLMClient.aexecute_api_call` | The properties one call carries hold a value the client cannot send | Ends the request as `planner_failed` |
+| `OperatorRoutingError` | `OperatorRouter.register`, `build_data_planner` | Two suites register the same operator id | Not raised |
+| `OperatorRoutingError` | `BlueSuite.operators`, `build_data_planner` | The operator registry does not carry an operation the suite is bound to | Not raised |
+| `OperatorRoutingError` | `OperatorRouter.resolve` | No registered operator has the operator id | Ends the request as `planner_failed` |
+| `PlanFormatError` | `LogicalPlan.from_dict`, `PhysicalPlan.from_dict`, `DataPipeline.from_dict` | A payload is missing a key or carries a value its node kind does not take | Not raised |
+| `UnknownNodeError` | `LogicalPlan.node`, `LogicalPlan.consumers` | No node of the plan has the id | Ends the request as `planner_failed` |
+| `UnknownFragmentError` | `PhysicalPlan.fragment`, `PhysicalPlan.fragment_for_node` | No fragment of the cover has the id or covers the node | Ends the request as `planner_failed` |
+| `PlanValidationError` | `validate_logical_plan` | A logical plan fails a structural check | `LogicalPlanner` catches it and writes the plan again |
+| `PlanValidationError` | `validate_physical_plan` | A cover fails a structural check | Ends the request as `planner_failed` |
+| `ReturnAnswerError` | `project_answer` | The finished rows do not carry a column the answer names | The run loop catches it and replans |
+| `BudgetExhaustedError` | `RunCounters.spend_operator_call`, `execute_physical_operator` | The operator call budget reaches its cap | `FragmentRunner` catches it and returns `budget_exhausted` |
+| `DeclaredTypeMismatchError` | `coerce_value`, `coerce_column` in `execution/output_columns.py` | A value cannot be converted to its declared column type | `check_output_columns` catches it and returns a failed `ExecutionResult` with `ErrorKind.RECOVERABLE` for parameter repair |
+| `RecoverableOperatorError` | An operator's callable | Different parameters may fix the failure | `execute_physical_operator` returns `ErrorKind.RECOVERABLE`; the fragment runner starts with parameter repair |
+| `OperatorUnavailableError` | An operator's callable | This implementation cannot serve the fragment, but another operator may work | `execute_physical_operator` returns `ErrorKind.OPERATOR_UNAVAILABLE`; the fragment runner requests cover repair immediately |
+| `UnrecoverableOperatorError` | An operator's callable | The operator fails for a reason no other operator would avoid | `execute_physical_operator` catches it and returns a failed `ExecutionResult` with `ErrorKind.UNRECOVERABLE` |
+| `SourceQueryError` | `execute_query`, `execute_write` | The source refuses the query or statement | The operator reading the source catches it and raises `RecoverableOperatorError` |
+| `SourceUnreachableError` | `connect_source`, `execute_query`, `execute_write` | The registry holds no connectable source under the name | The operator reading the source catches it and raises `UnrecoverableOperatorError` |
+| `LLMError` | `LLMClient.complete_structured`, `LLMClient.execute_api_call`, `LLMClient.aexecute_api_call` | The provider fails after the client's retries, or answers in a shape the client cannot read | Ends the request as `llm_failed` |
+| `BlueDataPlannerError` | Any component, such as `DataPipeline.cover` | The planner reaches a state it treats as a defect, such as a pipeline with no current physical plan | Ends the request as `planner_failed` |
+
+All three operator errors carry a `report: dict[str, Any] | None`, which reaches the caller as
 `ExecutionResult.report`.
+
+The Blue adapter uses `OperatorUnavailableError` for defaults, validator, and refinement failures,
+invalid validation, execution, or refinement results, and non-retryable `FAILED` execution errors.
+For `EXECUTION_FAILED`, a recoverable category or a true retryability flag retains parameter
+repair. Invalid input also remains repairable, even when retrying the unchanged call would fail.
+For SQL, observed malformed generated queries and known SQLite syntax or name errors retain
+parameter repair; a diagnostic alone does not make a provider or connection failure repairable.
+The failed attempt keeps its diagnostic message and report while cover repair can choose another
+implementation. Existing operator-call, cover-repair, and replan limits still apply.
 
 `LLMError` carries `code` (`provider_error` or `bad_response`) and `provider_error`, the
 exception the provider raised when there was one. `blue_data_planner.llm` re-exports it.
@@ -389,9 +413,15 @@ convert a plan to a plain dict and back for storing or sending it outside the pr
 
 ### `blue_data_planner.plan`
 
-Functions over a plan that need no model, no source, and no operator call.
+Functions and response schemas over a plan that need no model call, source access, or operator
+execution.
 
 ```python
+class OutputColumnModel(BaseModel):
+    name: str
+    dtype: ColumnDataType
+
+
 def validate_logical_plan(plan: LogicalPlan, entity_paths: frozenset[str], carried_node_ids: frozenset[str] = frozenset(), *, max_nodes: int) -> None: ...
 def validate_physical_plan(plan: LogicalPlan, physical_plan: PhysicalPlan) -> None: ...
 def candidate_fragments(plan: LogicalPlan, root_node_id: str, logical_operators: frozenset[LogicalOperator]) -> list[frozenset[str]]: ...
@@ -470,10 +500,50 @@ OPERATOR_SUITE_NAMES: tuple[str, ...] = ("builtin", "lotus", "blue")
 | --- | --- | --- | --- |
 | `BuiltinSuite` | `blue_data_planner.operators.builtin` | None | `builtin_operators` |
 | `LotusSuite` | `blue_data_planner.operators.adapters.lotus` | `model: str \| None = None`, `max_rows: int = 5000`, `reasoning_effort: str \| None = None` | `lotus_operators`, `lotus_is_installed` |
-| `BlueSuite` | `blue_data_planner.operators.adapters.blue` | `operator_registry: OperatorRegistry \| None = None` | `blue_operators` |
+| `BlueSuite` | `blue_data_planner.operators.adapters.blue` | `operator_registry: OperatorRegistry \| None = None`, `model: str \| None = None`, `reasoning_effort: str \| None = None` | `blue_operators` |
 
 `LotusSuite.model` defaults to the model every other component uses. `LotusSuite.operators`
 returns an empty list when LOTUS is not installed.
+
+With no `operator_registry`, `BlueSuite` resolves its pinned operation versions against
+`blue_data_ops.operators.registry.versioned_registry()`, which retains those versions even when
+the active versions advance. A supplied registry is used directly.
+
+`BlueSuite.model` defaults to the model every other component uses, and reaches `blue-data-ops`
+without its provider route. `blue-data-ops` sends the call to the provider `BLUE_DATA_LLM_PROVIDER`
+names, `openai` by default.
+Blue model calls use the provider's default temperature, overriding the operations' fixed
+temperature of zero so reasoning models can accept the calls.
+
+`blue.nl2sql` declares `accepts_bound_inputs=False`: it writes a query from the source schema
+and cannot incorporate tables from another fragment. The physical planner excludes candidates
+that would pass it any input tables, including cuts containing no scan. Complete SQL regions
+with no external inputs remain eligible. Direct calls carrying input tables are refused.
+
+`blue.nl2sql` binds `nl2sql@4.0.0` to a `blue-data-ops` `ReadOnlySQLExecutor` using the SQL
+connection selected by the source, database, and collection each call names, and sends only
+`execute_query`. The executor admits a single `SELECT` before the driver and runs it on the
+connection's read-only path.
+Request parameters and model output cannot change this policy. The executor accepts only
+`blue-data`'s own SQLite, PostgreSQL, and MySQL source classes, so a subclassed or wrapped source
+leaves `blue.nl2sql` unavailable and another operator reads it. A supplied registry whose
+`nl2sql@4.0.0` is already bound, or is not `blue-data-ops`' own operation, runs as it resolves.
+
+Target binding selects the connection; it does not restrict the relations or functions the SQL
+references. The database role's permissions govern that access, including tables absent from the
+catalog and functions invoked by a `SELECT`. Register SQL sources with a dedicated role restricted
+to the data and functions the planner may access, never a superuser or administrative role.
+See [SQL source permissions](installation.md#sql-source-permissions) for deployment guidance.
+
+Its `scan_source` parameter is one catalog entity path; the adapter derives the source,
+database, and collection from it and reads the protocol from the source record. A query that
+fails against the schema, or one the read-only guard refuses, goes to the fragment's
+parameter-repair conversation with the catalog target. `blue-data-ops` reports schema, driver, and
+execution failures as fixed text, so that conversation does not carry the driver's own words, such
+as the missing column's name; the prompt the query was written from already lists the columns.
+Failures to connect a source keep a structured driver code when one is available. Each call owns
+its diagnostics, including when the same operator is retried.
+
 [architecture.md](architecture.md#operator-suites) describes what each suite offers, and
 [extending.md](extending.md) how to add one.
 
@@ -482,7 +552,7 @@ returns an empty list when LOTUS is not installed.
 The only module that imports `blue-data`.
 
 ```python
-def open_registry(registry_path: Path) -> DataRegistry: ...
+def open_registry(registry_path: Path | None = None) -> DataRegistry: ...
 def connect_source(registry: DataRegistry, source: str) -> Any: ...
 def execute_query(
     registry: DataRegistry, source: str, query: str, database: str, collection: str | None = None
@@ -501,7 +571,17 @@ class DataCatalog:
     def entity_row_count(self, entity_path: str) -> int | None: ...
 ```
 
-`open_registry` raises `RegistryUnreadableError` when the file is missing or unreadable.
+`open_registry()` uses `blue_data.config.build_store`: set `BLUE_DATA_REGISTRY_STORE=file`
+and `BLUE_DATA_REGISTRY_FILE` (default `blue_data_store.json`), or select `redis` with
+`BLUE_DATA_REGISTRY_REDIS_URL` (default `redis://localhost:6379/0`) and
+`BLUE_DATA_REGISTRY_REDIS_NAMESPACE` (default `blue_data`). Redis requires blue-data's optional
+`redis` dependencies and a RedisJSON server, as its other tools do.
+
+An explicit path opens a standard dictionary file store or a legacy list snapshot and overrides
+the environment. With no shared store selected, `BLUE_DATA_REGISTRY_PATH` remains a fallback
+for existing snapshots. A shared file store must use the dictionary format. A missing or
+unreadable file, or a failed backend read, raises `RegistryUnreadableError`; opening a missing
+file never creates it. Missing or unsupported backend settings raise `InvalidSettingError`.
 `DataRegistry` is re-exported from `blue-data`. The four `DataCatalog` readings are all the planning
 components see of the catalog: `preview` for the logical planner, `search_records` for the catalog
 searcher, `attribute_views` and `entity_row_count` for the fragment runner.
@@ -512,7 +592,9 @@ The only module that calls a provider.
 
 ```python
 class LLMClient:
-    def __init__(self, name: str, properties: dict[str, Any] | None = None) -> None: ...
+    def __init__(
+        self, name: str, properties: dict[str, Any] | None = None, *, cache_dir: Path | None = None
+    ) -> None: ...
     def complete_structured(self, conversation: Conversation, response_model: type[M]) -> M: ...
     def execute_api_call(self, input: Any, properties: dict[str, Any] | None = None) -> Any: ...
     async def aexecute_api_call(
@@ -535,6 +617,21 @@ conversation. `aexecute_api_call` is the library's one async method.
 `CachingLLMClientProvider` reuses one client per configuration. `UsageLedger` holds a client's own
 per-call accounting, separate from the conversation's: one `UsageRecord` per call, carrying the
 model, the token counts, the cost, the latency, and whether the call was served from the cache.
+
+`execute_api_call` and `aexecute_api_call` cache responses only when `llm.cache` is enabled.
+They use JSON files without an extra dependency. `complete_structured` always calls the provider.
+The directory is fixed when the client is constructed: the `cache_dir` keyword takes precedence
+over `BLUE_DATA_PLANNER_LLM_CACHE_DIR`, with `~/.cache/blue-data-planner/llm-v1` as the default.
+Configured paths must be absolute. Call properties cannot select or redirect it; the old
+`llm.cache_dir` property now raises `InvalidSettingError`.
+
+Caching requires POSIX owner and file-permission checks. The directory must belong to the current
+user with mode `0700`; new directories use that mode, and existing shared or symlinked cache
+directories are refused. Files use mode `0600` and atomic replacement. Corrupt, foreign-format,
+and linked entries are cache misses. Old `.llm_cache` directories and pickle-backed databases
+are never opened or migrated. A cache hit records zero provider cost and tokens as before.
+The cache keeps up to 1 GiB of response files, retiring older entries as new ones are stored;
+larger individual responses are returned without being cached.
 
 ### The components
 

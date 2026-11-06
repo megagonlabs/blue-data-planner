@@ -7,6 +7,9 @@ agent that speaks MCP. Installation, running, launching it from an agent framewo
 configuration reference are in [`platform/planner-mcp/README.md`](../platform/planner-mcp/README.md); this page
 covers the tool itself.
 
+During MCP initialization, clients receive the server package's version in `serverInfo.version`.
+The value comes from `blue_data_planner_mcp.__version__`.
+
 ## Tool reference
 
 ### `query_data(request, explain=False, include_plan=False) -> str`
@@ -87,7 +90,7 @@ client = MultiServerMCPClient(
             "transport": "stdio",
             "command": "blue-data-planner-mcp",
             "args": [],
-            "env": {**os.environ, "BLUE_DATA_REGISTRY_PATH": REGISTRY},
+            "env": {**os.environ, "BLUE_DATA_REGISTRY_STORE": "file", "BLUE_DATA_REGISTRY_FILE": REGISTRY},
         }
     }
 )

@@ -12,6 +12,10 @@ def candidate_fragments(
     root = plan.node(root_node_id)
     if not root.is_operator_node or root.kind not in logical_operators:
         return []
+    if len(logical_operators) == 1:
+        # One declared kind means one logical step, not a chain of that kind (#58).
+        # Only compound operators may grow a fragment beyond its root.
+        return [frozenset({root_node_id})]
     consumer_ids = {
         node.id: {consumer.id for consumer in plan.consumers(node.id)} for node in plan.nodes
     }

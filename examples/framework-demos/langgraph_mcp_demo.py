@@ -61,7 +61,9 @@ async def main() -> None:
     if not os.environ.get("OPENAI_API_KEY"):
         raise SystemExit("OPENAI_API_KEY is not set; the agent and the planner both call a model")
     if shutil.which(SERVER_COMMAND) is None:
-        raise SystemExit(f"{SERVER_COMMAND} is not on PATH; run platform/planner-mcp/scripts/install.sh")
+        raise SystemExit(
+            f"{SERVER_COMMAND} is not on PATH; run platform/planner-mcp/scripts/install.sh"
+        )
     if not REGISTRY_PATH.is_file():
         raise SystemExit(f"{REGISTRY_PATH} is missing; build it as examples/README.md describes")
 
@@ -73,7 +75,8 @@ async def main() -> None:
                 "args": [],
                 "env": {
                     **os.environ,
-                    "BLUE_DATA_REGISTRY_PATH": str(REGISTRY_PATH),
+                    "BLUE_DATA_REGISTRY_STORE": "file",
+                    "BLUE_DATA_REGISTRY_FILE": str(REGISTRY_PATH),
                     "BLUE_DATA_PLANNER_OPERATORS": "builtin",
                 },
             }

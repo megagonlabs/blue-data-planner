@@ -5,7 +5,7 @@ plan, and repairs what fails.
 
 ## Requirements
 
-- Python 3.11 or later; 3.11 or 3.12 with the `lotus` extra
+- Python 3.12 or 3.13; 3.12 only with the `lotus` extra
 - `blue-data` and `blue-data-ops` checked out beside this repository, as `../blue-data` and
   `../blue-data-ops`: every install script installs both from there
 - A model API key, which every planning stage needs
@@ -20,8 +20,8 @@ bash scripts/install.sh     # ../blue-data, ../blue-data-ops, then this library 
 pip install -e '.[lotus]'   # + the LOTUS operator suite
 ```
 
-The `lotus` extra constrains the environment around it: numpy below 2, pandas below 3, Python 3.11
-or 3.12, and a machine-learning stack of several gigabytes. Install it on its own rather than
+The `lotus` extra constrains the environment around it: numpy below 2, pandas below 3, Python 3.12
+only, and a machine-learning stack of several gigabytes. Install it on its own rather than
 beside a project that needs numpy 2.
 
 [docs/installation.md](../docs/installation.md) covers installing the `blue-planner` CLI beside it.

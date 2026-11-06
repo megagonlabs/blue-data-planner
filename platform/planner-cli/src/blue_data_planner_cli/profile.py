@@ -49,7 +49,8 @@ Examples:
   blue-planner profile config                    # every required parameter
   blue-planner profile config OPENAI_API_KEY     # one, prompted; a secret always is
   blue-planner profile config BLUE_DATA_PLANNER_OPERATORS builtin
-  blue-planner --profile staging profile config BLUE_DATA_REGISTRY_PATH "$PWD/registry.json"
+  blue-planner --profile staging profile config BLUE_DATA_REGISTRY_STORE file
+  blue-planner --profile staging profile config BLUE_DATA_REGISTRY_FILE "$PWD/registry.json"
 """
 
 

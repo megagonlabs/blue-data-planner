@@ -227,7 +227,7 @@ class OperatorSuite(Protocol):
 
 - `operator_suite("lotus")` returns a suite by name with its defaults
 - The suite classes take their own options: `LotusSuite(model=..., max_rows=...)`,
-  `BlueSuite(operator_registry=...)`. `BuiltinSuite()` takes none
+  `BlueSuite(operator_registry=..., model=...)`. `BuiltinSuite()` takes none
 - Each import sits inside the branch that needs it, so naming one suite never loads another's
   dependency. Adding a suite is covered in [extending.md](extending.md).
 
@@ -325,6 +325,7 @@ FragmentRunner.run(fragment, conversation, inputs, counters)
       │    3. call the operator
       │    4. check the result against the declared columns, coercing each type
       │    → unrecoverable failure: status operator_failed, the run ends
+      │    → operator unavailable:  status needs_repair, choose another cover
       │    → recoverable failure:   write the parameters again
       │
       └─ review turn over the rows

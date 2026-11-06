@@ -23,13 +23,13 @@ All four pass before work is reported as complete, in every package, and they ru
 ```toml
 [tool.ruff]
 line-length = 100
-target-version = "py311"
+target-version = "py312"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP"]   # pycodestyle, pyflakes, isort, pyupgrade
 
 [tool.pyright]
-pythonVersion = "3.11"
+pythonVersion = "3.12"
 typeCheckingMode = "strict"
 venvPath = "."
 venv = ".venv"
@@ -52,7 +52,7 @@ suggestions.
 Every module that holds code opens with `from __future__ import annotations`, which allows forward
 references and keeps type-only imports from causing circular imports.
 
-Use 3.11 syntax and built-in generics:
+Use 3.12 syntax and built-in generics:
 
 ```python
 # correct
@@ -74,7 +74,7 @@ A dependency shipping no types of its own is imported behind a targeted `pyright
 enters and delegates through `Any` from there. The import rules below keep those imports to a few
 places, so untyped values stop where they enter rather than spreading: `blue-data` at `data/`, at
 the CLI's configuration modules, and at the two scripts that build a registry; LOTUS at
-`operators/adapters/lotus/`; and the model response cache and JSON path queries inside `llm/`.
+`operators/adapters/lotus/`; and JSON path queries inside `llm/`.
 
 ---
 
@@ -130,7 +130,7 @@ Each one settles a case where two plausible names were in use at once.
 | A data type is called a type. Everything else that could be called one is a kind | `ColumnDataType` and the field `dtype` describe the type of a value. A node kind, a source kind, and an `ErrorKind` are kinds |
 | An id says which graph it names | `logical_node_ids`, `root_logical_node_id`, `InputData.logical_node_id`. A physical plan is full of logical node ids, so an unqualified `node_id` in it reads as its own |
 | One review's decision and one fragment's ending get two names | `FragmentReviewDecision` is what a single review turn returned; `FragmentResult.status` is how the whole fragment ended, and the run loop reads only the second |
-| A suite's failure report becomes an error | `error_mapping.py` turns what `blue-data-ops` reported into `RecoverableOperatorError`, `UnrecoverableOperatorError`, or a bare `BlueDataPlannerError`. The vocabulary is `ErrorKind`, `ErrorInfo`, and the three exception names, so a name says error wherever prose might say failure |
+| A suite's failure report becomes an error | `error_mapping.py` turns what `blue-data-ops` reported into `RecoverableOperatorError`, `OperatorUnavailableError`, or `UnrecoverableOperatorError`. The vocabulary is `ErrorKind`, `ErrorInfo`, and the three exception names, so a name says error wherever prose might say failure |
 | A result type is called a result | `LogicalPlanResult`, `PhysicalPlanResult`, `FragmentResult`, `ExecutionResult`, `RunResult` |
 | A catalog record's column is an attribute; a table moving between fragments has columns | `AttributeRef`, `AttributeView`, `attribute_views`, and `EntityMatch.attributes` read the registry, which is `blue-data`'s own vocabulary. `required_output_columns`, `OutputColumn`, and `ColumnDataType` describe a table a fragment passes on, whatever kind of source produced it |
 

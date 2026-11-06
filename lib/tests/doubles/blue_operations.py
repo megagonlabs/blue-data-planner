@@ -40,8 +40,8 @@ OPERATION_NAMES: tuple[str, ...] = (
     "nl2sql",
 )
 
-# Both versions the adapter binds, so a registry built here answers whichever a row names.
-_VERSIONS: tuple[str, ...] = ("2.0.0", "3.0.0")
+# Every version the adapter binds, so a registry built here answers whichever a row names.
+_VERSIONS: tuple[str, ...] = ("2.0.0", "3.0.0", "4.0.0")
 
 
 class ScriptedOperation(Operator):

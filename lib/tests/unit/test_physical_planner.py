@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import dataclasses
 import json
-from typing import Any
+from typing import Any, Literal
 
 import pytest
 from pydantic import BaseModel
@@ -49,10 +49,12 @@ class NoParameters(BaseModel):
 def an_operator(
     operator_id: str,
     kinds: frozenset[LogicalOperator],
-    source_kinds: frozenset[str] | None = frozenset({"sql/sqlite"}),
+    source_kinds: frozenset[str] | None | Literal["infer"] = "infer",
     accepts_bound_inputs: bool = False,
 ) -> PhysicalOperator:
-    """One registered operator declaring the kinds given and the source kinds it reads."""
+    """One operator; default to SQL for scans and to input tables for the other kinds."""
+    if source_kinds == "infer":
+        source_kinds = frozenset({"sql/sqlite"}) if LogicalOperator.SCAN in kinds else None
     return PhysicalOperator(
         operator_id=operator_id,
         logical_operators=kinds,
@@ -871,7 +873,13 @@ def test_a_repair_turn_shows_every_result_held_now_including_ones_run_after_open
     )
     planner = a_planner(
         client,
-        a_router(an_operator("op.one", frozenset({LogicalOperator.SCAN, LogicalOperator.PROJECT}))),
+        a_router(
+            an_operator(
+                "op.one",
+                frozenset({LogicalOperator.SCAN, LogicalOperator.PROJECT}),
+                accepts_bound_inputs=True,
+            )
+        ),
     )
     conversation = Conversation()
     plan = a_scan_and_return()
@@ -1008,7 +1016,9 @@ def test_a_fragment_holding_two_readers_of_a_root_is_listed_once() -> None:
     client = ScriptedLLMClient(
         [a_binding("n3:op.all:[n2,n3]", inputs=("n1",)), a_binding("n1:op.all:[n1]")]
     )
-    planner = a_planner(client, a_router(an_operator("op.all", ALL_KINDS)))
+    planner = a_planner(
+        client, a_router(an_operator("op.all", ALL_KINDS, accepts_bound_inputs=True))
+    )
 
     result = planner.cover(
         REQUEST, a_scan_read_twice_by_one_fragment(), Conversation(), None, a_discovery()
@@ -1085,7 +1095,7 @@ def test_a_candidate_turn_names_a_reader_no_operator_runs_by_what_it_asks_for(
         [a_binding("n2:op.all:[n2]", inputs=("n1",)), a_binding("n1:op.all:[n1]")]
     )
 
-    a_planner(client, a_router(an_operator("op.all", ALL_KINDS))).cover(
+    a_planner(client, a_router(an_operator("op.all", ALL_KINDS, accepts_bound_inputs=True))).cover(
         REQUEST, plan, Conversation(), None, a_discovery()
     )
 
@@ -1100,7 +1110,7 @@ def test_a_root_nothing_reads_is_listed_with_an_empty_readers_array() -> None:
         [a_binding("n2:op.all:[n2]", inputs=("n1",)), a_binding("n1:op.all:[n1]")]
     )
 
-    a_planner(client, a_router(an_operator("op.all", ALL_KINDS))).cover(
+    a_planner(client, a_router(an_operator("op.all", ALL_KINDS, accepts_bound_inputs=True))).cover(
         REQUEST,
         a_scan_read_by(ControlOperator.DISCOVER, "find the companies"),
         Conversation(),
@@ -1154,7 +1164,13 @@ def test_a_fragments_scan_sources_is_copied_from_what_the_plans_scans_name() -> 
     client = ScriptedLLMClient([a_binding("n2:op.one:[n1,n2]")])
     planner = a_planner(
         client,
-        a_router(an_operator("op.one", frozenset({LogicalOperator.SCAN, LogicalOperator.PROJECT}))),
+        a_router(
+            an_operator(
+                "op.one",
+                frozenset({LogicalOperator.SCAN, LogicalOperator.PROJECT}),
+                accepts_bound_inputs=True,
+            )
+        ),
     )
 
     result = planner.cover(REQUEST, a_scan_and_return(), Conversation(), None, a_discovery())
@@ -1178,7 +1194,13 @@ def test_a_fragments_output_columns_is_what_the_binding_wrote() -> None:
     )
     planner = a_planner(
         client,
-        a_router(an_operator("op.one", frozenset({LogicalOperator.SCAN, LogicalOperator.PROJECT}))),
+        a_router(
+            an_operator(
+                "op.one",
+                frozenset({LogicalOperator.SCAN, LogicalOperator.PROJECT}),
+                accepts_bound_inputs=True,
+            )
+        ),
     )
 
     result = planner.cover(REQUEST, a_scan_and_return(), Conversation(), None, a_discovery())
@@ -1254,7 +1276,13 @@ def test_a_plan_whose_every_node_already_ran_carries_the_cover_over_unasked() ->
     client = ScriptedLLMClient([a_binding("n2:op.one:[n1,n2]")])
     planner = a_planner(
         client,
-        a_router(an_operator("op.one", frozenset({LogicalOperator.SCAN, LogicalOperator.PROJECT}))),
+        a_router(
+            an_operator(
+                "op.one",
+                frozenset({LogicalOperator.SCAN, LogicalOperator.PROJECT}),
+                accepts_bound_inputs=True,
+            )
+        ),
     )
     plan = a_scan_and_return()
 
@@ -1276,7 +1304,13 @@ def test_a_cover_names_the_previous_cover_as_its_parent_only_for_the_same_logica
     client = ScriptedLLMClient([a_binding("n2:op.one:[n1,n2]"), a_binding("n2:op.one:[n1,n2]")])
     planner = a_planner(
         client,
-        a_router(an_operator("op.one", frozenset({LogicalOperator.SCAN, LogicalOperator.PROJECT}))),
+        a_router(
+            an_operator(
+                "op.one",
+                frozenset({LogicalOperator.SCAN, LogicalOperator.PROJECT}),
+                accepts_bound_inputs=True,
+            )
+        ),
     )
     plan = a_scan_and_return()
     first = planner.cover(REQUEST, plan, Conversation(), None, a_discovery())
@@ -1301,7 +1335,13 @@ def test_a_carried_over_cover_of_a_new_plan_version_names_no_parent() -> None:
     client = ScriptedLLMClient([a_binding("n2:op.one:[n1,n2]")])
     planner = a_planner(
         client,
-        a_router(an_operator("op.one", frozenset({LogicalOperator.SCAN, LogicalOperator.PROJECT}))),
+        a_router(
+            an_operator(
+                "op.one",
+                frozenset({LogicalOperator.SCAN, LogicalOperator.PROJECT}),
+                accepts_bound_inputs=True,
+            )
+        ),
     )
     plan = a_scan_and_return()
     first = planner.cover(REQUEST, plan, Conversation(), None, a_discovery())
@@ -1357,7 +1397,13 @@ def test_a_fragment_whose_grouped_node_a_new_node_reads_is_not_offered_for_reuse
     )
     planner = a_planner(
         client,
-        a_router(an_operator("op.one", frozenset({LogicalOperator.SCAN, LogicalOperator.PROJECT}))),
+        a_router(
+            an_operator(
+                "op.one",
+                frozenset({LogicalOperator.SCAN, LogicalOperator.PROJECT}),
+                accepts_bound_inputs=True,
+            )
+        ),
     )
     fragment = a_cover_grouping_n1_into_n2(planner)
     previous = PhysicalPlan(id="c1", parent_id=None, logical_plan_id="p2", fragments=[fragment])
@@ -1387,7 +1433,13 @@ def test_a_cover_whose_grouped_node_a_new_discovery_reads_is_cut_again() -> None
     )
     planner = a_planner(
         client,
-        a_router(an_operator("op.one", frozenset({LogicalOperator.SCAN, LogicalOperator.PROJECT}))),
+        a_router(
+            an_operator(
+                "op.one",
+                frozenset({LogicalOperator.SCAN, LogicalOperator.PROJECT}),
+                accepts_bound_inputs=True,
+            )
+        ),
     )
     fragment = a_cover_grouping_n1_into_n2(planner)
     previous = PhysicalPlan(id="c1", parent_id=None, logical_plan_id="p2", fragments=[fragment])
@@ -1414,7 +1466,13 @@ def test_a_node_with_no_result_is_offered_no_way_to_reuse_its_fragment() -> None
     )
     planner = a_planner(
         client,
-        a_router(an_operator("op.one", frozenset({LogicalOperator.SCAN, LogicalOperator.PROJECT}))),
+        a_router(
+            an_operator(
+                "op.one",
+                frozenset({LogicalOperator.SCAN, LogicalOperator.PROJECT}),
+                accepts_bound_inputs=True,
+            )
+        ),
     )
     plan = a_scan_and_return()
 
@@ -1438,7 +1496,13 @@ def a_repair_turn_section(failed_with: list[ParameterAttempt] | None = None) -> 
     client = ScriptedLLMClient([a_binding("n2:op.one:[n1,n2]"), a_binding("n2:op.one:[n1,n2]")])
     planner = a_planner(
         client,
-        a_router(an_operator("op.one", frozenset({LogicalOperator.SCAN, LogicalOperator.PROJECT}))),
+        a_router(
+            an_operator(
+                "op.one",
+                frozenset({LogicalOperator.SCAN, LogicalOperator.PROJECT}),
+                accepts_bound_inputs=True,
+            )
+        ),
     )
     conversation = Conversation()
     plan = a_scan_and_return()
@@ -1496,7 +1560,13 @@ def test_a_repair_answers_the_binding_it_is_replacing_in_the_same_conversation()
     )
     planner = a_planner(
         client,
-        a_router(an_operator("op.one", frozenset({LogicalOperator.SCAN, LogicalOperator.PROJECT}))),
+        a_router(
+            an_operator(
+                "op.one",
+                frozenset({LogicalOperator.SCAN, LogicalOperator.PROJECT}),
+                accepts_bound_inputs=True,
+            )
+        ),
     )
     conversation = Conversation()
     plan = a_scan_and_return()
@@ -1528,7 +1598,11 @@ def test_the_opening_instructions_carry_nothing_that_varies_by_plan() -> None:
     """An identical opening is what makes the prefix cache across runs and across plans."""
     first, second = Conversation(), Conversation()
     router = a_router(
-        an_operator("op.one", frozenset({LogicalOperator.SCAN, LogicalOperator.PROJECT}))
+        an_operator(
+            "op.one",
+            frozenset({LogicalOperator.SCAN, LogicalOperator.PROJECT}),
+            accepts_bound_inputs=True,
+        )
     )
     a_planner(ScriptedLLMClient([a_binding("n2:op.one:[n1,n2]")]), router).cover(
         REQUEST, a_scan_and_return(), first, None, a_discovery()

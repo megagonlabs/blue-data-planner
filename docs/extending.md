@@ -51,8 +51,14 @@ that overstates what the operation does produces a candidate the operator cannot
 | `accepts_bound_inputs` | `bool` | Whether the operation can take tables from other fragments alongside the source it reads, such as a reference input whose values narrow a scan. Only an operation that sets `source_kinds` can set it; setting it without `source_kinds` raises `ValueError` |
 | `limitations` | `str \| None` | What the operation cannot do, which keeps it from being bound to work it would fail. Write it as a phrase that completes "Cannot: …", such as `judge what text means`, and put what it can do in `description` |
 
-A `call` raises `RecoverableOperatorError` where a different operator might accept the same input
-and `UnrecoverableOperatorError` otherwise; what each becomes is in
+For an operation declaring `source_kinds`, `accepts_bound_inputs=False` excludes every fragment
+with an input table, including a cut containing no scan. Operations that transform input tables
+without reading a registered source declare `source_kinds=None` and keep their normal inputs.
+
+A `call` raises `RecoverableOperatorError` when different parameters may fix the failure,
+`OperatorUnavailableError` when another implementation is needed, and `UnrecoverableOperatorError`
+when the failure should end the run. The unavailable case skips parameter retries and requests
+cover repair immediately; what each becomes is in
 [api-reference.md](api-reference.md#exceptions).
 
 ### How the router picks an operator
@@ -63,7 +69,9 @@ a time:
 
 1. `operators_for(kind)` returns every operator declaring that node's kind, in registration order.
 2. For each, `candidate_fragments` enumerates the node sets rooted at that node which the
-   operator's declared kinds could implement.
+   operator's declared kinds could implement. A single declared kind offers only the root node,
+   including when adjacent nodes share that kind. A declaration with several kinds may grow a
+   fragment through matching inputs.
 3. A candidate is dropped unless the operator reads the source kind of every scan in it. An
    operator declaring no `source_kinds` takes only scans that name no source.
 4. What survives is offered to the model, largest fragment first, and the model binds one.
@@ -83,7 +91,7 @@ from blue_data_planner.operators import OperatorRouter
 from blue_data_planner.operators.builtin import builtin_operators
 
 router = OperatorRouter()
-for operator in builtin_operators(data_registry, llm_client):
+for operator in builtin_operators(data_registry):
     router.register(operator)
 router.register(my_operator)
 ```

@@ -346,7 +346,7 @@ class PhysicalOperator:
 | --- | --- |
 | `logical_operators` | Every logical operator this implementation can execute. A single member means it can only ever cover one node |
 | `source_kinds` | The kinds of registered source it can read, or `None` when it reads none |
-| `accepts_bound_inputs` | Whether it can take tables from other fragments alongside the source it reads, a reference input arriving from outside included. Only an operator declaring `source_kinds` can declare it. A fragment receiving such a table is offered only to an operator that does (ADR-059) |
+| `accepts_bound_inputs` | Whether it can take tables from other fragments alongside the source it reads, a reference input arriving from outside included. Only an operator declaring `source_kinds` can declare it. A source-reading operator declaring `False` is offered only fragments with an empty frontier, including cuts containing no scan (ADR-064) |
 | `limitations` | What it cannot do, in plain language, where its author can state it. A Text-to-SQL operator cannot express a semantic predicate, and saying so is what gives the physical planner something to weigh against a description that otherwise promises everything. It is written as a phrase that completes "Cannot: …", such as `judge what text means`; what the operator can do belongs in `description` |
 | `description`, `parameter_schema`, `call` | What it does, the shape of its parameters, and the callable execution invokes. A callable is handed the bundle, its parameters, and the fragment's `required_output_columns` (ADR-012) |
 
@@ -816,9 +816,9 @@ priced differently and a total of them answers nothing.
 
 The conversations fix the scope. These are the calls the three planning components and the catalog
 searcher made through `llm/`, and nothing else. A model call an operator makes internally, as a LOTUS
-operator does, is billed as part of the one operator call that contains it and never appears here,
+or Blue operator does, is billed as part of the one operator call that contains it and never appears here,
 because such an operator reports no per-call token count
-([05-software-stack.md](05-software-stack.md#two-model-configurations-one-budget)). What a run spent
+([05-software-stack.md](05-software-stack.md#three-model-configurations-one-budget)). What a run spent
 on planning is exact; what it spent inside operators is the call count in `counters`.
 
 ### Conversations
@@ -905,7 +905,7 @@ The bounds themselves are in [12-deployment-ops.md](12-deployment-ops.md).
 | `ControlOperator` | `REPLAN`, `DISCOVER` |
 | `RunStatus` | `ok`, `needs_repair`, `needs_replan`, `planned`, `invalid_plan`, `replan_exhausted`, `budget_exhausted`, `operator_failed`, `llm_failed`, `planner_failed`, `deadline_exceeded`, `cancelled` |
 | `ExecutionStatus` | `ok`, `failed` |
-| `ErrorKind` | `recoverable`, `unrecoverable` |
+| `ErrorKind` | `recoverable`, `operator_unavailable`, `unrecoverable` |
 | `FragmentReviewDecision` | `accept`, `reject`, `replan` |
 
 `SORT_SUPERLATIVE` is one logical operator covering both ordering and cutting, since a superlative

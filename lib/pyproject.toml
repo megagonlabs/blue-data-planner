@@ -4,10 +4,10 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "blue-data-planner"
-version = "0.1.0"
+version = "1.0.0"
 description = "Blue Data Planner — operator-agnostic planning over the Blue Data Intelligence Layer"
 readme = "README.md"
-requires-python = ">=3.11"
+requires-python = ">=3.12,<3.14"
 authors = [
     {name = "Naoki Otani"},
 ]
@@ -15,8 +15,10 @@ maintainers = [
     {name = "Naoki Otani"},
 ]
 dependencies = [
-    "blue-data-ops>=3.1.0,<4",
-    "blue-data>=0.1.0",
+    # blue.nl2sql binds nl2sql@4.0.0 through ops' host executor. Earlier builds labelled 1.0.0
+    # lack it and a version range cannot tell them apart, so they fail when the adapter imports.
+    "blue-data-ops>=1.0.0,<2",
+    "blue-data>=1.0.0",
     "pydantic>=2",
     "jsonpath-ng",
     "tenacity",
@@ -32,8 +34,6 @@ blue-data = { path = "../../blue-data/lib", editable = true }
 
 [project.optional-dependencies]
 dev = [
-    # diskcache backs the optional llm.cache path; without it three cache tests fail.
-    "diskcache",
     # The LOTUS adapter's tests build frames, and the lotus extra is absent from the default run.
     "pandas",
     "pytest",
@@ -78,13 +78,13 @@ blue_data_planner = ["py.typed", "prompts/*.md"]
 
 [tool.ruff]
 line-length = 100
-target-version = "py311"
+target-version = "py312"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP"]
 
 [tool.pyright]
-pythonVersion = "3.11"
+pythonVersion = "3.12"
 typeCheckingMode = "strict"
 venvPath = "."
 venv = ".venv"

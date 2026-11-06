@@ -10,8 +10,9 @@ from blue_data.registry.data_registry import (  # pyright: ignore[reportMissingT
     DataRegistry,  # blue-data ships no py.typed
 )
 
-from blue_data_planner.data.catalog import DataCatalog
+from blue_data_planner.data.catalog import DataCatalog, source_kind
 from blue_data_planner.types.catalog import AttributeRef, ValueCount
+from blue_data_planner.types.errors import SourceUnreachableError
 
 
 def a_registry_holding(*records: dict[str, Any]) -> DataRegistry:
@@ -429,18 +430,31 @@ def test_an_unprofiled_attribute_renders_with_its_type_and_nothing_else() -> Non
 
 
 @pytest.mark.parametrize(
-    "info",
-    [pytest.param({}, id="no_type_field"), pytest.param({"type": ""}, id="empty_type")],
+    ("properties", "expected_dtype"),
+    [
+        pytest.param({"info": {"type": "TEXT"}}, "TEXT", id="sql_mapping"),
+        pytest.param({"info": "str"}, "str", id="doc_user_string"),
+        pytest.param({"info": "str|None"}, "str|None", id="optional_type_string"),
+        pytest.param({}, None, id="mongo_missing_info"),
+        pytest.param({"info": None}, None, id="null_info"),
+        pytest.param({"info": ""}, None, id="empty_info"),
+        pytest.param({"info": {}}, None, id="no_type_field"),
+        pytest.param({"info": {"type": ""}}, None, id="empty_type"),
+        pytest.param({"info": {"type": None}}, None, id="null_type"),
+    ],
 )
-def test_an_attribute_whose_type_was_never_recorded_renders_with_no_type(
-    info: dict[str, Any],
+def test_an_attribute_type_is_read_from_its_source_metadata(
+    properties: dict[str, Any], expected_dtype: str | None
 ) -> None:
-    """A SQLite column can be genuinely untyped, which is absence rather than corruption."""
     record = an_attribute(CITY)
-    record["properties"]["info"] = info
-    catalog = DataCatalog(a_registry_holding(record))
+    record["properties"] = properties
+    catalog = DataCatalog(a_registry_holding(*records_for_a_store_table_recording(None), record))
 
-    assert catalog.attribute_views(STORES)[0].dtype is None
+    views = catalog.attribute_views(STORES)
+    assert views[0].dtype == expected_dtype
+    matches = catalog.search_records("stores")
+    assert [match.path for match in matches] == [STORES]
+    assert matches[0].attributes == views
 
 
 def test_an_entity_the_registry_holds_no_attributes_for_gets_no_views() -> None:
@@ -522,10 +536,16 @@ def a_store_table_with_a_non_int_row_count() -> list[dict[str, Any]]:
             id="description_not_a_string",
         ),
         pytest.param(
-            [an_attribute(CITY, dtype=None)],
+            [an_attribute(CITY) | {"properties": {"info": []}}],
             "attribute_views",
-            "properties.info missing or not a mapping",
-            id="info_missing_or_not_a_mapping",
+            "properties.info is list",
+            id="info_is_list",
+        ),
+        pytest.param(
+            [an_attribute(CITY) | {"properties": {"info": 123}}],
+            "attribute_views",
+            "properties.info is int",
+            id="info_is_number",
         ),
         pytest.param(
             [an_attribute(CITY, stats=cast("Any", "two rows"))],
@@ -596,3 +616,18 @@ def test_a_malformed_record_raises(
             catalog.search_records("stores")
         else:
             catalog.preview("anything", limit=10)
+
+
+def test_a_sources_kind_is_read_off_the_record_registered_under_its_name() -> None:
+    """An operator that reads a source by name learns its protocol the way the catalog does."""
+    registry = a_registry_holding(a_source("tag_bench"), a_source("jobs", protocol="sql/postgres"))
+
+    assert source_kind(registry, "jobs") == "sql/postgres"
+
+
+def test_the_kind_of_a_source_the_registry_does_not_hold_cannot_be_read() -> None:
+    """A name with no record behind it is a source nothing can be read from."""
+    registry = a_registry_holding(a_source("tag_bench"))
+
+    with pytest.raises(SourceUnreachableError, match="no source named 'jobs'"):
+        source_kind(registry, "jobs")
