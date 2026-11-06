@@ -410,6 +410,33 @@ def test_the_empty_string_count_is_read_off_every_recorded_frequent_value(
     assert catalog.attribute_views(STORES)[0].empty_count == empty_count
 
 
+@pytest.mark.parametrize(
+    "most_common_vals",
+    [
+        pytest.param(["Napa", "Sonoma"], id="flat_strings"),
+        pytest.param([94558, 95476], id="flat_numbers"),
+        pytest.param("{Napa,Sonoma}", id="postgres_array_text"),
+        pytest.param([["Napa", "3"]], id="non_integer_count"),
+        pytest.param([["Napa", 2.5]], id="fractional_count"),
+        pytest.param([["Napa"]], id="value_without_a_count"),
+        pytest.param([["Napa", 3], "Sonoma"], id="valid_pair_beside_a_bare_value"),
+        pytest.param([["Napa", 3], ["Sonoma", "1"]], id="valid_pair_beside_a_bad_count"),
+    ],
+)
+def test_frequent_values_that_are_not_all_value_and_count_pairs_read_as_none(
+    most_common_vals: Any,
+) -> None:
+    """Sources write other shapes, so the view keeps its samples and states no frequencies."""
+    stats = {"sample_values": ["Napa", "Sonoma"], "most_common_vals": most_common_vals}
+    catalog = DataCatalog(a_registry_holding(an_attribute(CITY, stats=stats)))
+
+    view = catalog.attribute_views(STORES)[0]
+
+    assert view.frequent_values == []
+    assert view.sample_values == ["Napa", "Sonoma"]
+    assert view.empty_count is None
+
+
 def test_an_unprofiled_attribute_renders_with_its_type_and_nothing_else() -> None:
     """An attribute nobody profiled still gets a view; only the annotation is missing."""
     catalog = DataCatalog(a_registry_holding(an_attribute(CITY)))
@@ -552,18 +579,6 @@ def a_store_table_with_a_non_int_row_count() -> list[dict[str, Any]]:
             "attribute_views",
             "stats is",
             id="stats_not_a_mapping",
-        ),
-        pytest.param(
-            [an_attribute(CITY, stats={"most_common_vals": "Napa"})],
-            "attribute_views",
-            "most_common_vals is",
-            id="frequent_values_not_a_list",
-        ),
-        pytest.param(
-            [an_attribute(CITY, stats={"most_common_vals": [["Napa"]]})],
-            "attribute_views",
-            "expected a value and its count",
-            id="frequent_value_without_a_count",
         ),
         pytest.param(
             [an_attribute_with_malformed_value_semantics()],

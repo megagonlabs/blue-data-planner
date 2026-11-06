@@ -142,23 +142,20 @@ def _dtype(properties: dict[str, Any], path: str) -> str | None:
     return str(declared) if declared else None
 
 
-def _frequent_values(raw: Any, path: str) -> list[ValueCount]:
+def _frequent_values(raw: Any) -> list[ValueCount]:
+    # blue-data's sources do not all write this field as value and count pairs, and a value with
+    # no count says nothing about how often it occurs, so anything else reads as none recorded
+    # and a view falls back on the samples. A statistic being unusable is no reason to refuse
+    # the attribute, and with it every search that touches the source.
     if not isinstance(raw, list):
-        raise ValueError(
-            f"Attribute record {path}: most_common_vals is {type(raw).__name__}, expected a list"
-        )
+        return []
     frequent: list[ValueCount] = []
     for entry in cast("list[Any]", raw):
         if not isinstance(entry, (list, tuple)) or len(cast("list[Any]", entry)) != 2:
-            raise ValueError(
-                f"Attribute record {path}: a most_common_vals entry is {entry!r}, "
-                "expected a value and its count"
-            )
+            return []
         value, rows = cast("list[Any]", entry)
         if not isinstance(rows, int):
-            raise ValueError(
-                f"Attribute record {path}: the count of {value!r} is {rows!r}, expected an int"
-            )
+            return []
         frequent.append(ValueCount(value=value, rows=rows))
     return frequent
 
@@ -239,7 +236,7 @@ class DataCatalog:
             )
         semantics = cast("dict[str, Any]", semantics)
         samples = cast("list[Any]", stats.get("sample_values", []))
-        frequent = _frequent_values(stats.get("most_common_vals", []), path)
+        frequent = _frequent_values(stats.get("most_common_vals", []))
         return AttributeView(
             ref=AttributeRef(
                 source=entity.source,

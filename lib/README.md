@@ -148,6 +148,7 @@ lib/
     ├── benchmarks/          # TAG-Bench preprocessing and the benchmark runner, in tag_bench/
     ├── end_to_end/          # a full run against scripted model responses
     ├── lotus/               # opt-in by path, needing the lotus extra
+    ├── servers/             # opt-in by path, needing running MySQL, PostgreSQL, or Neo4j servers
     ├── doubles/             # in-memory stand-ins for the I/O boundaries
     ├── stubs/               # stubs for heavy optional dependencies
     └── fixtures/            # recorded inputs

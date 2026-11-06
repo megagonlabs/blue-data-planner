@@ -98,6 +98,7 @@ expected count that equals a bound deserves one line; a returned status does not
 | Adapter tests | `platform/*/tests/` | Yes, in that package | No |
 | LOTUS suite tests | `lib/tests/lotus/` | No, excluded by `testpaths` | Yes, for an operation that calls a model |
 | End-to-end tests | `lib/tests/end_to_end/` | No, excluded by `testpaths` | Yes |
+| Server tests | `lib/tests/servers/` | No, excluded by `testpaths` | No, but each needs a running server |
 
 Unit tests are the main tier and the one that has to stay fast and offline, so a component that
 writes prompts is tested against a scripted model client ([section 5](#5-doubles-and-stubs)). The
@@ -111,10 +112,13 @@ LOTUS offers, with the arguments they take, and whether the tables they return c
 rows. It runs in an environment carrying the `lotus` extra, which is why it is opt-in by path like
 the end-to-end tier. Every other tier passes with LOTUS absent (ADR-004).
 
-There is no integration tier against a live networked backend. A source that runs embedded is tested
-against a real instance instead of a double ([section 5](#5-doubles-and-stubs)); a source reached
-over a network is not, since covering it needs a running instance and a tier allowed to be slow. That
-is a real gap and it is named as one in [section 9](#9-what-is-not-covered).
+A source that runs embedded is tested against a real instance instead of a double
+([section 5](#5-doubles-and-stubs)). A source reached over a network needs a running instance, so the
+server tier is opt-in by path, and each of its tests skips unless the environment names its server
+and that server's driver is installed. It holds one thing: that what blue-data writes when it
+collects statistics on MySQL, PostgreSQL, and Neo4j reads back through the catalog, since only a real
+server produces what blue-data writes for it. Everything else about a networked source is a real gap
+and it is named as one in [section 9](#9-what-is-not-covered).
 
 ---
 
@@ -145,7 +149,7 @@ uv run pyright
 `physical_planner.py` is `tests/unit/test_physical_planner.py` and the test for `plan/validation.py`
 is `tests/unit/plan/test_validation.py`. It mirrors `lib/scripts/` and
 `lib/tests/benchmarks/` too, which is why `tests/unit/scripts/demo/` and
-`tests/unit/benchmarks/tag_bench/` exist. Five directories sit beside it and mirror nothing.
+`tests/unit/benchmarks/tag_bench/` exist. Six directories sit beside it and mirror nothing.
 
 ```text
 lib/tests/
@@ -157,6 +161,7 @@ lib/tests/
   benchmarks/           # the TAG-Bench build steps and harness, run as modules, never by pytest
   lotus/                # against an installed LOTUS; excluded from the default run
   end_to_end/           # one real request through a provider; excluded from the default run
+  servers/              # collected statistics read off real servers; excluded from the default run
 ```
 
 Every directory under `unit/` carries an `__init__.py`, so pytest does not confuse two test modules
@@ -235,7 +240,7 @@ produce one test per line of that document.
 | `execution/` | An operator call comes back as a result carrying its rows or its error and its kind, billed once against the budget, and checked against the output columns its caller declared; the answer holds the columns the ending names and refuses a name the rows do not carry |
 | `DataPlanner`, `RunState` | Each of the three repairs is reachable and counts against its own bound, a bound spent inside one loop starts again when the loop outside it turns, a result survives a cover that asks for the same work and is unreadable once the work above it changed, an ending the finished rows cannot answer is written again rather than ending the run, every `RunStatus` comes back with counters and a reason that explain it, a defect the planner detects in its own state ends the request as `planner_failed` rather than raising at the caller, and the planning-only operation searches the catalog, replans, and covers as a run would and stops before the first operator call |
 | `PlannerSettings` | The defaults a caller gets, an unknown suite name and an invalid reasoning effort are each refused, `off` leaves the reasoning-effort parameter out of the model call, the suites named are the suites registered, and a registry path naming no file is refused when the planner is built |
-| `data/` | Each catalog reading ranks and caps, an entity search matching nothing returns nothing, each reading carries what its component is entitled to and nothing more, a source or attribute nobody enriched still renders, an attribute's view holds a bounded number of values each cut to a bounded length and an empty-string count read off its frequent values, and a record that cannot be read as one raises; a source read returns the rows a query produced, a source write changes what the source holds, and a source that could not be reached is told from one that refused what it was sent |
+| `data/` | Each catalog reading ranks and caps, an entity search matching nothing returns nothing, each reading carries what its component is entitled to and nothing more, a source or attribute nobody enriched still renders, an attribute's view holds a bounded number of values each cut to a bounded length and an empty-string count read off its frequent values, frequent values in any shape but value and count pairs read as none with the samples kept, and a record that cannot be read as one raises; a source read returns the rows a query produced, a source write changes what the source holds, and a source that could not be reached is told from one that refused what it was sent |
 | `prompts/` | A table shows its first rows and a count of the rows left out, a list of values says how many distinct values it leaves out, and a count is stated against the rows it was taken over only when the registry recorded them |
 | `llm/` | A conversation keeps its turns and the usage of every call made on it, and a provider failing after retries raises `LLMError` |
 | `operators/` | An operator's declaration reaches the router intact and describes what the operation does, cross-checked against the suite's own attribute declarations and against the operation's validator wherever those two disagree (ADR-010), a bundle crosses in both directions unchanged including a multi-table bundle (ADR-012), a bundle of the wrong length is refused before the operation runs, a suite's failure is mapped to the right error kind, what an operation reported about its own run reaches the result whether the call succeeded or failed, and LOTUS is imported only when an operator runs, so the package imports with LOTUS absent (ADR-004) |
@@ -316,7 +321,7 @@ Naming a gap is more useful than implying it is covered.
 
 | Not covered | Why, and what it would take |
 | --- | --- |
-| A live networked backend | A source that runs embedded is tested against a real instance instead ([section 5](#5-doubles-and-stubs)); one reached over a network needs a running instance and a tier allowed to be slow |
+| A live networked backend, beyond collected statistics | A source that runs embedded is tested against a real instance instead ([section 5](#5-doubles-and-stubs)); the server tier covers only reading collected statistics back ([section 2](#2-tiers)), and anything more needs tests written there and a place that runs them |
 | The import rules | The six rules in [08-coding-style.md](08-coding-style.md) are checked in review. A test that parses imports would assert a rule rather than a behavior, which is what section 1 rules out |
 | Prompt quality | Whether a prompt draws a usable answer out of a real model is what the benchmark measures, against gold answers ([section 8](#8-the-benchmark)). A model changes under a fixed prompt, so an assertion written against one answer would say nothing about the next |
 | LOTUS itself, and the Blue operators | Each adapter is tested; a suite is a dependency and tests its own behavior |
@@ -342,6 +347,9 @@ cd lib && UV_PROJECT_ENVIRONMENT=.venv-lotus uv run --extra lotus --extra dev py
 
 # The end-to-end tier, named by path because testpaths excludes it, against a real provider
 cd lib && uv run pytest tests/end_to_end
+
+# The server tier, against whichever servers the variables its module docstring lists name
+cd lib && uv run pytest tests/servers
 ```
 
 The benchmark is a script rather than a test ([section 8](#8-the-benchmark)), so `pytest` does not
