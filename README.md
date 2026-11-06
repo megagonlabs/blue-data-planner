@@ -101,7 +101,7 @@ Participation in this project is governed by the [Code of Conduct](CODE_OF_CONDU
 ## Disclosures
 
 Megagon Labs, Inc. is the original source and copyright holder of
-[blue-data-planner](https://github.com/megagon-internal/blue-data-planner), distributed under the
+[blue-data-planner](./), distributed under the
 [repository license](LICENSE).
 
 This software may include, incorporate, or access open source software (OSS) components,
@@ -147,13 +147,13 @@ the terms and attribution that apply to each portion.
 
 | ID | Dataset | Modified | Copyright Holder | Upstream Link | License |
 | --- | --- | --- | --- | --- | --- |
-| 1 | Northwind demo seed and descriptions | No (copied from blue-data) | Microsoft Corporation (Northwind); Megagon Labs, Inc. (Blue demo files) | [Blue demo data](https://github.com/megagon-internal/blue-data/tree/dev/data), [original Northwind samples](https://github.com/microsoft/sql-server-samples/tree/master/samples/databases/northwind-pubs) | See the Northwind license note below |
+| 1 | Northwind demo seed and descriptions | No (copied from blue-data) | Microsoft Corporation (Northwind); Megagon Labs, Inc. (Blue demo files) | [Blue demo data](https://github.com/megagonlabs/blue-data/tree/1.0/data), [original Northwind samples](https://github.com/microsoft/sql-server-samples/tree/master/samples/databases/northwind-pubs) | See the Northwind license note below |
 | 2 | TAG-Bench questions and answers | Yes (corrections and split assignments) | Future Data Systems | [TAG-Bench](https://github.com/TAG-Research/TAG-Bench), [query release](https://github.com/TAG-Research/TAG-Bench/blob/main/tag_queries.csv) | [MIT](https://github.com/TAG-Research/TAG-Bench/blob/main/LICENSE) |
 | 3 | BIRD development databases used by TAG-Bench | No | BIRD authors and original database copyright holders | [BIRD](https://bird-bench.github.io/), [dataset documentation](https://github.com/AlibabaResearch/DAMO-ConvAI/tree/main/bird) | [CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/) for the BIRD release; see upstream for original database terms |
 
 The Northwind demo copies `northwind_sqlite.sql` and `northwind_descriptions.json` from
 `blue-data/data/`. The Blue repository supplies a
-[BSD 3-Clause License with an Attribution / NOTICE Requirement](https://github.com/megagon-internal/blue-data/blob/dev/LICENSE)
+[BSD 3-Clause License with an Attribution / NOTICE Requirement](https://github.com/megagonlabs/blue-data/blob/1.0/LICENSE)
 and does not identify a separate dataset license for those files. Microsoft publishes its
 original Northwind samples under the
 [MIT License](https://github.com/microsoft/sql-server-samples/blob/master/license.txt).
@@ -180,8 +180,8 @@ that apply to each portion.
 | ID | OSS Component Name | Modified | Copyright Holder | Upstream Link | License |
 | --- | --- | --- | --- | --- | --- |
 | 1 | anyio | No | Alex Grönholm | [anyio](https://github.com/agronholm/anyio) | [MIT](https://github.com/agronholm/anyio/blob/master/LICENSE) |
-| 2 | blue-data | No | Megagon Labs, Inc. | [blue-data](https://github.com/megagon-internal/blue-data) | [BSD 3-Clause with Attribution / NOTICE Requirement](https://github.com/megagon-internal/blue-data/blob/dev/LICENSE) |
-| 3 | blue-data-ops | No | Megagon Labs, Inc. | [blue-data-ops](https://github.com/megagon-internal/blue-data-ops) | [BSD 3-Clause with Attribution / NOTICE Requirement](https://github.com/megagon-internal/blue-data-ops/blob/dev/LICENSE) |
+| 2 | blue-data | No | Megagon Labs, Inc. | [blue-data](https://github.com/megagonlabs/blue-data) | [BSD 3-Clause with Attribution / NOTICE Requirement](https://github.com/megagonlabs/blue-data/blob/1.0/LICENSE) |
+| 3 | blue-data-ops | No | Megagon Labs, Inc. | [blue-data-ops](https://github.com/megagonlabs/blue-data-ops) | [BSD 3-Clause with Attribution / NOTICE Requirement](https://github.com/megagonlabs/blue-data-ops/blob/1.0/LICENSE) |
 | 4 | build | No | Filipe Laíns | [build](https://github.com/pypa/build) | [MIT](https://github.com/pypa/build/blob/main/LICENSE) |
 | 5 | click | No | Pallets | [click](https://github.com/pallets/click) | [BSD 3-Clause](https://github.com/pallets/click/blob/main/LICENSE.txt) |
 | 6 | diskcache | No | Grant Jenks | [diskcache](https://github.com/grantjenks/python-diskcache) | [Apache 2.0](https://github.com/grantjenks/python-diskcache/blob/master/LICENSE) |
