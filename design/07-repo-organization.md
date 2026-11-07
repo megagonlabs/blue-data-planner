@@ -86,7 +86,8 @@ blue-data-planner/
 │       │       ├── register_databases.py  # builds one registry over them and serializes it
 │       │       └── benchmark/             # runs the queries, scores the answers, reports a run
 │       ├── lotus/                     # against an installed LOTUS; excluded from the default run
-│       └── end_to_end/                # one real request through a provider; excluded by default
+│       ├── end_to_end/                # one real request through a provider; excluded by default
+│       └── servers/                   # collected statistics off real servers; excluded by default
 └── platform/                          # one package per interface, each a thin adapter over lib/
     ├── planner-cli/
     │   ├── README.md
@@ -272,10 +273,11 @@ One `LICENSE` sits at the repository root and covers everything published from i
 the component root except the packages under `src/`. A test of a demo script loads it by its file
 path.
 
-`doubles/`, `stubs/`, `benchmarks/`, `lotus/`, and `end_to_end/` sit beside `unit/`
+`doubles/`, `stubs/`, `benchmarks/`, `lotus/`, `end_to_end/`, and `servers/` sit beside `unit/`
 and mirror nothing. `lotus/` holds the tier that runs against an installed operator suite, so it is run by
 name, in an environment carrying the `lotus` extra. `end_to_end/` holds the one test that plans a
-real request through a provider, run by name for the same reason. What each directory holds, and
+real request through a provider, run by name for the same reason. `servers/` needs running servers,
+so it is run by name too. What each directory holds, and
 what a platform package's tests cover, is in
 [11-testing-strategy.md](11-testing-strategy.md#4-layout).
 

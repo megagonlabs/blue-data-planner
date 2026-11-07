@@ -1101,6 +1101,11 @@ view, and a record that exists but cannot be read as one — no type field where
 or statistics that are not statistics — is a corrupt registry and raises
 ([06-library.md](06-library.md#errors)).
 
+`most_common_vals` is not read that strictly, because a healthy registry can hold it in a shape
+other than value and count pairs. Only a list made entirely of value and integer count pairs gives
+`frequent_values`. Any other shape reads as none recorded: `frequent_values` is empty,
+`empty_count` is `None`, and the view shows its sample values.
+
 ### What the fragment runner reads
 
 The runner reads its fragment's scans from the catalog and its inputs from the tables themselves.
