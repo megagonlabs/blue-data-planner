@@ -1,4 +1,5 @@
-"""SQL failures must give the fragment repair what ops still reports, and the catalog target."""
+"""A SQL call reports the query it wrote, and a failed one gives the fragment repair what ops
+still reports and the catalog target."""
 
 from __future__ import annotations
 
@@ -67,6 +68,29 @@ def sql_replies(monkeypatch: pytest.MonkeyPatch) -> list[Any]:
 
 
 SCHEMA_FAILURE = "generated SQL failed against the approved schema"
+
+
+def test_a_call_that_returns_rows_reports_the_query_it_ran(
+    sqlite_registry: DataRegistry, sql_replies: list[Any]
+) -> None:
+    """The query reaches the fragment's result, so a finished run shows what SQL produced it."""
+    sql_replies.append({"query": "SELECT COUNT(*) AS n FROM stores"})
+
+    output = nl2sql(sqlite_registry).call([], PARAMETERS, [])
+
+    assert output.report == {"query": "SELECT COUNT(*) AS n FROM stores"}
+
+
+def test_a_call_whose_query_fails_reports_the_query_with_the_error(
+    sqlite_registry: DataRegistry, sql_replies: list[Any]
+) -> None:
+    """A failed query is the one a reader most needs to see."""
+    sql_replies.append({"query": "SELECT absent_column FROM stores"})
+
+    with pytest.raises(RecoverableOperatorError) as caught:
+        nl2sql(sqlite_registry).call([], PARAMETERS, [])
+
+    assert caught.value.report == {"query": "SELECT absent_column FROM stores"}
 
 
 @pytest.mark.parametrize(

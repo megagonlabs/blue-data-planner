@@ -519,6 +519,9 @@ and cannot incorporate tables from another fragment. The physical planner exclud
 that would pass it any input tables, including cuts containing no scan. Complete SQL regions
 with no external inputs remain eligible. Direct calls carrying input tables are refused.
 
+`blue.nl2sql` reports the query it wrote as `ExecutionResult.report["query"]`, whether the call
+returned rows or failed.
+
 `blue.nl2sql` binds `nl2sql@4.0.0` to a `blue-data-ops` `ReadOnlySQLExecutor` using the SQL
 connection selected by the source, database, and collection each call names, and sends only
 `execute_query`. The executor admits a single `SELECT` before the driver and runs it on the

@@ -1237,7 +1237,8 @@ both counts. An operation that reads a source and accepts no bound inputs is han
 is held to that count the same way.
 
 What an operation reports about its own run reaches the fragment's result, whether the call
-succeeded or failed (ADR-058). An operation that reports nothing leaves it unset.
+succeeded or failed (ADR-058). An operation that reports nothing leaves it unset. `blue.nl2sql`
+reports the query it wrote under `query`, whether or not the query ran.
 
 ### The LOTUS suite
 

@@ -137,17 +137,20 @@ def _build_call(
                     operator_id, operator, data_registry, attributes_sent, diagnostics
                 )
         output, reported, meta = bound_operator.run(list(inputs), attributes_sent, call_properties)
+        report = reported or None
+        if diagnostics is not None and diagnostics.query is not None:
+            report = {**(report or {}), "query": diagnostics.query}
         error_mapping.raise_for_errors(
             meta,
             operator_id,
-            reported or None,
+            report,
             execution_detail=diagnostics.detail if diagnostics else None,
             parameter_repairable=diagnostics.parameter_repairable if diagnostics else False,
         )
         # ExecMeta.traces stays out: the base class attaches timings and shapes to every call,
         # which is instrumentation rather than something the operation chose to say, and open
         # question 42 is where instrumentation is decided.
-        return OperatorOutput(data=output, report=reported or None)
+        return OperatorOutput(data=output, report=report)
 
     return call
 

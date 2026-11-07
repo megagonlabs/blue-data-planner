@@ -48,6 +48,8 @@ class SQLDiagnostics:
     scan_source: str
     detail: str = ""
     parameter_repairable: bool = False
+    # The query the model wrote, which ops runs unchanged and does not return.
+    query: str | None = None
 
     def __post_init__(self) -> None:
         # Ops' fixed failures cannot name the catalog target, which is what the model corrects.
@@ -97,6 +99,8 @@ class DiagnosticSQLClient(LLMClient):
             query = (
                 cast("dict[str, Any]", parsed).get("query") if isinstance(parsed, dict) else None
             )
+            if isinstance(query, str) and query:
+                self._diagnostics.query = query
             if not isinstance(query, str):
                 self._diagnostics.record(
                     "SQL generation",
