@@ -2,9 +2,10 @@
 
 blue.nl2sql is a compound operator: one call can cover a scan, a join, a filter, an aggregate,
 and a sort, as long as every scan reads one database and no step needs a semantic judgment.
-Each case below is a request chosen for one of those two situations, and the script prints
-every cover the run wrote, what each fragment's operator was asked and answered, the SQL that
-blue.nl2sql wrote, and whether the answer matches the expected rows.
+Each case below is a request chosen for one of those two situations. For each plan version the
+run wrote, the script prints the logical plan's nodes grouped by the fragment that covers them,
+what each fragment's operator was sent and returned, then the SQL blue.nl2sql wrote and whether
+the answer matches the expected rows.
 
 Run, from the repository root, after building the demo registry (examples/README.md):
     export OPENAI_API_KEY=sk-...
@@ -28,7 +29,14 @@ from blue_data_planner.data import open_registry
 from blue_data_planner.operators.adapters.blue import BlueSuite
 from blue_data_planner.operators.builtin import BuiltinSuite
 from blue_data_planner.plan import signatures
-from blue_data_planner.types import FragmentResult
+from blue_data_planner.types import (
+    DiscoveryResult,
+    FragmentResult,
+    LogicalOperator,
+    LogicalPlan,
+    PhysicalPlan,
+    PipelineNode,
+)
 
 REGISTRY = Path(__file__).resolve().parents[2] / "data" / "demo" / "registry.json"
 MODEL = "openai/gpt-6-luna"
@@ -120,7 +128,7 @@ def main() -> None:
 
 
 def print_case(case: Case, result: RunResult, queries: list[str]) -> None:
-    """Print one case: every cover the run wrote, the queries, and the answer against the rows."""
+    """Print one case: each plan version with its cover, the queries, and the answer."""
     print("=" * 72)
     print(f"case:    {case.name}")
     print(f"shows:   {case.shows}")
@@ -129,30 +137,20 @@ def print_case(case: Case, result: RunResult, queries: list[str]) -> None:
     if result.failure_reason is not None:
         print(f"reason:  {result.failure_reason}")
 
-    # Covers are kept in the order the run wrote them, so a repaired cover follows the one
-    # it replaced.
-    for number, cover in enumerate(result.pipeline.physical_plans.values(), start=1):
+    # Signature -> the physical plan that first ran that work, so a later physical plan
+    # carrying it over is not shown running it again.
+    first_run: dict[str, int] = {}
+    # Physical plans are kept in the order the run wrote them, so a repaired one follows the
+    # one it replaced, and a new logical plan version follows the last physical plan of the
+    # version before it.
+    for position, cover in enumerate(result.pipeline.physical_plans.values(), start=1):
         plan = result.pipeline.logical_plans[cover.logical_plan_id]
-        signed = signatures(plan, cover)
-        print(f"\ncover {number} (logical plan {cover.logical_plan_id[:8]})")
-        # A plan version holding only DISCOVER nodes gets a cover with no fragments: its
-        # searches read the catalog and call no operator.
-        if not cover.fragments:
-            print("  no fragments: this plan version only searched the catalog")
-        for fragment in cover.fragments:
-            print(f"  {fragment.id} {fragment.operator_id}")
-            print(f"    covers {', '.join(fragment.logical_node_ids)}")
-            for bound in fragment.input_data:
-                print(f"    reads  {bound.logical_node_id} as {bound.name}")
-            found = result.results.get(signed[fragment.root_logical_node_id])
-            if isinstance(found, FragmentResult):
-                print_fragment_result(found)
-            else:
-                print("    not run")
+        print(f"\nphysical plan {position} (logical plan {plan.id[:8]})")
+        print_cover(plan, cover, result, position, first_run)
 
     print("\nqueries blue.nl2sql wrote")
     for query in queries or ["-"]:
-        print(f"  {query}")
+        print("  " + query.replace("\n", "\n  "))
 
     print("\nanswer")
     if result.answer is None:
@@ -165,22 +163,74 @@ def print_case(case: Case, result: RunResult, queries: list[str]) -> None:
     print(f"operator calls: {result.counters.operator_calls}")
 
 
-def print_fragment_result(found: FragmentResult) -> None:
-    """Print how one fragment ended and what each attempt sent and got back."""
-    print(f"    -> {found.status}, {len(found.attempts)} attempt(s)")
+def print_cover(
+    plan: LogicalPlan,
+    cover: PhysicalPlan,
+    result: RunResult,
+    position: int,
+    first_run: dict[str, int],
+) -> None:
+    """Print a plan's nodes in the order a run reaches them, each fragment with the nodes it
+    covers, and how each fragment or search ended."""
+    signed = signatures(plan, cover)
+    fragments_by_root = {fragment.root_logical_node_id: fragment for fragment in cover.fragments}
+    for node in plan.nodes_in_dependency_order():
+        fragment = fragments_by_root.get(node.id)
+        if fragment is not None:
+            print(f"  fragment {fragment.id}  {fragment.operator_id}")
+            for covered in plan.nodes_in_dependency_order():
+                if covered.id in fragment.logical_node_ids:
+                    print_node(covered, indent=4)
+        elif not node.is_operator_node:
+            print_node(node, indent=2)
+            # RETURN names the answer's columns, and no call or search produces a result for it.
+            if node.kind is LogicalOperator.RETURN:
+                continue
+        else:
+            continue
+        signature = signed.get(node.id)
+        if signature is None or signature not in result.results:
+            print(f"{'':6}not run")
+        elif first_run.setdefault(signature, position) != position:
+            print(f"{'':6}reused from physical plan {first_run[signature]}")
+        else:
+            print_node_result(result.results[signature])
+
+
+def print_node(node: PipelineNode, indent: int) -> None:
+    """Print one logical node: its id, kind, what it reads, and what it asks for."""
+    reads = f"  reads {', '.join(node.input_node_ids)}" if node.input_node_ids else ""
+    print(f"{'':{indent}}{node.id}  {node.kind}{reads}")
+    if node.kind is LogicalOperator.RETURN:
+        print(f"{'':{indent + 2}}columns: {', '.join(node.attributes['columns'])}")
+        return
+    print(f"{'':{indent + 2}}{node.instruction}")
+    if node.kind is LogicalOperator.SCAN and node.attributes.get("source") is not None:
+        print(f"{'':{indent + 2}}source: {node.attributes['source']}")
+
+
+def print_node_result(found: FragmentResult | DiscoveryResult) -> None:
+    """Print what a catalog search matched, or what each of a fragment's attempts sent and
+    got back."""
+    if isinstance(found, DiscoveryResult):
+        print(f"{'':6}-> searched {', '.join(found.search_terms)}")
+        for match in found.matches:
+            print(f"{'':9}matched {match.path}")
+        return
+    print(f"{'':6}-> {found.status}, {len(found.attempts)} attempt(s)")
     for number, attempt in enumerate(found.attempts, start=1):
-        print(f"    attempt {number}: {attempt.parameters}")
+        print(f"{'':6}attempt {number}: {attempt.parameters}")
         call = attempt.result
         if call is None:
-            print("      repeated an earlier attempt, not run")
+            print(f"{'':8}repeated an earlier attempt, not run")
             continue
-        print(f"      {call.status}, {call.row_count} row(s)")
+        print(f"{'':8}{call.status}, {call.row_count} row(s)")
         if call.error is not None:
-            print(f"      error: {call.error.message}")
+            print(f"{'':8}error: {call.error.message}")
         if attempt.assessment is not None:
-            print(f"      review: {attempt.assessment}")
+            print(f"{'':8}review: {attempt.assessment}")
     if found.failure_reason is not None:
-        print(f"    reason: {found.failure_reason}")
+        print(f"{'':6}reason: {found.failure_reason}")
 
 
 def matches(case: Case, answer: list[list[dict[str, Any]]]) -> bool:

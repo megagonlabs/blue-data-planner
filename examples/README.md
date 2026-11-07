@@ -94,9 +94,10 @@ python examples/feature-demos/choose_operator_suites.py
 `blue.nl2sql` writes and runs one SQL query, so one call can cover a scan, a join, a filter, an
 aggregate, and a sort over one database. The script runs two requests over the built-in and Blue
 suites. `whole_plan` is SQL from end to end, and `semantic_split` needs a judgment about what each
-product is made of, which no SQL query can make. For each request it prints every cover the run
-wrote, what each fragment's operator was sent and returned, the SQL `blue.nl2sql` wrote, and
-whether the answer holds the expected rows. `--case <name>` runs one request.
+product is made of, which no SQL query can make. For each plan version the run wrote, it prints
+the logical plan's nodes grouped by the fragment that covers them, and what each fragment's
+operator was sent and returned. It then prints the SQL `blue.nl2sql` wrote and whether the answer
+holds the expected rows. `--case <name>` runs one request.
 
 ```bash
 python examples/feature-demos/push_down_to_nl2sql.py
