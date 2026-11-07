@@ -75,7 +75,7 @@ def run_with_a_broken_blue_operator(
     if failure is ErrorCode.DEFAULTS_FAILED:
         monkeypatch.setattr(
             broken,
-            "_refresh_attribute_projection",
+            "_project_attribute_specs",
             lambda: {"broken_default": AttributeSpec(type="str", default=CannotCopy())},
         )
     elif failure is ErrorCode.VALIDATION_FAILED:

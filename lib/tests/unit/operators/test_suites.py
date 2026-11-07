@@ -140,7 +140,7 @@ def test_a_blue_suite_runs_on_its_own_model_or_on_the_planners(
 def test_a_blue_model_call_uses_the_provider_temperature_default(
     reasoning_effort: str | None, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """The real ops client must override its legacy temperature for reasoning models."""
+    """A Blue model call through the real ops client sends no fixed temperature."""
     import litellm
 
     monkeypatch.setenv("BLUE_DATA_LLM_PROVIDER", "openai")
@@ -165,4 +165,4 @@ def test_a_blue_model_call_uses_the_provider_temperature_default(
     assert result.data == [[{"city": "Oslo"}]]
     assert len(seen) == 1
     assert seen[0]["model"] == "gpt-6-luna"
-    assert seen[0]["temperature"] is None
+    assert seen[0].get("temperature") is None
