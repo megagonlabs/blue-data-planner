@@ -1,16 +1,19 @@
-"""Run requests over the Blue and built-in suites, and show how much of each plan blue.nl2sql takes.
+"""Show how much of a plan the planner gives to blue.nl2sql.
 
-blue.nl2sql is a compound operator: one call can cover a scan, a join, a filter, an aggregate,
-and a sort, as long as every scan reads one database and no step needs a semantic judgment.
-Each case below is a request chosen for one of those two situations. For each plan version the
-run wrote, the script prints the logical plan's nodes grouped by the fragment that covers them and
-what each fragment's operator was sent and returned, the SQL blue.nl2sql wrote included. It then
-prints whether the answer matches the expected rows.
+blue.nl2sql is a compound operator. One call can cover a scan, a filter, a join, an aggregate,
+and a sort over one database. The physical planner decides how much of a plan goes to that call,
+and it may split the plan across other operators.
 
-Run, from the repository root, after building the demo registry (examples/README.md):
+For each plan version, the script prints:
+
+- the logical plan's nodes, grouped by the fragment that covers them
+- what each fragment's operator was sent and returned, including the SQL blue.nl2sql wrote
+- whether the answer matches the expected rows
+
+Run from the repository root, after building the demo registry (examples/README.md):
+
     export OPENAI_API_KEY=sk-...
-    python examples/feature-demos/push_down_to_nl2sql.py            # every case
-    python examples/feature-demos/push_down_to_nl2sql.py --case semantic_split
+    python examples/feature-demos/push_down_to_nl2sql.py
 """
 
 from __future__ import annotations
@@ -56,26 +59,15 @@ class Case:
 CASES = [
     Case(
         name="whole_plan",
-        shows="every step is SQL over one database, so one blue.nl2sql call can take the plan",
+        shows=(
+            "every step can be written in SQL over one database, so one blue.nl2sql call could "
+            "take the whole plan. The planner may still split it."
+        ),
         request=(
             "For each supplier country, how many products that are not discontinued have a "
-            "unit price above 20? Sort the countries by that count, highest first."
+            "unit price above 20?"
         ),
         expected_rows=[("USA", 4), ("Spain", 2), ("Japan", 2), ("UK", 1), ("Australia", 1)],
-    ),
-    Case(
-        name="semantic_split",
-        shows=(
-            "picking the products takes knowing what they are made of, which no column says, "
-            "so blue.nl2sql can take only the steps SQL can write, and the filter goes elsewhere"
-        ),
-        request=(
-            "Which products are made from soybeans? List each product's name and the company "
-            "name of its supplier."
-        ),
-        # Tofu is filed under Produce and Genen Shouyu (soy sauce) under Condiments, and
-        # neither name contains "soy", so no category or LIKE pattern finds both.
-        expected_rows=[("Tofu", "Mayumis"), ("Genen Shouyu", "Mayumis")],
     ),
 ]
 

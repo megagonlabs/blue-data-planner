@@ -13,18 +13,36 @@ builtin: 9 operators
 
 lotus: 0 operators
 
-blue: unavailable (ResolveError: no operator registered as 'select@2.0.0')
+blue: 18 operators
+  blue.argmax                SORT_SUPERLATIVE
+  blue.argmin                SORT_SUPERLATIVE
+  blue.avg                   AGGREGATE
+  blue.intersect             JOIN
+  blue.join                  JOIN
+  blue.max                   AGGREGATE
+  blue.min                   AGGREGATE
+  blue.nl2llm                SCAN
+  blue.nl2sql                AGGREGATE, DISTINCT, FILTER, JOIN, PROJECT, SCAN, SORT_SUPERLATIVE
+  blue.project               PROJECT
+  blue.select                FILTER
+  blue.semantic_extract      PROJECT
+  blue.semantic_filter       FILTER
+  blue.semantic_join         JOIN
+  blue.semantic_project      PROJECT
+  blue.semantic_transform    PROJECT
+  blue.sum                   AGGREGATE
+  blue.union                 UNION
 
 which suites can implement each logical operator
-  SCAN               builtin.scan
-  FILTER             builtin.filter
-  PROJECT            builtin.project
+  SCAN               builtin.scan, blue.nl2llm, blue.nl2sql
+  FILTER             builtin.filter, blue.nl2sql, blue.select, blue.semantic_filter
+  PROJECT            builtin.project, blue.nl2sql, blue.project, blue.semantic_extract, blue.semantic_project, blue.semantic_transform
   EXPAND             builtin.expand
-  AGGREGATE          builtin.aggregate
-  DISTINCT           builtin.distinct
-  SORT_SUPERLATIVE   builtin.sort_superlative
-  JOIN               builtin.join
-  UNION              builtin.union
+  AGGREGATE          builtin.aggregate, blue.avg, blue.max, blue.min, blue.nl2sql, blue.sum
+  DISTINCT           builtin.distinct, blue.nl2sql
+  SORT_SUPERLATIVE   builtin.sort_superlative, blue.argmax, blue.argmin, blue.nl2sql
+  JOIN               builtin.join, blue.intersect, blue.join, blue.nl2sql, blue.semantic_join
+  UNION              builtin.union, blue.union
   RETURN             -
 
 a DataPlanner built with suites=[BuiltinSuite()]
