@@ -8,7 +8,7 @@ to put in them.
 
 | Directory | Holds |
 | --- | --- |
-| `feature-demos/` | One library feature per script: run a request, plan without running, read back a run, choose operator suites |
+| `feature-demos/` | One library feature per script: run a request, plan without running, read back a run, choose operator suites, push a plan down to a compound operator |
 | `framework-demos/` | The planner used from an agent framework |
 
 ## Quick start
@@ -89,6 +89,21 @@ python examples/feature-demos/choose_operator_suites.py
 
 **API key:** not required | **[Captured output](feature-demos/choose_operator_suites.output.txt)**
 
+### Push a plan down to a compound operator (`push_down_to_nl2sql.py`)
+
+`blue.nl2sql` writes and runs one SQL query, so one call can cover a scan, a join, a filter, an
+aggregate, and a sort over one database. The script runs two requests over the built-in and Blue
+suites. `whole_plan` is SQL from end to end, and `semantic_split` needs a judgment about what each
+product is made of, which no SQL query can make. For each request it prints every cover the run
+wrote, what each fragment's operator was sent and returned, the SQL `blue.nl2sql` wrote, and
+whether the answer holds the expected rows. `--case <name>` runs one request.
+
+```bash
+python examples/feature-demos/push_down_to_nl2sql.py
+```
+
+**API key:** OpenAI
+
 ## framework-demos/ — agent frameworks
 
 ### LangChain agent over MCP (`langgraph_mcp_demo.py`)
@@ -120,6 +135,7 @@ combined their rows itself.
 | `plan_without_running.py` | feature-demos | OpenAI | — | [output](feature-demos/plan_without_running.output.txt) |
 | `inspect_a_run.py` | feature-demos | OpenAI | — | [output](feature-demos/inspect_a_run.output.txt) |
 | `choose_operator_suites.py` | feature-demos | none | — | [output](feature-demos/choose_operator_suites.output.txt) |
+| `push_down_to_nl2sql.py` | feature-demos | OpenAI | — | — |
 | `langgraph_mcp_demo.py` | framework-demos | OpenAI | `blue-data-planner-mcp`, LangChain | [output](framework-demos/langgraph_mcp_demo.output.txt) |
 
 Every script reads the demo registry the [prerequisites](#prerequisites) build.
