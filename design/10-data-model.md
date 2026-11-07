@@ -1101,13 +1101,10 @@ view, and a record that exists but cannot be read as one — no type field where
 or statistics that are not statistics — is a corrupt registry and raises
 ([06-library.md](06-library.md#errors)).
 
-`most_common_vals` is not read that strictly, because a healthy registry holds it in more than one
-shape: blue-data's SQLite source writes value and count pairs, its MySQL and Neo4j sources a flat
-list of values, and its PostgreSQL source the array text `pg_stats` holds. Only a list made entirely
-of value and integer count pairs gives `frequent_values`. Anything else reads as none recorded, so
-`frequent_values` is empty, `empty_count` is `None`, and the view shows its sample values. On those
-three sources an attribute has no frequent values until blue-data writes pairs for them
-([blue-data#309](https://github.com/megagon-internal/blue-data/issues/309)).
+`most_common_vals` is not read that strictly, because a healthy registry can hold it in a shape
+other than value and count pairs. Only a list made entirely of value and integer count pairs gives
+`frequent_values`. Any other shape reads as none recorded: `frequent_values` is empty,
+`empty_count` is `None`, and the view shows its sample values.
 
 ### What the fragment runner reads
 
