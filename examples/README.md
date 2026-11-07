@@ -96,8 +96,8 @@ aggregate, and a sort over one database. The script runs two requests over the b
 suites. `whole_plan` is SQL from end to end, and `semantic_split` needs a judgment about what each
 product is made of, which no SQL query can make. For each plan version the run wrote, it prints
 the logical plan's nodes grouped by the fragment that covers them, and what each fragment's
-operator was sent and returned. It then prints the SQL `blue.nl2sql` wrote and whether the answer
-holds the expected rows. `--case <name>` runs one request.
+operator was sent and returned, the SQL `blue.nl2sql` wrote included. It then prints whether the
+answer holds the expected rows. `--case <name>` runs one request.
 
 ```bash
 python examples/feature-demos/push_down_to_nl2sql.py

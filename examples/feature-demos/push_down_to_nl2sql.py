@@ -3,9 +3,9 @@
 blue.nl2sql is a compound operator: one call can cover a scan, a join, a filter, an aggregate,
 and a sort, as long as every scan reads one database and no step needs a semantic judgment.
 Each case below is a request chosen for one of those two situations. For each plan version the
-run wrote, the script prints the logical plan's nodes grouped by the fragment that covers them,
-what each fragment's operator was sent and returned, then the SQL blue.nl2sql wrote and whether
-the answer matches the expected rows.
+run wrote, the script prints the logical plan's nodes grouped by the fragment that covers them and
+what each fragment's operator was sent and returned, the SQL blue.nl2sql wrote included. It then
+prints whether the answer matches the expected rows.
 
 Run, from the repository root, after building the demo registry (examples/README.md):
     export OPENAI_API_KEY=sk-...
@@ -16,7 +16,6 @@ Run, from the repository root, after building the demo registry (examples/README
 from __future__ import annotations
 
 import argparse
-import logging
 import os
 from dataclasses import dataclass
 from pathlib import Path
@@ -40,10 +39,6 @@ from blue_data_planner.types import (
 
 REGISTRY = Path(__file__).resolve().parents[2] / "data" / "demo" / "registry.json"
 MODEL = "openai/gpt-6-luna"
-# blue.nl2sql returns the rows its query produced and reports nothing, so the query it wrote
-# reaches no result object. The operation logs it, and this script reads it from there.
-NL2SQL_LOGGER = "blue_data_ops.operators.nl2sql_operator"
-NL2SQL_LOG_PREFIX = "Generated Query: "
 
 
 @dataclass(frozen=True)
@@ -85,19 +80,6 @@ CASES = [
 ]
 
 
-class QueryCollector(logging.Handler):
-    """Keeps every query blue.nl2sql logs, in the order it wrote them."""
-
-    def __init__(self) -> None:
-        super().__init__(level=logging.INFO)
-        self.queries: list[str] = []
-
-    def emit(self, record: logging.LogRecord) -> None:
-        message = record.getMessage()
-        if message.startswith(NL2SQL_LOG_PREFIX):
-            self.queries.append(message.removeprefix(NL2SQL_LOG_PREFIX))
-
-
 def main() -> None:
     dotenv.load_dotenv(override=True)
     parser = argparse.ArgumentParser(description="Show how much of each plan blue.nl2sql takes.")
@@ -110,11 +92,6 @@ def main() -> None:
     if not os.environ.get("OPENAI_API_KEY"):
         raise SystemExit("OPENAI_API_KEY is not set; every planning stage calls a model")
 
-    collector = QueryCollector()
-    nl2sql_logger = logging.getLogger(NL2SQL_LOGGER)
-    nl2sql_logger.setLevel(logging.INFO)
-    nl2sql_logger.addHandler(collector)
-
     planner = build_data_planner(
         open_registry(REGISTRY),
         suites=[BuiltinSuite(), BlueSuite()],
@@ -122,13 +99,11 @@ def main() -> None:
     )
     selected = [case for case in CASES if arguments.case is None or case.name in arguments.case]
     for case in selected:
-        collector.queries.clear()
-        result = planner.run(case.request)
-        print_case(case, result, collector.queries)
+        print_case(case, planner.run(case.request))
 
 
-def print_case(case: Case, result: RunResult, queries: list[str]) -> None:
-    """Print one case: each plan version with its cover, the queries, and the answer."""
+def print_case(case: Case, result: RunResult) -> None:
+    """Print one case: each plan version with its cover, and the answer."""
     print("=" * 72)
     print(f"case:    {case.name}")
     print(f"shows:   {case.shows}")
@@ -147,10 +122,6 @@ def print_case(case: Case, result: RunResult, queries: list[str]) -> None:
         plan = result.pipeline.logical_plans[cover.logical_plan_id]
         print(f"\nphysical plan {position} (logical plan {plan.id[:8]})")
         print_cover(plan, cover, result, position, first_run)
-
-    print("\nqueries blue.nl2sql wrote")
-    for query in queries or ["-"]:
-        print("  " + query.replace("\n", "\n  "))
 
     print("\nanswer")
     if result.answer is None:
@@ -224,6 +195,9 @@ def print_node_result(found: FragmentResult | DiscoveryResult) -> None:
         if call is None:
             print(f"{'':8}repeated an earlier attempt, not run")
             continue
+        if call.report is not None and "query" in call.report:
+            query = str(call.report["query"]).replace("\n", f"\n{'':10}")
+            print(f"{'':8}query: {query}")
         print(f"{'':8}{call.status}, {call.row_count} row(s)")
         if call.error is not None:
             print(f"{'':8}error: {call.error.message}")
