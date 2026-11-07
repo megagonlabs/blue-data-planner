@@ -285,14 +285,15 @@ This is the rule that separates this repository from its siblings. A failure the
 to recover from gets a dedicated exception type, so recovery is something a component decides rather
 than something that happens by accident. A run that exhausts an allowance returns a `RunResult`
 whose status says why, carrying every plan version, every fragment attempt, and every rejected one
-(ADR-015).
+(ADR-069).
 
 | Outcome | Form |
 | --- | --- |
-| Bad parameters, a missing required column, an operator refusing input another operator might accept | A recoverable `ExecutionResult`, so a different operator can be tried |
+| Bad parameters, a missing required column, an operator refusing input another operator might accept | A recoverable `ExecutionResult`, which starts parameter repair |
+| An operator suite reporting that its own implementation failed, such as a crashed validator or a result it could not shape | An `operator_unavailable` `ExecutionResult`, which goes straight to cover repair |
 | An ending naming a column the finished rows do not carry | A `ReturnAnswerError`, which the run loop answers with a replan |
 | Out of parameter repairs, covers, replans, or operator calls; an unreachable source; a provider failing after retries | A `RunResult` with a status |
-| A plan object that is not a plan, a missing required configuration value, an unknown node id or operator id | An exception |
+| A plan object that is not a plan, a missing required configuration value, an unknown node id or operator id, a bug in this repository's code | An exception |
 
 `answer` is `None` rather than an empty list when a run did not finish, so a caller that ignores the
 status cannot read a failure as an empty answer.
@@ -314,7 +315,7 @@ naming the original error in its message and keeping it as the cause: the regist
 
 One more place catches broadly, for a reason the rule above does not cover. The benchmark harness
 catches `Exception` around each query's run, so a defect in one query leaves the rest of a sweep scorable
-(ADR-015); it ships in no package.
+(ADR-069); it ships in no package.
 
 The two interfaces are the other places it is permitted, each at its boundary and nowhere else in
 its package. The MCP server's tool handler answers with a payload rather than an exception, so

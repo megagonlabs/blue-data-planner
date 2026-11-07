@@ -285,7 +285,7 @@ log.
 
 The run record is the more useful instrument, and it is not a log. `RunResult` carries every plan
 the request produced, every fragment attempt including the rejected ones, the counters, and one
-usage record per model call. A failed run is as inspectable as a successful one (ADR-015), so
+usage record per model call. A failed run is as inspectable as a successful one (ADR-069), so
 diagnosing one means reading the returned structure rather than reconstructing it from log lines.
 
 | Question | Read |

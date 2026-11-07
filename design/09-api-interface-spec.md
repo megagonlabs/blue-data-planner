@@ -187,7 +187,7 @@ process](10-data-model.md#5-shapes-that-leave-the-process)).
 | `conversations` | `RunConversations` | Every exchange with the model, by the component that had it, with its usage |
 
 `answer` is `None` rather than `[]` on any status other than `ok`, so a caller who ignores the
-status cannot mistake a failed run for an empty answer (ADR-015).
+status cannot mistake a failed run for an empty answer (ADR-069).
 
 | `RunStatus` | The request ended because |
 | --- | --- |
@@ -236,7 +236,7 @@ deployment sets one is in [12-deployment-ops.md](12-deployment-ops.md#5-request-
 ### Exceptions
 
 Every exception this library defines is in `types/errors.py` and inherits `BlueDataPlannerError`.
-Exhaustion, operator failure, and provider failure are statuses, not exceptions (ADR-015).
+Exhaustion, operator failure, and provider failure are statuses, not exceptions (ADR-069).
 
 Each row is one cause. "Raised by" names the calls that raise the exception to a caller who makes
 them directly. "Inside a run" says what a request does when the exception is raised during it.

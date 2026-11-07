@@ -559,7 +559,7 @@ class RunResult:
 ```
 
 `answer` is `None` rather than `[]` unless `status` is `ok`, so a caller who ignores the status
-cannot mistake a failed run for an empty answer (ADR-015). `failure_reason` runs the other way: every
+cannot mistake a failed run for an empty answer (ADR-069). `failure_reason` runs the other way: every
 failure status carries one, holding why the run ended in the words of whatever ended it — the reason
 no repair answered, the operator failure that stopped the run, the objection the last rejected plan
 drew, the defect the run loop caught. `ok` and `planned` never carry one. The planning-only
@@ -1231,7 +1231,7 @@ than added to, so no summary mixes two runs.
 | A stored session, plan, or run | A `RunResult` is the record, and it is returned to the caller |
 | A model response cache, by default | Every model call reaches the provider unless a caller turns the cache on with `llm.cache`, which nothing in this repository does (ADR-054) |
 | Operator or router state between requests | Both are assembled once and held in process |
-| A separate error response shape | A run that did not finish returns a `RunResult` with a status (ADR-015) |
+| A separate error response shape | A run that did not finish returns a `RunResult` with a status (ADR-069) |
 | A row type of its own | A fragment passes plain dicts, so no shape belongs to a suite (ADR-012) |
 | Cost and cardinality estimates on a node or a fragment | Out of the first release |
 | A per-node record in `RunResult` | A node's outcome is derivable from the attempt that covered it, and two places holding it would drift |

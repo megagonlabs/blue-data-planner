@@ -5,7 +5,7 @@ on by other Blue components and by outside users, so its public interfaces and i
 are both covered.
 
 Two things shape everything below. The library is synchronous, so most tests are ordinary functions
-with no event loop. And a request's whole outcome is one inspectable structure (ADR-015), so a test
+with no event loop. And a request's whole outcome is one inspectable structure (ADR-069), so a test
 asserts against `RunResult` rather than against printed output.
 
 ---

@@ -432,7 +432,7 @@ enums that travel in them are fixed in [10, what a run
 produces](10-data-model.md#3-what-a-run-produces). A request returns a `RunResult` whether it worked
 or not, unless a bug propagates: exhaustion, operator failure, and provider failure are statuses
 rather than exceptions, so a failed run is as inspectable as a successful one and one structure
-serves every adapter (ADR-015). `to_dict` writes the JSON form, and every interface sends that one
+serves every adapter (ADR-069). `to_dict` writes the JSON form, and every interface sends that one
 shape: rows a fragment returned as a table summary, an exchange as a call count and a cost,
 everything else whole.
 
@@ -1413,7 +1413,7 @@ distinct values, since the source parses every one and the query text grows with
 
 An operator that embeds values and implements no other realization refuses an input past the cap
 rather than truncate it silently, which is a recoverable failure like any other input an operator
-cannot serve (ADR-015). An operator implementing more than one may instead escalate past a cap to a
+cannot serve (ADR-069). An operator implementing more than one may instead escalate past a cap to a
 realization it also implements. A temporary table is capped by nothing, which is what it is for:
 without it a bind join into a source with a predicate language could never scale past an `IN` list.
 
@@ -1591,7 +1591,7 @@ It does not inherit `blue-data-ops`'s base, so one `except` never silently cover
 and an operator one. An adapter raises one of
 the three operator errors and `execute_physical_operator` converts each into a failed
 `ExecutionResult` carrying the matching `ErrorKind`. Nothing else is caught, so an operator raising
-anything else reaches the interface boundary as the bug it is (ADR-015).
+anything else reaches the interface boundary as the bug it is (ADR-069).
 
 `RecoverableOperatorError` starts parameter repair, `OperatorUnavailableError` goes directly to
 cover repair, and `UnrecoverableOperatorError` ends the run. The Blue adapter uses the unavailable

@@ -459,7 +459,7 @@ more than it otherwise would.
 ## ADR-015 — Recoverable Failures Are Statuses; Everything Else Raises
 
 **Date:** 2026-09-25
-**Status:** Accepted
+**Status:** Superseded by ADR-069
 
 **Decision:** A request that runs out of attempts, replans, or budget, that hits an unrecoverable
 operator failure, or whose provider fails after retries, returns a result whose status says why,
@@ -2219,9 +2219,10 @@ uncached `complete_structured` calls are unchanged.
 
 ---
 
-## ADR-068: Open the registry through blue-data's shared store
+## ADR-068 — The Registry Opens Through `blue-data`'s Shared Store
 
-**Status:** Accepted (2026-10-23)
+**Date:** 2026-10-23
+**Status:** Accepted
 
 **Decision:** With no explicit path, `open_registry()` delegates to
 `blue_data.config.build_store` for `BLUE_DATA_REGISTRY_STORE=file` or `redis`, using the same
@@ -2236,7 +2237,7 @@ is a fallback only when no shared backend is selected. Invalid backend configura
 unreadable stores fail before planning; a missing file is not created and does not trigger
 a fallback to another registry. New demo and benchmark registries use the dictionary store.
 
-**Reason:** The planner's list snapshots could not be opened by blue-data's file store, and
+**Rationale:** The planner's list snapshots could not be opened by blue-data's file store, and
 the planner could not open the dictionary file store other components wrote (#61, blue-data#119).
 Sharing blue-data's store reader removes the incompatible registry path for normal deployments.
 
@@ -2245,6 +2246,55 @@ using snapshots can rebuild them with the demo/benchmark registration script and
 shared file backend. Redis support retains blue-data's optional dependency and RedisJSON
 requirements and delegates its connection behavior upstream. In-memory callers continue to
 construct a `DataRegistry` and pass it directly to `build_data_planner`.
+
+---
+
+## ADR-069 — Recoverable Failures, an Operator Suite's Own Included, Are Statuses; Everything Else Raises
+
+**Date:** 2026-11-07
+**Status:** Accepted
+
+**Decision:** A request that runs out of attempts, replans, or budget, that hits an unrecoverable
+operator failure, or whose provider fails after retries, returns a result whose status says why,
+carrying every plan, every node's outcome, and every rejected attempt. An operator failing on one
+fragment is a failed attempt. Bad parameters, a missing required column, and an operator refusing
+input it cannot handle start parameter repair. An operator suite reporting that its own
+implementation failed, such as a validator that crashed, a result the operation could not shape, or
+an execution failure the suite marks as not retryable, goes straight to cover repair, so another
+operator is tried without spending parameter attempts. Everything else raises: a plan object that
+is not a plan, a missing configuration value, an unknown node id, and a bug in this repository's
+code, the built-in operators included.
+
+**Rationale:** A run that spends its budget or cannot reach a source is reporting an outcome of the
+work rather than a fault in the caller, and it is the outcome a caller most needs to read. An agent
+can reason about a structured failure and cannot reason about a stack trace, and returning the same
+shape for success and failure means one path to serialize.
+
+The dedicated operator exception types are scoped to failures a planner is expected to recover
+from. A bug in this repository is not one: turning it into a failed node would make it read as a
+planning failure, when the fix belongs here. A failure an operator suite reports in its own code is
+one. It cannot be fixed from here, the planner chooses among operators whose capabilities overlap,
+and ending the request discards an answer another operator could have given. Changing parameters
+cannot fix a broken implementation either, so parameter repair would spend every attempt before
+another operator is considered. A Blue operation whose validator raises on one input is the case
+that made this matter (#54): it reports `VALIDATION_FAILED`, and the request ended `planner_failed`
+with `builtin` operators that could take the node never tried.
+
+**Consequences:** `answer` is `None` rather than an empty list when a run did not finish, so a
+caller who ignores the status cannot mistake a failed run for an empty answer. This sits alongside
+rather than against the fail-loudly rule: malformed state and missing required values still raise.
+A `BlueDataPlannerError` raised inside a run ends it as `planner_failed`. The suite's report keeps
+its failure visible, since its code and message reach the fragment's result as any refusal's do. An
+exception an operator suite raises without reporting it propagates, since nothing tells it apart
+from a bug in the adapter calling the suite, so a benchmark sweep aborts on it unless its harness
+catches exceptions per query and scores that query as an error. A suite broken for every call, such
+as by a configuration error, is not stopped at its first failure: the request tries other operators
+until one answers or a bound is reached, and each failure reason names what the suite reported. A
+model client that cannot be built as configured raises `InvalidSettingError` when it is built, so
+`llm_failed` is reserved for a provider that failed, and a caller reading that status knows a retry,
+not a configuration change, is what might help. This supersedes ADR-015 and states ADR-065 and
+ADR-066 as one rule; those two remain the record of how the Blue adapter classifies its operations'
+failures.
 
 ---
 
