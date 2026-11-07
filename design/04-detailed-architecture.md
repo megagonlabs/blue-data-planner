@@ -283,12 +283,12 @@ kinds decide whether it can: an operator declaring source kinds takes the fragme
 scan names a source of one of them, and an operator declaring none only when no scan names a
 source.
 
-The fragment's frontier is the other half. An operator reading a registered source must declare
-`accepts_bound_inputs` to receive any frontier table, including in a cut containing no `SCAN`
-(ADR-064). For an operator that transforms tables rather than reading a source, a frontier table
-is a bound input when no node of the fragment transforms it: a reference input arriving from
-outside the fragment. Only an operator reading a source can declare that it accepts such inputs
-(ADR-059). A `FILTER` comparing its rows against an aggregate another fragment produced is
+The fragment's frontier is the other half. A frontier table is a bound input when the fragment
+contains a `SCAN` that reads a source, or when no node of the fragment transforms it: a reference
+input arriving from outside the fragment. A fragment receiving a bound input is offered only with
+an operator that accepts bound inputs, which only an operator reading a source can declare
+(ADR-059). An operator that reads a source and accepts no bound inputs reads every table it works
+on from that source, so it is offered only a fragment whose frontier is empty (ADR-064). A `FILTER` comparing its rows against an aggregate another fragment produced is
 therefore never offered to an operator that transforms one table.
 
 An operator declaring a single logical operator can only ever match a single node, which is what

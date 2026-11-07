@@ -727,6 +727,54 @@ def test_a_node_whose_reference_input_no_operator_takes_ends_the_cover_naming_it
     assert "['n2']" in result.failure_reason
 
 
+@pytest.mark.parametrize(
+    "plan",
+    [
+        a_plan(),
+        a_plan_whose_n3_takes_n2_without_transforming_it(LogicalOperator.SCAN),
+        a_plan_whose_n3_takes_n2_without_transforming_it(LogicalOperator.FILTER),
+    ],
+    ids=["transformed_input", "reference_input_to_a_scan", "reference_input_to_a_filter"],
+)
+def test_an_operator_reading_only_a_source_is_offered_only_fragments_with_no_frontier(
+    plan: LogicalPlan,
+) -> None:
+    """A fragment handed another fragment's table, transformed or not, gives an operator reading
+    only a source a table it cannot read; the whole region over the source is still offered."""
+    client = ScriptedLLMClient([a_binding("n3:sql.only:[n1,n2,n3]")])
+    planner = a_planner(client, a_router(an_operator("sql.only", ALL_KINDS)))
+
+    result = planner.cover(REQUEST, plan, Conversation(), None, a_discovery())
+
+    assert result.plan is not None
+    assert result.plan.fragments[0].input_data == []
+    n3_turn = client.conversations[0][-1][1]
+    assert "n3:sql.only:[n1,n2,n3]" in n3_turn
+    assert "n3:sql.only:[n3]" not in n3_turn
+    assert "n3:sql.only:[n2,n3]" not in n3_turn
+
+
+def test_a_node_only_a_source_reading_operator_could_run_ends_the_cover_naming_its_inputs() -> None:
+    """With one scan unreadable, the node can only be cut from its scans, which no operator
+    declaring its kind can take; no model call is spent."""
+    client = ScriptedLLMClient([])
+    planner = a_planner(client, a_router(an_operator("sql.only", ALL_KINDS)))
+
+    result = planner.cover(
+        REQUEST,
+        a_join_of_two_scans(POSTINGS, REVIEWS),
+        Conversation(),
+        None,
+        a_discovery_of_two_source_kinds(),
+    )
+
+    assert result.plan is None
+    assert result.failure_reason is not None
+    assert "'n3'" in result.failure_reason
+    assert "['n1', 'n2']" in result.failure_reason
+    assert client.conversations == []
+
+
 def the_plan_nodes(turn: str) -> list[dict[str, Any]]:
     """Parse the JSON array under "## Plan", one node object per line, into a list of dicts."""
     return _json_array_section(turn, "## Plan\n", "\n## ")

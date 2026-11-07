@@ -511,9 +511,8 @@ the active versions advance. A supplied registry is used directly.
 
 `BlueSuite.model` defaults to the model every other component uses, and reaches `blue-data-ops`
 without its provider route. `blue-data-ops` sends the call to the provider `BLUE_DATA_LLM_PROVIDER`
-names, `openai` by default.
-Blue model calls use the provider's default temperature, overriding the operations' fixed
-temperature of zero so reasoning models can accept the calls.
+names, `openai` by default. Blue model calls set no temperature, so each call uses the
+provider's default.
 
 `blue.nl2sql` declares `accepts_bound_inputs=False`: it writes a query from the source schema
 and cannot incorporate tables from another fragment. The physical planner excludes candidates

@@ -46,6 +46,7 @@ from blue_data_planner.operators.adapters.blue.sql_diagnostics import (
 from blue_data_planner.operators.validation import check_table_count, validated_parameters
 from blue_data_planner.types import (
     INPUT_ARITY,
+    BlueDataPlannerError,
     DataBundle,
     LogicalOperator,
     OperatorOutput,
@@ -100,7 +101,7 @@ def _build_call(
     operator: Operator,
     parameters: type[BlueParameters],
     properties: Properties | None,
-    table_count: int | None,
+    table_count: int,
     data_registry: DataRegistry,
 ) -> Callable[[DataBundle, dict[str, Any], list[OutputColumn]], OperatorOutput]:
     def call(
@@ -111,19 +112,7 @@ def _build_call(
         validated = validated_parameters(parameters, attributes, operator_id)
         # Checked after the parameters, so a parameter error stays the recoverable failure the
         # parameter repair answers rather than being hidden behind a refusal about the bundle.
-        if table_count is None:
-            # blue.nl2sql is the only operation this branch reaches. It writes its query from
-            # a source's schema, with no way to bind another fragment's rows into that query,
-            # so a non-empty bundle would be answered from the source alone and the bundle's
-            # rows would be silently left out. Planning excludes such fragments (ADR-064);
-            # keep this check for direct calls and covers written before that restriction.
-            if inputs:
-                raise RecoverableOperatorError(
-                    f"{operator_id} writes its query from the schema of the source it reads, so "
-                    f"the {len(inputs)} table(s) this fragment carries would not reach the query"
-                )
-        else:
-            check_table_count(operator_id, inputs, table_count)
+        check_table_count(operator_id, inputs, table_count)
         # A fragment and operator.run speak the same bundle, so nothing is converted here.
         # The list is copied because an operator may write into the bundle it is handed
         # and the caller reuses one bundle across retries.
@@ -343,11 +332,16 @@ OPERATIONS: tuple[Operation, ...] = (
 )
 
 
-def _table_count(operation: Operation) -> int | None:
-    # A compound operation covers a group of nodes, and how many tables that group is handed
-    # depends on the cut, so only a single-node operation has a count to hold it to.
+def _table_count(operation: Operation) -> int:
+    # An operation reading a source and accepting no bound inputs reads every table it works on
+    # from that source, so a table handed to it would be left out of the answer without an error.
+    if operation.source_kinds and not operation.accepts_bound_inputs:
+        return 0
     if len(operation.logical_operators) != 1:
-        return None
+        raise BlueDataPlannerError(
+            f"{operation.operator_id} declares several logical operators and accepts tables "
+            "from other fragments, so no input arity says how many tables it is handed"
+        )
     return INPUT_ARITY[next(iter(operation.logical_operators))]
 
 

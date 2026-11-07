@@ -236,7 +236,8 @@ class PhysicalPlanner:
             )
         # An operator declaring the kind always yields the candidate holding the root alone, so
         # when every candidate was dropped, every operator turned down the root on its own: for
-        # the source a SCAN reads, or for a table it would be handed and cannot take.
+        # the source a SCAN reads, or for a table it would be handed and cannot take. The second
+        # is either a reference input, or any input at all for an operator reading only a source.
         root_alone = frozenset({node.id})
         if node.kind is LogicalOperator.SCAN and not any(
             _reads_its_scans(plan, root_alone, operator, entity_source_kinds)
@@ -244,25 +245,25 @@ class PhysicalPlanner:
         ):
             return _no_source_reason(node, operators, entity_source_kinds)
         bound_inputs = _bound_inputs(plan, root_alone)
-        if not bound_inputs:
-            frontier = fragment_frontier(plan, root_alone)
-            if frontier and all(
-                operator.source_kinds is not None and not operator.accepts_bound_inputs
-                for operator in operators
-            ):
-                return (
-                    f"node {node.id!r} of kind {node.kind.value} receives {frontier} from other "
-                    "fragments, but its registered source-reading operators cannot take input "
-                    "tables. Group it with its source scan or use an operator that reads tables."
-                )
+        if bound_inputs:
+            return (
+                f"node {node.id!r} of kind {node.kind.value} lists {bound_inputs} as reference "
+                f"inputs, and no registered {node.kind.value} operator can read a reference "
+                f"input. Get what {node.id!r} needs from them another way."
+            )
+        frontier = fragment_frontier(plan, root_alone)
+        if not frontier:
             raise BlueDataPlannerError(
-                f"node {node.id!r} reads a source its operators read and takes no bound input, "
+                f"node {node.id!r} reads a source its operators read and takes no input, "
                 "yet none of its operators was offered as a candidate"
             )
+        source_kinds = sorted(
+            {kind for operator in operators for kind in operator.source_kinds or frozenset[str]()}
+        )
         return (
-            f"node {node.id!r} of kind {node.kind.value} lists {bound_inputs} as reference "
-            f"inputs, and no registered {node.kind.value} operator can read a reference input. "
-            f"Get what {node.id!r} needs from them another way."
+            f"{node.kind.value} node {node.id!r} reads {frontier}, but the operators for "
+            f"{node.kind.value} compute it only directly from {source_kinds} sources, together "
+            "with every node it depends on."
         )
 
 
@@ -466,12 +467,13 @@ def _bindable(
 ) -> bool:
     if not _reads_its_scans(plan, node_ids, operator, entity_source_kinds):
         return False
-    # A source-reading operator that declines input tables cannot handle a frontier even
-    # when this cut contains no SCAN and those rows are ordinary transformed inputs. Checking
-    # only _bound_inputs would still offer blue.nl2sql table-only FILTER/AGGREGATE cuts (#52).
-    if operator.source_kinds is not None and not operator.accepts_bound_inputs:
+    if operator.accepts_bound_inputs:
+        return True
+    # An operator reading a source and accepting no bound inputs reads every table it works on
+    # from that source, so a fragment with any frontier at all hands it a table it cannot read.
+    if operator.source_kinds:
         return not fragment_frontier(plan, node_ids)
-    return operator.accepts_bound_inputs or not _bound_inputs(plan, node_ids)
+    return not _bound_inputs(plan, node_ids)
 
 
 def _reads_its_scans(
