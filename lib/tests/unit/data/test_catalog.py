@@ -502,24 +502,6 @@ def test_a_path_that_does_not_name_an_entity_raises() -> None:
         catalog.attribute_views("/source/retail/database/shop")
 
 
-def an_attribute_with_malformed_properties() -> dict[str, Any]:
-    record = an_attribute(CITY)
-    record["properties"] = "oops"
-    return record
-
-
-def an_attribute_with_a_non_string_description() -> dict[str, Any]:
-    record = an_attribute(CITY)
-    record["description"] = 123
-    return record
-
-
-def an_attribute_with_malformed_value_semantics() -> dict[str, Any]:
-    record = an_attribute(CITY)
-    record["properties"]["value_semantics"] = "oops"
-    return record
-
-
 def a_source_with_a_malformed_connection() -> dict[str, Any]:
     record = a_source("broken")
     record["properties"]["connection"] = "oops"
@@ -543,21 +525,17 @@ def a_store_table_whose_source_record_is_missing() -> list[dict[str, Any]]:
     ]
 
 
-def a_store_table_with_a_non_int_row_count() -> list[dict[str, Any]]:
-    return records_for_a_store_table_recording({"row_count": "eleven thousand"})
-
-
 @pytest.mark.parametrize(
     ("records", "call_kind", "expected_message"),
     [
         pytest.param(
-            [an_attribute_with_malformed_properties()],
+            [an_attribute(CITY) | {"properties": "oops"}],
             "attribute_views",
             "properties is",
             id="properties_not_a_mapping",
         ),
         pytest.param(
-            [an_attribute_with_a_non_string_description()],
+            [an_attribute(CITY) | {"description": 123}],
             "attribute_views",
             "description is",
             id="description_not_a_string",
@@ -581,7 +559,7 @@ def a_store_table_with_a_non_int_row_count() -> list[dict[str, Any]]:
             id="stats_not_a_mapping",
         ),
         pytest.param(
-            [an_attribute_with_malformed_value_semantics()],
+            [an_attribute(CITY) | {"properties": {"value_semantics": "oops"}}],
             "attribute_views",
             "value_semantics is",
             id="value_semantics_not_a_mapping",
@@ -593,7 +571,7 @@ def a_store_table_with_a_non_int_row_count() -> list[dict[str, Any]]:
             id="matched_entity_has_no_source_record",
         ),
         pytest.param(
-            a_store_table_with_a_non_int_row_count(),
+            records_for_a_store_table_recording({"row_count": "eleven thousand"}),
             "search_records",
             "row_count is",
             id="matched_entitys_row_count_not_an_int",
