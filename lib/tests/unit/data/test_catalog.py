@@ -563,7 +563,7 @@ def a_store_table_with_a_non_int_row_count() -> list[dict[str, Any]]:
             id="description_not_a_string",
         ),
         pytest.param(
-            [an_attribute(CITY) | {"properties": {"info": []}}],
+            [an_attribute(CITY) | {"properties": {"info": cast("list[Any]", [])}}],
             "attribute_views",
             "properties.info is list",
             id="info_is_list",
