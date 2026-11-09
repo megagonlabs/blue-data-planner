@@ -59,8 +59,8 @@ _QUERY_EPILOG = """REQUEST is the question, in plain language and self-contained
 
 \b
 Examples:
-  blue-planner data query "Which three countries do the most customers come from?"
-  blue-planner data query "Which three countries do the most customers come from?" --explain
+  blue-planner data query "Which country has the most customers, and how many does it have?"
+  blue-planner data query "..." --explain
   blue-planner --profile staging data query "..." --log --format json
 """
 

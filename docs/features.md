@@ -24,7 +24,7 @@ from blue_data_planner.data import open_registry
 from blue_data_planner.operators.builtin import BuiltinSuite
 
 registry = open_registry(Path("data/demo/registry.json"))
-request = "Which three countries do the most customers come from?"
+request = "Which country has the most customers, and how many does it have?"
 
 planner = build_data_planner(registry, suites=[BuiltinSuite()], model="openai/gpt-6-luna")
 
@@ -192,7 +192,7 @@ output. The rows themselves are read off `results` while the run is still in mem
 The same two operations on the command line, with profiles for the settings a run needs.
 
 ```bash
-blue-planner data query "Which three countries do the most customers come from?"
+blue-planner data query "Which country has the most customers, and how many does it have?"
 blue-planner data query "..." --explain            # the plan, no operator call spent
 blue-planner data query "..." --log --format json  # the answer, plus what the run did
 ```

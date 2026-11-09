@@ -17,7 +17,7 @@ from blue_data_planner.data import open_registry
 from blue_data_planner.operators.builtin import BuiltinSuite
 
 REGISTRY = Path(__file__).resolve().parents[2] / "data" / "demo" / "registry.json"
-REQUEST = "Which three countries do the most customers come from?"
+REQUEST = "Which country has the most customers, and how many does it have?"
 
 
 def main() -> None:

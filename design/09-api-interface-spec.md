@@ -147,7 +147,7 @@ planner = build_data_planner(
     suites=[BuiltinSuite()],
     model="openai/gpt-6-luna",
 )
-result = planner.run("Which three countries do the most customers come from?")
+result = planner.run("Which country has the most customers, and how many does it have?")
 ```
 
 ### Operations

@@ -22,8 +22,6 @@ python lib/scripts/demo/register_northwind.py
 ```
 
 That writes `data/demo/registry.json`. `data/` is git-ignored, so nothing here is committed.
-For a registry built by an older checkout, rerun the registration script with `--force`
-to replace its legacy list snapshot with the shared dictionary store.
 [`lib/scripts/demo/README.md`](../lib/scripts/demo/README.md) says what the two scripts do.
 
 ## 3. Point the CLI at it
@@ -42,7 +40,7 @@ A profile stores the same values and keeps the key out of the shell history
 ## 4. Ask a question
 
 ```bash
-blue-planner data query "Which three countries do the most customers come from?"
+blue-planner data query "Which country has the most customers, and how many does it have?"
 ```
 
 ```text
@@ -50,8 +48,6 @@ blue-planner data query "Which three countries do the most customers come from?"
 ┃ country ┃ customer_count ┃
 ┡━━━━━━━━━╇━━━━━━━━━━━━━━━━┩
 │ Mexico  │ 3              │
-│ Germany │ 2              │
-│ UK      │ 2              │
 └─────────┴────────────────┘
 ok  operator calls 3  planner model calls 12  $0.00
 ```
@@ -62,7 +58,7 @@ and ran the plan to produce the answer shown above.
 ## 5. See what the run did
 
 ```bash
-blue-planner data query "Which three countries do the most customers come from?" --log
+blue-planner data query "Which country has the most customers, and how many does it have?" --log
 ```
 
 `--log` prints each fragment: the operator it bound, the columns it produced, and the first rows.
@@ -93,9 +89,9 @@ planner = build_data_planner(
     model="openai/gpt-6-luna",
 )
 
-result = planner.run("Which three countries do the most customers come from?")
+result = planner.run("Which country has the most customers, and how many does it have?")
 print(result.status)   # ok
-print(result.answer)   # one table of rows, such as [[{'country': 'Mexico', ...}, ...]]
+print(result.answer)   # one table of rows: [[{'country': 'Mexico', 'customer_count': 3}]]
 ```
 
 ## Next steps

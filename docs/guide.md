@@ -62,7 +62,7 @@ components itself and calls the `DataPlanner` constructor directly
 `run` plans, covers, executes, and repairs until the request ends.
 
 ```python
-request = "Which three countries do the most customers come from?"
+request = "Which country has the most customers, and how many does it have?"
 result = planner.run(request)
 
 if result.status is RunStatus.OK:

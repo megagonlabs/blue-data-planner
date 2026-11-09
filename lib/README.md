@@ -46,7 +46,7 @@ planner = build_data_planner(
     limits=RunLimits(),
 )
 
-result = planner.run("Which three countries do the most customers come from?")
+result = planner.run("Which country has the most customers, and how many does it have?")
 print(result.status)  # "ok" where the request was answered
 print(result.answer)  # the rows the plan's RETURN named, or None where the run did not finish
 ```

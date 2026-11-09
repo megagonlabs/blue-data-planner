@@ -47,7 +47,8 @@ blue-data-planner/
 ## Requirements
 
 - Python 3.12 or 3.13
-- [`blue-data`](../blue-data) and [`blue-data-ops`](../blue-data-ops) checked out beside this
+- [`blue-data`](https://github.com/megagonlabs/blue-data) and
+  [`blue-data-ops`](https://github.com/megagonlabs/blue-data-ops) checked out beside this
   repository. The install scripts install both from there.
 - An OpenAI API key for the default model. Every planning stage calls a model.
 
@@ -80,7 +81,7 @@ export BLUE_DATA_PLANNER_MODEL=openai/gpt-6-luna
 export BLUE_DATA_PLANNER_OPERATORS=builtin        # the built-in operators only
 
 # Ask a question
-blue-planner data query "Which three countries do the most customers come from?"
+blue-planner data query "Which country has the most customers, and how many does it have?"
 ```
 
 [docs/quickstart.md](docs/quickstart.md) walks through the same steps with the expected output,

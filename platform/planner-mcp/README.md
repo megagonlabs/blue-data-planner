@@ -7,10 +7,11 @@ plans and runs a request, and writes nothing the registry holds.
 
 ## Install
 
+From the repository root:
+
 ```bash
-cd platform/planner-mcp
 python -m venv .venv && source .venv/bin/activate
-bash scripts/install.sh        # ../../../blue-data, ../../../blue-data-ops, the library, the server
+bash platform/planner-mcp/scripts/install.sh   # ../blue-data, ../blue-data-ops, the library, the server
 ```
 
 `blue-data` and `blue-data-ops` are checked out beside this repository
@@ -90,9 +91,7 @@ it. [`docs/mcp.md`](../../docs/mcp.md) covers the response keys and the error pa
   "status": "ok",
   "answer": [
     [
-      {"country": "Mexico", "customer_count": 3},
-      {"country": "Germany", "customer_count": 2},
-      {"country": "UK", "customer_count": 2}
+      {"country": "Mexico", "customer_count": 3}
     ]
   ],
   "failure_reason": null,
@@ -113,14 +112,14 @@ it. [`docs/mcp.md`](../../docs/mcp.md) covers the response keys and the error pa
       "status": "ok",
       "failure_reason": null,
       "operator_id": "builtin.sort_superlative",
-      "row_count": 3,
+      "row_count": 1,
       "error": null,
       "report": null,
       "output": [
         {
-          "row_count": 3,
+          "row_count": 1,
           "columns": ["country", "customer_count"],
-          "sample_rows": [{"country": "Mexico", "customer_count": 3}, "..."]
+          "sample_rows": [{"country": "Mexico", "customer_count": 3}]
         }
       ],
       "attempts": ["..."]

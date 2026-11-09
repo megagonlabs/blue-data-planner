@@ -20,7 +20,7 @@ own install and requirements; this page collects them.
 | Requirement | Notes |
 | --- | --- |
 | Python 3.12 or 3.13 | The `lotus` extra narrows this to 3.12 |
-| `blue-data` and `blue-data-ops` checked out beside this repository | The install scripts install both, editable, from `../blue-data/lib` and `../blue-data-ops/lib`. `blue.nl2sql` needs a `blue-data-ops` 1.0.0 build carrying `nl2sql@4.0.0`; reinstall an older checkout with the same version label |
+| `blue-data` and `blue-data-ops` checked out beside this repository | The install scripts install both, editable, from `../blue-data/lib` and `../blue-data-ops/lib` |
 | A model API key | Every planning stage calls a model, a plan-only run included |
 
 ### Install
